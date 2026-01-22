@@ -1,0 +1,33 @@
+# Node
+node_modules/
+.next/
+.out/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Python
+__pycache__/
+*.py[cod]
+*.sqlite3
+*.log
+.venv/
+.env
+.env.*
+
+# Editor
+*.swp
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Docker
+**/docker-compose.override.yml
+**/.docker
+
+# Build artifacts
+coverage/
+dist/
+build/

@@ -1,0 +1,51 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: mirubro-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-mirubro}
+      POSTGRES_USER: ${POSTGRES_USER:-mirubro}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mirubro}
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: mirubro-redis
+    ports:
+      - '6379:6379'
+
+  api:
+    build:
+      context: ../services/api
+    container_name: mirubro-api
+    command: >-
+      sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
+    env_file:
+      - ../services/api/.env
+    volumes:
+      - ../services/api:/app
+    ports:
+      - '8000:8000'
+    depends_on:
+      - postgres
+      - redis
+
+  web:
+    build:
+      context: ../apps/web
+    container_name: mirubro-web
+    env_file:
+      - ../apps/web/.env
+    volumes:
+      - ../apps/web:/app
+      - /app/node_modules
+    ports:
+      - '3000:3000'
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:
