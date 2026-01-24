@@ -1,12 +1,12 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { ApiError } from '@/lib/api/client';
 
 import { useCloseCashSession } from '../hooks';
-import { formatCurrency } from '../utils';
+import { formatCurrency, toNumber } from '../utils';
 import type { CashSession } from '../types';
 
 type CloseCashFormProps = {
@@ -21,11 +21,30 @@ export function CloseCashForm({ session, canManage }: CloseCashFormProps) {
     const [note, setNote] = useState('');
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
+    const [collectPending, setCollectPending] = useState(false);
+    const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+    const pendingCount = session?.totals?.pending_sales_count ?? 0;
+    const pendingTotal = session?.totals?.pending_sales_total ?? '0';
+    const hasPending = pendingCount > 0;
 
     useEffect(() => {
         setError('');
         setSuccess('');
-    }, [session?.id]);
+        if (!session) {
+            setCollectPending(false);
+            return;
+        }
+        setCollectPending(pendingCount > 0);
+    }, [session?.id, pendingCount]);
+
+    useEffect(() => {
+        return () => {
+            if (timeoutRef.current) {
+                clearTimeout(timeoutRef.current);
+            }
+        };
+    }, []);
 
     if (!session) {
         return (
@@ -36,9 +55,10 @@ export function CloseCashForm({ session, canManage }: CloseCashFormProps) {
     }
 
     const totals = session.totals;
-    const expectedCash = Number(totals?.cash_expected_total ?? session.expected_cash_total ?? '0');
-    const totalCollected = Number(totals?.payments_total ?? '0');
-    const countedValue = Number(countedCash || 0);
+    const expectedCash = toNumber(totals?.cash_expected_total ?? session.expected_cash_total ?? '0');
+    const totalCollected = toNumber(totals?.payments_total ?? '0');
+    const countedValue = toNumber(countedCash || 0);
+    const pendingTotalValue = toNumber(pendingTotal);
     const difference = countedValue - expectedCash;
 
     const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -62,17 +82,28 @@ export function CloseCashForm({ session, canManage }: CloseCashFormProps) {
         }
 
         try {
-            await mutation.mutateAsync({
+            const response = await mutation.mutateAsync({
                 sessionId: session.id,
                 payload: {
                     closing_cash_counted: countedValue,
                     note,
+                    collect_pending_sales: Boolean(collectPending && hasPending),
                 },
             });
-            setSuccess('Caja cerrada correctamente.');
+            const summary = response.collection_summary;
+            const successMessage = summary && summary.collected_count > 0
+                ? `Cierre realizado. Se cobraron ${summary.collected_count} ventas (${formatCurrency(summary.total_collected)}).`
+                : 'Cierre realizado.';
+            setSuccess(successMessage);
+            setError(summary && summary.errors.length ? summary.errors.join(' · ') : '');
             setCountedCash('');
             setNote('');
-            router.push('/app/operacion/caja');
+            if (timeoutRef.current) {
+                clearTimeout(timeoutRef.current);
+            }
+            timeoutRef.current = setTimeout(() => {
+                router.push('/app/operacion/caja');
+            }, 1200);
         } catch (err) {
             const apiError = err as ApiError;
             setError(apiError.message ?? 'No pudimos cerrar la caja.');
@@ -131,8 +162,29 @@ export function CloseCashForm({ session, canManage }: CloseCashFormProps) {
                     rows={4}
                 />
             </label>
-            {error ? <p className="text-sm text-rose-600">{error}</p> : null}
-            {success ? <p className="text-sm text-emerald-600">{success}</p> : null}
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                <label className="flex items-start gap-3">
+                    <input
+                        type="checkbox"
+                        className="mt-1 h-5 w-5 rounded border-slate-300"
+                        checked={collectPending && hasPending}
+                        disabled={!canManage || !hasPending || mutation.isLoading}
+                        onChange={(event) => setCollectPending(event.target.checked)}
+                    />
+                    <div>
+                        <p className="font-semibold">Cobrar ventas pendientes al cerrar</p>
+                        <p className="text-xs text-slate-500">
+                            {hasPending ? `Pendientes: ${pendingCount} ventas — ${formatCurrency(pendingTotalValue)}` : 'No hay ventas pendientes en esta sesión.'}
+                        </p>
+                    </div>
+                </label>
+            </div>
+            {error ? (
+                <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">{error}</p>
+            ) : null}
+            {success ? (
+                <p className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{success}</p>
+            ) : null}
             <div className="flex items-center justify-end">
                 <button
                     type="submit"

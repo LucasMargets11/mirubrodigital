@@ -34,6 +34,7 @@ class CashSession(models.Model):
   business = models.ForeignKey('business.Business', related_name='cash_sessions', on_delete=models.CASCADE)
   register = models.ForeignKey('cash.CashRegister', related_name='sessions', null=True, blank=True, on_delete=models.PROTECT)
   opened_by = models.ForeignKey(settings.AUTH_USER_MODEL, related_name='cash_sessions_opened', on_delete=models.PROTECT)
+  opened_by_name = models.CharField(max_length=120, blank=True, default='')
   closed_by = models.ForeignKey(
     settings.AUTH_USER_MODEL,
     related_name='cash_sessions_closed',

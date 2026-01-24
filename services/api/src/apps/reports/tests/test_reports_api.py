@@ -218,6 +218,49 @@ class ReportsAPITests(APITestCase):
     expected_value = (session.opening_cash_amount + Decimal('400.00') + Decimal('150.00') - Decimal('50.00')).quantize(Decimal('0.01'))
     self.assertEqual(breakdown['expected_cash'], f"{expected_value:.2f}")
 
+  def test_cash_closure_detail_includes_sales_and_products(self):
+    session = self._create_session(self.business)
+    session.opened_by_name = 'Caja Mañana'
+    session.save(update_fields=['opened_by_name'])
+    sale = self._create_sale(
+      self.business,
+      total=Decimal('0.00'),
+      items=[
+        {'name': 'Latte Especial', 'quantity': Decimal('2'), 'unit_price': Decimal('450.00')},
+        {'name': 'Cookie Doble', 'quantity': Decimal('1'), 'unit_price': Decimal('300.00')},
+      ],
+    )
+    sale.cash_session = session
+    sale.save(update_fields=['cash_session'])
+    Payment.objects.create(
+      business=self.business,
+      sale=sale,
+      session=session,
+      method=Payment.Method.CASH,
+      amount=sale.total,
+    )
+    totals = compute_session_totals(session)
+    session.expected_cash_total = totals['cash_expected_total']
+    session.closing_cash_counted = totals['cash_expected_total']
+    session.difference_amount = Decimal('0.00')
+    session.status = CashSession.Status.CLOSED
+    session.closed_at = timezone.now()
+    session.save(update_fields=['expected_cash_total', 'closing_cash_counted', 'difference_amount', 'status', 'closed_at'])
+
+    response = self.client.get(f'/api/v1/reports/cash/closures/{session.id}/')
+
+    self.assertEqual(response.status_code, status.HTTP_200_OK)
+    self.assertEqual(response.data['opened_by_name'], 'Caja Mañana')
+    self.assertIn('sales', response.data)
+    self.assertEqual(len(response.data['sales']), 1)
+    sale_row = response.data['sales'][0]
+    self.assertEqual(sale_row['number'], sale.number)
+    self.assertEqual(sale_row['paid_total'], f"{sale.total:.2f}")
+    products_summary = response.data['products_summary']
+    self.assertGreaterEqual(len(products_summary), 2)
+    product_names = [row['name'] for row in products_summary]
+    self.assertIn('Latte Especial', product_names)
+
   def test_products_report_requires_permission(self):
     membership = Membership.objects.get(user=self.user, business=self.business)
     membership.role = 'cashier'

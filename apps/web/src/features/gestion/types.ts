@@ -8,6 +8,7 @@ export type Product = {
     cost?: string;
     price: string;
     stock_min: string;
+    stock_quantity?: string | null;
     is_active: boolean;
     created_at: string;
     updated_at: string;
@@ -93,6 +94,7 @@ export type Sale = {
     customer_id: string | null;
     customer_name: string | null;
     customer?: CustomerSummary | null;
+    cash_session_id?: string | null;
     subtotal: string;
     discount: string;
     total: string;
@@ -126,6 +128,7 @@ export type SalePayload = {
     discount?: number;
     notes?: string;
     items: SaleItemPayload[];
+    cash_session_id?: string | null;
 };
 
 export type InventoryValuationItem = {
@@ -162,4 +165,48 @@ export type InventoryValuationFilters = {
     sort?: 'profit_desc' | 'sale_value_desc' | 'qty_desc' | 'name_asc';
     onlyInStock?: boolean;
     active?: 'true' | 'false' | 'all';
+};
+
+export type InventorySummaryStats = {
+    total_products: number;
+    low_stock: number;
+    out_of_stock: number;
+    healthy_products: number;
+    healthy_ratio: number | null;
+    low_ratio: number | null;
+    out_ratio: number | null;
+};
+
+export type SalesTodaySummary = {
+    total_amount: string;
+    orders_count: number;
+    average_ticket: string;
+};
+
+export type SaleTimelineItem = {
+    id: string;
+    number: number;
+    status: SaleStatus;
+    payment_method: PaymentMethod;
+    total: string;
+    created_at: string;
+    customer_name: string | null;
+};
+
+export type TopProductMetric = {
+    product_id: string | null;
+    name: string;
+    total_qty: string;
+    total_sales: string;
+};
+
+export type CommercialSettings = {
+    allow_sell_without_stock: boolean;
+    block_sales_if_no_open_cash_session: boolean;
+    require_customer_for_sales: boolean;
+    allow_negative_price_or_discount: boolean;
+    warn_on_low_stock_threshold_enabled: boolean;
+    low_stock_threshold_default: number;
+    enable_sales_notes: boolean;
+    enable_receipts: boolean;
 };

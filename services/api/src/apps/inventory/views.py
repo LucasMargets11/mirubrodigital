@@ -12,19 +12,47 @@ from django.db.models import (
 	When,
 )
 from django.db.models.functions import Coalesce
+from django.shortcuts import get_object_or_404
 from rest_framework import generics
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.access import resolve_business_context, resolve_request_membership
 from apps.accounts.permissions import HasBusinessMembership, HasPermission, request_has_permission
-from .models import ProductStock, StockMovement
+from .importer import (
+	InventoryImportError,
+	apply_inventory_import,
+	parse_inventory_import,
+	serialize_preview_rows,
+)
+from .models import InventoryImportJob, ProductStock, StockMovement
 from .serializers import (
+    InventoryImportJobSerializer,
 	ProductStockSerializer,
 	StockMovementCreateSerializer,
 	StockMovementSerializer,
 )
+
+
+def _resolve_limit(raw_value: str | None, default: int = 5, maximum: int = 50) -> int:
+	try:
+		value = int(raw_value) if raw_value is not None else default
+	except (TypeError, ValueError):
+		value = default
+	return max(1, min(value, maximum))
+
+
+def _ensure_inventory_feature(request):
+	membership = resolve_request_membership(request)
+	if membership is None:
+		return None, Response({'detail': 'No encontramos un negocio asociado al usuario.'}, status=403)
+	context = resolve_business_context(request, membership)
+	features = context.get('features', {})
+	if not (features.get('inventory') and features.get('products')):
+		return None, Response({'detail': 'Tu plan no incluye importaciones masivas de inventario.'}, status=403)
+	return membership, None
 
 
 class ProductStockListView(generics.ListAPIView):
@@ -70,11 +98,7 @@ class StockMovementListCreateView(generics.ListCreateAPIView):
 		product_id = self.request.query_params.get('product_id')
 		if product_id:
 			queryset = queryset.filter(product_id=product_id)
-		try:
-			limit = int(self.request.query_params.get('limit', '100'))
-		except ValueError:
-			limit = 100
-		limit = max(1, min(limit, 200))
+		limit = _resolve_limit(self.request.query_params.get('limit'), default=100, maximum=200)
 		return queryset.order_by('-created_at')[:limit]
 
 	def get_serializer_class(self):
@@ -104,13 +128,65 @@ class InventorySummaryView(APIView):
 		low_stock = queryset.filter(quantity__lt=F('product__stock_min'), quantity__gt=0).count()
 		out_of_stock = queryset.filter(quantity__lte=0).count()
 
+		healthy_products = max(total_products - low_stock - out_of_stock, 0)
+		healthy_ratio = (healthy_products / total_products) if total_products else None
+		low_ratio = (low_stock / total_products) if total_products else None
+		out_ratio = (out_of_stock / total_products) if total_products else None
+
 		return Response(
 			{
 				'total_products': total_products,
 				'low_stock': low_stock,
 				'out_of_stock': out_of_stock,
+				'healthy_products': healthy_products,
+				'healthy_ratio': healthy_ratio,
+				'low_ratio': low_ratio,
+				'out_ratio': out_ratio,
 			}
 		)
+
+
+class LowStockAlertView(generics.ListAPIView):
+	serializer_class = ProductStockSerializer
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	required_permission = 'view_stock'
+	pagination_class = None
+	status_filter = 'low'
+	maximum_limit = 50
+
+	def get_queryset(self):
+		business = getattr(self.request, 'business')
+		queryset = ProductStock.objects.select_related('product').filter(
+			business=business,
+			product__is_active=True,
+		)
+		if self.status_filter == 'low':
+			queryset = queryset.filter(quantity__lt=F('product__stock_min'), quantity__gt=0)
+		elif self.status_filter == 'out':
+			queryset = queryset.filter(quantity__lte=0)
+		ordering = self.request.query_params.get('ordering')
+		if ordering == 'qty':
+			queryset = queryset.order_by('quantity', 'product__name')
+		else:
+			queryset = queryset.order_by('product__name')
+		limit = _resolve_limit(self.request.query_params.get('limit'), default=5, maximum=self.maximum_limit)
+		return queryset[:limit]
+
+
+class OutOfStockAlertView(LowStockAlertView):
+	status_filter = 'out'
+
+
+class InventoryRecentMovementsView(generics.ListAPIView):
+	serializer_class = StockMovementSerializer
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	required_permission = 'view_stock'
+	pagination_class = None
+
+	def get_queryset(self):
+		business = getattr(self.request, 'business')
+		limit = _resolve_limit(self.request.query_params.get('limit'), default=5, maximum=100)
+		return StockMovement.objects.select_related('product').filter(business=business).order_by('-created_at')[:limit]
 
 
 class InventoryValuationView(APIView):
@@ -273,3 +349,84 @@ class InventoryValuationView(APIView):
 				'items': items,
 			}
 		)
+
+
+class InventoryImportUploadView(APIView):
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	required_permission = 'manage_stock'
+	parser_classes = [MultiPartParser]
+
+	def post(self, request):
+		membership, error_response = _ensure_inventory_feature(request)
+		if error_response:
+			return error_response
+
+		upload = request.FILES.get('file')
+		if upload is None:
+			return Response({'detail': 'Debes adjuntar un archivo .xlsx.'}, status=400)
+		if not (upload.name or '').lower().endswith('.xlsx'):
+			return Response({'detail': 'El archivo debe tener formato .xlsx.'}, status=400)
+
+		try:
+			rows, summary = parse_inventory_import(upload, business=membership.business)
+		except InventoryImportError as exc:
+			return Response({'detail': str(exc)}, status=400)
+
+		job = InventoryImportJob.objects.create(
+			business=membership.business,
+			created_by=request.user if getattr(request.user, 'is_authenticated', False) else None,
+			filename=upload.name or 'importar-stock.xlsx',
+			rows=rows,
+			summary=summary,
+			error_count=summary.get('error_count', 0),
+			warning_count=summary.get('warning_count', 0),
+		)
+		serializer = InventoryImportJobSerializer(job)
+		return Response(serializer.data, status=201)
+
+
+class InventoryImportDetailView(APIView):
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	required_permission = 'manage_stock'
+
+	def get(self, request, import_id):
+		membership, error_response = _ensure_inventory_feature(request)
+		if error_response:
+			return error_response
+		job = get_object_or_404(InventoryImportJob, pk=import_id, business=membership.business)
+		serializer = InventoryImportJobSerializer(job)
+		return Response(serializer.data)
+
+
+class InventoryImportPreviewView(APIView):
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	required_permission = 'manage_stock'
+
+	def post(self, request, import_id):
+		membership, error_response = _ensure_inventory_feature(request)
+		if error_response:
+			return error_response
+		job = get_object_or_404(InventoryImportJob, pk=import_id, business=membership.business)
+		return Response({'summary': job.summary or {}, 'rows': serialize_preview_rows(job.rows)})
+
+
+class InventoryImportApplyView(APIView):
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	required_permission = 'manage_stock'
+
+	def post(self, request, import_id):
+		membership, error_response = _ensure_inventory_feature(request)
+		if error_response:
+			return error_response
+		job = get_object_or_404(InventoryImportJob, pk=import_id, business=membership.business)
+		if job.status == InventoryImportJob.Status.PROCESSING:
+			return Response({'detail': 'La importación ya se está procesando.'}, status=409)
+		if job.status == InventoryImportJob.Status.DONE:
+			serializer = InventoryImportJobSerializer(job)
+			return Response(serializer.data)
+		try:
+			apply_inventory_import(job, business=membership.business, user=request.user)
+		except InventoryImportError as exc:
+			return Response({'detail': str(exc)}, status=400)
+		serializer = InventoryImportJobSerializer(job)
+		return Response(serializer.data)

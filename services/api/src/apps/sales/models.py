@@ -45,6 +45,13 @@ class Sale(models.Model):
     blank=True,
     on_delete=models.SET_NULL,
   )
+  cash_session = models.ForeignKey(
+    'cash.CashSession',
+    related_name='sales',
+    null=True,
+    blank=True,
+    on_delete=models.PROTECT,
+  )
   created_at = models.DateTimeField(auto_now_add=True)
   updated_at = models.DateTimeField(auto_now=True)
   cancelled_at = models.DateTimeField(null=True, blank=True)

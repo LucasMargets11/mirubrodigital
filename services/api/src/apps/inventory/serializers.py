@@ -5,7 +5,7 @@ from rest_framework import serializers
 
 from apps.catalog.models import Product
 from apps.catalog.serializers import ProductSummarySerializer
-from .models import ProductStock, StockMovement
+from .models import InventoryImportJob, ProductStock, StockMovement
 from .services import register_stock_movement
 
 
@@ -77,3 +77,34 @@ class StockMovementCreateSerializer(serializers.Serializer):
 
   def to_representation(self, instance):
     return StockMovementSerializer(instance).data
+
+
+class InventoryImportJobSerializer(serializers.ModelSerializer):
+  summary = serializers.SerializerMethodField()
+  result_url = serializers.SerializerMethodField()
+
+  class Meta:
+    model = InventoryImportJob
+    fields = [
+      'id',
+      'filename',
+      'status',
+      'summary',
+      'created_count',
+      'updated_count',
+      'adjusted_count',
+      'skipped_count',
+      'error_count',
+      'warning_count',
+      'result_url',
+      'errors',
+      'created_at',
+      'updated_at',
+    ]
+    read_only_fields = fields
+
+  def get_summary(self, obj: InventoryImportJob):
+    return obj.summary or None
+
+  def get_result_url(self, obj: InventoryImportJob):
+    return obj.result_url or None

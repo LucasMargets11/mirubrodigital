@@ -8,6 +8,7 @@ from .models import Product
 
 
 class ProductSerializer(serializers.ModelSerializer):
+  stock_quantity = serializers.SerializerMethodField()
   class Meta:
     model = Product
     fields = [
@@ -20,10 +21,11 @@ class ProductSerializer(serializers.ModelSerializer):
       'price',
       'stock_min',
       'is_active',
+      'stock_quantity',
       'created_at',
       'updated_at',
     ]
-    read_only_fields = ['id', 'business', 'created_at', 'updated_at']
+    read_only_fields = ['id', 'business', 'created_at', 'updated_at', 'stock_quantity']
 
   def validate_cost(self, value: Decimal) -> Decimal:
     if value < 0:
@@ -70,6 +72,12 @@ class ProductSerializer(serializers.ModelSerializer):
     if request is not None and not request_has_permission(request, 'manage_products'):
       data.pop('cost', None)
     return data
+  
+  def get_stock_quantity(self, obj):
+    stock_level = getattr(obj, 'stock_level', None)
+    if stock_level is None:
+      return None
+    return stock_level.quantity
 
 
 class ProductSummarySerializer(serializers.ModelSerializer):

@@ -43,6 +43,9 @@ export default async function CashClosureDetailPage({ params }: PageProps) {
     }
 
     const difference = Number(closure.difference ?? 0);
+    const openerName = closure.opened_by_name || closure.opened_by?.name || '—';
+    const sales = closure.sales ?? [];
+    const productsSummary = closure.products_summary ?? [];
 
     return (
         <section className="space-y-6">
@@ -76,7 +79,7 @@ export default async function CashClosureDetailPage({ params }: PageProps) {
                 <dl className="mt-6 grid gap-4 text-sm text-slate-600 md:grid-cols-3">
                     <div>
                         <dt className="text-xs uppercase tracking-wide text-slate-400">Abrió</dt>
-                        <dd className="text-base font-semibold text-slate-900">{closure.opened_by?.name ?? '—'}</dd>
+                        <dd className="text-base font-semibold text-slate-900">{openerName}</dd>
                     </div>
                     <div>
                         <dt className="text-xs uppercase tracking-wide text-slate-400">Cerró</dt>
@@ -155,7 +158,89 @@ export default async function CashClosureDetailPage({ params }: PageProps) {
             </section>
 
             <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-                <h2 className="text-lg font-semibold text-slate-900">Movimientos</h2>
+                <h2 className="text-lg font-semibold text-slate-900">Ventas del turno</h2>
+                <div className="mt-4 overflow-x-auto">
+                    <table className="min-w-full divide-y divide-slate-100 text-sm">
+                        <thead>
+                            <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
+                                <th className="px-3 py-2">Venta</th>
+                                <th className="px-3 py-2">Cliente</th>
+                                <th className="px-3 py-2">Estado</th>
+                                <th className="px-3 py-2">Pago</th>
+                                <th className="px-3 py-2 text-right">Total</th>
+                                <th className="px-3 py-2 text-right">Pagado</th>
+                                <th className="px-3 py-2 text-right">Saldo</th>
+                                <th className="px-3 py-2">Fecha</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                            {sales.map((sale) => (
+                                <tr key={sale.id}>
+                                    <td className="px-3 py-3 font-semibold text-slate-900">
+                                        <Link href={`/app/gestion/reportes/ventas/${sale.id}`} className="underline-offset-4 hover:underline">
+                                            #{sale.number}
+                                        </Link>
+                                    </td>
+                                    <td className="px-3 py-3 text-slate-600">{sale.customer_name || 'Mostrador'}</td>
+                                    <td className="px-3 py-3">
+                                        <span className={saleStatusClass(sale.status)}>{sale.status_label}</span>
+                                    </td>
+                                    <td className="px-3 py-3 text-slate-600">{sale.payment_method_label}</td>
+                                    <td className="px-3 py-3 text-right font-semibold text-slate-900">{formatCurrency(sale.total)}</td>
+                                    <td className="px-3 py-3 text-right text-slate-700">{formatCurrency(sale.paid_total)}</td>
+                                    <td className={`px-3 py-3 text-right font-semibold ${Number(sale.balance) === 0 ? 'text-slate-500' : 'text-amber-600'}`}>
+                                        {formatCurrency(sale.balance)}
+                                    </td>
+                                    <td className="px-3 py-3 text-slate-600">{formatDate(sale.created_at)}</td>
+                                </tr>
+                            ))}
+                            {!sales.length && (
+                                <tr>
+                                    <td colSpan={8} className="px-3 py-4 text-center text-slate-400">
+                                        Sin ventas registradas en esta sesión.
+                                    </td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                <h2 className="text-lg font-semibold text-slate-900">Productos vendidos</h2>
+                <div className="mt-4 overflow-x-auto">
+                    <table className="min-w-full divide-y divide-slate-100 text-sm">
+                        <thead>
+                            <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
+                                <th className="px-3 py-2">Producto</th>
+                                <th className="px-3 py-2 text-right">Cantidad</th>
+                                <th className="px-3 py-2 text-right">Ventas</th>
+                                <th className="px-3 py-2 text-right">Total</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                            {productsSummary.map((product) => (
+                                <tr key={`${product.product_id ?? product.name}`}>
+                                    <td className="px-3 py-3 font-semibold text-slate-900">{product.name}</td>
+                                    <td className="px-3 py-3 text-right text-slate-600">{product.quantity}</td>
+                                    <td className="px-3 py-3 text-right text-slate-600">{product.sales_count}</td>
+                                    <td className="px-3 py-3 text-right font-semibold text-slate-900">{formatCurrency(product.amount_total)}</td>
+                                </tr>
+                            ))}
+                            {!productsSummary.length && (
+                                <tr>
+                                    <td colSpan={4} className="px-3 py-4 text-center text-slate-400">
+                                        Sin productos vendidos en esta sesión.
+                                    </td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                <h2 className="text-lg font-semibold text-slate-900">Movimientos manuales</h2>
                 <div className="mt-4 overflow-x-auto">
                     <table className="min-w-full divide-y divide-slate-100 text-sm">
                         <thead>
@@ -225,4 +310,12 @@ function methodLabel(method: string) {
 
 function movementTypeLabel(type: 'in' | 'out') {
     return type === 'in' ? 'Ingreso' : 'Egreso';
+}
+
+function saleStatusClass(status: string) {
+    const base = 'inline-flex rounded-full px-3 py-1 text-xs font-semibold';
+    if (status === 'cancelled') {
+        return `${base} bg-rose-50 text-rose-700 border border-rose-100`;
+    }
+    return `${base} bg-emerald-50 text-emerald-700 border border-emerald-100`;
 }

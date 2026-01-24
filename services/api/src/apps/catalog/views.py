@@ -18,7 +18,7 @@ class ProductListCreateView(generics.ListCreateAPIView):
 
 	def get_queryset(self):
 		business = getattr(self.request, 'business')
-		queryset = Product.objects.filter(business=business)
+		queryset = Product.objects.filter(business=business).select_related('stock_level')
 
 		include_inactive = self.request.query_params.get('include_inactive', 'false').lower() == 'true'
 		if not include_inactive:
@@ -50,7 +50,7 @@ class ProductDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 	def get_queryset(self):
 		business = getattr(self.request, 'business')
-		return Product.objects.filter(business=business)
+		return Product.objects.filter(business=business).select_related('stock_level')
 
 	def perform_destroy(self, instance):
 		instance.is_active = False

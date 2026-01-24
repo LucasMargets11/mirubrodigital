@@ -164,6 +164,7 @@ class CashClosureListSerializer(serializers.ModelSerializer):
   counted_cash = serializers.DecimalField(source='closing_cash_counted', max_digits=12, decimal_places=2, read_only=True, allow_null=True)
   difference = serializers.DecimalField(source='difference_amount', max_digits=12, decimal_places=2, read_only=True, allow_null=True)
   note = serializers.CharField(source='closing_note', read_only=True)
+  opened_by_name = serializers.CharField(read_only=True)
 
   class Meta:
     model = CashSession
@@ -179,6 +180,7 @@ class CashClosureListSerializer(serializers.ModelSerializer):
       'difference',
       'note',
       'opened_by',
+      'opened_by_name',
       'closed_by',
     ]
     read_only_fields = fields
@@ -188,3 +190,26 @@ class CashClosureListSerializer(serializers.ModelSerializer):
     if register is None:
       return None
     return {'id': str(register.id), 'name': register.name}
+
+
+class CashSessionSaleSerializer(ReportSaleListSerializer):
+  class Meta(ReportSaleListSerializer.Meta):  # type: ignore[misc]
+    fields = [
+      'id',
+      'number',
+      'status',
+      'status_label',
+      'payment_method',
+      'payment_method_label',
+      'customer_id',
+      'customer_name',
+      'subtotal',
+      'discount',
+      'total',
+      'created_at',
+      'items_count',
+      'invoice',
+      'paid_total',
+      'balance',
+    ]
+    read_only_fields = fields

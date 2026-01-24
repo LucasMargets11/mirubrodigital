@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import {
   closeSession,
+  collectPendingSales,
   createMovement,
   createPayment,
   getCashSummary,
@@ -57,11 +58,12 @@ export function useActiveCashSession(registerId?: string | null) {
   });
 }
 
-export function useCashSummary(sessionId?: string | null) {
+export function useCashSummary(sessionId?: string | null, enabled = true) {
   return useQuery({
     queryKey: cashKeys.summary(sessionId ?? null),
     queryFn: () => getCashSummary(sessionId ? { sessionId } : {}),
-    refetchInterval: 30000,
+    enabled,
+    refetchInterval: enabled ? 30000 : false,
   });
 }
 
@@ -116,6 +118,16 @@ export function useCreateCashMovement() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (payload: CashMovementPayload) => createMovement(payload),
+    onSuccess: () => {
+      invalidateCashData(queryClient);
+    },
+  });
+}
+
+export function useCollectPendingSales() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (sessionId: string) => collectPendingSales(sessionId),
     onSuccess: () => {
       invalidateCashData(queryClient);
     },

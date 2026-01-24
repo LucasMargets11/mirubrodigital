@@ -11,6 +11,8 @@ import type {
   CashSession,
   CashSessionResponse,
   CloseCashSessionPayload,
+  CloseCashSessionResponse,
+  CollectPendingSalesResponse,
   OpenCashSessionPayload,
 } from './types';
 
@@ -44,7 +46,7 @@ export function openSession(payload: OpenCashSessionPayload) {
 }
 
 export function closeSession(sessionId: string, payload: CloseCashSessionPayload) {
-  return apiPost<CashSession>(`/api/v1/cash/sessions/${sessionId}/close/`, payload);
+  return apiPost<CloseCashSessionResponse>(`/api/v1/cash/sessions/${sessionId}/close/`, payload);
 }
 
 export function createPayment(payload: CashPaymentPayload) {
@@ -71,4 +73,8 @@ export function listMovements(filters: CashMovementFilters = {}) {
     movement_type: filters.movementType,
   });
   return apiGet<CashMovement[]>(`/api/v1/cash/movements/${query}`);
+}
+
+export function collectPendingSales(sessionId: string) {
+  return apiPost<CollectPendingSalesResponse>(`/api/v1/cash/sessions/${sessionId}/collect-pending/`, {});
 }

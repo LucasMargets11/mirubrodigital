@@ -20,10 +20,11 @@ async function parseResponse(response: Response) {
 }
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+    const bodyIsFormData = typeof FormData !== 'undefined' && init?.body instanceof FormData;
     const response = await fetch(`${API_URL}${path}`, {
         credentials: 'include',
         headers: {
-            'Content-Type': 'application/json',
+            ...(bodyIsFormData ? {} : { 'Content-Type': 'application/json' }),
             ...(init?.headers ?? {}),
         },
         ...init,
@@ -46,17 +47,27 @@ export function apiGet<T>(path: string): Promise<T> {
     return apiFetch<T>(path, { method: 'GET' });
 }
 
+function resolveBody(body?: unknown): BodyInit | undefined {
+    if (body instanceof FormData) {
+        return body;
+    }
+    if (body === undefined || body === null) {
+        return undefined;
+    }
+    return JSON.stringify(body);
+}
+
 export function apiPost<T>(path: string, body?: unknown): Promise<T> {
     return apiFetch<T>(path, {
         method: 'POST',
-        body: body ? JSON.stringify(body) : undefined,
+        body: resolveBody(body),
     });
 }
 
 export function apiPatch<T>(path: string, body?: unknown): Promise<T> {
     return apiFetch<T>(path, {
         method: 'PATCH',
-        body: body ? JSON.stringify(body) : undefined,
+        body: resolveBody(body),
     });
 }
 

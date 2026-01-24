@@ -41,7 +41,12 @@ const SERVICE_LINKS: Record<string, AppLink[]> = {
 const SHARED_LINKS: AppLink[] = [
     { href: '/app/operacion/caja', label: 'Caja', permissionKey: 'view_cash', featureKey: 'cash' },
     { href: '/app/reports', label: 'Reportes', permissionKey: 'view_reports', featureKey: 'reports' },
-    { href: '/app/settings', label: 'Configuración', permissionKey: 'manage_settings', featureKey: 'settings' },
+    {
+        href: '/app/gestion/configuracion',
+        label: 'Configuración',
+        permissionKey: 'manage_commercial_settings',
+        featureKey: 'settings',
+    },
 ];
 
 type SidebarProps = {

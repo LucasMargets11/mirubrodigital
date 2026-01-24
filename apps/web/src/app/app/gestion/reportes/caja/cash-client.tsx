@@ -119,7 +119,7 @@ export function CashReportsClient() {
                                 <tr key={closure.id} className="border-t border-slate-100 text-slate-700">
                                     <td className="px-2 py-3">
                                         <p className="font-semibold">{formatDate(closure.opened_at)}</p>
-                                        <p className="text-xs text-slate-500">Apertura: {closure.opened_by?.name ?? '—'}</p>
+                                        <p className="text-xs text-slate-500">Apertura: {closure.opened_by_name || closure.opened_by?.name || '—'}</p>
                                     </td>
                                     <td className="px-2 py-3">
                                         {closure.closed_at ? (

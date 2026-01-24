@@ -1,4 +1,4 @@
-import type { Sale } from '@/features/gestion/types';
+import type { PaymentMethod, Sale, SaleStatus } from '@/features/gestion/types';
 
 export type ReportRange = {
   from: string;
@@ -183,6 +183,7 @@ export type CashClosure = {
   note: string;
   opened_by: CashClosureUser | null;
   closed_by: CashClosureUser | null;
+  opened_by_name?: string | null;
 };
 
 export type CashClosureListResponse = PaginatedResponse<CashClosure>;
@@ -208,6 +209,32 @@ export type CashPaymentSummary = {
   customer_name?: string | null;
 };
 
+export type CashClosureSaleSummary = {
+  id: string;
+  number: number;
+  status: SaleStatus;
+  status_label: string;
+  payment_method: PaymentMethod;
+  payment_method_label: string;
+  customer_id: string | null;
+  customer_name: string | null;
+  subtotal: string;
+  discount: string;
+  total: string;
+  created_at: string;
+  items_count: number;
+  paid_total: string;
+  balance: string;
+};
+
+export type CashClosureProductSummary = {
+  product_id: string | null;
+  name: string;
+  quantity: string;
+  amount_total: string;
+  sales_count: number;
+};
+
 export type CashClosureDetail = CashClosure & {
   expected_breakdown: {
     saldo_inicial: string;
@@ -221,5 +248,7 @@ export type CashClosureDetail = CashClosure & {
     payments_by_method: Record<string, string>;
   };
   cash_sales: CashPaymentSummary[];
+  sales: CashClosureSaleSummary[];
+  products_summary: CashClosureProductSummary[];
   movements: CashMovementSummary[];
 };

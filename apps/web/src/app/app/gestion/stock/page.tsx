@@ -6,7 +6,11 @@ import { getSession } from '@/lib/auth';
 import { StockClient } from './stock-client';
 import { StockNav } from './stock-nav';
 
-export default async function GestionStockPage() {
+type GestionStockPageProps = {
+    searchParams?: Record<string, string | string[] | undefined>;
+};
+
+export default async function GestionStockPage({ searchParams }: GestionStockPageProps) {
     const session = await getSession();
 
     if (!session) {
@@ -25,10 +29,14 @@ export default async function GestionStockPage() {
         return <AccessMessage title="Sin acceso" description="Tu rol no puede ver el inventario." hint="Pedí acceso a un administrador" />;
     }
 
+    const initialStatus = typeof searchParams?.status === 'string' ? searchParams.status : '';
+    const initialAction = typeof searchParams?.action === 'string' ? searchParams.action : undefined;
+    const initialProductId = typeof searchParams?.product === 'string' ? searchParams.product : undefined;
+
     return (
         <section className="space-y-6">
             <StockNav />
-            <StockClient canManage={canManage} />
+            <StockClient canManage={canManage} initialStatus={initialStatus} initialAction={initialAction} initialProductId={initialProductId} />
         </section>
     );
 }

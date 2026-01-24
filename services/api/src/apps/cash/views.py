@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from django.shortcuts import get_object_or_404
-from rest_framework import generics
+from rest_framework import generics, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -20,7 +20,7 @@ from .serializers import (
 	CashSessionOpenSerializer,
 	CashSessionSerializer,
 )
-from .services import get_active_session
+from .services import collect_pending_session_sales, get_active_session
 
 
 class CashRegisterListView(generics.ListAPIView):
@@ -99,6 +99,35 @@ class CashSessionCloseView(APIView):
 		serializer.is_valid(raise_exception=True)
 		serializer.save()
 		return Response(serializer.data)
+
+
+class CashSessionCollectPendingView(APIView):
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	required_permission = 'manage_cash'
+
+	def post(self, request, pk: str):
+		business = getattr(request, 'business')
+		session = get_object_or_404(
+			CashSession.objects.select_related('register', 'opened_by', 'closed_by'),
+			pk=pk,
+			business=business,
+		)
+		if session.status != CashSession.Status.OPEN:
+			return Response({'detail': 'Esta sesión ya está cerrada.'}, status=status.HTTP_400_BAD_REQUEST)
+		result = collect_pending_session_sales(session, user=request.user)
+		serializer = CashSessionSerializer(session, context={'request': request})
+		return Response(
+			{
+				'session': serializer.data,
+				'result': {
+					'collected_count': result['collected_count'],
+					'skipped_count': result['skipped_count'],
+					'total_collected': str(result['total_collected']),
+					'sale_ids': result['sale_ids'],
+					'errors': result.get('errors', []),
+				},
+			}
+		)
 
 
 class CashPaymentView(generics.ListCreateAPIView):

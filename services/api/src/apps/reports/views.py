@@ -36,12 +36,13 @@ from apps.accounts.access import resolve_business_context, resolve_request_membe
 from apps.accounts.permissions import HasBusinessMembership, HasPermission
 from apps.cash.models import CashMovement, CashSession, Payment
 from apps.inventory.models import ProductStock
-from apps.cash.services import compute_session_totals
+from apps.cash.services import compute_session_totals, get_session_sales_queryset
 from apps.sales.models import Sale, SaleItem
 from .serializers import (
 	CashClosureListSerializer,
 	CashMovementSummarySerializer,
 	CashPaymentSummarySerializer,
+	CashSessionSaleSerializer,
 	ReportPaymentSerializer,
 	ReportSaleDetailSerializer,
 	ReportSaleListSerializer,
@@ -607,6 +608,35 @@ class CashClosureDetailView(ReportsFeatureMixin, APIView):
 			.order_by('-created_at')
 		)
 		cash_sales = CashPaymentSummarySerializer(cash_sales_qs, many=True).data
+		session_sales_qs = (
+			get_session_sales_queryset(session)
+			.select_related('customer')
+			.order_by('-created_at', '-number')
+		)
+		sales_data = CashSessionSaleSerializer(session_sales_qs, many=True).data
+		sale_ids = [sale['id'] for sale in sales_data]
+		product_rows = []
+		if sale_ids:
+			product_rows = (
+				SaleItem.objects.filter(sale_id__in=sale_ids)
+				.values('product_id', 'product_name_snapshot')
+				.annotate(
+					total_quantity=Coalesce(Sum('quantity'), Decimal('0')),
+					total_amount=Coalesce(Sum('line_total'), Decimal('0')),
+					sales_count=Count('sale', distinct=True),
+				)
+				.order_by('-total_amount', '-total_quantity', 'product_name_snapshot')
+			)
+		products_summary = [
+			{
+				'product_id': str(row['product_id']) if row['product_id'] else None,
+				'name': row['product_name_snapshot'] or 'Producto',
+				'quantity': _format_decimal(row['total_quantity']),
+				'amount_total': _format_money(row['total_amount']),
+				'sales_count': row['sales_count'],
+			}
+			for row in product_rows
+		]
 
 		payments_by_method = {
 			method: _format_money(amount)
@@ -621,6 +651,8 @@ class CashClosureDetailView(ReportsFeatureMixin, APIView):
 				'payments_by_method': payments_by_method,
 			},
 			'cash_sales': cash_sales,
+			'sales': sales_data,
+			'products_summary': products_summary,
 			'movements': movements,
 		}
 		return Response(payload)

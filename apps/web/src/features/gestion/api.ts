@@ -2,6 +2,7 @@ import { apiGet, apiPatch, apiPost } from '@/lib/api/client';
 
 import type { PaginatedResponse } from '@/types/api';
 import type {
+    InventorySummaryStats,
     InventoryValuationFilters,
     InventoryValuationResponse,
     Product,
@@ -9,9 +10,13 @@ import type {
     ProductStock,
     Sale,
     SalePayload,
+    SaleTimelineItem,
     SalesFilters,
+    SalesTodaySummary,
     StockMovement,
     StockMovementPayload,
+    TopProductMetric,
+    CommercialSettings,
 } from './types';
 
 function buildQuery(params: Record<string, string | undefined>) {
@@ -58,6 +63,31 @@ export function createMovement(payload: StockMovementPayload) {
     return apiPost<StockMovement>('/api/v1/inventory/movements/', payload);
 }
 
+export function fetchInventorySummary() {
+    return apiGet<InventorySummaryStats>('/api/v1/inventory/summary/');
+}
+
+export function fetchLowStockAlerts(params: { limit?: number; ordering?: 'qty' | 'name' } = {}) {
+    const query = buildQuery({
+        limit: params.limit ? String(params.limit) : undefined,
+        ordering: params.ordering === 'qty' ? 'qty' : undefined,
+    });
+    return apiGet<ProductStock[]>(`/api/v1/inventory/low-stock/${query}`);
+}
+
+export function fetchOutOfStockAlerts(params: { limit?: number; ordering?: 'qty' | 'name' } = {}) {
+    const query = buildQuery({
+        limit: params.limit ? String(params.limit) : undefined,
+        ordering: params.ordering === 'qty' ? 'qty' : undefined,
+    });
+    return apiGet<ProductStock[]>(`/api/v1/inventory/out-of-stock/${query}`);
+}
+
+export function fetchRecentInventoryMovements(limit = 5) {
+    const query = buildQuery({ limit: limit ? String(limit) : undefined });
+    return apiGet<StockMovement[]>(`/api/v1/inventory/movements/recent/${query}`);
+}
+
 export function fetchSales(params: SalesFilters = {}) {
     const query = buildQuery({
         search: params.search,
@@ -77,6 +107,23 @@ export function createSale(payload: SalePayload) {
     return apiPost<Sale>('/api/v1/sales/', payload);
 }
 
+export function fetchSalesTodaySummary() {
+    return apiGet<SalesTodaySummary>('/api/v1/sales/summary/today/');
+}
+
+export function fetchRecentSales(limit = 5) {
+    const query = buildQuery({ limit: limit ? String(limit) : undefined });
+    return apiGet<SaleTimelineItem[]>(`/api/v1/sales/recent/${query}`);
+}
+
+export function fetchTopSellingProducts(params: { range?: string; limit?: number } = {}) {
+    const query = buildQuery({
+        range: params.range,
+        limit: params.limit ? String(params.limit) : undefined,
+    });
+    return apiGet<{ range_days: number; items: TopProductMetric[] }>(`/api/v1/sales/top-products/${query}`);
+}
+
 export function fetchInventoryValuation(params: InventoryValuationFilters = {}) {
     const activeParam = params.active ?? 'true';
     const query = buildQuery({
@@ -87,4 +134,12 @@ export function fetchInventoryValuation(params: InventoryValuationFilters = {}) 
         active: activeParam === 'all' ? undefined : activeParam,
     });
     return apiGet<InventoryValuationResponse>(`/api/v1/inventory/valuation/${query}`);
+}
+
+export function fetchCommercialSettings() {
+    return apiGet<CommercialSettings>('/api/v1/commercial/settings/');
+}
+
+export function updateCommercialSettings(payload: Partial<CommercialSettings>) {
+    return apiPatch<CommercialSettings>('/api/v1/commercial/settings/', payload);
 }

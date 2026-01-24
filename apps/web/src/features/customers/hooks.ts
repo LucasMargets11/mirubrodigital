@@ -5,10 +5,11 @@ import type { CustomerFilters, CustomerPayload } from './types';
 
 const customersBaseKey = ['gestion', 'customers'];
 
-export function useCustomers(filters: CustomerFilters) {
+export function useCustomers(filters: CustomerFilters, options?: { enabled?: boolean }) {
     return useQuery({
         queryKey: [...customersBaseKey, filters],
         queryFn: () => listCustomers(filters),
+        enabled: options?.enabled ?? true,
     });
 }
 

@@ -4,13 +4,14 @@ from decimal import Decimal
 from typing import Any, Dict, Optional
 from uuid import UUID
 
+from django.db import transaction
 from django.db.models import Sum
 from django.utils import timezone
 from rest_framework import serializers
 
 from apps.sales.models import Sale
 from .models import CashMovement, CashRegister, CashSession, Payment
-from .services import compute_session_totals, get_active_session
+from .services import collect_pending_session_sales, compute_session_totals, get_active_session
 
 
 class UserSummarySerializer(serializers.Serializer):
@@ -56,6 +57,7 @@ class CashSessionSerializer(serializers.ModelSerializer):
       'difference_amount',
       'closing_note',
       'opened_by',
+      'opened_by_name',
       'closed_by',
       'opened_at',
       'closed_at',
@@ -70,6 +72,7 @@ class CashSessionSerializer(serializers.ModelSerializer):
 class CashSessionOpenSerializer(serializers.Serializer):
   register_id = serializers.UUIDField(required=False, allow_null=True)
   opening_cash_amount = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, default=Decimal('0'))
+  opened_by_name = serializers.CharField(required=False, allow_blank=True, max_length=120)
 
   def validate_register_id(self, value: Optional[UUID]):
     if value is None:
@@ -99,11 +102,13 @@ class CashSessionOpenSerializer(serializers.Serializer):
     user = self.context.get('user')
     register = self.context.get('register')
     opening_amount = validated_data.get('opening_cash_amount') or Decimal('0')
+    opened_by_name = (validated_data.get('opened_by_name') or '').strip()
     session = CashSession.objects.create(
       business=business,
       register=register,
       opened_by=user if getattr(user, 'is_authenticated', False) else None,
       opening_cash_amount=opening_amount,
+      opened_by_name=opened_by_name,
     )
     return session
 
@@ -278,6 +283,11 @@ class CashMovementCreateSerializer(serializers.Serializer):
 class CashSessionCloseSerializer(serializers.Serializer):
   closing_cash_counted = serializers.DecimalField(max_digits=12, decimal_places=2)
   note = serializers.CharField(required=False, allow_blank=True)
+  collect_pending_sales = serializers.BooleanField(required=False, default=False)
+
+  def __init__(self, *args, **kwargs):
+    super().__init__(*args, **kwargs)
+    self.collection_summary: dict[str, Any] | None = None
 
   def validate_closing_cash_counted(self, value: Decimal) -> Decimal:
     if value < 0:
@@ -290,30 +300,50 @@ class CashSessionCloseSerializer(serializers.Serializer):
       raise serializers.ValidationError('Esta sesión ya está cerrada.')
     user = self.context.get('user')
     closing_amount = self.validated_data['closing_cash_counted']
-    totals = compute_session_totals(session)
-    expected_cash = totals['cash_expected_total']
-    difference = closing_amount - expected_cash
-    session.closing_cash_counted = closing_amount
-    session.expected_cash_total = expected_cash
-    session.difference_amount = difference
-    session.closing_note = (self.validated_data.get('note') or '').strip()
-    session.status = CashSession.Status.CLOSED
-    session.closed_at = timezone.now()
-    update_fields = [
-      'closing_cash_counted',
-      'expected_cash_total',
-      'difference_amount',
-      'closing_note',
-      'status',
-      'closed_at',
-      'updated_at',
-    ]
-    if getattr(user, 'is_authenticated', False):
-      session.closed_by = user
-      update_fields.append('closed_by')
-    session.save(update_fields=update_fields)
+    collect_pending = self.validated_data.get('collect_pending_sales', False)
+    self.collection_summary = None
+
+    with transaction.atomic():
+      if collect_pending:
+        self.collection_summary = collect_pending_session_sales(session, user=user)
+      totals = compute_session_totals(session)
+      expected_cash = totals['cash_expected_total']
+      difference = closing_amount - expected_cash
+      session.closing_cash_counted = closing_amount
+      session.expected_cash_total = expected_cash
+      session.difference_amount = difference
+      session.closing_note = (self.validated_data.get('note') or '').strip()
+      session.status = CashSession.Status.CLOSED
+      session.closed_at = timezone.now()
+      update_fields = [
+        'closing_cash_counted',
+        'expected_cash_total',
+        'difference_amount',
+        'closing_note',
+        'status',
+        'closed_at',
+        'updated_at',
+      ]
+      if getattr(user, 'is_authenticated', False):
+        session.closed_by = user
+        update_fields.append('closed_by')
+      session.save(update_fields=update_fields)
+
     self.instance = session
     return session
 
   def to_representation(self, instance):
-    return CashSessionSerializer(instance, context=self.context).data
+    session_data = CashSessionSerializer(instance, context=self.context).data
+    summary = None
+    if self.collection_summary:
+      summary = {
+        'collected_count': self.collection_summary['collected_count'],
+        'skipped_count': self.collection_summary['skipped_count'],
+        'total_collected': str(self.collection_summary['total_collected']),
+        'sale_ids': self.collection_summary['sale_ids'],
+        'errors': self.collection_summary.get('errors', []),
+      }
+    return {
+      'session': session_data,
+      'collection_summary': summary,
+    }

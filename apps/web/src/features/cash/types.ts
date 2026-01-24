@@ -22,6 +22,8 @@ export type CashSessionTotals = {
   movements_out_total: string;
   cash_expected_total: string;
   sales_count: number;
+  pending_sales_count: number;
+  pending_sales_total: string;
 };
 
 export type CashSession = {
@@ -34,6 +36,7 @@ export type CashSession = {
   difference_amount: string | null;
   closing_note: string;
   opened_by: UserSummary | null;
+  opened_by_name: string | null;
   closed_by: UserSummary | null;
   opened_at: string;
   closed_at: string | null;
@@ -47,11 +50,13 @@ export type CashSessionResponse = {
 export type OpenCashSessionPayload = {
   register_id?: string | null;
   opening_cash_amount: number;
+  opened_by_name?: string | null;
 };
 
 export type CloseCashSessionPayload = {
   closing_cash_counted: number;
   note?: string;
+  collect_pending_sales?: boolean;
 };
 
 export type CashPaymentMethod = 'cash' | 'debit' | 'credit' | 'transfer' | 'wallet' | 'account';
@@ -115,4 +120,22 @@ export type CashMovementFilters = {
 export type SalesWithBalance = Sale & {
   paid_total?: string;
   balance?: string;
+};
+
+export type CollectionSummary = {
+  collected_count: number;
+  skipped_count: number;
+  total_collected: string;
+  sale_ids: string[];
+  errors: string[];
+};
+
+export type CollectPendingSalesResponse = {
+  session: CashSession;
+  result: CollectionSummary;
+};
+
+export type CloseCashSessionResponse = {
+  session: CashSession;
+  collection_summary: CollectionSummary | null;
 };

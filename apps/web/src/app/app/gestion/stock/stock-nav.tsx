@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 
 const STOCK_TABS = [
     { href: '/app/gestion/stock', label: 'Inventario' },
+    { href: '/app/gestion/stock/importar', label: 'Importar' },
     { href: '/app/gestion/stock/valorizacion', label: 'Valorización' },
 ];
 

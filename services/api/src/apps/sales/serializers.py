@@ -10,12 +10,13 @@ from django.db.models import Sum
 from django.utils import timezone
 from rest_framework import serializers
 
-from apps.cash.models import Payment
+from apps.business.models import CommercialSettings
+from apps.cash.models import CashSession, Payment
 from apps.catalog.models import Product
 from apps.customers.models import Customer
 from apps.customers.serializers import CustomerSummarySerializer
 from apps.inventory.models import StockMovement
-from apps.inventory.services import register_stock_movement
+from apps.inventory.services import ensure_stock_record, register_stock_movement
 from apps.invoices.models import Invoice
 from .models import Sale, SaleItem
 
@@ -42,6 +43,19 @@ class SalePaymentSerializer(serializers.ModelSerializer):
     read_only_fields = fields
 
 
+class SaleTimelineSerializer(serializers.ModelSerializer):
+	customer_name = serializers.SerializerMethodField()
+
+	class Meta:
+		model = Sale
+		fields = ['id', 'number', 'status', 'payment_method', 'total', 'created_at', 'customer_name']
+		read_only_fields = fields
+
+	def get_customer_name(self, obj: Sale):  # noqa: D401
+		"""Return customer name for timeline cards."""
+		return getattr(obj.customer, 'name', None)
+
+
 class SaleListSerializer(serializers.ModelSerializer):
   status_label = serializers.CharField(source='get_status_display', read_only=True)
   payment_method_label = serializers.CharField(source='get_payment_method_display', read_only=True)
@@ -64,6 +78,7 @@ class SaleListSerializer(serializers.ModelSerializer):
       'customer_id',
       'customer_name',
       'customer',
+      'cash_session_id',
       'subtotal',
       'discount',
       'total',
@@ -130,17 +145,52 @@ class SaleCreateItemSerializer(serializers.Serializer):
     return value
 
   def validate_unit_price(self, value: Decimal) -> Decimal:
-    if value < 0:
+    settings = self.context.get('commercial_settings')
+    allow_negative = getattr(settings, 'allow_negative_price_or_discount', False) if settings is not None else False
+    if not allow_negative and value < 0:
       raise serializers.ValidationError('El precio debe ser mayor o igual a cero.')
     return value
 
 
 class SaleCreateSerializer(serializers.Serializer):
+  def __init__(self, *args, **kwargs):
+    super().__init__(*args, **kwargs)
+    self._commercial_settings = None
+    business = self.context.get('business')
+    if business is not None:
+      self._commercial_settings = CommercialSettings.objects.for_business(business)
+      self.context['commercial_settings'] = self._commercial_settings
+
   customer_id = serializers.UUIDField(required=False, allow_null=True)
   payment_method = serializers.ChoiceField(choices=Sale.PaymentMethod.choices, default=Sale.PaymentMethod.CASH)
   discount = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, default=Decimal('0'))
   notes = serializers.CharField(required=False, allow_blank=True)
   items = SaleCreateItemSerializer(many=True)
+  cash_session_id = serializers.UUIDField(required=False, allow_null=True)
+
+  def _get_settings(self) -> CommercialSettings:
+    if self._commercial_settings is not None:
+      return self._commercial_settings
+    business = self.context.get('business')
+    if business is None:
+      raise serializers.ValidationError('No encontramos el negocio actual.')
+    self._commercial_settings = CommercialSettings.objects.for_business(business)
+    self.context['commercial_settings'] = self._commercial_settings
+    return self._commercial_settings
+
+  def _build_error(self, code: str, message: str, **extra):
+    payload = {'code': code, 'message': message}
+    payload.update({key: value for key, value in extra.items()})
+    return serializers.ValidationError({'error': payload})
+
+  def _out_of_stock_error(self, *, product: Product, available: Decimal, requested: Decimal):
+    return self._build_error(
+      'OUT_OF_STOCK',
+      'No hay stock suficiente para vender este producto.',
+      product_id=str(product.id),
+      available_stock=f"{available}",
+      requested_qty=f"{requested}",
+    )
 
   def validate_customer_id(self, value: Optional[UUID]):
     if value is None:
@@ -154,7 +204,8 @@ class SaleCreateSerializer(serializers.Serializer):
     return value
 
   def validate_discount(self, value: Decimal) -> Decimal:
-    if value < 0:
+    settings = self._get_settings()
+    if value < 0 and not settings.allow_negative_price_or_discount:
       raise serializers.ValidationError('El descuento no puede ser negativo.')
     return value
 
@@ -162,6 +213,28 @@ class SaleCreateSerializer(serializers.Serializer):
     if not value:
       raise serializers.ValidationError('Agregá al menos un producto a la venta.')
     return value
+
+  def validate_cash_session_id(self, value: Optional[UUID]):
+    if value is None:
+      return value
+    business = self.context['business']
+    try:
+      session = CashSession.objects.get(pk=value, business=business)
+    except CashSession.DoesNotExist as exc:
+      raise serializers.ValidationError('La sesión de caja no existe en este negocio.') from exc
+    if session.status != CashSession.Status.OPEN:
+      raise serializers.ValidationError('Esta sesión de caja ya está cerrada.')
+    self.context['cash_session'] = session
+    return value
+
+  def validate(self, attrs):
+    attrs = super().validate(attrs)
+    settings = self._get_settings()
+    if settings.require_customer_for_sales and self.context.get('customer') is None:
+      raise self._build_error('CUSTOMER_REQUIRED', 'Debes seleccionar un cliente para registrar la venta.')
+    if settings.block_sales_if_no_open_cash_session and self.context.get('cash_session') is None:
+      raise self._build_error('CASH_SESSION_REQUIRED', 'Necesitás abrir una sesión de caja para registrar la venta.')
+    return attrs
 
   def _resolve_product(self, business, product_id: UUID) -> Product:
     try:
@@ -175,6 +248,9 @@ class SaleCreateSerializer(serializers.Serializer):
     request = self.context.get('request')
     user = getattr(request, 'user', None)
     customer = self.context.get('customer')
+    cash_session = self.context.get('cash_session')
+    settings = self._get_settings()
+    allow_without_stock = settings.allow_sell_without_stock
 
     last_number = (
       Sale.objects.select_for_update()
@@ -192,6 +268,7 @@ class SaleCreateSerializer(serializers.Serializer):
       payment_method=validated_data.get('payment_method', Sale.PaymentMethod.CASH),
       notes=validated_data.get('notes', ''),
       created_by=user if getattr(user, 'is_authenticated', False) else None,
+      cash_session=cash_session,
     )
 
     subtotal = Decimal('0')
@@ -206,6 +283,16 @@ class SaleCreateSerializer(serializers.Serializer):
       line_total = (unit_price * quantity).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
       subtotal += line_total
 
+      stock_record = ensure_stock_record(business, product)
+      available_quantity = stock_record.quantity
+      will_be_negative = (available_quantity - quantity) < 0
+      if will_be_negative and not allow_without_stock:
+        raise self._out_of_stock_error(
+          product=product,
+          available=available_quantity,
+          requested=quantity,
+        )
+
       bulk_items.append(
         SaleItem(
           sale=sale,
@@ -217,6 +304,19 @@ class SaleCreateSerializer(serializers.Serializer):
         )
       )
 
+      movement_kwargs: dict[str, Any] = {}
+      if will_be_negative and allow_without_stock:
+        movement_kwargs = {
+          'reason': 'SALE_ALLOW_NO_STOCK',
+          'metadata': {
+            'allowed_without_stock': True,
+            'product_id': str(product.id),
+            'available_stock': f"{available_quantity}",
+            'requested_qty': f"{quantity}",
+          },
+          'allow_negative_stock': True,
+        }
+
       try:
         register_stock_movement(
           business=business,
@@ -225,6 +325,7 @@ class SaleCreateSerializer(serializers.Serializer):
           quantity=quantity,
           note=f'Venta #{sale.number}',
           created_by=user,
+          **movement_kwargs,
         )
       except ValidationError as exc:
         message = exc.messages[0] if exc.messages else 'No pudimos actualizar el stock.'
@@ -232,7 +333,7 @@ class SaleCreateSerializer(serializers.Serializer):
 
     discount_value = validated_data.get('discount')
     discount = Decimal(discount_value) if discount_value is not None else Decimal('0')
-    if discount > subtotal:
+    if not settings.allow_negative_price_or_discount and discount > subtotal:
       raise serializers.ValidationError({'discount': 'El descuento no puede ser mayor al subtotal.'})
     total = subtotal - discount
 

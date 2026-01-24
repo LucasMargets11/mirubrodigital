@@ -22,6 +22,7 @@ export function OpenCashModal({ open, onClose, canManage }: OpenCashModalProps) 
 
     const [selectedRegister, setSelectedRegister] = useState<string>('');
     const [openingAmount, setOpeningAmount] = useState<string>('0');
+    const [openedByName, setOpenedByName] = useState<string>('');
     const [error, setError] = useState<string>('');
 
     const activeRegisters: CashRegister[] = useMemo(() => registers.filter((register) => register.is_active), [registers]);
@@ -45,9 +46,11 @@ export function OpenCashModal({ open, onClose, canManage }: OpenCashModalProps) 
             await mutation.mutateAsync({
                 register_id: selectedRegister || null,
                 opening_cash_amount: amountValue,
+                opened_by_name: openedByName.trim() || null,
             });
             setOpeningAmount('0');
             setSelectedRegister('');
+            setOpenedByName('');
             onClose();
         } catch (err) {
             const apiError = err as ApiError;
@@ -80,6 +83,18 @@ export function OpenCashModal({ open, onClose, canManage }: OpenCashModalProps) 
                         </select>
                     </label>
                 ) : null}
+                <label className="block text-sm text-slate-600">
+                    ¿Quién abre la caja?
+                    <input
+                        type="text"
+                        value={openedByName}
+                        onChange={(event) => setOpenedByName(event.target.value)}
+                        maxLength={120}
+                        placeholder="Ej: Ana (supervisora)"
+                        className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-2 text-base text-slate-700"
+                    />
+                    <span className="text-xs text-slate-400">Lo mostraremos en el cierre para identificar a la persona.</span>
+                </label>
                 <label className="block text-sm text-slate-600">
                     Saldo inicial
                     <input

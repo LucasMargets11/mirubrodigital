@@ -1,8 +1,9 @@
 "use client";
 
-import { useDeferredValue, useMemo, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useId, useMemo, useState } from 'react';
 import { z } from 'zod';
 
+import { StockStatusSelect } from '@/components/app/stock-status-select';
 import { Modal } from '@/components/ui/modal';
 import {
     useCreateMovement,
@@ -31,13 +32,20 @@ const movementLabels: Record<MovementForm['movement_type'], string> = {
 
 type StockClientProps = {
     canManage: boolean;
+    initialStatus?: string;
+    initialAction?: 'movement';
+    initialProductId?: string;
 };
 
-export function StockClient({ canManage }: StockClientProps) {
+export function StockClient({ canManage, initialStatus = '', initialAction, initialProductId }: StockClientProps) {
     const [search, setSearch] = useState('');
     const deferredSearch = useDeferredValue(search);
-    const [statusFilter, setStatusFilter] = useState('');
+    const [statusFilter, setStatusFilter] = useState(initialStatus ?? '');
     const [selectedProductForMovements, setSelectedProductForMovements] = useState<string | undefined>();
+    const [pendingAction, setPendingAction] = useState<'movement' | undefined>(initialAction);
+    const [productSearch, setProductSearch] = useState('');
+    const deferredModalSearch = useDeferredValue(productSearch.trim());
+    const modalSearchEnabled = deferredModalSearch.length >= 2;
 
     const [form, setForm] = useState<MovementForm>({ product_id: '', movement_type: 'IN', quantity: '', note: '' });
     const [errors, setErrors] = useState<Record<string, string>>({});
@@ -47,31 +55,89 @@ export function StockClient({ canManage }: StockClientProps) {
 
     const stockQuery = useStockLevels(deferredSearch, statusFilter);
     const productsQuery = useProducts('', true);
+    const modalProductsQuery = useProducts(deferredModalSearch, true, { enabled: modalSearchEnabled });
     const movementsQuery = useStockMovements(selectedProductForMovements);
     const createMovement = useCreateMovement();
 
     const products = useMemo(() => productsQuery.data ?? [], [productsQuery.data]);
     const stockRows = useMemo(() => stockQuery.data ?? [], [stockQuery.data]);
     const movements = useMemo(() => movementsQuery.data ?? [], [movementsQuery.data]);
+    const productSelectId = useId();
+    const productSearchId = `${productSelectId}-search`;
+    const modalSearchResults = modalProductsQuery.data ?? [];
+    const modalSearchLoading = modalSearchEnabled && modalProductsQuery.isFetching;
+    const modalSearchErrored = modalSearchEnabled && modalProductsQuery.isError;
+    const localProductMatches = useMemo(() => {
+        const term = productSearch.trim().toLowerCase();
+        if (!term) {
+            return products;
+        }
+        return products.filter((product) => {
+            const name = product.name?.toLowerCase() ?? '';
+            const sku = product.sku?.toLowerCase() ?? '';
+            return name.includes(term) || sku.includes(term);
+        });
+    }, [productSearch, products]);
+    const modalProductMatches = modalSearchEnabled
+        ? modalSearchResults.length > 0
+            ? modalSearchResults
+            : localProductMatches
+        : localProductMatches;
+    const knownProducts = useMemo(() => {
+        const map = new Map<string, (typeof products)[number]>();
+        products.forEach((product) => map.set(product.id, product));
+        modalSearchResults.forEach((product) => {
+            if (!map.has(product.id)) {
+                map.set(product.id, product);
+            }
+        });
+        return map;
+    }, [modalSearchResults, products]);
+    const selectedProductOption = useMemo(() => {
+        if (!form.product_id) {
+            return null;
+        }
+        return knownProducts.get(form.product_id) ?? null;
+    }, [form.product_id, knownProducts]);
+    const modalProductOptions = useMemo(() => {
+        if (!selectedProductOption) {
+            return modalProductMatches;
+        }
+        const exists = modalProductMatches.some((product) => product.id === selectedProductOption.id);
+        return exists ? modalProductMatches : [selectedProductOption, ...modalProductMatches];
+    }, [modalProductMatches, selectedProductOption]);
 
     const isSaving = createMovement.isPending;
 
-    const handleOpenModal = (product?: ProductStock) => {
-        if (!canManage) {
-            setPermissionNotice('Tu rol no tiene permiso para registrar movimientos.');
+    const handleOpenModal = useCallback(
+        (product?: ProductStock) => {
+            if (!canManage) {
+                setPermissionNotice('Tu rol no tiene permiso para registrar movimientos.');
+                return;
+            }
+            setPermissionNotice('');
+            setProductSearch('');
+            setForm((prev) => ({
+                product_id: product?.product.id ?? prev.product_id ?? '',
+                movement_type: 'IN',
+                quantity: '',
+                note: '',
+            }));
+            setErrors({});
+            setFeedback('');
+            setModalOpen(true);
+        },
+        [canManage]
+    );
+
+    useEffect(() => {
+        if (pendingAction !== 'movement' || !canManage) {
             return;
         }
-        setPermissionNotice('');
-        setForm((prev) => ({
-            product_id: product?.product.id ?? prev.product_id ?? '',
-            movement_type: 'IN',
-            quantity: '',
-            note: '',
-        }));
-        setErrors({});
-        setFeedback('');
-        setModalOpen(true);
-    };
+        const targetProduct = initialProductId ? stockRows.find((row) => row.product.id === initialProductId) : undefined;
+        handleOpenModal(targetProduct);
+        setPendingAction(undefined);
+    }, [pendingAction, canManage, handleOpenModal, initialProductId, stockRows]);
 
     async function handleSubmit() {
         if (!canManage) {
@@ -148,16 +214,7 @@ export function StockClient({ canManage }: StockClientProps) {
                         placeholder="Buscar producto"
                         className="w-full rounded-xl border border-slate-200 px-4 py-2 text-sm focus:border-slate-900 focus:outline-none"
                     />
-                    <select
-                        value={statusFilter}
-                        onChange={(event) => setStatusFilter(event.target.value)}
-                        className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 focus:border-slate-900 focus:outline-none"
-                    >
-                        <option value="">Todos los estados</option>
-                        <option value="low">Stock bajo</option>
-                        <option value="out">Sin stock</option>
-                        <option value="ok">En orden</option>
-                    </select>
+                    <StockStatusSelect value={statusFilter} onValueChange={setStatusFilter} className="w-full md:w-60" />
                 </div>
                 <div className="mt-4 overflow-x-auto">
                     <table className="min-w-full divide-y divide-slate-100 text-sm">
@@ -281,25 +338,53 @@ export function StockClient({ canManage }: StockClientProps) {
                 </div>
             </section>
             <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Movimiento de inventario">
-                <label className="text-sm font-medium text-slate-700">
-                    Producto <span className="text-rose-600" aria-hidden="true">*</span>
-                    <span className="sr-only">Campo obligatorio</span>
-                    <select
-                        value={form.product_id}
-                        onChange={(event) => setForm((prev) => ({ ...prev, product_id: event.target.value }))}
-                        className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 focus:border-slate-900 focus:outline-none"
-                        required
-                        aria-required="true"
-                    >
-                        <option value="">Seleccioná un producto</option>
-                        {products.map((product) => (
-                            <option key={product.id} value={product.id}>
-                                {product.name}
-                            </option>
-                        ))}
-                    </select>
-                    {errors.product_id && <span className="text-xs text-rose-600">{errors.product_id}</span>}
-                </label>
+                <div className="text-sm font-medium text-slate-700">
+                    <label htmlFor={productSelectId} className="text-sm font-medium text-slate-700">
+                        Producto <span className="text-rose-600" aria-hidden="true">*</span>
+                        <span className="sr-only">Campo obligatorio</span>
+                    </label>
+                    <div className="mt-1 space-y-2">
+                        <label htmlFor={productSearchId} className="sr-only">
+                            Buscar producto
+                        </label>
+                        <input
+                            id={productSearchId}
+                            type="search"
+                            value={productSearch}
+                            onChange={(event) => setProductSearch(event.target.value)}
+                            placeholder="Buscar por nombre o SKU"
+                            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-slate-900 focus:outline-none"
+                        />
+                        <div className="min-h-[1.5rem] space-y-1 text-xs font-normal">
+                            {productSearch.trim().length > 0 && productSearch.trim().length < 2 ? (
+                                <p className="text-slate-500">Escribí al menos 2 letras para buscar en todo el catálogo.</p>
+                            ) : null}
+                            {modalSearchLoading ? <p className="text-slate-500">Buscando productos...</p> : null}
+                            {modalSearchErrored ? <p className="text-rose-600">No pudimos buscar productos. Intentá nuevamente.</p> : null}
+                        </div>
+                        <select
+                            id={productSelectId}
+                            value={form.product_id}
+                            onChange={(event) => setForm((prev) => ({ ...prev, product_id: event.target.value }))}
+                            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 focus:border-slate-900 focus:outline-none disabled:cursor-not-allowed disabled:bg-slate-50"
+                            required
+                            aria-required="true"
+                            disabled={modalProductOptions.length === 0}
+                        >
+                            <option value="">{modalProductOptions.length === 0 ? 'Sin coincidencias' : 'Seleccioná un producto'}</option>
+                            {modalProductOptions.map((product) => (
+                                <option key={product.id} value={product.id}>
+                                    {product.name}
+                                    {product.sku ? ` · SKU ${product.sku}` : ''}
+                                </option>
+                            ))}
+                        </select>
+                        {modalProductOptions.length === 0 && !modalSearchLoading ? (
+                            <p className="text-xs font-normal text-slate-500">No encontramos productos para esa búsqueda.</p>
+                        ) : null}
+                        {errors.product_id && <span className="text-xs text-rose-600">{errors.product_id}</span>}
+                    </div>
+                </div>
                 <div className="grid gap-4 md:grid-cols-2">
                     <label className="text-sm font-medium text-slate-700">
                         Tipo <span className="text-rose-600" aria-hidden="true">*</span>

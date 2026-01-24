@@ -1,10 +1,11 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
 
 from django.db.models import Count, Q, Sum, DecimalField, OuterRef, Subquery, Value
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from rest_framework import generics
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.pagination import LimitOffsetPagination
@@ -13,8 +14,14 @@ from rest_framework.views import APIView
 
 from apps.accounts.permissions import HasBusinessMembership, HasPermission
 from apps.cash.models import Payment
-from .models import Sale
-from .serializers import SaleCancelSerializer, SaleCreateSerializer, SaleDetailSerializer, SaleListSerializer
+from .models import Sale, SaleItem
+from .serializers import (
+	SaleCancelSerializer,
+	SaleCreateSerializer,
+	SaleDetailSerializer,
+	SaleListSerializer,
+	SaleTimelineSerializer,
+)
 
 
 def _annotate_payments_totals(queryset):
@@ -146,3 +153,100 @@ class SaleCancelView(APIView):
 		serializer.is_valid(raise_exception=True)
 		serializer.save()
 		return Response(SaleDetailSerializer(sale, context={'request': request}).data)
+
+
+class SalesTodaySummaryView(APIView):
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	required_permission = 'view_sales'
+
+	def get(self, request):
+		business = getattr(request, 'business')
+		today = timezone.localdate()
+		queryset = Sale.objects.filter(business=business, status=Sale.Status.COMPLETED, created_at__date=today)
+		aggregates = queryset.aggregate(
+			total_amount=Coalesce(Sum('total'), Decimal('0')),
+			orders=Count('id'),
+		)
+		total_amount = aggregates['total_amount'] or Decimal('0')
+		orders = aggregates['orders'] or 0
+		average_ticket = (total_amount / orders) if orders else Decimal('0')
+		return Response(
+			{
+				'total_amount': f"{total_amount:.2f}",
+				'orders_count': orders,
+				'average_ticket': f"{average_ticket:.2f}",
+			}
+		)
+
+
+class SalesRecentView(APIView):
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	required_permission = 'view_sales'
+
+	def get(self, request):
+		business = getattr(request, 'business')
+		limit = self._resolve_limit(request.query_params.get('limit'), default=5, maximum=20)
+		queryset = (
+			Sale.objects.filter(business=business)
+			.select_related('customer')
+			.order_by('-created_at', '-number')[:limit]
+		)
+		serializer = SaleTimelineSerializer(queryset, many=True)
+		return Response(serializer.data)
+
+	@staticmethod
+	def _resolve_limit(raw_value: str | None, default: int, maximum: int) -> int:
+		try:
+			value = int(raw_value) if raw_value is not None else default
+		except (TypeError, ValueError):
+			value = default
+		return max(1, min(value, maximum))
+
+
+class SalesTopProductsView(APIView):
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	required_permission = 'view_sales'
+
+	def get(self, request):
+		business = getattr(request, 'business')
+		limit = SalesRecentView._resolve_limit(request.query_params.get('limit'), default=5, maximum=25)
+		window_days = self._resolve_range_days(request.query_params.get('range'))
+		since = timezone.now() - timedelta(days=window_days)
+		items = (
+			SaleItem.objects.filter(
+				sale__business=business,
+				sale__status=Sale.Status.COMPLETED,
+				sale__created_at__gte=since,
+			)
+			.values('product_id', 'product_name_snapshot')
+			.annotate(
+				total_qty=Coalesce(Sum('quantity'), Decimal('0')),
+				total_sales=Coalesce(Sum('line_total'), Decimal('0')),
+			)
+			.order_by('-total_qty', '-total_sales')[:limit]
+		)
+		response = [
+			{
+				'product_id': str(item['product_id']) if item['product_id'] else None,
+				'name': item['product_name_snapshot'],
+				'total_qty': f"{Decimal(item['total_qty']):.2f}",
+				'total_sales': f"{Decimal(item['total_sales']):.2f}",
+			}
+			for item in items
+		]
+		return Response({'range_days': window_days, 'items': response})
+
+	@staticmethod
+	def _resolve_range_days(raw_value: str | None) -> int:
+		if not raw_value:
+			return 7
+		value = raw_value.lower().strip()
+		if value.endswith('d'):
+			number = value[:-1]
+		else:
+			number = value
+		try:
+			days = int(number)
+		except ValueError:
+			days = 7
+		return max(1, min(days, 90))

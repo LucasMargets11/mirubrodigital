@@ -39,6 +39,8 @@ export function CashSessionBanner({ session, loading, canManage, onOpenRequest }
         );
     }
 
+    const openerName = session.opened_by?.name ?? session.opened_by_name ?? '';
+
     return (
         <div className="flex flex-col gap-4 rounded-3xl border border-slate-200 bg-gradient-to-r from-emerald-50 to-slate-50 p-6 shadow-sm md:flex-row md:items-center md:justify-between">
             <div>
@@ -48,7 +50,7 @@ export function CashSessionBanner({ session, loading, canManage, onOpenRequest }
                 </h2>
                 <p className="text-sm text-slate-600">
                     Apertura {formatDateTime(session.opened_at)}
-                    {session.opened_by ? ` · ${session.opened_by.name}` : ''}
+                    {openerName ? ` · ${openerName}` : ''}
                 </p>
             </div>
             <div className="flex flex-col gap-2 md:items-end">

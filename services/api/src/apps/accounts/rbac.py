@@ -25,6 +25,7 @@ GESTION_PERMISSIONS: Set[str] = {
   'export_reports',
   'manage_users',
   'manage_settings',
+  'manage_commercial_settings',
 }
 
 RESTAURANT_PERMISSIONS: Set[str] = {

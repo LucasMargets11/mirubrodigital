@@ -6,6 +6,7 @@ from .views import (
 	CashPaymentView,
 	CashRegisterListView,
 	CashSessionCloseView,
+	CashSessionCollectPendingView,
 	CashSessionOpenView,
 	CashSessionSummaryView,
 	CashSummaryView,
@@ -20,6 +21,7 @@ urlpatterns = [
 	path('summary/', CashSummaryView.as_view(), name='summary'),
 	path('sessions/<uuid:pk>/summary/', CashSessionSummaryView.as_view(), name='session-summary'),
 	path('sessions/<uuid:pk>/close/', CashSessionCloseView.as_view(), name='session-close'),
+	path('sessions/<uuid:pk>/collect-pending/', CashSessionCollectPendingView.as_view(), name='session-collect-pending'),
 	path('payments/', CashPaymentView.as_view(), name='payment-list-create'),
 	path('movements/', CashMovementView.as_view(), name='movement-list-create'),
 ]
