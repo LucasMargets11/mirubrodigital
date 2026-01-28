@@ -1,6 +1,18 @@
-import { apiGet, apiPost } from '@/lib/api/client';
+import { apiDelete, apiGet, apiPatch, apiPost } from '@/lib/api/client';
 
-import type { Order, OrderPayload, OrderStatus } from './types';
+import type {
+    CloseOrderPayload,
+    CreateSalePayload,
+    Order,
+    OrderCheckoutResponse,
+    OrderItemCreatePayload,
+    OrderItemUpdatePayload,
+    OrderPayload,
+    OrderStartPayload,
+    OrderStatus,
+    OrderUpdatePayload,
+    PayOrderPayload,
+} from './types';
 
 function buildQuery(params: Record<string, string | undefined>) {
     const searchParams = new URLSearchParams();
@@ -22,10 +34,54 @@ export function fetchOrders(params: { status?: OrderStatus[]; search?: string; l
     return apiGet<Order[]>(`/api/v1/orders/${query}`);
 }
 
+export function fetchOrder(orderId: string) {
+    return apiGet<Order>(`/api/v1/orders/${orderId}/`);
+}
+
 export function createOrder(payload: OrderPayload) {
-    return apiPost<Order>('/api/v1/orders/', payload);
+    return apiPost<Order>('/api/v1/resto/orders/', payload);
+}
+
+export function startOrder(payload: OrderStartPayload) {
+    return apiPost<Order>('/api/v1/orders/start/', payload);
+}
+
+export function createOrderItem(orderId: string, payload: OrderItemCreatePayload) {
+    return apiPost<Order>(`/api/v1/orders/${orderId}/items/`, payload);
+}
+
+export function updateOrder(orderId: string, payload: OrderUpdatePayload) {
+    return apiPatch<Order>(`/api/v1/orders/${orderId}/`, payload);
+}
+
+export function updateOrderItem(orderId: string, itemId: string, payload: OrderItemUpdatePayload) {
+    return apiPatch<Order>(`/api/v1/orders/${orderId}/items/${itemId}/`, payload);
+}
+
+export function deleteOrderItem(orderId: string, itemId: string) {
+    return apiDelete<Order>(`/api/v1/orders/${orderId}/items/${itemId}/`);
 }
 
 export function updateOrderStatus(orderId: string, status: OrderStatus) {
     return apiPost<Order>(`/api/v1/orders/${orderId}/status/`, { status });
+}
+
+export function closeOrder(orderId: string, payload: CloseOrderPayload) {
+    return apiPost<Order>(`/api/v1/orders/${orderId}/close/`, payload);
+}
+
+export function cancelOrder(orderId: string) {
+    return apiPost<Order>(`/api/v1/orders/${orderId}/cancel/`);
+}
+
+export function fetchOrderCheckout(orderId: string) {
+    return apiGet<OrderCheckoutResponse>(`/api/v1/orders/${orderId}/checkout/`);
+}
+
+export function createSaleFromOrder(orderId: string, payload: CreateSalePayload) {
+    return apiPost<OrderCheckoutResponse>(`/api/v1/orders/${orderId}/create-sale/`, payload);
+}
+
+export function payOrder(orderId: string, payload: PayOrderPayload) {
+    return apiPost<Order>(`/api/v1/orders/${orderId}/pay/`, payload);
 }

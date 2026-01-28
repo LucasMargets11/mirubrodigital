@@ -1,13 +1,26 @@
-export default function OrdersPage() {
-    return (
-        <section className="space-y-4">
-            <header>
-                <h1 className="text-2xl font-semibold text-slate-900">Órdenes</h1>
-                <p className="text-sm text-slate-500">Visibilidad end-to-end del fulfillment.</p>
-            </header>
-            <div className="rounded-xl border border-dashed border-slate-300 bg-white p-6 text-sm text-slate-500">
-                Listado de órdenes próximamente.
-            </div>
-        </section>
-    );
+import { redirect } from 'next/navigation';
+
+import { getSession } from '@/lib/auth';
+
+import { OrdersClient } from './orders-client';
+
+export default async function OrdersPage() {
+    const session = await getSession();
+
+    if (!session) {
+        redirect('/entrar');
+    }
+
+    const featureEnabled = session.features?.resto_orders !== false;
+    const canView = session.permissions?.view_orders ?? false;
+
+    if (!featureEnabled || !canView) {
+        redirect('/app/servicios');
+    }
+
+    const canCreate = session.permissions?.create_orders ?? false;
+    const canUpdate = session.permissions?.change_order_status ?? false;
+    const canClose = session.permissions?.close_orders ?? false;
+
+    return <OrdersClient canCreate={canCreate} canUpdate={canUpdate} canClose={canClose} />;
 }

@@ -104,6 +104,16 @@ class ReportsAPITests(APITestCase):
     )
     return session
 
+  def _close_session(self, session: CashSession):
+    totals = compute_session_totals(session)
+    session.expected_cash_total = totals['cash_expected_total']
+    session.closing_cash_counted = totals['cash_expected_total']
+    session.difference_amount = Decimal('0.00')
+    session.status = CashSession.Status.CLOSED
+    session.closed_at = timezone.now()
+    session.save(update_fields=['expected_cash_total', 'closing_cash_counted', 'difference_amount', 'status', 'closed_at'])
+    return session
+
   def _create_product_with_stock(
     self,
     *,
@@ -176,6 +186,44 @@ class ReportsAPITests(APITestCase):
     response = self.client.get('/api/v1/reports/sales/')
 
     self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+  def test_cash_closure_list_returns_closed_by_default(self):
+    closed_session = self._close_session(self._create_session(self.business))
+    self._create_session(self.business)
+    today = timezone.now().date().isoformat()
+
+    response = self.client.get('/api/v1/reports/cash/closures/', {'from': today, 'to': today})
+
+    self.assertEqual(response.status_code, status.HTTP_200_OK)
+    ids = [row['id'] for row in response.data['results']]
+    self.assertIn(str(closed_session.id), ids)
+    self.assertEqual(len(ids), 1)
+
+  def test_cash_closure_list_can_include_open_sessions(self):
+    open_session = self._create_session(self.business)
+    self._close_session(self._create_session(self.business))
+    today = timezone.now().date().isoformat()
+
+    response = self.client.get('/api/v1/reports/cash/closures/', {'status': 'open', 'from': today, 'to': today})
+
+    self.assertEqual(response.status_code, status.HTTP_200_OK)
+    ids = [row['id'] for row in response.data['results']]
+    self.assertEqual(ids, [str(open_session.id)])
+
+  def test_cash_closure_list_filters_by_query(self):
+    session_a = self._close_session(self._create_session(self.business))
+    session_a.register.name = 'Caja Norte'
+    session_a.register.save(update_fields=['name'])
+    session_b = self._close_session(self._create_session(self.business))
+    session_b.register.name = 'Caja Sur'
+    session_b.register.save(update_fields=['name'])
+    today = timezone.now().date().isoformat()
+
+    response = self.client.get('/api/v1/reports/cash/closures/', {'status': 'all', 'q': 'norte', 'from': today, 'to': today})
+
+    self.assertEqual(response.status_code, status.HTTP_200_OK)
+    ids = [row['id'] for row in response.data['results']]
+    self.assertEqual(ids, [str(session_a.id)])
 
   def test_cash_closure_detail_expected_breakdown(self):
     session = self._create_session(self.business)

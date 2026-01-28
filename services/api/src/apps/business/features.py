@@ -15,6 +15,13 @@ FEATURE_KEYS: Iterable[str] = (
   'orders',
   'tables',
   'whatsapp_bot',
+  'resto_orders',
+  'resto_kitchen',
+  'resto_sales',
+  'resto_tables',
+  'resto_recipes',
+  'resto_menu',
+  'resto_reports',
   'settings',
 )
 
@@ -33,6 +40,13 @@ PLAN_FEATURES: Dict[str, Iterable[str]] = {
     'orders',
     'tables',
     'whatsapp_bot',
+    'resto_orders',
+    'resto_kitchen',
+    'resto_sales',
+    'resto_tables',
+    'resto_recipes',
+    'resto_menu',
+    'resto_reports',
   ),
 }
 

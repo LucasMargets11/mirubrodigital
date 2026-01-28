@@ -16,6 +16,7 @@ type AppLink = {
     label: string;
     featureKey?: keyof FeatureFlags;
     permissionKey?: string;
+    services?: string[];
 };
 
 const GENERAL_LINKS: AppLink[] = [
@@ -33,14 +34,36 @@ const SERVICE_LINKS: Record<string, AppLink[]> = {
         { href: '/app/gestion/clientes', label: 'Clientes', permissionKey: 'view_customers', featureKey: 'customers' },
     ],
     restaurante: [
-        { href: '/app/orders', label: 'Órdenes', permissionKey: 'view_orders', featureKey: 'orders' },
-        { href: '/app/sales', label: 'Ventas', permissionKey: 'view_sales', featureKey: 'sales' },
+        { href: '/app/carta', label: 'Carta', permissionKey: 'view_menu', featureKey: 'resto_menu' },
+        { href: '/app/tables', label: 'Mapa de mesas', permissionKey: 'view_tables', featureKey: 'resto_tables' },
+        { href: '/app/orders', label: 'Órdenes', permissionKey: 'view_orders', featureKey: 'resto_orders' },
+        { href: '/app/kitchen', label: 'Cocina en vivo', permissionKey: 'view_kitchen_board', featureKey: 'resto_kitchen' },
+        { href: '/app/sales', label: 'Ventas restaurante', permissionKey: 'view_sales', featureKey: 'resto_sales' },
+        {
+            href: '/app/resto/operacion/reportes',
+            label: 'Reportes',
+            permissionKey: 'view_restaurant_reports',
+            featureKey: 'resto_reports',
+        },
+        {
+            href: '/app/resto/settings/tables',
+            label: 'Configurar mesas',
+            permissionKey: 'manage_tables',
+            featureKey: 'resto_tables',
+        },
     ],
 };
 
 const SHARED_LINKS: AppLink[] = [
     { href: '/app/operacion/caja', label: 'Caja', permissionKey: 'view_cash', featureKey: 'cash' },
     { href: '/app/reports', label: 'Reportes', permissionKey: 'view_reports', featureKey: 'reports' },
+    {
+        href: '/app/resto/operacion/reportes',
+        label: 'Reportes',
+        permissionKey: 'view_restaurant_reports',
+        featureKey: 'resto_reports',
+        services: ['restaurante'],
+    },
     {
         href: '/app/gestion/configuracion',
         label: 'Configuración',
@@ -76,6 +99,9 @@ export function Sidebar({ businessName, features, permissions, service }: Sideba
             <nav className="flex-1 space-y-5 overflow-y-auto px-3 pb-4 text-sm">
                 {sections.map((section) => {
                     const visibleLinks = section.links.filter((link) => {
+                        if (link.services && !link.services.includes(service)) {
+                            return false;
+                        }
                         if (link.featureKey && features?.[link.featureKey] === false) {
                             return false;
                         }

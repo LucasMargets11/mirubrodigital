@@ -25,7 +25,7 @@ SERVICE_CATALOG: Iterable[ServiceDefinition] = (
     slug='restaurante',
     name='Restaurantes',
     description='Pedidos, mesas y automatizaciones con WhatsApp.',
-    features=['products', 'inventory', 'stock', 'sales', 'customers', 'cash', 'reports', 'orders', 'tables', 'whatsapp_bot'],
+    features=['resto_orders', 'resto_kitchen', 'resto_sales', 'resto_menu'],
     min_plan=BusinessPlan.PLUS,
   ),
 )

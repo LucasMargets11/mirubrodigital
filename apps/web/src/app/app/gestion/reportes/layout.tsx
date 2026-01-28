@@ -5,7 +5,7 @@ import { AccessMessage } from '@/components/app/access-message';
 import { getSession } from '@/lib/auth';
 import type { Session } from '@/lib/auth/types';
 
-import { ReportsSubnav } from './components/reports-subnav';
+import { ReportsSubnav } from '@/modules/reports/components/subnav';
 
 type ReportsLayoutProps = {
     children: ReactNode;

@@ -33,6 +33,8 @@ INSTALLED_APPS = [
   'apps.customers',
   'apps.cash',
   'apps.reports',
+  'apps.menu',
+  'apps.resto',
 ]
 
 MIDDLEWARE = [

@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
+import { ApiError } from '@/lib/api/client';
+
 import {
     createMovement,
     createProduct,
@@ -196,12 +198,43 @@ export function useTopSellingProducts(range = '7d', limit = 5, enabled = true) {
     });
 }
 
-export function useCommercialSettingsQuery(options?: { enabled?: boolean }) {
-    return useQuery({
+type CommercialSettingsQueryOptions = {
+    enabled?: boolean;
+    skipIfForbidden?: boolean;
+};
+
+function isForbiddenError(error: unknown): error is ApiError {
+    if (error instanceof ApiError) {
+        return error.status === 403;
+    }
+    if (typeof error === 'object' && error !== null && 'status' in error) {
+        return (error as { status?: number }).status === 403;
+    }
+    return false;
+}
+
+export function useCommercialSettingsQuery(options?: CommercialSettingsQueryOptions) {
+    return useQuery<CommercialSettings | null>({
         queryKey: settingsBaseKey,
-        queryFn: () => fetchCommercialSettings(),
+        queryFn: async () => {
+            try {
+                return await fetchCommercialSettings();
+            } catch (error) {
+                if (options?.skipIfForbidden && isForbiddenError(error)) {
+                    return null;
+                }
+                throw error;
+            }
+        },
         enabled: options?.enabled ?? true,
         staleTime: 60_000,
+        refetchOnWindowFocus: options?.skipIfForbidden ? false : undefined,
+        retry: (failureCount, error) => {
+            if (options?.skipIfForbidden && isForbiddenError(error)) {
+                return false;
+            }
+            return failureCount < 3;
+        },
     });
 }
 

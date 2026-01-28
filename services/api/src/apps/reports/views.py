@@ -561,23 +561,42 @@ class CashClosureListView(ReportsFeatureMixin, generics.ListAPIView):
 		date_range = _parse_date_range(self.request.query_params, tzinfo)
 		register_id = _parse_uuid(self.request.query_params.get('register_id'))
 		user_id = _parse_uuid(self.request.query_params.get('user_id'))
+		status_param = (self.request.query_params.get('status') or 'closed').lower()
+		if status_param not in {'open', 'closed', 'all', ''}:
+			raise ValidationError('status debe ser open, closed o all.')
+		search_query = (self.request.query_params.get('q') or '').strip()
 
-		queryset = (
-			CashSession.objects.filter(
-				business=business,
-				status=CashSession.Status.CLOSED,
-				closed_at__isnull=False,
-				closed_at__gte=date_range.start,
-				closed_at__lte=date_range.end,
-			)
-			.select_related('register', 'opened_by', 'closed_by')
-			.order_by('-closed_at')
+		closed_q = Q(
+			status=CashSession.Status.CLOSED,
+			closed_at__isnull=False,
+			closed_at__gte=date_range.start,
+			closed_at__lte=date_range.end,
 		)
+		open_q = Q(
+			status=CashSession.Status.OPEN,
+			opened_at__gte=date_range.start,
+			opened_at__lte=date_range.end,
+		)
+
+		base_queryset = CashSession.objects.filter(business=business).select_related('register', 'opened_by', 'closed_by')
+		if status_param == 'open':
+			queryset = base_queryset.filter(open_q)
+		elif status_param == 'closed' or status_param == '':
+			queryset = base_queryset.filter(closed_q)
+		else:
+			queryset = base_queryset.filter(open_q | closed_q)
 		if register_id:
 			queryset = queryset.filter(register_id=register_id)
 		if user_id:
-			queryset = queryset.filter(closed_by__id=user_id)
-		return queryset
+			queryset = queryset.filter(Q(closed_by__id=user_id) | Q(opened_by__id=user_id))
+		if search_query:
+			queryset = queryset.filter(
+				Q(register__name__icontains=search_query)
+				| Q(opened_by__name__icontains=search_query)
+				| Q(opened_by_name__icontains=search_query)
+				| Q(closed_by__name__icontains=search_query)
+			)
+		return queryset.annotate(report_sort_timestamp=Coalesce('closed_at', 'opened_at')).order_by('-report_sort_timestamp', '-opened_at')
 
 
 class CashClosureDetailView(ReportsFeatureMixin, APIView):

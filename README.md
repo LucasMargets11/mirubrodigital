@@ -100,6 +100,14 @@ pip install -r services/api/requirements.txt
 
 Los roles `cashier`, `staff`, `manager` y `owner` pueden crear ventas (`create_sales`). `view_sales` controla el acceso a la pantalla y API.
 
+### Restaurante Inteligente · Órdenes
+
+- `GET /api/v1/orders/` lista las órdenes filtrando por estado (`pending`, `preparing`, `ready`, `delivered`, `charged`, `canceled`).
+- `POST /api/v1/orders/` crea una nueva orden del salón o delivery con los items cargados manualmente o referenciando productos del catálogo.
+- `GET /api/v1/orders/{id}/` devuelve el detalle completo con items.
+- `POST /api/v1/orders/{id}/status/` actualiza el estado operativo (pendiente → en preparación → lista → entregada) siempre que tengas `change_order_status`.
+- `POST /api/v1/orders/{id}/close/` genera una venta vinculada a la orden, descuenta stock de los productos utilizados y marca la orden como `charged`. Requiere permisos `close_orders` y respeta la configuración comercial (cliente obligatorio, caja abierta, stock negativo, etc.).
+
 ## Autenticación JWT (cookies httpOnly)
 
 1. Crear un usuario en Django (o agregar más via admin):

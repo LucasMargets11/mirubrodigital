@@ -47,6 +47,21 @@ export function apiGet<T>(path: string): Promise<T> {
     return apiFetch<T>(path, { method: 'GET' });
 }
 
+export async function apiGetBlob(path: string): Promise<Blob> {
+    const response = await fetch(`${API_URL}${path}`, {
+        method: 'GET',
+        credentials: 'include',
+    });
+
+    if (!response.ok) {
+        const payload = await parseResponse(response);
+        const detail = (payload as { detail?: string } | undefined)?.detail;
+        throw new ApiError(detail ?? 'Error inesperado en la API', response.status, payload);
+    }
+
+    return response.blob();
+}
+
 function resolveBody(body?: unknown): BodyInit | undefined {
     if (body instanceof FormData) {
         return body;
@@ -67,6 +82,13 @@ export function apiPost<T>(path: string, body?: unknown): Promise<T> {
 export function apiPatch<T>(path: string, body?: unknown): Promise<T> {
     return apiFetch<T>(path, {
         method: 'PATCH',
+        body: resolveBody(body),
+    });
+}
+
+export function apiPut<T>(path: string, body?: unknown): Promise<T> {
+    return apiFetch<T>(path, {
+        method: 'PUT',
         body: resolveBody(body),
     });
 }

@@ -25,7 +25,7 @@ import type {
 import { downloadCsv } from '@/lib/csv';
 import { formatCurrency, formatNumber } from '@/lib/format';
 
-import { ReportsFilters, type ReportsFiltersValue } from './components/reports-filters';
+import { ReportsFilters, type ReportsFiltersValue } from '@/modules/reports/components/filters';
 import { StockAlertsWidget } from './components/stock-alerts-widget';
 import { TopProductsWidget } from './components/top-products-widget';
 

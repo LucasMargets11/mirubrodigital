@@ -6,8 +6,8 @@ import { downloadCsv } from '@/lib/csv';
 import { formatCurrency, formatNumber } from '@/lib/format';
 import { useReportsProducts } from '@/features/reports/hooks';
 
-import { ReportsFilters, type ReportsFiltersValue } from '../components/reports-filters';
-import { ReportsPagination } from '../components/pagination';
+import { ReportsFilters, type ReportsFiltersValue } from '@/modules/reports/components/filters';
+import { ReportsPagination } from '@/modules/reports/components/pagination';
 
 const defaultRange = getDefaultRange();
 

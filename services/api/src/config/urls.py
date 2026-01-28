@@ -2,6 +2,7 @@ from django.contrib import admin
 from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
+from apps.resto.views import RestaurantTablesMapStateView, RestaurantTablesSnapshotView
 from common.health import health_check
 
 urlpatterns = [
@@ -19,4 +20,9 @@ urlpatterns = [
   path('api/v1/cash/', include('apps.cash.urls')),
   path('api/v1/sales/', include('apps.sales.urls')),
   path('api/v1/reports/', include('apps.reports.urls')),
+  path('api/v1/menu/', include('apps.menu.urls')),
+  path('api/v1/resto/', include('apps.resto.urls')),
+  path('api/v1/restaurant/tables/', RestaurantTablesSnapshotView.as_view(), name='restaurant-tables'),
+  path('api/v1/restaurant/tables/map-state/', RestaurantTablesMapStateView.as_view(), name='restaurant-tables-map'),
+  path('api/v1/restaurant/reports/', include('apps.resto.reports.urls')),
 ]
