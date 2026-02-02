@@ -2,7 +2,7 @@ import Link from 'next/link';
 
 export default function MarketingHomePage() {
     return (
-        <section className="space-y-8">
+        <section className="flex flex-1 flex-col justify-center space-y-8">
             <div className="space-y-4">
                 <p className="text-sm font-semibold uppercase tracking-wide text-brand-500">
                     SaaS multi-tenant

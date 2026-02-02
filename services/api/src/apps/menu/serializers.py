@@ -4,7 +4,7 @@ from typing import Any, Iterable, List
 
 from rest_framework import serializers
 
-from .models import MenuCategory, MenuItem
+from .models import MenuCategory, MenuItem, PublicMenuConfig
 
 
 class TagListField(serializers.ListField):
@@ -140,3 +140,50 @@ class MenuImportUploadSerializer(serializers.Serializer):
         if not filename.lower().endswith('.xlsx'):
             raise serializers.ValidationError('Subí un archivo .xlsx generado por la plantilla.')
         return value
+
+
+class MenuLogoUploadSerializer(serializers.Serializer):
+    file = serializers.ImageField()
+
+
+class PublicMenuConfigSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PublicMenuConfig
+        fields = [
+            'enabled',
+            'slug',
+            'public_id',
+            'brand_name',
+            'logo_url',
+            'theme_json',
+            'template_key',
+            'updated_at',
+        ]
+        read_only_fields = ['public_id', 'updated_at']
+
+
+class PublicMenuItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MenuItem
+        fields = [
+            'id',
+            'name',
+            'description',
+            'price',
+            'is_available',
+            'tags',
+            'sku',
+        ]
+
+
+class PublicMenuCategorySerializer(serializers.ModelSerializer):
+    items = serializers.SerializerMethodField()
+
+    class Meta:
+        model = MenuCategory
+        fields = ['id', 'name', 'description', 'position', 'items']
+
+    def get_items(self, obj):
+        # We show all items to indicate availability status
+        items = obj.items.all().order_by('position', 'name')
+        return PublicMenuItemSerializer(items, many=True).data

@@ -1,7 +1,9 @@
 "use client";
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import type { FeatureFlags, PermissionMap } from '@/lib/auth/types';
@@ -12,65 +14,104 @@ const SERVICE_LABELS: Record<string, string> = {
 };
 
 type AppLink = {
-    href: string;
+    href?: string;
     label: string;
     featureKey?: keyof FeatureFlags;
     permissionKey?: string;
     services?: string[];
+    children?: AppLink[];
 };
 
-const GENERAL_LINKS: AppLink[] = [
-    { href: '/app/dashboard', label: 'Inicio' },
-    { href: '/app/servicios', label: 'Servicios' },
-];
+type NavGroup = {
+    title: string;
+    items: AppLink[];
+};
 
-const SERVICE_LINKS: Record<string, AppLink[]> = {
-    gestion: [
-        { href: '/app/gestion/dashboard', label: 'Resumen', permissionKey: 'view_dashboard' },
-        { href: '/app/gestion/productos', label: 'Productos', permissionKey: 'view_products', featureKey: 'products' },
-        { href: '/app/gestion/stock', label: 'Stock', permissionKey: 'view_stock', featureKey: 'inventory' },
-        { href: '/app/gestion/ventas', label: 'Ventas', permissionKey: 'view_sales', featureKey: 'sales' },
-        { href: '/app/gestion/facturas', label: 'Facturas', permissionKey: 'view_invoices', featureKey: 'invoices' },
-        { href: '/app/gestion/clientes', label: 'Clientes', permissionKey: 'view_customers', featureKey: 'customers' },
-    ],
+const NAV_CONFIG: Record<string, NavGroup[]> = {
     restaurante: [
-        { href: '/app/carta', label: 'Carta', permissionKey: 'view_menu', featureKey: 'resto_menu' },
-        { href: '/app/tables', label: 'Mapa de mesas', permissionKey: 'view_tables', featureKey: 'resto_tables' },
-        { href: '/app/orders', label: 'Órdenes', permissionKey: 'view_orders', featureKey: 'resto_orders' },
-        { href: '/app/kitchen', label: 'Cocina en vivo', permissionKey: 'view_kitchen_board', featureKey: 'resto_kitchen' },
-        { href: '/app/sales', label: 'Ventas restaurante', permissionKey: 'view_sales', featureKey: 'resto_sales' },
         {
-            href: '/app/resto/operacion/reportes',
-            label: 'Reportes',
-            permissionKey: 'view_restaurant_reports',
-            featureKey: 'resto_reports',
+            title: 'Panel',
+            items: [
+                { href: '/app/dashboard', label: 'Inicio' },
+                { href: '/app/servicios', label: 'Servicios' },
+            ],
         },
         {
-            href: '/app/resto/settings/tables',
-            label: 'Configurar mesas',
-            permissionKey: 'manage_tables',
-            featureKey: 'resto_tables',
+            title: 'Restaurante Inteligente',
+            items: [
+                { href: '/app/tables', label: 'Mapa de mesas', permissionKey: 'view_tables', featureKey: 'resto_tables' },
+                { href: '/app/orders', label: 'Órdenes', permissionKey: 'view_orders', featureKey: 'resto_orders' },
+                { href: '/app/kitchen', label: 'Cocina en vivo', permissionKey: 'view_kitchen_board', featureKey: 'resto_kitchen' },
+                { href: '/app/carta', label: 'Carta', permissionKey: 'view_menu', featureKey: 'resto_menu' },
+            ],
+        },
+        {
+            title: 'Operación',
+            items: [
+                { href: '/app/operacion/caja', label: 'Caja', permissionKey: 'view_cash', featureKey: 'cash' },
+                {
+                    href: '/app/resto/operacion/reportes',
+                    label: 'Reportes',
+                    permissionKey: 'view_restaurant_reports',
+                    featureKey: 'resto_reports',
+                },
+                {
+                    label: 'Configuración',
+                    permissionKey: 'manage_settings',
+                    featureKey: 'settings',
+                    children: [
+                        { href: '/app/settings', label: 'General' },
+                        {
+                             href: '/app/settings/online-menu',
+                             label: 'Carta Online',
+                             permissionKey: 'manage_settings',
+                             featureKey: 'resto_menu',
+                        },
+                        {
+                            href: '/app/resto/settings/tables',
+                            label: 'Configurar mesas',
+                            permissionKey: 'manage_tables',
+                            featureKey: 'resto_tables',
+                        },
+                    ],
+                },
+            ],
+        },
+    ],
+    gestion: [
+        {
+            title: 'Panel',
+            items: [
+                { href: '/app/dashboard', label: 'Inicio' },
+                { href: '/app/servicios', label: 'Servicios' },
+            ],
+        },
+        {
+            title: 'Gestión Comercial',
+            items: [
+                { href: '/app/gestion/dashboard', label: 'Resumen', permissionKey: 'view_dashboard' },
+                { href: '/app/gestion/productos', label: 'Productos', permissionKey: 'view_products', featureKey: 'products' },
+                { href: '/app/gestion/stock', label: 'Stock', permissionKey: 'view_stock', featureKey: 'inventory' },
+                { href: '/app/gestion/ventas', label: 'Ventas', permissionKey: 'view_sales', featureKey: 'sales' },
+                { href: '/app/gestion/facturas', label: 'Facturas', permissionKey: 'view_invoices', featureKey: 'invoices' },
+                { href: '/app/gestion/clientes', label: 'Clientes', permissionKey: 'view_customers', featureKey: 'customers' },
+            ],
+        },
+        {
+            title: 'Operación',
+            items: [
+                { href: '/app/operacion/caja', label: 'Caja', permissionKey: 'view_cash', featureKey: 'cash' },
+                { href: '/app/reports', label: 'Reportes', permissionKey: 'view_reports', featureKey: 'reports' },
+                {
+                    href: '/app/gestion/configuracion',
+                    label: 'Configuración',
+                    permissionKey: 'manage_commercial_settings',
+                    featureKey: 'settings',
+                },
+            ],
         },
     ],
 };
-
-const SHARED_LINKS: AppLink[] = [
-    { href: '/app/operacion/caja', label: 'Caja', permissionKey: 'view_cash', featureKey: 'cash' },
-    { href: '/app/reports', label: 'Reportes', permissionKey: 'view_reports', featureKey: 'reports' },
-    {
-        href: '/app/resto/operacion/reportes',
-        label: 'Reportes',
-        permissionKey: 'view_restaurant_reports',
-        featureKey: 'resto_reports',
-        services: ['restaurante'],
-    },
-    {
-        href: '/app/gestion/configuracion',
-        label: 'Configuración',
-        permissionKey: 'manage_commercial_settings',
-        featureKey: 'settings',
-    },
-];
 
 type SidebarProps = {
     businessName: string;
@@ -79,15 +120,61 @@ type SidebarProps = {
     service: string;
 };
 
-export function Sidebar({ businessName, features, permissions, service }: SidebarProps) {
-    const pathname = usePathname();
-    const serviceLabel = SERVICE_LABELS[service] ?? service;
+function NavItem({ item, pathname }: { item: AppLink; pathname: string }) {
+    const isActive = item.href ? pathname?.startsWith(item.href) : false;
+    // Check if any child is active to auto-expand or highlight parent
+    const hasActiveChild = item.children?.some((child) => child.href && pathname?.startsWith(child.href));
+    
+    // Initialize open state if a child is active
+    const [isOpen, setIsOpen] = useState(hasActiveChild);
 
-    const sections = [
-        { title: 'Panel', links: GENERAL_LINKS },
-        { title: serviceLabel, links: SERVICE_LINKS[service] ?? [] },
-        { title: 'Operación', links: SHARED_LINKS },
-    ];
+    if (item.children) {
+        return (
+            <div className="space-y-1">
+                <button
+                    onClick={() => setIsOpen(!isOpen)}
+                    className={cn(
+                        'flex w-full items-center justify-between rounded-md px-3 py-2 text-left font-medium text-slate-600 hover:bg-brand-50',
+                        hasActiveChild && 'bg-brand-50 text-brand-700'
+                    )}
+                >
+                    <span>{item.label}</span>
+                    {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                </button>
+                {isOpen && (
+                    <div className="ml-4 space-y-1 border-l border-slate-200 pl-2">
+                        {item.children.map((child) => (
+                            <NavItem key={child.href || child.label} item={child} pathname={pathname} />
+                        ))}
+                    </div>
+                )}
+            </div>
+        );
+    }
+
+    if (!item.href) return null;
+
+    return (
+        <Link
+            href={item.href}
+            className={cn(
+                'block rounded-md px-3 py-2 font-medium text-slate-600 hover:bg-brand-50',
+                isActive && 'bg-brand-100 text-brand-700'
+            )}
+        >
+            {item.label}
+        </Link>
+    );
+}
+
+export function Sidebar({ businessName, features, permissions, service }: SidebarProps) {
+    const pathname = usePathname() || '';
+    const serviceLabel = SERVICE_LABELS[service] ?? service;
+    
+    // Fallback to empty list or default structure if service not found, 
+    // but here we just handle the known ones or fallback to 'gestion' structure if needed.
+    // For now assuming service is valid as per previous code.
+    const sections = NAV_CONFIG[service] ?? [];
 
     return (
         <aside className="sticky top-0 flex h-screen w-64 flex-col border-r border-slate-200 bg-white/70 backdrop-blur">
@@ -98,11 +185,8 @@ export function Sidebar({ businessName, features, permissions, service }: Sideba
             </div>
             <nav className="flex-1 space-y-5 overflow-y-auto px-3 pb-4 text-sm">
                 {sections.map((section) => {
-                    const visibleLinks = section.links.filter((link) => {
-                        if (link.services && !link.services.includes(service)) {
-                            return false;
-                        }
-                        if (link.featureKey && features?.[link.featureKey] === false) {
+                    const visibleLinks = section.items.filter((link) => {
+                         if (link.featureKey && features?.[link.featureKey] === false) {
                             return false;
                         }
                         if (link.permissionKey && permissions?.[link.permissionKey] !== true) {
@@ -111,24 +195,13 @@ export function Sidebar({ businessName, features, permissions, service }: Sideba
                         return true;
                     });
 
-                    if (visibleLinks.length === 0) {
-                        return null;
-                    }
+                    if (visibleLinks.length === 0) return null;
 
                     return (
                         <div key={section.title} className="space-y-1">
                             <p className="px-3 text-xs font-semibold uppercase tracking-wide text-slate-400">{section.title}</p>
                             {visibleLinks.map((link) => (
-                                <Link
-                                    key={link.href}
-                                    href={link.href}
-                                    className={cn(
-                                        'block rounded-md px-3 py-2 font-medium text-slate-600 hover:bg-brand-50',
-                                        pathname?.startsWith(link.href) && 'bg-brand-100 text-brand-700'
-                                    )}
-                                >
-                                    {link.label}
-                                </Link>
+                                <NavItem key={link.href || link.label} item={link} pathname={pathname} />
                             ))}
                         </div>
                     );

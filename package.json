@@ -11,5 +11,13 @@
     "dev:api": "cd services/api && python manage.py runserver 0.0.0.0:8000",
     "lint": "npm --prefix apps/web run lint",
     "format": "npm --prefix apps/web run format"
+  },
+  "dependencies": {
+    "@radix-ui/react-separator": "^1.1.8",
+    "@radix-ui/react-slot": "^1.2.4",
+    "@radix-ui/react-switch": "^1.2.6",
+    "class-variance-authority": "^0.7.1",
+    "lucide-react": "^0.563.0",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.2/xlsx-0.20.2.tgz"
   }
 }

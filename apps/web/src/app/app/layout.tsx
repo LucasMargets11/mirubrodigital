@@ -1,35 +1,10 @@
 import { ReactNode } from 'react';
-import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 
 import { Sidebar } from '@/components/navigation/sidebar';
 import { Topbar } from '@/components/navigation/topbar';
 import { getSession } from '@/lib/auth';
 import type { Session } from '@/lib/auth/types';
-
-function isPlanRoute(): boolean {
-    const headersList = headers();
-    const candidates: string[] = [];
-    const possibleHeaderKeys = ['x-invoke-path', 'x-pathname', 'x-forwarded-path', 'x-forwarded-uri'];
-
-    possibleHeaderKeys.forEach((key) => {
-        const value = headersList.get(key);
-        if (value) {
-            candidates.push(value);
-        }
-    });
-
-    const nextUrl = headersList.get('next-url');
-    if (nextUrl) {
-        try {
-            candidates.push(new URL(nextUrl, 'http://localhost').pathname);
-        } catch (error) {
-            // ignore parsing issues and fallback to other hints
-        }
-    }
-
-    return candidates.some((path) => path?.startsWith('/app/planes'));
-}
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
     const session = await getSession();
@@ -41,8 +16,8 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     const resolvedSession = session as Session;
 
     const isSubscriptionActive = resolvedSession.subscription.status === 'active';
-    if (!isSubscriptionActive && !isPlanRoute()) {
-        redirect('/app/planes');
+    if (!isSubscriptionActive) {
+        redirect('/pricing');
     }
 
     return (

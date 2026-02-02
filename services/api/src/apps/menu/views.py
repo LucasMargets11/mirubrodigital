@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from django.db.models import Count, Prefetch, Q
+from django.shortcuts import get_object_or_404
 from django.http import HttpResponse
 from django.utils import timezone
+from django.core.files.storage import default_storage
+from django.core.files.base import ContentFile
 from rest_framework import generics, status
 from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated
@@ -11,13 +14,16 @@ from rest_framework.views import APIView
 
 from apps.accounts.permissions import HasBusinessMembership, HasPermission
 from .importer import MenuImportError, apply_menu_import, export_menu_to_workbook
-from .models import MenuCategory, MenuItem
+from .models import MenuCategory, MenuItem, PublicMenuConfig
 from .serializers import (
     MenuCategorySerializer,
     MenuImportUploadSerializer,
+    MenuLogoUploadSerializer,
     MenuItemSerializer,
     MenuItemWriteSerializer,
     MenuStructureCategorySerializer,
+    PublicMenuConfigSerializer,
+    PublicMenuCategorySerializer,
 )
 
 
@@ -161,6 +167,32 @@ class MenuImportView(APIView):
         return Response(result)
 
 
+class MenuLogoUploadView(APIView):
+    parser_classes = [MultiPartParser]
+    permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+    required_permission = 'manage_menu'
+
+    def post(self, request):
+        serializer = MenuLogoUploadSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        file_obj = serializer.validated_data['file']
+        
+        business = getattr(request, 'business')
+        
+        # Safe filename
+        ext = file_obj.name.split('.')[-1] if '.' in file_obj.name else 'png'
+        filename = f"business/{business.id}/menu-logo-{int(timezone.now().timestamp())}.{ext}"
+        
+        path = default_storage.save(filename, ContentFile(file_obj.read()))
+        url = default_storage.url(path)
+        
+        # Ensure absolute URL if local
+        if url.startswith('/'):
+             url = request.build_absolute_uri(url)
+
+        return Response({'url': url})
+
+
 class MenuExportView(APIView):
     permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
     required_permission = 'export_menu'
@@ -175,3 +207,55 @@ class MenuExportView(APIView):
         )
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
         return response
+
+
+class PublicMenuConfigView(generics.RetrieveUpdateAPIView):
+    serializer_class = PublicMenuConfigSerializer
+    permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+    permission_map = {
+        'GET': 'manage_menu',
+        'PUT': 'manage_menu',
+        'PATCH': 'manage_menu',
+    }
+
+    def get_object(self):
+        business = getattr(self.request, 'business')
+        obj, created = PublicMenuConfig.objects.get_or_create(
+            business=business,
+            defaults={
+                'slug': f"biz-{str(business.id)[:8]}",
+                'brand_name': business.name
+            }
+        )
+        return obj
+
+
+class PublicMenuBySlugView(APIView):
+    permission_classes = []
+
+    def get(self, request, slug):
+        config = get_object_or_404(PublicMenuConfig, slug=slug, enabled=True)
+        # We show all items, even if unavailable (to display "Sin stock")
+        items_qs = MenuItem.objects.all().order_by('position', 'name')
+        categories = (
+            MenuCategory.objects.filter(business=config.business, is_active=True)
+            .prefetch_related(Prefetch('items', queryset=items_qs))
+            .order_by('position', 'name')
+        )
+
+        menu_data = PublicMenuCategorySerializer(categories, many=True).data
+        config_data = PublicMenuConfigSerializer(config).data
+
+        return Response({
+            "business_name": config.business.name,
+            "config": config_data,
+            "categories": menu_data
+        })
+
+
+class PublicMenuResolveView(APIView):
+    permission_classes = []
+
+    def get(self, request, public_id):
+        config = get_object_or_404(PublicMenuConfig, public_id=public_id, enabled=True)
+        return Response({"slug": config.slug})

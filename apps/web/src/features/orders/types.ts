@@ -98,6 +98,21 @@ export type CloseOrderPayload = {
     cash_session_id?: string;
 };
 
+export type KitchenStatus = 'pending' | 'in_progress' | 'ready' | 'done' | 'cancelled';
+
+export type KitchenItem = OrderItem & {
+    kitchen_status: KitchenStatus;
+    kitchen_started_at: string | null;
+    kitchen_ready_at: string | null;
+    kitchen_done_at: string | null;
+};
+
+export type KitchenOrder = Omit<Order, 'items'> & {
+    items: KitchenItem[];
+    elapsed_seconds: number;
+    channel_display: string;
+};
+
 export type CheckoutPaymentOption = {
     value: CashPaymentMethod | string;
     label: string;

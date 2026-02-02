@@ -5,6 +5,9 @@ import { Providers } from './providers';
 export const metadata: Metadata = {
     title: 'Mirubro | Plataforma SaaS multi-tenant',
     description: 'Stack base para marketing y aplicación multi-tenant.',
+    icons: {
+        icon: '/logo/rubroicono.png',
+    },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

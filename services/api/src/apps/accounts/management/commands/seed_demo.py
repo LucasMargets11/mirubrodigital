@@ -12,7 +12,8 @@ from django.utils import timezone
 from django.utils.text import slugify
 
 from apps.accounts.models import Membership
-from apps.business.models import Business, BusinessPlan, Subscription
+from apps.business.models import Business, BusinessPlan, Subscription, CommercialSettings
+from apps.billing.models import Subscription as BillingSubscription, Bundle
 from apps.cash.models import CashMovement, CashRegister, CashSession, Payment
 from apps.cash.services import compute_session_totals
 from apps.catalog.models import Product
@@ -20,6 +21,7 @@ from apps.customers.models import Customer
 from apps.inventory.models import ProductStock, StockMovement
 from apps.inventory.services import ensure_stock_record, register_stock_movement
 from apps.invoices.models import Invoice, InvoiceSeries
+from apps.menu.models import PublicMenuConfig
 from apps.sales.models import Sale
 from apps.sales.serializers import SaleCancelSerializer, SaleCreateSerializer
 
@@ -141,6 +143,18 @@ DEMO_BUSINESSES: List[Dict[str, object]] = [
     'default_service': 'restaurante',
     'service_label': 'Restaurantes',
     'plan': BusinessPlan.PLUS,
+    'public_menu': {
+        'enabled': True,
+        'slug': 'lapizza',
+        'brand_name': 'La Pizza',
+        'theme_json': {
+            'primary': '#1E5BFF',
+            'secondary': '#EAF0FF',
+            'background': '#FFFFFF',
+            'text': '#111111',
+        },
+        'template_key': 'default_v1',
+    },
     'customers': [
       {
         'code': 'agustin-ferraro',
@@ -493,6 +507,9 @@ class Command(BaseCommand):
       for config in DEMO_BUSINESSES:
         business, subscription = self._ensure_business(config)
         self._ensure_invoice_series(business)
+        if 'public_menu' in config:
+          self._ensure_public_menu(business, config['public_menu'])
+
         if full_manzana and config['name'] == 'Manzana':
           customers = self._seed_manzana_full(business, config.get('customers', []), sales_target=full_sales)
         else:
@@ -538,10 +555,39 @@ class Command(BaseCommand):
       business.default_service = config['default_service']
       business.save(update_fields=['default_service'])
 
+    # Ensure relaxed settings for seeding
+    settings, _ = CommercialSettings.objects.get_or_create(business=business)
+    if settings.block_sales_if_no_open_cash_session:
+        settings.block_sales_if_no_open_cash_session = False
+        settings.save()
+
+    # Legacy Subscription (kept for compatibility if needed)
     subscription, _ = Subscription.objects.get_or_create(
       business=business,
       defaults={'plan': config['plan'], 'status': ACTIVE_STATUS},
     )
+    
+    # New Billing Subscription
+    billing_plan_map = {
+       'gestion': 'comm_full',
+       'restaurante': 'resto_basic' 
+    }
+    target_bundle_code = billing_plan_map.get(business.default_service, 'comm_initial')
+    
+    try:
+        target_bundle = Bundle.objects.get(code=target_bundle_code)
+        BillingSubscription.objects.update_or_create(
+            business=business,
+            defaults={
+                'plan_type': 'bundle',
+                'bundle': target_bundle,
+                'billing_period': 'monthly',
+                'status': 'active'
+            }
+        )
+    except Bundle.DoesNotExist:
+        pass
+
     sub_fields: List[str] = []
     if subscription.plan != config['plan']:
       subscription.plan = config['plan']
@@ -639,6 +685,18 @@ class Command(BaseCommand):
       if code:
         customers_by_code[code] = customer
     return customers_by_code
+
+  def _ensure_public_menu(self, business, config_data):
+    PublicMenuConfig.objects.update_or_create(
+        business=business,
+        defaults={
+            'enabled': config_data.get('enabled', False),
+            'slug': config_data.get('slug'),
+            'brand_name': config_data.get('brand_name'),
+            'theme_json': config_data.get('theme_json', {}),
+            'template_key': config_data.get('template_key', 'default_v1'),
+        }
+    )
 
   def _ensure_invoice_series(self, business: Business):
     series_records: List[InvoiceSeries] = []

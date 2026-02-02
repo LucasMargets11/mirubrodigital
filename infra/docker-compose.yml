@@ -39,6 +39,8 @@ services:
     container_name: mirubro-web
     env_file:
       - ../apps/web/.env
+    environment:
+      - API_URL_INTERNAL=http://api:8000
     volumes:
       - ../apps/web:/app
       - /app/node_modules

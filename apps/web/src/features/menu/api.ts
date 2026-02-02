@@ -8,6 +8,7 @@ import type {
     MenuItemFilters,
     MenuItemPayload,
     MenuStructureCategory,
+    PublicMenuConfig,
 } from './types';
 
 function buildQuery(params: Record<string, string | undefined>) {
@@ -70,4 +71,18 @@ export function importMenuWorkbook(file: File) {
 
 export function exportMenuWorkbook() {
     return apiGetBlob('/api/v1/menu/export/');
+}
+
+export function getPublicMenuConfig() {
+    return apiGet<PublicMenuConfig>('/api/v1/menu/public/config/');
+}
+
+export function updatePublicMenuConfig(payload: Partial<PublicMenuConfig>) {
+    return apiPatch<PublicMenuConfig>('/api/v1/menu/public/config/', payload);
+}
+
+export function uploadMenuLogo(file: File) {
+    const formData = new FormData();
+    formData.append('file', file);
+    return apiPost<{ url: string }>('/api/v1/menu/public/logo/', formData);
 }

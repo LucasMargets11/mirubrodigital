@@ -4,8 +4,8 @@ const PUBLIC_API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000
 const INTERNAL_API_URL = process.env.API_INTERNAL_URL ?? process.env.INTERNAL_API_URL ?? PUBLIC_API_URL;
 const API_URL = INTERNAL_API_URL;
 
-function buildCookieHeader(): string | undefined {
-    const store = cookies();
+async function buildCookieHeader(): Promise<string | undefined> {
+    const store = await cookies();
     const serialized = store
         .getAll()
         .map((cookie) => `${cookie.name}=${cookie.value}`)
@@ -22,7 +22,7 @@ async function parseBody(response: Response) {
 }
 
 export async function serverApiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-    const cookieHeader = buildCookieHeader();
+    const cookieHeader = await buildCookieHeader();
     const response = await fetch(`${API_URL}${path}`, {
         method: 'GET',
         cache: 'no-store',

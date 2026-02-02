@@ -17,6 +17,10 @@ type GestionNavProps = {
 export function GestionNav({ tabs }: GestionNavProps) {
     const pathname = usePathname();
 
+    if (pathname?.startsWith('/app/gestion/reportes')) {
+        return null;
+    }
+
     return (
         <nav className="flex flex-wrap gap-2">
             {tabs.map((tab) => (

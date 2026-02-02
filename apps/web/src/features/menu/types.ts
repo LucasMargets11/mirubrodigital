@@ -29,6 +29,48 @@ export type MenuItem = {
     estimated_time_minutes: number;
 };
 
+export type LayoutTheme = {
+  primary: string
+  secondary: string
+  background: string
+  text: string
+  mutedText?: string
+  accent?: string
+  divider?: string
+  fontFamily?: string
+  headingFont?: string
+  bodyFont?: string
+  menuHeadingFontSize?: number
+  menuBodyFontSize?: number
+  menuLogoUrl?: string
+  menuLogoPosition?: 'top_center' | 'title_left' | 'top_right_small' | 'watermark'
+  menuLogoSize?: 'sm' | 'md' | 'lg'
+  menuLogoWatermarkOpacity?: number
+}
+
+export type PublicMenuConfig = {
+  enabled: boolean
+  slug: string
+  public_id: string
+  brand_name: string
+  logo_url: string | null
+  theme_json: LayoutTheme
+  template_key: string
+  updated_at: string
+}
+
+export type PublicMenuItem = Pick<MenuItem, 'id' | 'name' | 'description' | 'price' | 'is_available' | 'tags' | 'sku'>
+
+export type PublicMenuCategory = Pick<MenuCategory, 'id' | 'name' | 'description' | 'position'> & {
+  items: PublicMenuItem[]
+}
+
+export type PublicMenuResponse = {
+  business_name: string
+  config: PublicMenuConfig
+  categories: PublicMenuCategory[]
+}
+
 export type MenuItemPayload = {
     category_id?: string | null;
     name: string;

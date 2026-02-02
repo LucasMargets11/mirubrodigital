@@ -12,15 +12,19 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@radix-ui/react-separator": "^1.1.8",
+    "@radix-ui/react-switch": "^1.2.6",
     "@tanstack/react-query": "^5.20.0",
+    "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "next": "^14.2.5",
+    "lucide-react": "^0.563.0",
+    "next": "^16.1.6",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "recharts": "^2.9.0",
-    "tailwind-merge": "^2.3.0",
-    "zod": "^3.23.8",
-    "xlsx": "^0.18.5"
+    "tailwind-merge": "^2.6.1",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.2/xlsx-0.20.2.tgz",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.4.0",
@@ -30,15 +34,15 @@
     "@types/react-dom": "^18.2.22",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.17",
-    "eslint": "^8.57.0",
-    "eslint-config-next": "^14.2.5",
+    "eslint": "^9.39.2",
+    "eslint-config-next": "^16.1.6",
     "jsdom": "^24.0.0",
     "postcss": "^8.4.35",
     "prettier": "^3.2.5",
     "tailwindcss": "^3.4.3",
     "typescript": "^5.4.5",
-    "vite": "^5.1.6",
+    "vite": "^7.3.1",
     "vite-tsconfig-paths": "^4.2.0",
-    "vitest": "^1.4.0"
+    "vitest": "^4.0.18"
   }
 }

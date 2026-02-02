@@ -74,3 +74,19 @@ class MenuItem(models.Model):
         if not self.tags:
             return []
         return [tag.strip() for tag in self.tags.split(',') if tag.strip()]
+
+
+class PublicMenuConfig(models.Model):
+    business = models.OneToOneField('business.Business', related_name='public_menu_config', on_delete=models.CASCADE)
+    enabled = models.BooleanField(default=False)
+    slug = models.SlugField(unique=True, max_length=50, db_index=True)
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False, db_index=True)
+    brand_name = models.CharField(max_length=120)
+    logo_url = models.URLField(blank=True, null=True)
+    theme_json = models.JSONField(default=dict, blank=True)
+    template_key = models.CharField(max_length=50, default="default_v1")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return f"PublicConfig: {self.slug} ({self.business.name})"

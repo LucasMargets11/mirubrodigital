@@ -5,9 +5,13 @@ from .views import (
     MenuCategoryListCreateView,
     MenuExportView,
     MenuImportView,
+    MenuLogoUploadView,
     MenuItemDetailView,
     MenuItemListCreateView,
     MenuStructureView,
+    PublicMenuConfigView,
+    PublicMenuBySlugView,
+    PublicMenuResolveView,
 )
 
 app_name = 'menu'
@@ -20,4 +24,8 @@ urlpatterns = [
     path('structure/', MenuStructureView.as_view(), name='structure'),
     path('import/', MenuImportView.as_view(), name='import'),
     path('export/', MenuExportView.as_view(), name='export'),
+    path('public/config/', PublicMenuConfigView.as_view(), name='public-config'),
+    path('public/logo/', MenuLogoUploadView.as_view(), name='public-logo-upload'),
+    path('public/slug/<slug:slug>/', PublicMenuBySlugView.as_view(), name='public-by-slug'),
+    path('public/resolve/<uuid:public_id>/', PublicMenuResolveView.as_view(), name='public-resolve'),
 ]

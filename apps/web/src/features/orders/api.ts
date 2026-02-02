@@ -3,6 +3,9 @@ import { apiDelete, apiGet, apiPatch, apiPost } from '@/lib/api/client';
 import type {
     CloseOrderPayload,
     CreateSalePayload,
+    KitchenItem,
+    KitchenOrder,
+    KitchenStatus,
     Order,
     OrderCheckoutResponse,
     OrderItemCreatePayload,
@@ -84,4 +87,20 @@ export function createSaleFromOrder(orderId: string, payload: CreateSalePayload)
 
 export function payOrder(orderId: string, payload: PayOrderPayload) {
     return apiPost<Order>(`/api/v1/orders/${orderId}/pay/`, payload);
+}
+
+export function fetchKitchenBoard(params: { updated_after?: string; include_done?: boolean } = {}) {
+    const query = new URLSearchParams();
+    if (params.updated_after) query.append('updated_after', params.updated_after);
+    if (params.include_done) query.append('include_done', 'true');
+    const queryString = query.toString() ? `?${query.toString()}` : '';
+    return apiGet<KitchenOrder[]>(`/api/v1/orders/kitchen/board/${queryString}`);
+}
+
+export function updateKitchenItemStatus(itemId: string, status: KitchenStatus) {
+    return apiPatch<KitchenItem>(`/api/v1/orders/kitchen/items/${itemId}/`, { kitchen_status: status });
+}
+
+export function updateKitchenOrderBulk(orderId: string, status: KitchenStatus) {
+    return apiPatch<KitchenOrder>(`/api/v1/orders/kitchen/orders/${orderId}/bulk/`, { kitchen_status: status });
 }

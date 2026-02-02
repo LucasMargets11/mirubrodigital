@@ -226,6 +226,11 @@ export function ReportsSummaryClient({
 
     return (
         <div className="space-y-6">
+            <div className="mb-4">
+                <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Gestión Comercial</p>
+                <h1 className="text-3xl font-bold text-slate-900">Reportes</h1>
+            </div>
+
             <ReportsFilters
                 value={filters}
                 onChange={setFilters}

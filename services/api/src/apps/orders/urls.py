@@ -19,10 +19,19 @@ from .views import (
 	OrderStartView,
 	OrderStatusUpdateView,
 )
+from .views_kitchen import (
+    KitchenBoardView,
+    KitchenItemStatusView,
+    KitchenOrderBulkUpdateView
+)
 
 app_name = 'orders'
 
 urlpatterns = [
+    path('kitchen/board/', KitchenBoardView.as_view(), name='kitchen-board'),
+    path('kitchen/items/<uuid:pk>/', KitchenItemStatusView.as_view(), name='kitchen-item-status'),
+    path('kitchen/orders/<uuid:pk>/bulk/', KitchenOrderBulkUpdateView.as_view(), name='kitchen-order-bulk'),
+
 	path('drafts/', OrderDraftListCreateView.as_view(), name='order-draft-list'),
 	path('drafts/<uuid:pk>/', OrderDraftDetailView.as_view(), name='order-draft-detail'),
 	path('drafts/<uuid:pk>/items/', OrderDraftItemCreateView.as_view(), name='order-draft-items'),

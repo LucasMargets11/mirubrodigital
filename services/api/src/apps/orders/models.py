@@ -2,6 +2,7 @@ import uuid
 
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 
 class Order(models.Model):
@@ -83,7 +84,21 @@ class OrderItem(models.Model):
     ordering = ['created_at']
     indexes = [
       models.Index(fields=['order']),
+      models.Index(fields=['kitchen_status']),
     ]
+
+  class KitchenStatus(models.TextChoices):
+    PENDING = 'pending', 'Pendiente'
+    IN_PROGRESS = 'in_progress', 'En preparación'
+    READY = 'ready', 'Listo'
+    DONE = 'done', 'Entregado'
+    CANCELLED = 'cancelled', 'Cancelado'
+
+  kitchen_status = models.CharField(max_length=20, choices=KitchenStatus.choices, default=KitchenStatus.PENDING)
+  kitchen_started_at = models.DateTimeField(null=True, blank=True)
+  kitchen_ready_at = models.DateTimeField(null=True, blank=True)
+  kitchen_done_at = models.DateTimeField(null=True, blank=True)
+  last_kitchen_update_at = models.DateTimeField(auto_now=True)
 
   def __str__(self) -> str:
     return f"Item · {self.name} ({self.order_id})"

@@ -438,7 +438,7 @@ export function NewSaleClient() {
                             </span>
                         ) : (
                             <span>
-                                No hay una sesión de caja abierta. Podés abrirla desde Operación > Caja para vincular las
+                                No hay una sesión de caja abierta. Podés abrirla desde Operación &gt; Caja para vincular las
                                 ventas.
                             </span>
                         )}
