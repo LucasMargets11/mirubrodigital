@@ -209,9 +209,4 @@ El comando es idempotente, imprime un resumen al finalizar y siempre apunta a `h
 6. Verificar que el stock actualizado se refleje en la tabla y en los movimientos recientes.
 7. Con un rol con `create_sales` (ej. `manzana.cashier`), entrar a `/app/gestion/ventas/nueva`, agregar dos productos y confirmar la venta. Chequear que la venta figura en `/app/gestion/ventas` y que el stock del producto se haya descontado.
 
-## Próximos pasos sugeridos
 
-- Extender la autenticación con SSO / MFA y scoping multi-tenant real.
-- Definir modelos y serializers por dominio.
-- Centralizar componentes UI dentro de `packages/ui`.
-- Automatizar chequeos con CI/CD.
