@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 
 import { MenuPicker, type MenuProductSelection } from '@/components/orders/menu-picker';
+import { OrderSummaryClient } from '@/components/orders/order-summary-client';
 import { TableMapEmbed } from '@/components/orders/table-map-embed';
 import { useCommercialSettingsQuery } from '@/features/gestion/hooks';
 import {
@@ -39,26 +40,37 @@ const DEFAULT_PAYMENT_REDIRECT = '/app/cash';
 
 type OrderEditClientProps = {
     orderId: string;
+    initialOrder?: Order;
     canUpdate: boolean;
     canClose: boolean;
     canAssignTable: boolean;
     canViewCommercialSettings?: boolean;
+    invoicesFeatureEnabled: boolean;
+    canIssueInvoices: boolean;
+    canViewInvoices: boolean;
 };
 
 export function OrderEditClient({
     orderId,
+    initialOrder,
     canUpdate,
     canClose,
     canAssignTable,
     canViewCommercialSettings = false,
+    invoicesFeatureEnabled,
+    canIssueInvoices,
+    canViewInvoices,
 }: OrderEditClientProps) {
     const router = useRouter();
     const [formState, setFormState] = useState({ customerName: '', note: '' });
     const [blockedMessage, setBlockedMessage] = useState<string | null>(null);
     const [actionError, setActionError] = useState<string | null>(null);
 
-    const orderQuery = useOrder(orderId, { refetchInterval: 10000 });
-    const order = orderQuery.data;
+    const orderQuery = useOrder(orderId, { refetchInterval: 10000, initialData: initialOrder });
+    const order = orderQuery.data ?? initialOrder ?? null;
+    const canMutateOrder = Boolean(order?.is_editable) && canUpdate;
+    const canAssignTables = Boolean(order?.is_editable) && canAssignTable;
+    const canCloseOrder = Boolean(order?.is_editable) && canClose;
 
     const updateOrderMutation = useUpdateOrder(orderId);
     const addItemMutation = useAddOrderItem(orderId);
@@ -103,7 +115,7 @@ export function OrderEditClient({
     };
 
     const handleSaveDetails = () => {
-        if (!order || !canUpdate) {
+        if (!order || !canMutateOrder) {
             return;
         }
         setActionError(null);
@@ -119,7 +131,7 @@ export function OrderEditClient({
     };
 
     const handleSelectTable = (tableId: string, snapshot?: RestaurantTableNode | null) => {
-        if (!order || !canUpdate || !canAssignTable) {
+        if (!order || !canAssignTables) {
             return;
         }
         if (order.table_id === tableId) {
@@ -149,7 +161,7 @@ export function OrderEditClient({
     };
 
     const handleClearTable = () => {
-        if (!order || !canUpdate || !canAssignTable) {
+        if (!order || !canAssignTables) {
             return;
         }
         if (!order.table_id) {
@@ -167,7 +179,7 @@ export function OrderEditClient({
     };
 
     const handleAddProduct = (selection: MenuProductSelection) => {
-        if (!canUpdate) {
+        if (!canMutateOrder) {
             return;
         }
         setBlockedMessage(null);
@@ -185,7 +197,7 @@ export function OrderEditClient({
     };
 
     const handleAdjustQuantity = (item: OrderItem, delta: number) => {
-        if (!canUpdate) {
+        if (!canMutateOrder) {
             return;
         }
         const currentQuantity = Number(item.quantity);
@@ -208,7 +220,7 @@ export function OrderEditClient({
     };
 
     const handleRemoveItem = (item: OrderItem) => {
-        if (!canUpdate) {
+        if (!canMutateOrder) {
             return;
         }
         removeItemMutation.mutate(item.id, {
@@ -217,7 +229,7 @@ export function OrderEditClient({
     };
 
     const handleRedirectToCash = () => {
-        if (!order) {
+        if (!order || !canCloseOrder) {
             return;
         }
         router.push(`${DEFAULT_PAYMENT_REDIRECT}?orderId=${order.id}`);
@@ -225,7 +237,7 @@ export function OrderEditClient({
 
     const isMutatingItems = addItemMutation.isPending || updateItemMutation.isPending || removeItemMutation.isPending;
 
-    if (orderQuery.isLoading) {
+    if (!order && orderQuery.isLoading) {
         return (
             <section className="space-y-4">
                 <div className="h-10 w-48 animate-pulse rounded-full bg-slate-200" />
@@ -238,7 +250,7 @@ export function OrderEditClient({
         );
     }
 
-    if (orderQuery.isError || !order) {
+    if (!order) {
         return (
             <section className="space-y-4">
                 <header className="space-y-2">
@@ -253,6 +265,18 @@ export function OrderEditClient({
                     Volver al tablero
                 </Link>
             </section>
+        );
+    }
+
+    if (!order.is_editable) {
+        return (
+            <OrderSummaryClient
+                orderId={order.id}
+                initialOrder={order}
+                invoicesFeatureEnabled={invoicesFeatureEnabled}
+                canIssueInvoices={canIssueInvoices}
+                canViewInvoices={canViewInvoices}
+            />
         );
     }
 
@@ -283,7 +307,7 @@ export function OrderEditClient({
                     >
                         Volver a órdenes
                     </Link>
-                    {canClose ? (
+                    {canCloseOrder ? (
                         <button
                             type="button"
                             onClick={handleRedirectToCash}
@@ -315,11 +339,11 @@ export function OrderEditClient({
                                     <p className="text-sm text-slate-500">Sin mesa asignada.</p>
                                 )}
                             </div>
-                            {canAssignTable ? (
+                            {canAssignTables ? (
                                 <button
                                     type="button"
                                     onClick={handleClearTable}
-                                    disabled={!order.table_id || updateOrderMutation.isPending}
+                                    disabled={!order.table_id || updateOrderMutation.isPending || !canAssignTables}
                                     className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 hover:border-slate-900 hover:text-slate-900 disabled:opacity-50"
                                 >
                                     Liberar mesa
@@ -333,7 +357,7 @@ export function OrderEditClient({
                                     type="text"
                                     value={formState.customerName}
                                     onChange={(event) => handleDetailChange('customerName', event.target.value)}
-                                    disabled={!canUpdate}
+                                    disabled={!canMutateOrder}
                                     className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm focus:border-slate-900 focus:outline-none disabled:bg-slate-100"
                                 />
                             </label>
@@ -342,12 +366,12 @@ export function OrderEditClient({
                                 <textarea
                                     value={formState.note}
                                     onChange={(event) => handleDetailChange('note', event.target.value)}
-                                    disabled={!canUpdate}
+                                    disabled={!canMutateOrder}
                                     rows={3}
                                     className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm focus:border-slate-900 focus:outline-none disabled:bg-slate-100"
                                 />
                             </label>
-                            {canUpdate ? (
+                            {canMutateOrder ? (
                                 <button
                                     type="button"
                                     onClick={handleSaveDetails}
@@ -359,7 +383,7 @@ export function OrderEditClient({
                             ) : null}
                         </div>
                     </div>
-                    {canAssignTable ? (
+                    {canAssignTables ? (
                         <TableMapEmbed
                             tables={tables}
                             layout={tablesLayout}
@@ -370,7 +394,7 @@ export function OrderEditClient({
                         />
                     ) : (
                         <div className="rounded-3xl border border-dashed border-slate-200 bg-white px-4 py-5 text-sm text-slate-500">
-                            No tenés permisos para reasignar mesas en esta vista.
+                            La orden está cerrada y no permite reasignar mesas.
                         </div>
                     )}
                 </div>
@@ -412,7 +436,7 @@ export function OrderEditClient({
                                                 <p className="text-xs text-slate-500">{formatCurrency(item.unit_price)} c/u</p>
                                             </div>
                                         </div>
-                                        {canUpdate ? (
+                                        {canMutateOrder ? (
                                             <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                                                 <div className="flex items-center gap-2 rounded-full bg-white px-2 py-1 text-sm font-semibold text-slate-700">
                                                     <button
@@ -452,7 +476,7 @@ export function OrderEditClient({
                         {blockedMessage ? (
                             <p className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900">{blockedMessage}</p>
                         ) : null}
-                        {canUpdate ? (
+                        {canMutateOrder ? (
                             <MenuPicker
                                 onProductSelect={handleAddProduct}
                                 allowSellWithoutStock={allowSellWithoutStock}
@@ -460,7 +484,7 @@ export function OrderEditClient({
                             />
                         ) : (
                             <div className="rounded-3xl border border-dashed border-slate-200 bg-white px-4 py-6 text-sm text-slate-500">
-                                No tenés permisos para agregar productos en esta orden.
+                                La orden está cerrada y no se pueden agregar productos.
                             </div>
                         )}
                     </div>

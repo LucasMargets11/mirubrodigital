@@ -13,6 +13,7 @@ from rest_framework.views import APIView
 
 from apps.accounts.access import resolve_business_context, resolve_request_membership
 from apps.accounts.permissions import HasBusinessMembership, HasPermission
+from apps.accounts.rbac import permissions_for_service
 from .models import Invoice, InvoiceSeries
 from .pdf import render_invoice_pdf
 from .serializers import (
@@ -26,6 +27,7 @@ from .serializers import (
 class InvoicesFeatureMixin:
   required_feature = 'invoices'
   feature_denied_message = 'Tu plan no incluye Facturas.'
+  required_service = 'gestion'
 
   def initial(self, request, *args, **kwargs):  # type: ignore[override]
     super().initial(request, *args, **kwargs)
@@ -36,6 +38,20 @@ class InvoicesFeatureMixin:
     features = context.get('features', {})
     if not features.get(self.required_feature, False):
       raise PermissionDenied(self.feature_denied_message)
+    self._ensure_required_service(request, context, membership)
+
+  def _ensure_required_service(self, request, context, membership):
+    required_service = getattr(self, 'required_service', None)
+    if not required_service:
+      return
+    if context.get('service') == required_service and getattr(request, 'active_service', None) == required_service:
+      return
+    enabled_services = context.get('enabled_services') or []
+    if required_service not in enabled_services:
+      raise PermissionDenied(self.feature_denied_message)
+    context['service'] = required_service
+    request.active_service = required_service
+    request._permission_cache = permissions_for_service(required_service, membership.role)
 
 
 class InvoiceListView(InvoicesFeatureMixin, generics.ListAPIView):

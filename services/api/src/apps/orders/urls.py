@@ -15,6 +15,7 @@ from .views import (
 	OrderItemCreateView,
 	OrderItemDetailView,
 	OrderListCreateView,
+	OrderInvoiceView,
 	OrderPayView,
 	OrderStartView,
 	OrderStatusUpdateView,
@@ -49,4 +50,5 @@ urlpatterns = [
 	path('<uuid:pk>/status/', OrderStatusUpdateView.as_view(), name='order-status'),
 	path('<uuid:pk>/close/', OrderCloseView.as_view(), name='order-close'),
 	path('<uuid:pk>/cancel/', OrderCancelView.as_view(), name='order-cancel'),
+	path('<uuid:pk>/invoice/', OrderInvoiceView.as_view(), name='order-invoice'),
 ]

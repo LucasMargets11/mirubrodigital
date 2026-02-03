@@ -1,5 +1,5 @@
 import type { CashPaymentMethod, CashSession } from '@/features/cash/types';
-import type { Sale } from '@/features/gestion/types';
+import type { Sale, SaleInvoiceSummary } from '@/features/gestion/types';
 
 export type OrderStatus = 'draft' | 'open' | 'sent' | 'paid' | 'cancelled';
 export type OrderChannel = 'dine_in' | 'pickup' | 'delivery';
@@ -33,10 +33,13 @@ export type Order = {
     opened_at: string;
     updated_at: string;
     closed_at: string | null;
+    is_paid: boolean;
+    is_editable: boolean;
     items: OrderItem[];
     sale_id: string | null;
     sale_number: number | null;
     sale_total: string | null;
+    invoice?: SaleInvoiceSummary | null;
 };
 
 export type OrderItemPayload = {

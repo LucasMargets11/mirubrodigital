@@ -11,10 +11,12 @@ import {
     fetchOrderCheckout,
     fetchOrder,
     fetchOrders,
+    issueOrderInvoice,
     payOrder,
     updateOrder,
     updateOrderItem,
     updateOrderStatus,
+    type IssueOrderInvoicePayload,
 } from './api';
 import type {
     CloseOrderPayload,
@@ -36,6 +38,7 @@ const orderCheckoutKey = (orderId: string) => [...ordersBaseKey, 'detail', order
 type UseOrderOptions = {
     enabled?: boolean;
     refetchInterval?: number;
+    initialData?: Order;
 };
 
 export function useOrders(statusFilter: OrderStatus[]) {
@@ -54,6 +57,7 @@ export function useOrder(orderId: string | null, options?: UseOrderOptions) {
         queryFn: () => fetchOrder(orderId as string),
         enabled,
         refetchInterval: enabled && options?.refetchInterval ? options.refetchInterval : false,
+        initialData: options?.initialData,
     });
 }
 
@@ -228,6 +232,19 @@ export function usePayOrder() {
             queryClient.invalidateQueries({ queryKey: cashKeys.base });
             queryClient.invalidateQueries({ queryKey: ['gestion', 'sales'] });
             queryClient.invalidateQueries({ queryKey: ['gestion', 'dashboard'] });
+        },
+    });
+}
+
+export function useIssueOrderInvoice() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ orderId, payload }: { orderId: string; payload: IssueOrderInvoicePayload }) =>
+            issueOrderInvoice(orderId, payload),
+        onSuccess: (_invoice, variables) => {
+            queryClient.invalidateQueries({ queryKey: orderDetailKey(variables.orderId) });
+            queryClient.invalidateQueries({ queryKey: ordersBaseKey });
+            queryClient.invalidateQueries({ queryKey: ['gestion', 'sales'] });
         },
     });
 }

@@ -13,9 +13,12 @@ from apps.accounts.permissions import HasBusinessMembership, HasPermission, requ
 from apps.cash.models import CashSession, Payment
 from apps.cash.serializers import CashSessionSerializer
 from apps.cash.services import get_active_session
+from apps.invoices.serializers import InvoiceDetailSerializer, InvoiceIssueSerializer
+from apps.invoices.views import InvoicesFeatureMixin
 from apps.sales.models import Sale
 from apps.sales.serializers import SaleDetailSerializer
 from .models import Order, OrderDraft, OrderDraftItem, OrderItem
+from .rules import LOCKED_ORDER_MESSAGE, is_order_editable, is_order_paid
 from .serializers import (
 	OrderCloseSerializer,
 	OrderCreateSaleSerializer,
@@ -37,7 +40,6 @@ from .serializers import (
 
 
 ACTIVE_ORDER_STATUSES = {Order.Status.OPEN, Order.Status.SENT}
-EDITABLE_ORDER_STATUSES = {Order.Status.DRAFT, Order.Status.OPEN, Order.Status.SENT}
 ZERO = Decimal('0')
 TWO_PLACES = Decimal('0.01')
 
@@ -246,11 +248,14 @@ class OrderItemCreateView(APIView):
 	def _get_order(self, request, pk: str):
 		business = getattr(request, 'business')
 		order = get_object_or_404(
-			Order.objects.filter(business=business).prefetch_related('items__product'),
+			Order.objects.filter(business=business)
+			.select_related('sale')
+			.prefetch_related('items__product', 'sale__payments'),
 			pk=pk,
 		)
-		if order.status not in EDITABLE_ORDER_STATUSES:
-			raise exceptions.ValidationError({'detail': 'No podés modificar ítems de esta orden.'})
+		if not is_order_editable(order):
+			detail = LOCKED_ORDER_MESSAGE if is_order_paid(order) else 'No podés modificar ítems de una orden cancelada.'
+			raise exceptions.ValidationError({'detail': detail})
 		return business, order
 
 	def post(self, request, pk: str):
@@ -274,11 +279,14 @@ class OrderItemDetailView(APIView):
 	def _get_resources(self, request, pk: str, item_pk: str):
 		business = getattr(request, 'business')
 		order = get_object_or_404(
-			Order.objects.filter(business=business).prefetch_related('items__product'),
+			Order.objects.filter(business=business)
+			.select_related('sale')
+			.prefetch_related('items__product', 'sale__payments'),
 			pk=pk,
 		)
-		if order.status not in EDITABLE_ORDER_STATUSES:
-			raise exceptions.ValidationError({'detail': 'No podés modificar ítems de esta orden.'})
+		if not is_order_editable(order):
+			detail = LOCKED_ORDER_MESSAGE if is_order_paid(order) else 'No podés modificar ítems de una orden cancelada.'
+			raise exceptions.ValidationError({'detail': detail})
 		item = get_object_or_404(OrderItem.objects.filter(order=order), pk=item_pk)
 		return business, order, item
 
@@ -311,7 +319,11 @@ class OrderListCreateView(generics.ListCreateAPIView):
 
 	def get_queryset(self):
 		business = getattr(self.request, 'business')
-		queryset = Order.objects.filter(business=business).select_related('sale').prefetch_related('items')
+		queryset = (
+			Order.objects.filter(business=business)
+			.select_related('sale', 'sale__invoice')
+			.prefetch_related('items', 'sale__payments')
+		)
 
 		status_param = self.request.query_params.get('status') or ''
 		statuses = [value.strip() for value in status_param.split(',') if value.strip()]
@@ -360,8 +372,8 @@ class OrderDetailView(APIView):
 		business = getattr(request, 'business')
 		order = get_object_or_404(
 			Order.objects.filter(business=business)
-			.select_related('sale')
-			.prefetch_related('items__product'),
+			.select_related('sale', 'sale__invoice')
+			.prefetch_related('items__product', 'sale__payments'),
 			pk=pk,
 		)
 		return business, order
@@ -389,6 +401,54 @@ class OrderDetailView(APIView):
 
 	def put(self, request, pk: str):
 		return self.patch(request, pk)
+
+
+class OrderInvoiceView(InvoicesFeatureMixin, APIView):
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	permission_map = {
+		'GET': 'view_invoices',
+		'POST': 'issue_invoices',
+	}
+
+	def _get_order(self, request, pk: str):
+		business = getattr(request, 'business')
+		return get_object_or_404(
+			Order.objects.filter(business=business).select_related('sale', 'sale__invoice', 'sale__customer'),
+			pk=pk,
+		)
+
+	def _ensure_sale_ready(self, order: Order) -> Sale:
+		sale = getattr(order, 'sale', None)
+		if sale is None:
+			raise exceptions.ValidationError({'detail': 'La orden no tiene una venta asociada.'})
+		if sale.status != Sale.Status.COMPLETED:
+			raise exceptions.ValidationError({'detail': 'La orden debe estar cobrada para facturar.'})
+		return sale
+
+	def get(self, request, pk: str):
+		order = self._get_order(request, pk)
+		sale = self._ensure_sale_ready(order)
+		invoice = getattr(sale, 'invoice', None)
+		if not invoice:
+			raise exceptions.NotFound('La orden no tiene factura emitida.')
+		return Response(InvoiceDetailSerializer(invoice, context={'request': request}).data)
+
+	def post(self, request, pk: str):
+		order = self._get_order(request, pk)
+		sale = self._ensure_sale_ready(order)
+		payload = request.data.copy()
+		payload['sale_id'] = str(sale.pk)
+		serializer = InvoiceIssueSerializer(
+			data=payload,
+			context={
+				'request': request,
+				'business': getattr(request, 'business'),
+				'user': request.user,
+			},
+		)
+		serializer.is_valid(raise_exception=True)
+		invoice = serializer.save()
+		return Response(InvoiceDetailSerializer(invoice, context={'request': request}).data, status=status.HTTP_201_CREATED)
 
 
 class OrderStatusUpdateView(APIView):
@@ -427,7 +487,9 @@ class OrderCloseView(APIView):
 	def post(self, request, pk: str):
 		business = getattr(request, 'business')
 		order = get_object_or_404(
-			Order.objects.filter(business=business).select_related('sale').prefetch_related('items__product'),
+			Order.objects.filter(business=business)
+			.select_related('sale')
+			.prefetch_related('items__product', 'sale__payments'),
 			pk=pk,
 		)
 		serializer = OrderCloseSerializer(
@@ -566,8 +628,8 @@ class OrderPayView(APIView):
 				.prefetch_related('items__product', 'sale__payments'),
 				pk=pk,
 			)
-			if order.status == Order.Status.PAID:
-				raise ConflictError('La orden ya fue pagada.')
+			if is_order_paid(order):
+				raise ConflictError(LOCKED_ORDER_MESSAGE)
 			if order.status == Order.Status.CANCELLED:
 				return Response({'detail': 'No podés cobrar una orden cancelada.'}, status=status.HTTP_400_BAD_REQUEST)
 

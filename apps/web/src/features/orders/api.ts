@@ -1,4 +1,5 @@
 import { apiDelete, apiGet, apiPatch, apiPost } from '@/lib/api/client';
+import type { Invoice, IssueInvoicePayload } from '@/features/invoices/types';
 
 import type {
     CloseOrderPayload,
@@ -103,4 +104,14 @@ export function updateKitchenItemStatus(itemId: string, status: KitchenStatus) {
 
 export function updateKitchenOrderBulk(orderId: string, status: KitchenStatus) {
     return apiPatch<KitchenOrder>(`/api/v1/orders/kitchen/orders/${orderId}/bulk/`, { kitchen_status: status });
+}
+
+export type IssueOrderInvoicePayload = Omit<IssueInvoicePayload, 'sale_id'>;
+
+export function issueOrderInvoice(orderId: string, payload: IssueOrderInvoicePayload) {
+    return apiPost<Invoice>(`/api/v1/orders/${orderId}/invoice/`, payload);
+}
+
+export function fetchOrderInvoice(orderId: string) {
+    return apiGet<Invoice>(`/api/v1/orders/${orderId}/invoice/`);
 }

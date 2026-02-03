@@ -20,12 +20,12 @@ from apps.menu.models import MenuItem
 from apps.sales.models import Sale, SaleItem
 from apps.resto.services import ensure_table_available
 from .models import Order, OrderDraft, OrderDraftItem, OrderItem
+from .rules import LOCKED_ORDER_MESSAGE, is_order_editable, is_order_paid
 
 
 OUT_OF_STOCK_TAGS = {'sin stock', 'out-of-stock', 'out_stock', 'agotado'}
 LOW_STOCK_TAGS = {'bajo stock', 'low-stock', 'low_stock'}
 CRITICAL_STOCK_TAGS = {'critico', 'crítico', 'critical'}
-EDITABLE_ORDER_STATUSES = {Order.Status.DRAFT, Order.Status.OPEN, Order.Status.SENT}
 
 
 class OrderItemSerializer(serializers.ModelSerializer):
@@ -45,6 +45,9 @@ class OrderSerializer(serializers.ModelSerializer):
   table_id = serializers.SerializerMethodField()
   table_code = serializers.CharField(source='table.code', read_only=True, allow_null=True, default=None)
   subtotal_amount = serializers.SerializerMethodField()
+  invoice = serializers.SerializerMethodField()
+  is_paid = serializers.SerializerMethodField()
+  is_editable = serializers.SerializerMethodField()
 
   class Meta:
     model = Order
@@ -69,6 +72,9 @@ class OrderSerializer(serializers.ModelSerializer):
       'sale_number',
       'sale_total',
       'subtotal_amount',
+      'invoice',
+      'is_paid',
+      'is_editable',
     ]
     read_only_fields = fields
 
@@ -99,6 +105,23 @@ class OrderSerializer(serializers.ModelSerializer):
       iterable = items
     total = sum((item.total_price for item in iterable), Decimal('0'))
     return f"{total:.2f}"
+
+  def get_invoice(self, obj: Order):
+    sale = getattr(obj, 'sale', None)
+    invoice = getattr(sale, 'invoice', None) if sale else None
+    if not invoice:
+      return None
+    return {
+      'id': str(invoice.id),
+      'full_number': invoice.full_number,
+      'status': invoice.status,
+    }
+
+  def get_is_paid(self, obj: Order) -> bool:
+    return is_order_paid(obj)
+
+  def get_is_editable(self, obj: Order) -> bool:
+    return is_order_editable(obj)
 
 
 class OrderDraftItemSerializer(serializers.ModelSerializer):
@@ -799,8 +822,10 @@ class OrderUpdateSerializer(serializers.Serializer):
   def validate(self, attrs):
     attrs = super().validate(attrs)
     order: Order = self.context['order']
-    if order.status not in EDITABLE_ORDER_STATUSES:
-      raise serializers.ValidationError('No podés modificar esta orden en su estado actual.')
+    if not is_order_editable(order):
+      if is_order_paid(order):
+        raise serializers.ValidationError(LOCKED_ORDER_MESSAGE)
+      raise serializers.ValidationError('No podés modificar una orden cancelada.')
     return attrs
 
   def _set_field(self, order: Order, dirty_fields: set[str], field: str, value):
@@ -1191,6 +1216,8 @@ class OrderCloseSerializer(OrderSaleMixin):
   def validate(self, attrs):
     attrs = super().validate(attrs)
     order: Order = self.context['order']
+    if is_order_paid(order):
+      raise serializers.ValidationError(LOCKED_ORDER_MESSAGE)
     if order.sale_id:
       raise serializers.ValidationError('La orden ya fue cobrada.')
     if order.status == Order.Status.CANCELLED:
@@ -1245,6 +1272,8 @@ class OrderCreateSaleSerializer(OrderSaleMixin):
   def validate(self, attrs):
     attrs = super().validate(attrs)
     order: Order = self.context['order']
+    if is_order_paid(order):
+      raise serializers.ValidationError(LOCKED_ORDER_MESSAGE)
     if order.status == Order.Status.CANCELLED:
       raise serializers.ValidationError('No podés cobrar una orden cancelada.')
     return attrs
