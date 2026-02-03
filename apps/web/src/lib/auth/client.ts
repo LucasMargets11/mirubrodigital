@@ -1,6 +1,8 @@
 'use client';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+import { getClientApiBaseUrl } from '../api-url';
+
+const API_URL = getClientApiBaseUrl();
 
 type AuthResult = {
   success: boolean;
@@ -8,7 +10,9 @@ type AuthResult = {
 };
 
 async function request<T>(path: string, body?: T): Promise<Response> {
-  return fetch(`${API_URL}${path}`, {
+  const url = `${API_URL}${path}`;
+  console.log(`[Auth] Requesting ${url} (POST)`);
+  return fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

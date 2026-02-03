@@ -38,6 +38,8 @@ from apps.cash.models import CashMovement, CashSession, Payment
 from apps.inventory.models import ProductStock
 from apps.cash.services import compute_session_totals, get_session_sales_queryset
 from apps.sales.models import Sale, SaleItem
+from apps.business.scope import get_allowed_business_ids
+
 from .serializers import (
 	CashClosureListSerializer,
 	CashMovementSummarySerializer,
@@ -65,6 +67,22 @@ class DateRange:
 			'to': self.end_local.date().isoformat(),
 			'group_by': group_by,
 		}
+
+
+def _resolve_report_business_ids(request):
+	business = getattr(request, 'business')
+	scope = request.query_params.get('scope', 'current')
+	selection_str = request.query_params.get('business_ids', '')
+	selection = [int(s) for s in selection_str.split(',') if s.strip().isdigit()] if selection_str else None
+	
+	try:
+		return get_allowed_business_ids(request.user, business, scope, selection)
+	except Exception:
+		# Fallback to current if something fails or not authorized
+		# Ideally should raise but for safety in filtering we might stick to allowed
+		# However permission check should have happened.
+		# scope logic in get_allowed_business_ids raises PermissionDenied if needed.
+		raise
 
 
 def _format_money(value: Optional[Decimal]) -> str:
@@ -280,7 +298,10 @@ class ReportSummaryView(ReportsFeatureMixin, APIView):
 
 	def get(self, request):
 		business = getattr(request, 'business')
+		business_ids = _resolve_report_business_ids(request)
+		# Use HQ timezone for aggregation
 		tzinfo = _resolve_timezone(business)
+		
 		date_range = _parse_date_range(request.query_params, tzinfo)
 		group_by = _parse_group_by(request.query_params)
 		statuses = _parse_statuses(request.query_params)
@@ -288,7 +309,7 @@ class ReportSummaryView(ReportsFeatureMixin, APIView):
 		user_id = _parse_uuid(request.query_params.get('user_id'))
 
 		sale_queryset = Sale.objects.filter(
-			business=business,
+			business__in=business_ids,
 			created_at__gte=date_range.start,
 			created_at__lte=date_range.end,
 		)
@@ -309,7 +330,7 @@ class ReportSummaryView(ReportsFeatureMixin, APIView):
 			avg_ticket = (net_total / sales_count).quantize(MONEY_PLACES)
 
 		items_queryset = SaleItem.objects.filter(
-			sale__business=business,
+			sale__business__in=business_ids,
 			sale__created_at__gte=date_range.start,
 			sale__created_at__lte=date_range.end,
 		)
@@ -322,7 +343,7 @@ class ReportSummaryView(ReportsFeatureMixin, APIView):
 		units_sold = items_queryset.aggregate(total=Coalesce(Sum('quantity'), Decimal('0')))['total'] or Decimal('0')
 
 		cancellations_count = Sale.objects.filter(
-			business=business,
+			business__in=business_ids,
 			status=Sale.Status.CANCELLED,
 			cancelled_at__isnull=False,
 			cancelled_at__gte=date_range.start,
@@ -358,7 +379,7 @@ class ReportSummaryView(ReportsFeatureMixin, APIView):
 			)
 
 		payment_queryset = Payment.objects.filter(
-			business=business,
+			business__in=business_ids,
 			created_at__gte=date_range.start,
 			created_at__lte=date_range.end,
 		)
@@ -435,6 +456,7 @@ class ReportSalesListView(ReportsFeatureMixin, generics.ListAPIView):
 
 	def get_queryset(self):
 		business = getattr(self.request, 'business')
+		business_ids = _resolve_report_business_ids(self.request)
 		tzinfo = _resolve_timezone(business)
 		date_range = _parse_date_range(self.request.query_params, tzinfo)
 		statuses = _parse_statuses(self.request.query_params)
@@ -443,7 +465,7 @@ class ReportSalesListView(ReportsFeatureMixin, generics.ListAPIView):
 		search = (self.request.query_params.get('q') or '').strip()
 
 		queryset = (
-			Sale.objects.filter(business=business, created_at__gte=date_range.start, created_at__lte=date_range.end)
+			Sale.objects.filter(business__in=business_ids, created_at__gte=date_range.start, created_at__lte=date_range.end)
 			.select_related('customer', 'created_by')
 			.prefetch_related('payments')
 			.annotate(items_count=Count('items'))
@@ -476,6 +498,7 @@ class PaymentsReportView(ReportsFeatureMixin, APIView):
 
 	def get(self, request):
 		business = getattr(request, 'business')
+		business_ids = _resolve_report_business_ids(request)
 		tzinfo = _resolve_timezone(business)
 		date_range = _parse_date_range(request.query_params, tzinfo)
 		statuses = _parse_statuses(request.query_params)
@@ -487,7 +510,7 @@ class PaymentsReportView(ReportsFeatureMixin, APIView):
 		search = (request.query_params.get('q') or '').strip()
 
 		queryset = Payment.objects.filter(
-			business=business,
+			business__in=business_ids,
 			created_at__gte=date_range.start,
 			created_at__lte=date_range.end,
 		).select_related('sale', 'sale__customer', 'session__register', 'created_by')
@@ -683,6 +706,7 @@ class TopProductsReportView(ReportsFeatureMixin, APIView):
 
 	def get(self, request):
 		business = getattr(request, 'business')
+		business_ids = _resolve_report_business_ids(request)
 		tzinfo = _resolve_timezone(business)
 		date_range = _parse_date_range(request.query_params, tzinfo)
 		statuses = _parse_statuses(request.query_params)
@@ -695,7 +719,7 @@ class TopProductsReportView(ReportsFeatureMixin, APIView):
 
 		items_queryset = (
 			SaleItem.objects.filter(
-				sale__business=business,
+				sale__business__in=business_ids,
 				sale__created_at__gte=date_range.start,
 				sale__created_at__lte=date_range.end,
 			)
@@ -762,6 +786,7 @@ class ReportProductsView(ReportsFeatureMixin, APIView):
 
 	def get(self, request):
 		business = getattr(request, 'business')
+		business_ids = _resolve_report_business_ids(request)
 		tzinfo = _resolve_timezone(business)
 		date_range = _parse_date_range(request.query_params, tzinfo)
 		statuses = _parse_statuses(request.query_params)
@@ -772,7 +797,7 @@ class ReportProductsView(ReportsFeatureMixin, APIView):
 
 		items_queryset = (
 			SaleItem.objects.filter(
-				sale__business=business,
+				sale__business__in=business_ids,
 				sale__created_at__gte=date_range.start,
 				sale__created_at__lte=date_range.end,
 			)
@@ -853,13 +878,14 @@ class StockAlertsReportView(ReportsFeatureMixin, APIView):
 
 	def get(self, request):
 		business = getattr(request, 'business')
+		business_ids = _resolve_report_business_ids(request)
 		default_threshold = getattr(settings, 'REPORTS_LOW_STOCK_THRESHOLD_DEFAULT', Decimal('5'))
 		if not isinstance(default_threshold, Decimal):  # pragma: no cover - defensive
 			default_threshold = Decimal(str(default_threshold))
 		limit = _parse_limit(request.query_params.get('limit'), default=10, max_value=50)
 
 		base_queryset = ProductStock.objects.select_related('product').filter(
-			business=business,
+			business__in=business_ids,
 			product__is_active=True,
 		)
 		annotated_queryset = base_queryset.annotate(

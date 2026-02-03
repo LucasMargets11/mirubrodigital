@@ -1,6 +1,42 @@
+from django.conf import settings
 from django.db import models
 from django.utils import timezone
 from apps.business.models import Business
+
+class Plan(models.Model):
+    code = models.CharField(max_length=64, unique=True)
+    name = models.CharField(max_length=128)
+    price = models.DecimalField(max_digits=10, decimal_places=2)
+    interval = models.CharField(max_length=32)  # monthly, yearly
+    features_json = models.JSONField(default=dict)
+    mp_preapproval_plan_id = models.CharField(max_length=128, null=True, blank=True)
+
+    def __str__(self):
+        return f"{self.name} ({self.code})"
+
+class SubscriptionIntent(models.Model):
+    STATUS_CHOICES = [
+        ('created', 'Created'),
+        ('redirected', 'Redirected'),
+        ('confirmed', 'Confirmed'),
+        ('failed', 'Failed'),
+    ]
+    tenant = models.ForeignKey(Business, on_delete=models.CASCADE)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    plan_code = models.CharField(max_length=64)
+    status = models.CharField(max_length=32, choices=STATUS_CHOICES, default='created')
+    mp_init_point = models.URLField(max_length=500, null=True, blank=True)
+    mp_preapproval_id = models.CharField(max_length=128, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+
+class PaymentEvent(models.Model):
+    provider = models.CharField(max_length=32)
+    event_id = models.CharField(max_length=128, unique=True)
+    resource_id = models.CharField(max_length=128)
+    payload_json = models.JSONField()
+    processed_at = models.DateTimeField(auto_now_add=True)
+
 
 class Module(models.Model):
     VERTICAL_CHOICES = [
@@ -117,6 +153,11 @@ class Subscription(models.Model):
     
     price_snapshot = models.JSONField(default=dict, help_text="Snapshot of pricing at the time of subscription")
     
+    plan = models.ForeignKey(Plan, null=True, blank=True, on_delete=models.SET_NULL)
+    mp_preapproval_id = models.CharField(max_length=128, null=True, blank=True)
+    next_billing_date = models.DateTimeField(null=True, blank=True)
+    current_period_end = models.DateTimeField(null=True, blank=True)
+
     status = models.CharField(max_length=32, choices=STATUS_CHOICES, default='active')
     
     created_at = models.DateTimeField(auto_now_add=True)

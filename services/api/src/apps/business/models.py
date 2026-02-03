@@ -10,11 +10,31 @@ class Business(models.Model):
   ]
 
   name = models.CharField(max_length=255)
+  parent = models.ForeignKey('self', null=True, blank=True, related_name='branches', on_delete=models.PROTECT)
   default_service = models.CharField(max_length=32, choices=SERVICE_CHOICES, default='gestion')
+  
+  STATUS_CHOICES = [
+        ('pending_activation', 'Pending Activation'),
+        ('active', 'Active'),
+        ('suspended', 'Suspended'),
+  ]
+  status = models.CharField(max_length=32, choices=STATUS_CHOICES, default='active') 
+  
   created_at = models.DateTimeField(auto_now_add=True)
 
   def __str__(self) -> str:
     return self.name
+
+  @property
+  def is_hq(self) -> bool:
+    return self.parent is None
+
+  @property
+  def is_branch(self) -> bool:
+    return self.parent is not None
+
+  def get_children_ids(self):
+    return self.branches.values_list('id', flat=True)
 
 
 class BusinessPlan(models.TextChoices):
@@ -33,6 +53,8 @@ class Subscription(models.Model):
   business = models.OneToOneField('business.Business', related_name='subscription', on_delete=models.CASCADE)
   plan = models.CharField(max_length=32, choices=BusinessPlan.choices, default=BusinessPlan.STARTER)
   status = models.CharField(max_length=32, choices=STATUS_CHOICES, default='active')
+  max_branches = models.PositiveIntegerField(default=0)
+  max_seats = models.PositiveIntegerField(default=5)
   renews_at = models.DateTimeField(null=True, blank=True)
   created_at = models.DateTimeField(auto_now_add=True)
   updated_at = models.DateTimeField(auto_now=True)

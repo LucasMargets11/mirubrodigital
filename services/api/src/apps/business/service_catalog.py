@@ -51,4 +51,8 @@ def enabled_services(plan: str, feature_flags: Dict[str, bool]) -> List[str]:
       continue
     if all(feature_flags.get(feature, False) for feature in service.features):
       enabled.append(service.slug)
+
+  if 'restaurante' in enabled and 'gestion' in enabled:
+    enabled.remove('gestion')
+
   return enabled

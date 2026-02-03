@@ -14,6 +14,7 @@ from rest_framework.views import APIView
 from apps.accounts.access import resolve_business_context, resolve_request_membership
 from apps.accounts.permissions import HasBusinessMembership, HasPermission
 from apps.accounts.rbac import permissions_for_service
+from apps.business.scope import resolve_scope_ids
 from .models import Invoice, InvoiceSeries
 from .pdf import render_invoice_pdf
 from .serializers import (
@@ -61,8 +62,8 @@ class InvoiceListView(InvoicesFeatureMixin, generics.ListAPIView):
   pagination_class = None
 
   def get_queryset(self):
-    business = getattr(self.request, 'business')
-    queryset = Invoice.objects.filter(business=business).select_related('sale', 'series')
+    business_ids = resolve_scope_ids(self.request)
+    queryset = Invoice.objects.filter(business__in=business_ids).select_related('sale', 'series')
 
     status_param = (self.request.query_params.get('status') or '').strip()
     if status_param in Invoice.Status.values:

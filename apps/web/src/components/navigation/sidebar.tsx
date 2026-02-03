@@ -33,6 +33,7 @@ const NAV_CONFIG: Record<string, NavGroup[]> = {
             title: 'Panel',
             items: [
                 { href: '/app/dashboard', label: 'Inicio' },
+                { href: '/app/owner', label: 'General (HQ)', permissionKey: 'manage_settings' },
                 { href: '/app/servicios', label: 'Servicios' },
             ],
         },
@@ -43,6 +44,17 @@ const NAV_CONFIG: Record<string, NavGroup[]> = {
                 { href: '/app/orders', label: 'Órdenes', permissionKey: 'view_orders', featureKey: 'resto_orders' },
                 { href: '/app/kitchen', label: 'Cocina en vivo', permissionKey: 'view_kitchen_board', featureKey: 'resto_kitchen' },
                 { href: '/app/carta', label: 'Carta', permissionKey: 'view_menu', featureKey: 'resto_menu' },
+            ],
+        },
+        {
+            title: 'Gestión Comercial',
+            items: [
+                { href: '/app/gestion/dashboard', label: 'Resumen', permissionKey: 'view_dashboard' },
+                { href: '/app/gestion/productos', label: 'Productos', permissionKey: 'view_products', featureKey: 'products' },
+                { href: '/app/gestion/stock', label: 'Stock', permissionKey: 'view_stock', featureKey: 'inventory' },
+                { href: '/app/gestion/ventas', label: 'Ventas', permissionKey: 'view_sales', featureKey: 'sales' },
+                { href: '/app/gestion/facturas', label: 'Facturas', permissionKey: 'view_invoices', featureKey: 'invoices' },
+                { href: '/app/gestion/clientes', label: 'Clientes', permissionKey: 'view_customers', featureKey: 'customers' },
             ],
         },
         {
@@ -61,6 +73,7 @@ const NAV_CONFIG: Record<string, NavGroup[]> = {
                     featureKey: 'settings',
                     children: [
                         { href: '/app/settings', label: 'General' },
+                        { href: '/app/settings/branches', label: 'Sucursales', permissionKey: 'manage_settings' }, // Access check in page
                         {
                              href: '/app/settings/online-menu',
                              label: 'Carta Online',
@@ -83,6 +96,7 @@ const NAV_CONFIG: Record<string, NavGroup[]> = {
             title: 'Panel',
             items: [
                 { href: '/app/dashboard', label: 'Inicio' },
+                { href: '/app/owner', label: 'General (HQ)', permissionKey: 'manage_settings' },
                 { href: '/app/servicios', label: 'Servicios' },
             ],
         },

@@ -1,6 +1,25 @@
 from rest_framework import serializers
 
-from .models import CommercialSettings
+from .models import CommercialSettings, Business
+
+
+class BranchSerializer(serializers.ModelSerializer):
+  class Meta:
+    model = Business
+    fields = ['id', 'name', 'status', 'created_at']
+    read_only_fields = ['id', 'created_at', 'status']
+
+
+class BranchCreateSerializer(serializers.ModelSerializer):
+  class Meta:
+    model = Business
+    fields = ['name']
+
+  def validate_name(self, value):
+    if len(value) < 3:
+      raise serializers.ValidationError("El nombre debe tener al menos 3 caracteres")
+    return value
+
 
 
 class CommercialSettingsSerializer(serializers.ModelSerializer):

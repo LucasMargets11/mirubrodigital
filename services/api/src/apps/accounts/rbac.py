@@ -111,8 +111,8 @@ SERVICE_ROLE_PERMISSIONS: Dict[str, Dict[str, Set[str]]] = {
     },
   },
   'restaurante': {
-    'owner': set(RESTAURANT_PERMISSIONS),
-    'admin': set(RESTAURANT_PERMISSIONS),
+    'owner': set(RESTAURANT_PERMISSIONS) | GESTION_PERMISSIONS,
+    'admin': set(RESTAURANT_PERMISSIONS) | GESTION_PERMISSIONS,
     'manager': RESTAURANT_PERMISSIONS - {'manage_users', 'manage_whatsapp_bot'},
     'salon': {
       'view_orders',

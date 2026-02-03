@@ -15,23 +15,22 @@ export default function PricingPage() {
   const handleSubscribeBundle = (bundle: Bundle) => {
       // Logic for public site: Redirect to registration with plan params
       const params = new URLSearchParams({
-          plan_type: 'bundle',
-          bundle_code: bundle.code,
+          plan_code: bundle.code,
           billing_period: billingPeriod,
           vertical
       });
-      router.push(`/entrar?${params.toString()}`);
+      router.push(`/subscribe?${params.toString()}`);
   };
   
   const handleSubscribeCustom = (selectedModules: string[], quote: QuoteResponse) => {
       // Logic for public site: Redirect to registration with custom params
       const params = new URLSearchParams({
-          plan_type: 'custom',
+          plan_code: 'custom',
           modules: selectedModules.join(','),
           billing_period: billingPeriod,
           vertical
       });
-      router.push(`/entrar?${params.toString()}`);
+      router.push(`/subscribe?${params.toString()}`);
   };
 
   return (
