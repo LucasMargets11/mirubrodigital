@@ -7,6 +7,7 @@ import { logout } from '@/lib/auth/client';
 const SERVICE_LABELS: Record<string, string> = {
     gestion: 'Gestión Comercial',
     restaurante: 'Restaurante Inteligente',
+    menu_qr: 'Menú QR Online',
 };
 
 type TopbarProps = {

@@ -1,8 +1,13 @@
+import Link from 'next/link';
+import { QrCode } from 'lucide-react';
+
+import { Button } from '@/components/ui/button';
+
 import { useBundles } from '../api';
-import { Bundle } from '../types';
+import { BillingVertical, Bundle } from '../types';
 
 interface PlansBundlesProps {
-  vertical: 'commercial' | 'restaurant';
+  vertical: BillingVertical;
   billingPeriod: 'monthly' | 'yearly';
   onChooseBundle: (bundle: Bundle) => void;
 }
@@ -11,7 +16,14 @@ export function PlansBundles({ vertical, billingPeriod, onChooseBundle }: PlansB
   const { data: bundles, isLoading } = useBundles(vertical);
 
   if (isLoading) return <div>Cargando packs...</div>;
-  if (!bundles?.length) return <div>No hay packs disponibles para esta vertical.</div>;
+
+  if (!bundles?.length) {
+    if (vertical === 'menu_qr') {
+      return <MenuQrPlaceholder />;
+    }
+
+    return <div className="text-center text-slate-500">No hay packs disponibles para esta vertical.</div>;
+  }
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -24,9 +36,8 @@ export function PlansBundles({ vertical, billingPeriod, onChooseBundle }: PlansB
         return (
           <div
             key={bundle.code}
-            className={`border rounded-lg p-6 flex flex-col relative bg-white shadow-sm hover:shadow-md transition-shadow ${
-              bundle.is_default_recommended ? 'border-blue-500 ring-1 ring-blue-500' : 'border-gray-200'
-            }`}
+            className={`border rounded-lg p-6 flex flex-col relative bg-white shadow-sm hover:shadow-md transition-shadow ${bundle.is_default_recommended ? 'border-blue-500 ring-1 ring-blue-500' : 'border-gray-200'
+              }`}
           >
             {bundle.badge && (
               <span className="absolute top-0 right-0 transform translate-x-2 -translate-y-2 bg-yellow-400 text-xs font-bold px-2 py-1 rounded-full shadow-sm text-black">
@@ -35,12 +46,12 @@ export function PlansBundles({ vertical, billingPeriod, onChooseBundle }: PlansB
             )}
             <h3 className="text-xl font-bold mb-2 text-gray-900">{bundle.name}</h3>
             <p className="text-gray-500 text-sm mb-4">{bundle.description}</p>
-            
+
             <div className="my-4">
-               <span className="text-3xl font-bold text-gray-900">
-                 ${(price ?? 0) / 100}
-               </span>
-               <span className="text-gray-500 text-sm"> / {billingPeriod === 'monthly' ? 'mes' : 'año'}</span>
+              <span className="text-3xl font-bold text-gray-900">
+                ${(price ?? 0) / 100}
+              </span>
+              <span className="text-gray-500 text-sm"> / {billingPeriod === 'monthly' ? 'mes' : 'año'}</span>
             </div>
 
             <ul className="space-y-2 mb-6 flex-1">
@@ -54,17 +65,33 @@ export function PlansBundles({ vertical, billingPeriod, onChooseBundle }: PlansB
 
             <button
               onClick={() => onChooseBundle(bundle)}
-              className={`w-full py-2 px-4 rounded-md font-medium transition-colors ${
-                bundle.is_default_recommended
+              className={`w-full py-2 px-4 rounded-md font-medium transition-colors ${bundle.is_default_recommended
                   ? 'bg-blue-600 text-white hover:bg-blue-700'
                   : 'bg-gray-100 text-gray-900 hover:bg-gray-200'
-              }`}
+                }`}
             >
               Elegir Pack
             </button>
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function MenuQrPlaceholder() {
+  return (
+    <div className="mx-auto max-w-3xl rounded-3xl border border-dashed border-brand-200 bg-white/90 p-10 text-center shadow-lg shadow-slate-100">
+      <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-50 text-brand-600">
+        <QrCode className="h-8 w-8" aria-hidden="true" />
+      </div>
+      <h3 className="text-2xl font-semibold text-slate-900">Planes en preparación</h3>
+      <p className="mt-2 text-base text-slate-600">
+        Estamos terminando los packs comerciales para Menú QR Online. Mientras tanto coordinamos la implementación con nuestro equipo.
+      </p>
+      <Button asChild className="mt-6 bg-brand-600 text-white hover:bg-brand-700">
+        <Link href="/subscribe?service=menu_qr">Consultar</Link>
+      </Button>
     </div>
   );
 }

@@ -28,6 +28,13 @@ SERVICE_CATALOG: Iterable[ServiceDefinition] = (
     features=['resto_orders', 'resto_kitchen', 'resto_sales', 'resto_menu'],
     min_plan=BusinessPlan.PLUS,
   ),
+  ServiceDefinition(
+    slug='menu_qr',
+    name='Menú QR Online',
+    description='Carta digital pública con QR y branding personalizado.',
+    features=['menu_builder', 'menu_branding', 'public_menu', 'menu_qr_tools'],
+    min_plan=BusinessPlan.MENU_QR,
+  ),
 )
 
 
@@ -39,6 +46,7 @@ PLAN_ORDER = {
   BusinessPlan.STARTER: 0,
   BusinessPlan.PRO: 1,
   BusinessPlan.PLUS: 2,
+  BusinessPlan.MENU_QR: 0,
 }
 
 

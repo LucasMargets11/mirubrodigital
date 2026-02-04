@@ -34,7 +34,7 @@ class PromotionSerializer(serializers.ModelSerializer):
         fields = ['code', 'name', 'discount_percent', 'fixed_override_price', 'ends_at']
 
 class QuoteRequestSerializer(serializers.Serializer):
-    vertical = serializers.ChoiceField(choices=['commercial', 'restaurant'])
+    vertical = serializers.ChoiceField(choices=['commercial', 'restaurant', 'menu_qr'])
     billing_period = serializers.ChoiceField(choices=['monthly', 'yearly'])
     plan_type = serializers.ChoiceField(choices=['bundle', 'custom'])
     selected_module_codes = serializers.ListField(child=serializers.CharField(), required=False)

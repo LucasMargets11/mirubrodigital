@@ -21,7 +21,7 @@ from apps.accounts.access import (
 )
 from apps.accounts.rbac import permissions_for_service
 from apps.business.context import build_business_context
-from apps.business.models import Business, Subscription
+from apps.business.models import Business, Subscription, BusinessPlan
 from apps.business.service_catalog import serialize_catalog
 from .models import Membership
 from .serializers import LoginSerializer
@@ -88,12 +88,20 @@ def _ensure_membership(user: User) -> Membership:
 	)
 	if membership:
 		if not hasattr(membership.business, 'subscription'):
-			Subscription.objects.create(business=membership.business)
+			Subscription.objects.create(
+				business=membership.business,
+				service=membership.business.default_service or 'gestion',
+			)
 		return membership
 
 	business_name = user.get_full_name() or user.email or user.get_username()
 	business = Business.objects.create(name=f"{business_name} HQ")
-	Subscription.objects.create(business=business, plan='starter', status='active')
+	Subscription.objects.create(
+		business=business,
+		plan=BusinessPlan.STARTER,
+		status='active',
+		service=business.default_service,
+	)
 	membership = Membership.objects.create(user=user, business=business, role='owner')
 	return membership
 

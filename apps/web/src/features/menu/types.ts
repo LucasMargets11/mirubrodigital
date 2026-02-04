@@ -66,9 +66,15 @@ export type PublicMenuCategory = Pick<MenuCategory, 'id' | 'name' | 'description
 }
 
 export type PublicMenuResponse = {
-  business_name: string
-  config: PublicMenuConfig
-  categories: PublicMenuCategory[]
+    business: {
+        id: number
+        name: string
+    }
+    slug: string
+    public_url: string
+    config: PublicMenuConfig
+    branding: MenuBrandingSettings
+    categories: PublicMenuCategory[]
 }
 
 export type MenuItemPayload = {
@@ -130,4 +136,26 @@ export type MenuImportPreview = {
 export type MenuImportResult = {
     summary: MenuImportSummary;
     preview: MenuImportPreview[];
+};
+
+export type MenuBrandingSettings = {
+    display_name: string;
+    logo_url: string | null;
+    palette_primary: string;
+    palette_secondary: string;
+    palette_background: string;
+    palette_text: string;
+    font_heading: string;
+    font_body: string;
+    font_scale_heading: number;
+    font_scale_body: number;
+    updated_at: string;
+};
+
+export type MenuQrResponse = {
+    business_id: number;
+    slug: string;
+    public_url: string;
+    qr_svg: string;
+    generated_at: string;
 };

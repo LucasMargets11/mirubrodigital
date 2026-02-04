@@ -1,12 +1,14 @@
 import { apiDelete, apiGet, apiGetBlob, apiPatch, apiPost } from '@/lib/api/client';
 
 import type {
+    MenuBrandingSettings,
     MenuCategory,
     MenuCategoryPayload,
     MenuImportResult,
     MenuItem,
     MenuItemFilters,
     MenuItemPayload,
+    MenuQrResponse,
     MenuStructureCategory,
     PublicMenuConfig,
 } from './types';
@@ -85,4 +87,16 @@ export function uploadMenuLogo(file: File) {
     const formData = new FormData();
     formData.append('file', file);
     return apiPost<{ url: string }>('/api/v1/menu/public/logo/', formData);
+}
+
+export function getMenuBrandingSettings() {
+    return apiGet<MenuBrandingSettings>('/api/v1/menu/branding/');
+}
+
+export function updateMenuBrandingSettings(payload: Partial<MenuBrandingSettings>) {
+    return apiPatch<MenuBrandingSettings>('/api/v1/menu/branding/', payload);
+}
+
+export function getMenuQrCode(businessId: number) {
+    return apiGet<MenuQrResponse>(`/api/v1/menu-qr/${businessId}/`);
 }

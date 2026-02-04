@@ -1,9 +1,11 @@
+export type BillingVertical = 'commercial' | 'restaurant' | 'menu_qr';
+
 export interface Module {
   code: string;
   name: string;
   description: string;
   category: 'operation' | 'admin' | 'insights';
-  vertical: 'commercial' | 'restaurant' | 'both';
+  vertical: BillingVertical | 'both';
   price_monthly: number;
   price_yearly: number | null;
   is_core: boolean;
@@ -14,7 +16,7 @@ export interface Bundle {
   code: string;
   name: string;
   description: string;
-  vertical: 'commercial' | 'restaurant';
+  vertical: BillingVertical;
   badge?: string;
   modules: Module[];
   pricing_mode: 'fixed_price' | 'discount_percent';
@@ -25,7 +27,7 @@ export interface Bundle {
 }
 
 export interface QuoteRequest {
-  vertical: string;
+  vertical: BillingVertical;
   billing_period: 'monthly' | 'yearly';
   plan_type: 'bundle' | 'custom';
   selected_module_codes?: string[];

@@ -44,6 +44,11 @@ def check_seat_limit(sender, instance, raw=False, **kwargs):
     if not business:
         return
 
+    # Restrict menu_qr service roles
+    menu_qr_allowed_roles = {'owner', 'manager', 'staff', 'viewer'}
+    if getattr(business, 'default_service', None) == 'menu_qr' and instance.role not in menu_qr_allowed_roles:
+      raise ValidationError("Este rol no está disponible para el servicio de Menú QR.")
+
     # Helper to find HQ
     hq = business.parent if getattr(business, 'parent', None) else business
     

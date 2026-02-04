@@ -95,10 +95,13 @@ class BranchViewSet(viewsets.ModelViewSet):
 				parent=hq,
 				name=serializer.validated_data['name'],
 				status='active',
+				default_service=hq.default_service,
 			)
 			# Inherit plan or set default? For MVP same plan type but independent subscription object
 			Subscription.objects.create(
-				business=branch, plan=sub.plan if sub else BusinessPlan.STARTER
+				business=branch,
+				plan=sub.plan if sub else BusinessPlan.STARTER,
+				service=sub.service if sub else hq.default_service,
 			)
 
 			# Auto-add creator as owner so they can switch to it

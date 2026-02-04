@@ -18,7 +18,7 @@ from apps.cash.models import CashRegister, CashSession
 from apps.catalog.models import Product
 from apps.customers.models import Customer
 from apps.inventory.models import ProductStock, StockMovement
-from apps.menu.models import MenuCategory, MenuItem
+from apps.menu.models import MenuCategory, MenuItem, ensure_menu_branding, ensure_public_menu_config
 from apps.orders.models import Order, OrderItem
 from apps.resto.models import Table, TableLayout
 from apps.sales.models import Sale, SaleItem
@@ -58,13 +58,16 @@ class Command(BaseCommand):
         if target in ['lapizza', 'all']:
             self.seed_lapizza()
 
+        if target in ['menuqr', 'all']:
+            self.seed_menu_qr()
+
         self.stdout.write(self.style.SUCCESS('Successfully seeded demo data.'))
         self.print_summary()
 
     def cleanup_demo_data(self):
         self.stdout.write("Cleaning up existing demo tenants/users for idempotency...")
         # Delete tenants by name/slug logic
-        targets = ["Manzana", "Manzana HQ", "La Pizza"]
+        targets = ["Manzana", "Manzana HQ", "La Pizza", "Demo QR"]
         # Delete children first
         Business.objects.filter(parent__name__in=targets).delete()
         Business.objects.filter(name__in=targets).delete()
@@ -501,4 +504,82 @@ class Command(BaseCommand):
         self.stdout.write("Tenant 2: La Pizza (Restaurantes - Plus)")
         self.stdout.write("  Users: lapizza.{owner|manager|cashier|kitchen|salon|viewer}@mirubro.local")
         self.stdout.write("  Pass:  mirubro123")
+        self.stdout.write("-" * 30)
+        self.stdout.write("Tenant 3: Demo QR (Menú QR Online)")
+        self.stdout.write("  Users: menuqr.owner@mirubro.local")
+        self.stdout.write("  Pass:  mirubro123")
         self.stdout.write("="*50 + "\n")
+
+    def seed_menu_qr(self):
+        self.stdout.write(self.style.MIGRATE_HEADING("--- Seeding Tenant 3: Demo QR (Menú QR Online) ---"))
+
+        business, _ = Business.objects.get_or_create(
+            name="Demo QR",
+            defaults={'default_service': 'menu_qr'}
+        )
+        Subscription.objects.update_or_create(
+            business=business,
+            defaults={
+                'plan': BusinessPlan.MENU_QR,
+                'status': 'active',
+                'service': 'menu_qr',
+            }
+        )
+
+        owner = self.get_or_create_user('menuqr.owner@mirubro.local', 'owner', business)
+
+        categories_payload = [
+            ('Bebidas de Autor', [
+                ('Limonada con menta y maracuyá', 3200, True),
+                ('Té frío de frutos rojos', 2800, True),
+            ]),
+            ('Tapas', [
+                ('Bruschettas mediterráneas', 5400, True),
+                ('Tartar de remolacha y cítricos', 6100, True),
+                ('Croquetas de hongos ahumados', 6900, False),
+            ]),
+            ('Platos Principales', [
+                ('Risotto de calabaza asada', 9800, True),
+                ('Pesca blanca con manteca de hierbas', 11800, True),
+                ('Gnocchi de ricota y pistachos', 10500, True),
+            ]),
+        ]
+
+        MenuItem.objects.filter(business=business).delete()
+        MenuCategory.objects.filter(business=business).delete()
+
+        for position, (category_name, items) in enumerate(categories_payload, start=1):
+            category = MenuCategory.objects.create(
+                business=business,
+                name=category_name,
+                position=position,
+                is_active=True,
+            )
+            for idx, (item_name, price, available) in enumerate(items, start=1):
+                MenuItem.objects.create(
+                    business=business,
+                    category=category,
+                    name=item_name,
+                    price=price,
+                    position=idx,
+                    is_available=available,
+                )
+
+        branding = ensure_menu_branding(business)
+        branding.display_name = "Demo QR"
+        branding.palette_primary = '#F97316'
+        branding.palette_secondary = '#FFE0B2'
+        branding.palette_background = '#0F172A'
+        branding.palette_text = '#F8FAFC'
+        branding.font_heading = 'playfair_display'
+        branding.font_body = 'inter'
+        branding.font_scale_heading = 1.35
+        branding.font_scale_body = 1.00
+        branding.save()
+
+        config = ensure_public_menu_config(business)
+        config.enabled = True
+        config.brand_name = branding.display_name
+        config.save(update_fields=['enabled', 'brand_name'])
+
+        self.stdout.write("  Demo QR menu and branding ready.")
