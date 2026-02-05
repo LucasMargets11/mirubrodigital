@@ -13,6 +13,7 @@ const tabConfig = [
     { href: '/app/gestion/ventas', label: 'Ventas', permission: 'view_sales', feature: 'sales' },
     { href: '/app/gestion/clientes', label: 'Clientes', permission: 'view_customers', feature: 'customers' },
     { href: '/app/gestion/facturas', label: 'Facturas', permission: 'view_invoices', feature: 'invoices' },
+    { href: '/app/gestion/finanzas', label: 'Finanzas', permission: 'view_finance' },
     {
         href: '/app/gestion/reportes',
         label: 'Reportes',

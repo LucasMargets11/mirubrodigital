@@ -26,6 +26,8 @@ GESTION_PERMISSIONS: Set[str] = {
   'manage_users',
   'manage_settings',
   'manage_commercial_settings',
+  'view_finance',
+  'manage_finance',
 }
 
 RESTAURANT_PERMISSIONS: Set[str] = {
@@ -69,6 +71,7 @@ SERVICE_ROLE_PERMISSIONS: Dict[str, Dict[str, Set[str]]] = {
       'view_cash',
       'manage_cash',
       'view_reports_cash',
+      'view_finance',
     },
     'staff': {
       'view_dashboard',

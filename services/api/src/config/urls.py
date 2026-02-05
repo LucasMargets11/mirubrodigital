@@ -25,6 +25,7 @@ urlpatterns = [
   path('api/v1/menu/', include('apps.menu.urls')),
   path('api/v1/resto/', include('apps.resto.urls')),
   path('api/v1/billing/', include('apps.billing.urls')),
+  path('api/v1/treasury/', include('apps.treasury.urls')),
   path('api/v1/restaurant/tables/', RestaurantTablesSnapshotView.as_view(), name='restaurant-tables'),
   path('api/v1/restaurant/tables/map-state/', RestaurantTablesMapStateView.as_view(), name='restaurant-tables-map'),
   path('api/v1/restaurant/reports/', include('apps.resto.reports.urls')),

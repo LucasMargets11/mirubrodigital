@@ -22,6 +22,7 @@ from apps.menu.models import MenuCategory, MenuItem
 from apps.orders.models import Order, OrderItem
 from apps.resto.models import Table, TableLayout
 from apps.sales.models import Sale, SaleItem
+from apps.treasury.models import Account, TransactionCategory, Transaction, ExpenseTemplate, Expense, Employee, PayrollPayment, TreasurySettings
 
 User = get_user_model()
 DEFAULT_PASSWORD = 'mirubro123'
@@ -315,6 +316,102 @@ class Command(BaseCommand):
             sales_count += 1
             
         self.stdout.write(f"  Created {len(products)} products, {sales_count} sales, {len(customers)} customers.")
+
+        # 7. Treasury
+        self.stdout.write("  Seeding Treasury...")
+        
+        # Accounts
+        acc_cash, _ = Account.objects.get_or_create(
+            business=business, name="Caja Efectivo", defaults={'type': Account.Type.CASH, 'opening_balance': 50000}
+        )
+        acc_bank, _ = Account.objects.get_or_create(
+            business=business, name="Banco Santander", defaults={'type': Account.Type.BANK, 'opening_balance': 100000}
+        )
+        acc_mp, _ = Account.objects.get_or_create(
+            business=business, name="MercadoPago", defaults={'type': Account.Type.MERCADOPAGO, 'opening_balance': 2500}
+        )
+
+        # Settings
+        TreasurySettings.objects.update_or_create(
+            business=business,
+            defaults={
+                'default_cash_account': acc_cash,
+                'default_bank_account': acc_bank,
+                'default_mercadopago_account': acc_mp,
+            }
+        )
+
+        # Categories
+        cat_serv, _ = TransactionCategory.objects.get_or_create(
+            business=business, name="Servicios", direction=TransactionCategory.Direction.EXPENSE
+        )
+        cat_payroll, _ = TransactionCategory.objects.get_or_create(
+            business=business, name="Sueldos", direction=TransactionCategory.Direction.EXPENSE
+        )
+        cat_prov, _ = TransactionCategory.objects.get_or_create(
+            business=business, name="Proveedores", direction=TransactionCategory.Direction.EXPENSE
+        )
+        cat_other, _ = TransactionCategory.objects.get_or_create(
+            business=business, name="Otros", direction=TransactionCategory.Direction.EXPENSE
+        )
+        
+        # Templates
+        ExpenseTemplate.objects.get_or_create(
+            business=business, name="Internet Fibra", 
+            defaults={'category': cat_serv, 'amount': 15000, 'frequency': ExpenseTemplate.Frequency.MONTHLY, 'due_day': 10, 'start_date': timezone.now().date()}
+        )
+        ExpenseTemplate.objects.get_or_create(
+            business=business, name="Luz", 
+            defaults={'category': cat_serv, 'amount': 45000, 'frequency': ExpenseTemplate.Frequency.MONTHLY, 'due_day': 15, 'start_date': timezone.now().date()}
+        )
+        
+        # Employees
+        emp1, _ = Employee.objects.get_or_create(
+            business=business, full_name="Juan Perez",
+            defaults={'base_salary': 350000, 'pay_frequency': Employee.PayFrequency.MONTHLY}
+        )
+        
+        # Payroll Payment (1 month ago)
+        pay_date = timezone.now() - datetime.timedelta(days=30)
+        
+        if not PayrollPayment.objects.filter(business=business, employee=emp1, paid_at=pay_date).exists():
+            trx_pay = Transaction.objects.create(
+                business=business, account=acc_bank, direction=Transaction.Direction.OUT, amount=350000,
+                occurred_at=pay_date, category=cat_payroll, description=f"Sueldo {emp1.full_name}",
+                reference_type='payroll', created_by=owner
+            )
+            PayrollPayment.objects.create(
+                business=business, employee=emp1, amount=350000, paid_at=pay_date,
+                account=acc_bank, transaction=trx_pay
+            )
+            
+        # Expenses
+        # 1 Paid
+        exp_paid, _ = Expense.objects.get_or_create(
+            business=business, name="Compra Insumos Libreria",
+            defaults={
+                'category': cat_other, 'amount': 5000, 'due_date': timezone.now() - datetime.timedelta(days=5),
+                'status': Expense.Status.PAID, 'paid_at': timezone.now() - datetime.timedelta(days=5),
+                'paid_account': acc_cash
+            }
+        )
+        if exp_paid.status == Expense.Status.PAID and not exp_paid.payment_transaction:
+            trx_exp = Transaction.objects.create(
+                business=business, account=acc_cash, direction=Transaction.Direction.OUT, amount=5000,
+                occurred_at=exp_paid.paid_at, category=cat_other, description=f"Pago gasto: {exp_paid.name}",
+                reference_type='expense', reference_id=str(exp_paid.id), created_by=owner
+            )
+            exp_paid.payment_transaction = trx_exp
+            exp_paid.save()
+            
+        # 1 Pending
+        Expense.objects.get_or_create(
+            business=business, name="Mantenimiento Aire Acondicionado",
+            defaults={
+                'category': cat_serv, 'amount': 25000, 'due_date': timezone.now() + datetime.timedelta(days=2),
+                'status': Expense.Status.PENDING
+            }
+        )
 
         # BRANCHES SEED
         self.stdout.write("  Seeding branches for Manzana HQ...")
