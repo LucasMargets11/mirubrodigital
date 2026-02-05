@@ -23,6 +23,10 @@ FEATURE_KEYS: Iterable[str] = (
   'resto_menu',
   'resto_reports',
   'settings',
+  'menu_builder',
+  'menu_branding',
+  'public_menu',
+  'menu_qr_tools',
 )
 
 PLAN_FEATURES: Dict[str, Iterable[str]] = {
@@ -47,6 +51,12 @@ PLAN_FEATURES: Dict[str, Iterable[str]] = {
     'resto_recipes',
     'resto_menu',
     'resto_reports',
+  ),
+  'menu_qr': (
+    'menu_builder',
+    'menu_branding',
+    'public_menu',
+    'menu_qr_tools',
   ),
 }
 

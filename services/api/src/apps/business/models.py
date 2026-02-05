@@ -7,6 +7,7 @@ class Business(models.Model):
   SERVICE_CHOICES = [
     ('gestion', 'Gestion Comercial'),
     ('restaurante', 'Restaurantes'),
+    ('menu_qr', 'Menú QR Online'),
   ]
 
   name = models.CharField(max_length=255)
@@ -41,6 +42,7 @@ class BusinessPlan(models.TextChoices):
   STARTER = 'starter', 'Starter'
   PRO = 'pro', 'Pro'
   PLUS = 'plus', 'Plus'
+  MENU_QR = 'menu_qr', 'Menú QR'
 
 
 class Subscription(models.Model):
@@ -52,6 +54,7 @@ class Subscription(models.Model):
 
   business = models.OneToOneField('business.Business', related_name='subscription', on_delete=models.CASCADE)
   plan = models.CharField(max_length=32, choices=BusinessPlan.choices, default=BusinessPlan.STARTER)
+  service = models.CharField(max_length=32, choices=Business.SERVICE_CHOICES, default='gestion')
   status = models.CharField(max_length=32, choices=STATUS_CHOICES, default='active')
   max_branches = models.PositiveIntegerField(default=0)
   max_seats = models.PositiveIntegerField(default=5)
@@ -61,6 +64,15 @@ class Subscription(models.Model):
 
   def __str__(self) -> str:
     return f"{self.business.name} · {self.plan} ({self.status})"
+
+  def save(self, *args, **kwargs):  # pragma: no cover - simple guard
+    if not self.service and self.business_id:
+      business = getattr(self, 'business', None)
+      if business is None:
+        business = Business.objects.filter(pk=self.business_id).only('default_service').first()
+      if business and business.default_service:
+        self.service = business.default_service
+    super().save(*args, **kwargs)
 
 
 class CommercialSettingsManager(models.Manager):

@@ -11,6 +11,7 @@ import type { FeatureFlags, PermissionMap } from '@/lib/auth/types';
 const SERVICE_LABELS: Record<string, string> = {
     gestion: 'Gestión Comercial',
     restaurante: 'Restaurante Inteligente',
+    menu_qr: 'Menú QR Online',
 };
 
 type AppLink = {
@@ -33,7 +34,7 @@ const NAV_CONFIG: Record<string, NavGroup[]> = {
             title: 'Panel',
             items: [
                 { href: '/app/dashboard', label: 'Inicio' },
-                { href: '/app/owner', label: 'General (HQ)', permissionKey: 'manage_settings' },
+                { href: '/app/owner', label: 'Sucursales', permissionKey: 'manage_settings' },
                 { href: '/app/servicios', label: 'Servicios' },
             ],
         },
@@ -75,10 +76,10 @@ const NAV_CONFIG: Record<string, NavGroup[]> = {
                         { href: '/app/settings', label: 'General' },
                         { href: '/app/settings/branches', label: 'Sucursales', permissionKey: 'manage_settings' }, // Access check in page
                         {
-                             href: '/app/settings/online-menu',
-                             label: 'Carta Online',
-                             permissionKey: 'manage_settings',
-                             featureKey: 'resto_menu',
+                            href: '/app/settings/online-menu',
+                            label: 'Carta Online',
+                            permissionKey: 'manage_settings',
+                            featureKey: 'resto_menu',
                         },
                         {
                             href: '/app/resto/settings/tables',
@@ -96,7 +97,7 @@ const NAV_CONFIG: Record<string, NavGroup[]> = {
             title: 'Panel',
             items: [
                 { href: '/app/dashboard', label: 'Inicio' },
-                { href: '/app/owner', label: 'General (HQ)', permissionKey: 'manage_settings' },
+                { href: '/app/owner', label: 'Sucursales', permissionKey: 'manage_settings' },
                 { href: '/app/servicios', label: 'Servicios' },
             ],
         },
@@ -126,6 +127,25 @@ const NAV_CONFIG: Record<string, NavGroup[]> = {
             ],
         },
     ],
+    menu_qr: [
+        {
+            title: 'Menú QR',
+            items: [
+                { href: '/app/menu', label: 'Carta Online', permissionKey: 'view_menu' },
+                { href: '/app/menu/branding', label: 'Branding', permissionKey: 'manage_menu_branding' },
+                { href: '/app/menu/qr', label: 'QR y enlaces', permissionKey: 'view_menu_admin' },
+                { href: '/app/menu/preview', label: 'Preview público', permissionKey: 'view_menu' },
+            ],
+        },
+        {
+            title: 'Cuenta',
+            items: [
+                { href: '/app/servicios', label: 'Planes y upgrades' },
+                { href: '/app/planes', label: 'Facturación' },
+                { href: '/app/settings', label: 'Equipo', permissionKey: 'manage_users' },
+            ],
+        },
+    ],
 };
 
 type SidebarProps = {
@@ -139,7 +159,7 @@ function NavItem({ item, pathname }: { item: AppLink; pathname: string }) {
     const isActive = item.href ? pathname?.startsWith(item.href) : false;
     // Check if any child is active to auto-expand or highlight parent
     const hasActiveChild = item.children?.some((child) => child.href && pathname?.startsWith(child.href));
-    
+
     // Initialize open state if a child is active
     const [isOpen, setIsOpen] = useState(hasActiveChild);
 
@@ -185,7 +205,7 @@ function NavItem({ item, pathname }: { item: AppLink; pathname: string }) {
 export function Sidebar({ businessName, features, permissions, service }: SidebarProps) {
     const pathname = usePathname() || '';
     const serviceLabel = SERVICE_LABELS[service] ?? service;
-    
+
     // Fallback to empty list or default structure if service not found, 
     // but here we just handle the known ones or fallback to 'gestion' structure if needed.
     // For now assuming service is valid as per previous code.
@@ -201,7 +221,10 @@ export function Sidebar({ businessName, features, permissions, service }: Sideba
             <nav className="flex-1 space-y-5 overflow-y-auto px-3 pb-4 text-sm">
                 {sections.map((section) => {
                     const visibleLinks = section.items.filter((link) => {
-                         if (link.featureKey && features?.[link.featureKey] === false) {
+                        if (link.services && !link.services.includes(service)) {
+                            return false;
+                        }
+                        if (link.featureKey && features?.[link.featureKey] === false) {
                             return false;
                         }
                         if (link.permissionKey && permissions?.[link.permissionKey] !== true) {

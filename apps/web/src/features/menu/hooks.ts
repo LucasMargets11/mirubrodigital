@@ -8,8 +8,11 @@ import {
     exportMenuWorkbook,
     fetchMenuStructure,
     importMenuWorkbook,
+    getMenuBrandingSettings,
+    getMenuQrCode,
     listMenuCategories,
     listMenuItems,
+    updateMenuBrandingSettings,
     updateMenuCategory,
     updateMenuItem,
 } from './api';
@@ -22,6 +25,8 @@ export const menuKeys = {
     categories: () => ['menu', 'categories'] as const,
     items: (filters: MenuItemFilters) => ['menu', 'items', filters] as const,
     structure: () => menuStructureKey as const,
+    branding: () => ['menu', 'branding'] as const,
+    qr: (businessId: number) => ['menu', 'qr', businessId] as const,
 };
 
 export function useMenuCategories() {
@@ -134,5 +139,30 @@ export function useImportMenu() {
 export function useExportMenu() {
     return useMutation({
         mutationFn: () => exportMenuWorkbook(),
+    });
+}
+
+export function useMenuBrandingSettings() {
+    return useQuery({
+        queryKey: menuKeys.branding(),
+        queryFn: () => getMenuBrandingSettings(),
+    });
+}
+
+export function useUpdateMenuBrandingSettings() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (payload: Parameters<typeof updateMenuBrandingSettings>[0]) => updateMenuBrandingSettings(payload),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: menuKeys.branding() });
+        },
+    });
+}
+
+export function useMenuQrCode(businessId: number | null) {
+    return useQuery({
+        queryKey: menuKeys.qr(businessId || 0),
+        queryFn: () => getMenuQrCode(businessId as number),
+        enabled: !!businessId,
     });
 }

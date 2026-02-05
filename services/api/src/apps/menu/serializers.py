@@ -4,7 +4,13 @@ from typing import Any, Iterable, List
 
 from rest_framework import serializers
 
-from .models import MenuCategory, MenuItem, PublicMenuConfig
+from .models import (
+    MenuBrandingSettings,
+    MenuCategory,
+    MenuItem,
+    PublicMenuConfig,
+    ensure_public_menu_config,
+)
 
 
 class TagListField(serializers.ListField):
@@ -160,6 +166,42 @@ class PublicMenuConfigSerializer(serializers.ModelSerializer):
             'updated_at',
         ]
         read_only_fields = ['public_id', 'updated_at']
+
+
+class MenuBrandingSettingsSerializer(serializers.ModelSerializer):
+    logo_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = MenuBrandingSettings
+        fields = [
+            'display_name',
+            'logo_url',
+            'palette_primary',
+            'palette_secondary',
+            'palette_background',
+            'palette_text',
+            'font_heading',
+            'font_body',
+            'font_scale_heading',
+            'font_scale_body',
+            'updated_at',
+        ]
+        read_only_fields = ['logo_url', 'updated_at']
+
+    def get_logo_url(self, obj):
+        url = obj.logo_url
+        request = self.context.get('request') if hasattr(self, 'context') else None
+        if url and request and url.startswith('/'):
+            return request.build_absolute_uri(url)
+        return url
+
+    def update(self, instance, validated_data):
+        branding = super().update(instance, validated_data)
+        config = ensure_public_menu_config(branding.business)
+        if config.brand_name != branding.display_name:
+            config.brand_name = branding.display_name
+            config.save(update_fields=['brand_name'])
+        return branding
 
 
 class PublicMenuItemSerializer(serializers.ModelSerializer):

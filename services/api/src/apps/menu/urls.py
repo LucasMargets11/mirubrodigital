@@ -1,6 +1,7 @@
 from django.urls import path
 
 from .views import (
+    MenuBrandingSettingsView,
     MenuCategoryDetailView,
     MenuCategoryListCreateView,
     MenuExportView,
@@ -25,6 +26,7 @@ urlpatterns = [
     path('import/', MenuImportView.as_view(), name='import'),
     path('export/', MenuExportView.as_view(), name='export'),
     path('public/config/', PublicMenuConfigView.as_view(), name='public-config'),
+    path('branding/', MenuBrandingSettingsView.as_view(), name='branding-settings'),
     path('public/logo/', MenuLogoUploadView.as_view(), name='public-logo-upload'),
     path('public/slug/<slug:slug>/', PublicMenuBySlugView.as_view(), name='public-by-slug'),
     path('public/resolve/<uuid:public_id>/', PublicMenuResolveView.as_view(), name='public-resolve'),

@@ -1,6 +1,4 @@
-import axios from 'axios';
-import { getCookie } from 'cookies-next';
-import { API_URL } from '@/lib/api-url';
+import { ApiError, apiGet, apiPost } from '@/lib/api/client';
 
 export interface Branch {
     id: number;
@@ -15,20 +13,26 @@ export type CreateBranchPayload = {
 
 export const branchService = {
     async list() {
-        const token = getCookie('access_token');
-        const response = await axios.get<Branch[]>(`${API_URL}/api/v1/business/branches/`, {
-            headers: { Authorization: `Bearer ${token}` },
-            withCredentials: true,
-        });
-        return response.data;
+        return apiGet<Branch[]>('/api/v1/branches/');
     },
 
     async create(payload: CreateBranchPayload) {
-        const token = getCookie('access_token');
-        const response = await axios.post<Branch>(`${API_URL}/api/v1/business/branches/`, payload, {
-            headers: { Authorization: `Bearer ${token}` },
-            withCredentials: true,
-        });
-        return response.data;
+        try {
+            return await apiPost<Branch>('/api/v1/branches/', payload);
+        } catch (error) {
+            throw normalizeApiError(error);
+        }
     },
 };
+
+function normalizeApiError(error: unknown) {
+    if (error instanceof ApiError) {
+        return {
+            response: {
+                data: error.payload ?? { detail: error.message },
+            },
+            message: error.message,
+        };
+    }
+    return error;
+}

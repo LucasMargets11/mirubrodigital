@@ -13,7 +13,8 @@ def build_business_context(business) -> Dict[str, object]:
   status = getattr(subscription, 'status', None) or 'active'
   feature_flags = feature_flags_for_plan(plan)
   service_list: List[str] = enabled_services(plan, feature_flags)
-  default_service = business.default_service or 'gestion'
+  subscription_service = getattr(subscription, 'service', None)
+  default_service = subscription_service or business.default_service or 'gestion'
   if default_service not in service_list and service_list:
     active_service = service_list[0]
   elif not service_list:

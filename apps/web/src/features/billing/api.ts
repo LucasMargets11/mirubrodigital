@@ -1,8 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiGet, apiPost } from '@/lib/api/client';
-import { Bundle, Module, QuoteRequest, QuoteResponse } from './types';
+import { BillingVertical, Bundle, Module, QuoteRequest, QuoteResponse } from './types';
 
-export function useModules(vertical: string) {
+export function useModules(vertical: BillingVertical) {
   return useQuery({
     queryKey: ['billing-modules', vertical],
     queryFn: async () => {
@@ -13,7 +13,7 @@ export function useModules(vertical: string) {
   });
 }
 
-export function useBundles(vertical: string) {
+export function useBundles(vertical: BillingVertical) {
   return useQuery({
     queryKey: ['billing-bundles', vertical],
     queryFn: async () => {

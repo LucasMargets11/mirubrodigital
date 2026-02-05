@@ -87,7 +87,7 @@ class BillingViewSet(viewsets.ViewSet):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         
-        vertical_map = {'gestion': 'commercial', 'restaurante': 'restaurant'}
+        vertical_map = {'gestion': 'commercial', 'restaurante': 'restaurant', 'menu_qr': 'menu_qr'}
         vertical = vertical_map.get(business.default_service, 'commercial')
         
         try:
@@ -144,10 +144,12 @@ class StartSubscriptionView(APIView):
         password = request.data.get('password')
         business_name = request.data.get('business_name')
         plan_code = request.data.get('plan_code')
-        
+        raw_service = (request.data.get('service') or '').strip()
+        service = raw_service or None
+
         if not all([email, password, business_name, plan_code]):
-             return Response({'error': 'Missing required fields'}, status=400)
-        
+            return Response({'error': 'Missing required fields'}, status=400)
+
         if User.objects.filter(email=email).exists():
             return Response({'error': 'Email already registered'}, status=400)
             
@@ -155,11 +157,25 @@ class StartSubscriptionView(APIView):
             plan = Plan.objects.get(code=plan_code)
         except Plan.DoesNotExist:
             return Response({'error': 'Invalid plan code'}, status=400)
+
+        allowed_services = {choice[0] for choice in Business.SERVICE_CHOICES}
+        if service is None:
+            plan_service = (plan.features_json or {}).get('service') if isinstance(plan.features_json, dict) else None
+            if plan_service in allowed_services:
+                service = plan_service
+        if service is None:
+            service = 'gestion'
+        if service not in allowed_services:
+            return Response({'error': 'Invalid service'}, status=400)
             
         try:
             with transaction.atomic():
                 user = User.objects.create_user(email=email, password=password, username=email)
-                business = Business.objects.create(name=business_name, status='pending_activation')
+                business = Business.objects.create(
+                    name=business_name,
+                    status='pending_activation',
+                    default_service=service,
+                )
                 
                 # Subscription
                 subscription = Subscription.objects.create(
@@ -167,7 +183,8 @@ class StartSubscriptionView(APIView):
                     plan=plan,
                     plan_type='bundle', # Setting default for compatibility
                     billing_period='monthly', # default
-                    status='active' 
+                    status='active',
+                    service=service,
                 )
                 
                 mp_service = MercadoPagoService()

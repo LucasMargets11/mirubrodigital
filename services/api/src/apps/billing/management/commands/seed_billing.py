@@ -1,5 +1,7 @@
+from decimal import Decimal
+
 from django.core.management.base import BaseCommand
-from apps.billing.models import Module, Bundle, Promotion
+from apps.billing.models import Module, Bundle, Promotion, Plan
 
 class Command(BaseCommand):
     help = 'Seeds billing modules and bundles'
@@ -101,4 +103,69 @@ class Command(BaseCommand):
         )
         b_resto_basic.modules.set([resto_modules_obj['tables_map'], resto_modules_obj['table_orders']])
         
+        # Menu QR Online Modules & Bundle
+        menu_modules_data = [
+            ('menu_builder_core', 'Editor de Carta', 'Categorías e items ilimitados dentro del plan.', 'operation', 0, True),
+            ('menu_branding_basic', 'Branding Básico', 'Logo, colores y tipografías personalizadas.', 'admin', 0, True),
+            ('menu_qr_tools', 'QR & Link Público', 'Generación de QR ilimitado y vista previa pública.', 'insights', 0, True),
+        ]
+
+        menu_modules = {}
+        for code, name, desc, cat, price, is_core in menu_modules_data:
+            mod, _ = Module.objects.update_or_create(
+                code=code,
+                defaults={
+                    'name': name,
+                    'description': desc,
+                    'category': cat,
+                    'price_monthly': price,
+                    'price_yearly': price * 10 if price else 0,
+                    'is_core': is_core,
+                    'vertical': 'menu_qr',
+                }
+            )
+            menu_modules[code] = mod
+
+        menu_bundle, _ = Bundle.objects.update_or_create(
+            code='menu_qr_online',
+            defaults={
+                'name': 'Menú QR Online',
+                'description': 'Carta digital con QR y branding básico.',
+                'vertical': 'menu_qr',
+                'pricing_mode': 'fixed_price',
+                'fixed_price_monthly': 4900,
+                'fixed_price_yearly': 4900 * 10,
+                'is_default_recommended': True,
+                'badge': 'Nuevo',
+            }
+        )
+        menu_bundle.modules.set(list(menu_modules.values()))
+
+        # Plans for checkout flow
+        Plan.objects.update_or_create(
+            code='menu_qr_monthly',
+            defaults={
+                'name': 'Menú QR Online Mensual',
+                'price': Decimal('4900.00'),
+                'interval': 'monthly',
+                'features_json': {
+                    'service': 'menu_qr',
+                    'limits': {'max_items': 150, 'max_categories': 25, 'allow_custom_domain': False},
+                },
+            }
+        )
+
+        Plan.objects.update_or_create(
+            code='menu_qr_yearly',
+            defaults={
+                'name': 'Menú QR Online Anual',
+                'price': Decimal('52900.00'),
+                'interval': 'yearly',
+                'features_json': {
+                    'service': 'menu_qr',
+                    'limits': {'max_items': 150, 'max_categories': 25, 'allow_custom_domain': False},
+                },
+            }
+        )
+
         self.stdout.write(self.style.SUCCESS('Successfully seeded billing data'))

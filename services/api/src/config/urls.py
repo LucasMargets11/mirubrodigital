@@ -4,6 +4,7 @@ from django.contrib import admin
 from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
+from apps.menu.views import MenuQRCodeView, PublicMenuBySlugView
 from apps.resto.views import RestaurantTablesMapStateView, RestaurantTablesSnapshotView
 from common.health import health_check
 
@@ -23,6 +24,8 @@ urlpatterns = [
   path('api/v1/sales/', include('apps.sales.urls')),
   path('api/v1/reports/', include('apps.reports.urls')),
   path('api/v1/menu/', include('apps.menu.urls')),
+  path('api/v1/public/menu/<slug:slug>/', PublicMenuBySlugView.as_view(), name='public-menu'),
+  path('api/v1/menu-qr/<int:business_id>/', MenuQRCodeView.as_view(), name='menu-qr'),
   path('api/v1/resto/', include('apps.resto.urls')),
   path('api/v1/billing/', include('apps.billing.urls')),
   path('api/v1/treasury/', include('apps.treasury.urls')),

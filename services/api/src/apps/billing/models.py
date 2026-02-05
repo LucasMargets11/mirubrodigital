@@ -43,6 +43,7 @@ class Module(models.Model):
         ('commercial', 'Commercial'),
         ('restaurant', 'Restaurant'),
         ('both', 'Both'),
+        ('menu_qr', 'Menu QR'),
     ]
     CATEGORY_CHOICES = [
         ('operation', 'Operation'),
@@ -70,6 +71,7 @@ class Bundle(models.Model):
     VERTICAL_CHOICES = [
         ('commercial', 'Commercial'),
         ('restaurant', 'Restaurant'),
+        ('menu_qr', 'Menu QR'),
     ]
     PRICING_MODE_CHOICES = [
         ('fixed_price', 'Fixed Price'),

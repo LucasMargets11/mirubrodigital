@@ -5,7 +5,7 @@ import { MarketingContainer } from '@/components/ui/marketing-container';
 const marketingLinks = [
     { href: '/', label: 'Inicio' },
     { href: '/pricing', label: 'Precios' },
-    { href: '/features', label: 'Funciones' },
+    { href: '/services', label: 'Servicios' },
     { href: '/entrar', label: 'Entrar' },
 ];
 

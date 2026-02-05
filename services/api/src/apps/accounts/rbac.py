@@ -51,9 +51,22 @@ RESTAURANT_PERMISSIONS: Set[str] = {
   'manage_users',
   'manage_settings',
   'manage_whatsapp_bot',
+  'manage_menu_branding',
+  'view_menu_admin',
+  'view_public_menu',
 }
 
-ALL_PERMISSIONS: Set[str] = GESTION_PERMISSIONS.union(RESTAURANT_PERMISSIONS)
+MENU_QR_PERMISSIONS: Set[str] = {
+  'view_menu',
+  'manage_menu',
+  'manage_menu_branding',
+  'view_menu_admin',
+  'view_public_menu',
+  'manage_settings',
+  'manage_users',
+}
+
+ALL_PERMISSIONS: Set[str] = GESTION_PERMISSIONS.union(RESTAURANT_PERMISSIONS).union(MENU_QR_PERMISSIONS)
 
 SERVICE_ROLE_PERMISSIONS: Dict[str, Dict[str, Set[str]]] = {
   'gestion': {
@@ -145,6 +158,21 @@ SERVICE_ROLE_PERMISSIONS: Dict[str, Dict[str, Set[str]]] = {
       'view_menu',
       'view_kitchen_board',
       'view_restaurant_reports',
+    },
+  },
+  'menu_qr': {
+    'owner': set(MENU_QR_PERMISSIONS),
+    'manager': MENU_QR_PERMISSIONS - {'manage_users'},
+    'staff': {
+      'view_menu',
+      'manage_menu',
+      'view_menu_admin',
+      'view_public_menu',
+    },
+    'viewer': {
+      'view_menu',
+      'view_menu_admin',
+      'view_public_menu',
     },
   },
 }
