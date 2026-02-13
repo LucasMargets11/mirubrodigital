@@ -101,7 +101,13 @@ export function useCreateMovement() {
 
 export function useSales(filters: SalesFilters) {
     return useQuery({
-        queryKey: [...salesBaseKey, filters],
+        queryKey: [...salesBaseKey, { 
+            search: filters.search,
+            status: filters.status,
+            payment_method: filters.payment_method,
+            date_from: filters.date_from,
+            date_to: filters.date_to,
+        }],
         queryFn: () => fetchSales(filters),
     });
 }

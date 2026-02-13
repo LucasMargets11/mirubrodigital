@@ -82,8 +82,8 @@ export function PayrollClient({ canManage }: { canManage: boolean }) {
             {/* PAYMENTS SECTION */}
             <section className="space-y-4">
                 <div className="flex justify-between items-center">
-                     <h2 className="text-lg font-semibold text-slate-900">Historial de Pagos</h2>
-                     {canManage && employees && employees.length > 0 && (
+                    <h2 className="text-lg font-semibold text-slate-900">Historial de Pagos</h2>
+                    {canManage && employees && employees.length > 0 && (
                         <Button onClick={() => setIsPaymentModalOpen(true)}>
                             <DollarSign className="mr-2 h-4 w-4" />
                             Registrar Pago
@@ -96,7 +96,7 @@ export function PayrollClient({ canManage }: { canManage: boolean }) {
                         No hay pagos registrados aún.
                     </div>
                 ) : (
-                     <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
+                    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
                         <table className="min-w-full divide-y divide-slate-200">
                             <thead className="bg-slate-50">
                                 <tr>
@@ -163,17 +163,17 @@ function EmployeeFormModal({ isOpen, onClose, onSubmit, isLoading }: any) {
     };
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title="Nuevo Empleado">
+        <Modal open={isOpen} onClose={onClose} title="Nuevo Empleado">
             <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
                     <label className="block text-sm font-medium text-slate-700">Nombre Completo</label>
                     <input autoFocus required type="text" value={fullName} onChange={e => setFullName(e.target.value)} className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-slate-900 focus:ring-slate-900 sm:text-sm p-2 border" />
                 </div>
-                 <div>
+                <div>
                     <label className="block text-sm font-medium text-slate-700">Salario Base</label>
                     <input required type="number" step="0.01" value={baseSalary} onChange={e => setBaseSalary(e.target.value)} className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-slate-900 focus:ring-slate-900 sm:text-sm p-2 border" />
                 </div>
-                 <div>
+                <div>
                     <label className="block text-sm font-medium text-slate-700">Frecuencia</label>
                     <select value={payFrequency} onChange={e => setPayFrequency(e.target.value)} className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-slate-900 focus:ring-slate-900 sm:text-sm p-2 border">
                         <option value="monthly">Mensual</option>
@@ -206,40 +206,40 @@ function PaymentFormModal({ isOpen, onClose, onSubmit, isLoading, employees, acc
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        onSubmit({ 
-            employee: Number(employeeId), 
-            amount, 
-            account: Number(accountId), 
-            paid_at: paidAt 
+        onSubmit({
+            employee: Number(employeeId),
+            amount,
+            account: Number(accountId),
+            paid_at: paidAt
         });
     };
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title="Registrar Pago Sueldo">
-             <form onSubmit={handleSubmit} className="space-y-4">
+        <Modal open={isOpen} onClose={onClose} title="Registrar Pago Sueldo">
+            <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
-                     <label className="block text-sm font-medium text-slate-700">Empleado</label>
+                    <label className="block text-sm font-medium text-slate-700">Empleado</label>
                     <select required value={employeeId} onChange={handleEmployeeChange} className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-slate-900 focus:ring-slate-900 sm:text-sm p-2 border">
                         <option value="">Seleccionar...</option>
                         {employees.map((e: any) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
                     </select>
                 </div>
-                 <div>
+                <div>
                     <label className="block text-sm font-medium text-slate-700">Monto</label>
                     <input required type="number" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-slate-900 focus:ring-slate-900 sm:text-sm p-2 border" />
                 </div>
-                 <div>
+                <div>
                     <label className="block text-sm font-medium text-slate-700">Cuenta de origen (Pago)</label>
-                     <select required value={accountId} onChange={e => setAccountId(e.target.value)} className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-slate-900 focus:ring-slate-900 sm:text-sm p-2 border">
+                    <select required value={accountId} onChange={e => setAccountId(e.target.value)} className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-slate-900 focus:ring-slate-900 sm:text-sm p-2 border">
                         <option value="">Seleccionar...</option>
                         {accounts.filter((a: any) => a.is_active).map((a: any) => <option key={a.id} value={a.id}>{a.name} ({a.type})</option>)}
                     </select>
                 </div>
-                 <div>
+                <div>
                     <label className="block text-sm font-medium text-slate-700">Fecha de Pago</label>
                     <input required type="date" value={paidAt} onChange={e => setPaidAt(e.target.value)} className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-slate-900 focus:ring-slate-900 sm:text-sm p-2 border" />
                 </div>
-                
+
                 <div className="flex justify-end gap-2 pt-4">
                     <Button type="button" variant="outline" onClick={onClose}>Cancelar</Button>
                     <Button type="submit" disabled={isLoading}>{isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Confirmar</Button>

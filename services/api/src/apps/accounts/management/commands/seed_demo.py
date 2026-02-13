@@ -22,7 +22,7 @@ from apps.menu.models import MenuCategory, MenuItem, ensure_menu_branding, ensur
 from apps.orders.models import Order, OrderItem
 from apps.resto.models import Table, TableLayout
 from apps.sales.models import Sale, SaleItem
-from apps.treasury.models import Account, TransactionCategory, Transaction, ExpenseTemplate, Expense, Employee, PayrollPayment, TreasurySettings
+from apps.treasury.models import Account, TransactionCategory, Transaction, ExpenseTemplate, Expense, Employee, PayrollPayment, TreasurySettings, FixedExpense, FixedExpensePeriod
 
 User = get_user_model()
 DEFAULT_PASSWORD = 'mirubro123'
@@ -344,7 +344,7 @@ class Command(BaseCommand):
             }
         )
 
-        # Categories
+        # Categories - Expenses
         cat_serv, _ = TransactionCategory.objects.get_or_create(
             business=business, name="Servicios", direction=TransactionCategory.Direction.EXPENSE
         )
@@ -354,11 +354,37 @@ class Command(BaseCommand):
         cat_prov, _ = TransactionCategory.objects.get_or_create(
             business=business, name="Proveedores", direction=TransactionCategory.Direction.EXPENSE
         )
+        cat_rent, _ = TransactionCategory.objects.get_or_create(
+            business=business, name="Alquiler", direction=TransactionCategory.Direction.EXPENSE
+        )
+        cat_tax, _ = TransactionCategory.objects.get_or_create(
+            business=business, name="Impuestos", direction=TransactionCategory.Direction.EXPENSE
+        )
+        cat_maint, _ = TransactionCategory.objects.get_or_create(
+            business=business, name="Mantenimiento", direction=TransactionCategory.Direction.EXPENSE
+        )
+        cat_marketing, _ = TransactionCategory.objects.get_or_create(
+            business=business, name="Marketing", direction=TransactionCategory.Direction.EXPENSE
+        )
+        cat_office, _ = TransactionCategory.objects.get_or_create(
+            business=business, name="Oficina/Insumos", direction=TransactionCategory.Direction.EXPENSE
+        )
         cat_other, _ = TransactionCategory.objects.get_or_create(
             business=business, name="Otros", direction=TransactionCategory.Direction.EXPENSE
         )
         
-        # Templates
+        # Categories - Income
+        cat_sales, _ = TransactionCategory.objects.get_or_create(
+            business=business, name="Ventas", direction=TransactionCategory.Direction.INCOME
+        )
+        cat_services_income, _ = TransactionCategory.objects.get_or_create(
+            business=business, name="Servicios", direction=TransactionCategory.Direction.INCOME
+        )
+        cat_other_income, _ = TransactionCategory.objects.get_or_create(
+            business=business, name="Otros Ingresos", direction=TransactionCategory.Direction.INCOME
+        )
+        
+        # Templates (DEPRECATED - ExpenseTemplate no se usa en la UI)
         ExpenseTemplate.objects.get_or_create(
             business=business, name="Internet Fibra", 
             defaults={'category': cat_serv, 'amount': 15000, 'frequency': ExpenseTemplate.Frequency.MONTHLY, 'due_day': 10, 'start_date': timezone.now().date()}
@@ -367,6 +393,94 @@ class Command(BaseCommand):
             business=business, name="Luz", 
             defaults={'category': cat_serv, 'amount': 45000, 'frequency': ExpenseTemplate.Frequency.MONTHLY, 'due_day': 15, 'start_date': timezone.now().date()}
         )
+        
+        # ===== GASTOS FIJOS (Nueva arquitectura) =====
+        # Internet
+        fixed_internet, _ = FixedExpense.objects.get_or_create(
+            business=business, name="Internet Fibra 300MB",
+            defaults={'default_amount': 15000, 'due_day': 10}
+        )
+        # Crear periodo del mes actual como PENDIENTE
+        current_month = timezone.now().strftime('%Y-%m')
+        FixedExpensePeriod.objects.get_or_create(
+            business=business, fixed_expense=fixed_internet, period=current_month,
+            defaults={'amount': 15000, 'status': FixedExpensePeriod.Status.PENDING}
+        )
+        # Crear periodo del mes pasado como PAGADO
+        last_month = (timezone.now() - datetime.timedelta(days=30)).strftime('%Y-%m')
+        last_month_internet, created = FixedExpensePeriod.objects.get_or_create(
+            business=business, fixed_expense=fixed_internet, period=last_month,
+            defaults={'amount': 15000, 'status': FixedExpensePeriod.Status.PAID, 
+                     'paid_at': timezone.now() - datetime.timedelta(days=25),
+                     'paid_account': acc_bank}
+        )
+        if created and last_month_internet.status == FixedExpensePeriod.Status.PAID:
+            Transaction.objects.get_or_create(
+                business=business, account=acc_bank, 
+                direction=Transaction.Direction.OUT, amount=15000,
+                occurred_at=last_month_internet.paid_at,
+                category=cat_serv,
+                description=f"Pago Gasto Fijo: Internet ({last_month})",
+                reference_type='fixed_expense_period',
+                reference_id=last_month_internet.id,
+                defaults={'created_by': owner}
+            )
+        
+        # Alquiler
+        fixed_rent, _ = FixedExpense.objects.get_or_create(
+            business=business, name="Alquiler Local",
+            defaults={'default_amount': 120000, 'due_day': 5}
+        )
+        FixedExpensePeriod.objects.get_or_create(
+            business=business, fixed_expense=fixed_rent, period=current_month,
+            defaults={'amount': 120000, 'status': FixedExpensePeriod.Status.PENDING}
+        )
+        last_month_rent, created = FixedExpensePeriod.objects.get_or_create(
+            business=business, fixed_expense=fixed_rent, period=last_month,
+            defaults={'amount': 120000, 'status': FixedExpensePeriod.Status.PAID,
+                     'paid_at': timezone.now() - datetime.timedelta(days=28),
+                     'paid_account': acc_bank}
+        )
+        if created and last_month_rent.status == FixedExpensePeriod.Status.PAID:
+            Transaction.objects.get_or_create(
+                business=business, account=acc_bank,
+                direction=Transaction.Direction.OUT, amount=120000,
+                occurred_at=last_month_rent.paid_at,
+                category=cat_serv,
+                description=f"Pago Gasto Fijo: Alquiler ({last_month})",
+                reference_type='fixed_expense_period',
+                reference_id=last_month_rent.id,
+                defaults={'created_by': owner}
+            )
+        
+        # Luz
+        fixed_electricity, _ = FixedExpense.objects.get_or_create(
+            business=business, name="Luz - EDENOR",
+            defaults={'default_amount': 45000, 'due_day': 15}
+        )
+        FixedExpensePeriod.objects.get_or_create(
+            business=business, fixed_expense=fixed_electricity, period=current_month,
+            defaults={'amount': 45000, 'status': FixedExpensePeriod.Status.PENDING}
+        )
+        last_month_elec, created = FixedExpensePeriod.objects.get_or_create(
+            business=business, fixed_expense=fixed_electricity, period=last_month,
+            defaults={'amount': 42000, 'status': FixedExpensePeriod.Status.PAID,
+                     'paid_at': timezone.now() - datetime.timedelta(days=20),
+                     'paid_account': acc_cash}
+        )
+        if created and last_month_elec.status == FixedExpensePeriod.Status.PAID:
+            Transaction.objects.get_or_create(
+                business=business, account=acc_cash,
+                direction=Transaction.Direction.OUT, amount=42000,
+                occurred_at=last_month_elec.paid_at,
+                category=cat_serv,
+                description=f"Pago Gasto Fijo: Luz ({last_month})",
+                reference_type='fixed_expense_period',
+                reference_id=last_month_elec.id,
+                defaults={'created_by': owner}
+            )
+        
+        self.stdout.write(self.style.SUCCESS(f"  ✅ Gastos Fijos creados: 3 conceptos con periodos del mes actual (PENDIENTE) y mes pasado (PAGADO)"))
         
         # Employees
         emp1, _ = Employee.objects.get_or_create(

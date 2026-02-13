@@ -72,3 +72,104 @@ def check_seat_limit(sender, instance, raw=False, **kwargs):
     if current_count >= max_seats:
         raise ValidationError(f"Límite de usuarios ({max_seats}) alcanzado para la cuenta {hq.name}.")
 
+
+class AccessAuditLog(models.Model):
+    """
+    Audit log for sensitive access management operations.
+    Tracks password resets, role changes, account disabling, etc.
+    """
+    ACTION_CHOICES = [
+        ('PASSWORD_RESET', 'Password Reset'),
+        ('PIN_ROTATED', 'PIN Rotated'),
+        ('ACCOUNT_DISABLED', 'Account Disabled'),
+        ('ACCOUNT_ENABLED', 'Account Enabled'),
+        ('ROLE_CHANGED', 'Role Changed'),
+        ('ROLE_PERMISSIONS_UPDATED', 'Role Permissions Updated'),
+        ('SESSIONS_REVOKED', 'Sessions Revoked'),
+        ('MEMBERSHIP_CREATED', 'Membership Created'),
+        ('MEMBERSHIP_DELETED', 'Membership Deleted'),
+    ]
+    
+    action = models.CharField(max_length=32, choices=ACTION_CHOICES)
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name='audit_actions_performed',
+        on_delete=models.SET_NULL,
+        null=True,
+        help_text='User who performed the action'
+    )
+    target_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name='audit_actions_received',
+        on_delete=models.CASCADE,
+        help_text='User affected by the action'
+    )
+    business = models.ForeignKey(
+        'business.Business',
+        related_name='access_audit_logs',
+        on_delete=models.CASCADE
+    )
+    details = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text='Additional context (e.g., old_role, new_role)'
+    )
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['business', '-created_at']),
+            models.Index(fields=['target_user', '-created_at']),
+        ]
+    
+    def __str__(self) -> str:
+        return f"{self.action} - {self.target_user} by {self.actor} at {self.created_at}"
+
+
+class RolePermissionOverride(models.Model):
+    """
+    Custom permission overrides for roles per business.
+    Allows owners to enable/disable specific permissions for each role.
+    
+    If no override exists, default permissions from rbac.py apply.
+    If override exists with enabled=False, permission is revoked.
+    If override exists with enabled=True, permission is granted (even if not in defaults).
+    """
+    business = models.ForeignKey(
+        'business.Business',
+        related_name='role_permission_overrides',
+        on_delete=models.CASCADE
+    )
+    role = models.CharField(
+        max_length=24,
+        choices=Membership.ROLE_CHOICES,
+        help_text='Role to configure (e.g., manager, cashier)'
+    )
+    service = models.CharField(
+        max_length=24,
+        help_text='Service context (gestion, restaurante, menu_qr)'
+    )
+    permission = models.CharField(
+        max_length=64,
+        help_text='Permission key (e.g., view_sales, manage_products)'
+    )
+    enabled = models.BooleanField(
+        default=True,
+        help_text='Whether this permission is enabled for the role'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        unique_together = ('business', 'role', 'service', 'permission')
+        indexes = [
+            models.Index(fields=['business', 'service', 'role']),
+        ]
+    
+    def __str__(self) -> str:
+        status = "✓" if self.enabled else "✗"
+        return f"{status} {self.business} - {self.role} - {self.service}.{self.permission}"
+

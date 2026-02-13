@@ -2,7 +2,7 @@ import { LoginForm } from '@/components/auth/login-form';
 
 export default function LoginPage() {
     return (
-        <section className="grid gap-10 md:grid-cols-2 md:items-center">
+        <section className="grid min-h-[calc(100vh-12rem)] gap-10 md:grid-cols-2 md:items-center">
             <div className="space-y-4">
                 <p className="text-sm font-semibold uppercase tracking-wide text-brand-500">Autenticación segura</p>
                 <h1 className="text-4xl font-display font-bold text-slate-900">Entrar a tu panel multi-tenant</h1>

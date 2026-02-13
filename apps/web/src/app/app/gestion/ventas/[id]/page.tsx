@@ -29,6 +29,7 @@ type PageProps = {
 };
 
 export default async function SaleDetailPage({ params }: PageProps) {
+    const { id } = await params;
     const session = await getSession();
 
     if (!session) {
@@ -51,7 +52,7 @@ export default async function SaleDetailPage({ params }: PageProps) {
 
     let sale: Sale | null = null;
     try {
-        sale = await serverApiFetch<Sale>(`/api/v1/sales/${params.id}/`);
+        sale = await serverApiFetch<Sale>(`/api/v1/sales/${id}/`);
     } catch (error) {
         notFound();
     }

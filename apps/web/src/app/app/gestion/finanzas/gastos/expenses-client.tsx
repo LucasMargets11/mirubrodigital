@@ -6,7 +6,7 @@ import { Loader2, Plus, Calendar, Check, DollarSign } from 'lucide-react';
 import { format, isPast, isToday } from 'date-fns';
 import { es } from 'date-fns/locale';
 
-import { listExpenses, listCategories, listAccounts, createExpense, payExpense, Expense } from '@/lib/api/treasury';
+import { listExpenses, listCategories, listAccounts, createExpense, payExpense, createCategory, Expense } from '@/lib/api/treasury';
 import { Currency } from '../components/currency';
 import { Button } from '@/components/ui/button';
 import { Modal } from '@/components/ui/modal';
@@ -23,7 +23,7 @@ export function ExpensesClient({ canManage }: { canManage: boolean }) {
         queryKey: ['treasury', 'expenses'],
         queryFn: listExpenses,
     });
-    
+
     const { data: categories } = useQuery({ queryKey: ['treasury', 'categories'], queryFn: listCategories });
     const { data: accounts } = useQuery({ queryKey: ['treasury', 'accounts'], queryFn: listAccounts });
 
@@ -86,27 +86,27 @@ export function ExpensesClient({ canManage }: { canManage: boolean }) {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {filteredExpenses.map((expense) => (
                         <div key={expense.id} className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden">
-                             {/* Due Date Indicator */}
-                             {activeTab === 'pending' && (
-                                <div className={cn("absolute top-0 left-0 w-1 h-full", 
-                                    isPast(new Date(expense.due_date)) && !isToday(new Date(expense.due_date)) ? "bg-rose-500" : 
-                                    isToday(new Date(expense.due_date)) ? "bg-amber-500" : "bg-slate-300"
+                            {/* Due Date Indicator */}
+                            {activeTab === 'pending' && (
+                                <div className={cn("absolute top-0 left-0 w-1 h-full",
+                                    isPast(new Date(expense.due_date)) && !isToday(new Date(expense.due_date)) ? "bg-rose-500" :
+                                        isToday(new Date(expense.due_date)) ? "bg-amber-500" : "bg-slate-300"
                                 )} />
-                             )}
-                             
-                             <div className="pl-2">
+                            )}
+
+                            <div className="pl-2">
                                 <div className="flex justify-between items-start mb-2">
-                                     <span className="text-xs text-slate-500 uppercase tracking-wider bg-slate-100 px-2 py-1 rounded-md">{expense.category_name || 'Sin cat.'}</span>
-                                     <span className="text-lg font-bold font-mono text-slate-900"><Currency amount={expense.amount} /></span>
+                                    <span className="text-xs text-slate-500 uppercase tracking-wider bg-slate-100 px-2 py-1 rounded-md">{expense.category_name || 'Sin cat.'}</span>
+                                    <span className="text-lg font-bold font-mono text-slate-900"><Currency amount={expense.amount} /></span>
                                 </div>
                                 <h3 className="text-lg font-semibold text-slate-800 leading-tight mb-4">{expense.name}</h3>
-                                
+
                                 <div className="flex items-center text-sm text-slate-500 mb-4">
                                     <Calendar className="h-4 w-4 mr-2" />
                                     {activeTab === 'pending' ? (
                                         <span className={cn(
                                             isPast(new Date(expense.due_date)) && !isToday(new Date(expense.due_date)) ? "text-rose-600 font-medium" :
-                                            isToday(new Date(expense.due_date)) ? "text-amber-600 font-medium" : ""
+                                                isToday(new Date(expense.due_date)) ? "text-amber-600 font-medium" : ""
                                         )}>
                                             Vence: {format(new Date(expense.due_date), 'dd/MM/yyyy')}
                                         </span>
@@ -114,7 +114,7 @@ export function ExpensesClient({ canManage }: { canManage: boolean }) {
                                         <span>Pagado el: {expense.paid_at ? format(new Date(expense.paid_at), 'dd/MM/yyyy') : '-'}</span>
                                     )}
                                 </div>
-                                
+
                                 {activeTab === 'pending' && canManage && (
                                     <Button onClick={() => setPayingExpense(expense)} className="w-full" variant="outline">
                                         <Check className="mr-2 h-4 w-4" />
@@ -152,23 +152,42 @@ export function ExpensesClient({ canManage }: { canManage: boolean }) {
 }
 
 function ExpenseFormModal({ isOpen, onClose, onSubmit, isLoading, categories }: any) {
+    const queryClient = useQueryClient();
     const [name, setName] = useState('');
     const [amount, setAmount] = useState('');
     const [category, setCategory] = useState('');
     const [dueDate, setDueDate] = useState('');
+    const [isCreatingCategory, setIsCreatingCategory] = useState(false);
+    const [newCategoryName, setNewCategoryName] = useState('');
+
+    const createCategoryMutation = useMutation({
+        mutationFn: createCategory,
+        onSuccess: (newCat) => {
+            queryClient.invalidateQueries({ queryKey: ['treasury', 'categories'] });
+            setCategory(newCat.id.toString());
+            setIsCreatingCategory(false);
+            setNewCategoryName('');
+        },
+    });
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        onSubmit({ 
-            name, 
-            amount: parseFloat(amount), 
-            category: category ? Number(category) : null, 
-            due_date: dueDate 
+        onSubmit({
+            name,
+            amount: parseFloat(amount),
+            category: category ? Number(category) : null,
+            due_date: dueDate
         });
     };
 
+    const handleCreateCategory = () => {
+        if (newCategoryName.trim()) {
+            createCategoryMutation.mutate({ name: newCategoryName.trim(), direction: 'expense' });
+        }
+    };
+
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title="Nuevo Gasto">
+        <Modal open={isOpen} onClose={onClose} title="Nuevo Gasto">
             <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
                     <label className="block text-sm font-medium text-slate-700">Descripción</label>
@@ -176,22 +195,45 @@ function ExpenseFormModal({ isOpen, onClose, onSubmit, isLoading, categories }: 
                 </div>
                 <div>
                     <label className="block text-sm font-medium text-slate-700">Categoría</label>
-                    <select value={category} onChange={e => setCategory(e.target.value)} className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-slate-900 focus:ring-slate-900 sm:text-sm p-2 border">
-                        <option value="">Seleccionar...</option>
-                        {categories.filter((c: any) => c.direction === 'expense').map((c: any) => (
-                            <option key={c.id} value={c.id}>{c.name}</option>
-                        ))}
-                    </select>
+                    {!isCreatingCategory ? (
+                        <div className="flex gap-2">
+                            <select value={category} onChange={e => setCategory(e.target.value)} className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-slate-900 focus:ring-slate-900 sm:text-sm p-2 border">
+                                <option value="">Seleccionar...</option>
+                                {categories.filter((c: any) => c.direction === 'expense').map((c: any) => (
+                                    <option key={c.id} value={c.id}>{c.name}</option>
+                                ))}
+                            </select>
+                            <Button type="button" variant="outline" onClick={() => setIsCreatingCategory(true)} className="mt-1 whitespace-nowrap">
+                                <Plus className="h-4 w-4" />
+                            </Button>
+                        </div>
+                    ) : (
+                        <div className="mt-1 flex gap-2">
+                            <input
+                                type="text"
+                                value={newCategoryName}
+                                onChange={e => setNewCategoryName(e.target.value)}
+                                placeholder="Nueva categoría..."
+                                className="block w-full rounded-md border-slate-300 shadow-sm focus:border-slate-900 focus:ring-slate-900 sm:text-sm p-2 border"
+                            />
+                            <Button type="button" onClick={handleCreateCategory} disabled={createCategoryMutation.isPending || !newCategoryName.trim()}>
+                                {createCategoryMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                            </Button>
+                            <Button type="button" variant="outline" onClick={() => { setIsCreatingCategory(false); setNewCategoryName(''); }}>
+                                ✕
+                            </Button>
+                        </div>
+                    )}
                 </div>
                 <div>
                     <label className="block text-sm font-medium text-slate-700">Monto</label>
                     <input required type="number" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-slate-900 focus:ring-slate-900 sm:text-sm p-2 border" />
                 </div>
-                 <div>
+                <div>
                     <label className="block text-sm font-medium text-slate-700">Fecha de Vencimiento</label>
                     <input required type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-slate-900 focus:ring-slate-900 sm:text-sm p-2 border" />
                 </div>
-                
+
                 <div className="flex justify-end gap-2 pt-4">
                     <Button type="button" variant="outline" onClick={onClose}>Cancelar</Button>
                     <Button type="submit" disabled={isLoading}>{isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Crear Gasto</Button>
@@ -210,7 +252,7 @@ function PayExpenseModal({ isOpen, onClose, onSubmit, isLoading, accounts, expen
     };
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={`Pagar: ${expense.name}`}>
+        <Modal open={isOpen} onClose={onClose} title={`Pagar: ${expense.name}`}>
             <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="p-4 bg-slate-50 rounded-md mb-4">
                     <p className="text-sm text-slate-500">Monto a pagar</p>
@@ -226,7 +268,7 @@ function PayExpenseModal({ isOpen, onClose, onSubmit, isLoading, accounts, expen
                         ))}
                     </select>
                 </div>
-                
+
                 <div className="flex justify-end gap-2 pt-4">
                     <Button type="button" variant="outline" onClick={onClose}>Cancelar</Button>
                     <Button type="submit" disabled={isLoading}>{isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Confirmar Pago</Button>

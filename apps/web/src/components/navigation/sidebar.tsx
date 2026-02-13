@@ -74,6 +74,7 @@ const NAV_CONFIG: Record<string, NavGroup[]> = {
                     featureKey: 'settings',
                     children: [
                         { href: '/app/settings', label: 'General' },
+                        { href: '/app/settings/access', label: 'Roles & Accesos', permissionKey: 'manage_users' },
                         { href: '/app/settings/branches', label: 'Sucursales', permissionKey: 'manage_settings' }, // Access check in page
                         {
                             href: '/app/settings/online-menu',
@@ -124,6 +125,11 @@ const NAV_CONFIG: Record<string, NavGroup[]> = {
                     permissionKey: 'manage_commercial_settings',
                     featureKey: 'settings',
                 },
+                {
+                    href: '/app/settings/access',
+                    label: 'Roles & Accesos',
+                    permissionKey: 'manage_users',
+                },
             ],
         },
     ],
@@ -142,7 +148,8 @@ const NAV_CONFIG: Record<string, NavGroup[]> = {
             items: [
                 { href: '/app/servicios', label: 'Planes y upgrades' },
                 { href: '/app/planes', label: 'Facturación' },
-                { href: '/app/settings', label: 'Equipo', permissionKey: 'manage_users' },
+                { href: '/app/settings', label: 'Configuración' },
+                { href: '/app/settings/access', label: 'Roles & Accesos', permissionKey: 'manage_users' },
             ],
         },
     ],

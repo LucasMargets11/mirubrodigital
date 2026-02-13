@@ -1,4 +1,4 @@
-from rest_framework import viewsets, status, filters
+from rest_framework import viewsets, status, filters, serializers
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
@@ -6,10 +6,13 @@ from apps.accounts.permissions import HasBusinessMembership, HasPermission
 from django.db import transaction
 from django.db.models import Sum
 from django.utils import timezone
-from .models import Account, TransactionCategory, Transaction, ExpenseTemplate, Expense, Employee, PayrollPayment
+from datetime import date, timedelta
+from calendar import monthrange
+from .models import Account, TransactionCategory, Transaction, ExpenseTemplate, Expense, Employee, PayrollPayment, FixedExpense, FixedExpensePeriod
 from .serializers import (
     AccountSerializer, TransactionCategorySerializer, TransactionSerializer,
-    ExpenseTemplateSerializer, ExpenseSerializer, EmployeeSerializer, PayrollPaymentSerializer
+    ExpenseTemplateSerializer, ExpenseSerializer, EmployeeSerializer, PayrollPaymentSerializer,
+    FixedExpenseSerializer, FixedExpensePeriodSerializer
 )
 import uuid
 from decimal import Decimal
@@ -192,22 +195,37 @@ class ExpenseViewSet(BaseTreasuryViewSet):
     queryset = Expense.objects.all()
     serializer_class = ExpenseSerializer
     
+    def perform_create(self, serializer):
+        # Validate amount
+        amount = serializer.validated_data.get('amount')
+        if amount and amount <= 0:
+            raise serializers.ValidationError({'amount': 'Amount must be greater than zero'})
+        super().perform_create(serializer)
+    
     @action(detail=True, methods=['post'])
     def pay(self, request, pk=None):
         self.required_permission = 'manage_finance'
         
         expense = self.get_object()
+        
+        # Idempotency check
         if expense.status == Expense.Status.PAID:
-             return Response({'error': 'Already paid'}, status=status.HTTP_400_BAD_REQUEST)
+             return Response({'error': 'Expense already paid'}, status=status.HTTP_400_BAD_REQUEST)
         
         account_id = request.data.get('account_id')
         if not account_id:
             return Response({'error': 'Account required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Validate account exists and belongs to same business
+        try:
+            account = Account.objects.get(id=account_id, business=expense.business)
+        except Account.DoesNotExist:
+            return Response({'error': 'Invalid account'}, status=status.HTTP_400_BAD_REQUEST)
             
         with transaction.atomic():
             trx = Transaction.objects.create(
                 business=expense.business,
-                account_id=account_id,
+                account=account,
                 direction=Transaction.Direction.OUT,
                 amount=expense.amount,
                 occurred_at=timezone.now(),
@@ -220,7 +238,7 @@ class ExpenseViewSet(BaseTreasuryViewSet):
             
             expense.status = Expense.Status.PAID
             expense.paid_at = timezone.now()
-            expense.paid_account_id = account_id
+            expense.paid_account = account
             expense.payment_transaction = trx
             expense.save()
             
@@ -235,9 +253,20 @@ class PayrollPaymentViewSet(BaseTreasuryViewSet):
     serializer_class = PayrollPaymentSerializer
     
     def perform_create(self, serializer):
-        # Need account_id for the transaction
-        # The PayrollPayment model has 'account' FK.
-        # But we need to ensure the Transaction is created.
+        # Validate amount
+        amount = serializer.validated_data.get('amount')
+        if amount and amount <= 0:
+            raise serializers.ValidationError({'amount': 'Amount must be greater than zero'})
+        
+        # Validate account belongs to business
+        account = serializer.validated_data.get('account')
+        if account and account.business != self.request.business:
+            raise serializers.ValidationError({'account': 'Invalid account'})
+        
+        # Validate employee belongs to business
+        employee = serializer.validated_data.get('employee')
+        if employee and employee.business != self.request.business:
+            raise serializers.ValidationError({'employee': 'Invalid employee'})
         
         with transaction.atomic():
              payment = serializer.save(business=self.request.business)
@@ -256,3 +285,132 @@ class PayrollPaymentViewSet(BaseTreasuryViewSet):
             )
              payment.transaction = trx
              payment.save()
+
+class FixedExpenseViewSet(BaseTreasuryViewSet):
+    queryset = FixedExpense.objects.all()
+    serializer_class = FixedExpenseSerializer
+    
+    def perform_create(self, serializer):
+        """Create fixed expense and optionally generate current period"""
+        fixed_expense = serializer.save(business=self.request.business)
+        
+        # Auto-create current period
+        self._ensure_current_period(fixed_expense)
+    
+    def _ensure_current_period(self, fixed_expense):
+        """Ensure current month period exists"""
+        current_period_date = date.today().replace(day=1)
+        
+        period, created = FixedExpensePeriod.objects.get_or_create(
+            fixed_expense=fixed_expense,
+            period=current_period_date,
+            defaults={
+                'amount': fixed_expense.default_amount or Decimal('0'),
+                'status': FixedExpensePeriod.Status.PENDING
+            }
+        )
+        return period, created
+    
+    @action(detail=True, methods=['get'])
+    def periods(self, request, pk=None):
+        """Get all periods for this fixed expense"""
+        fixed_expense = self.get_object()
+        
+        # Ensure current period exists
+        self._ensure_current_period(fixed_expense)
+        
+        # Get periods with optional filtering
+        periods = fixed_expense.periods.all()
+        
+        # Filter by date range if provided
+        from_date = request.query_params.get('from')
+        to_date = request.query_params.get('to')
+        
+        if from_date:
+            periods = periods.filter(period__gte=from_date)
+        if to_date:
+            periods = periods.filter(period__lte=to_date)
+        
+        serializer = FixedExpensePeriodSerializer(periods, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'])
+    def ensure_current(self, request, pk=None):
+        """Ensure current month period exists (returns it)"""
+        fixed_expense = self.get_object()
+        period, created = self._ensure_current_period(fixed_expense)
+        
+        return Response({
+            'created': created,
+            'period': FixedExpensePeriodSerializer(period).data
+        })
+
+class FixedExpensePeriodViewSet(BaseTreasuryViewSet):
+    queryset = FixedExpensePeriod.objects.all()
+    serializer_class = FixedExpensePeriodSerializer
+    
+    def get_queryset(self):
+        """Filter periods by business through fixed_expense"""
+        business = getattr(self.request, 'business', None)
+        return self.queryset.filter(fixed_expense__business=business)
+    
+    @action(detail=True, methods=['post'])
+    def pay(self, request, pk=None):
+        """Pay a fixed expense period"""
+        self.required_permission = 'manage_finance'
+        
+        period = self.get_object()
+        
+        # Idempotency check
+        if period.status == FixedExpensePeriod.Status.PAID:
+            return Response({'error': 'Period already paid'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Get payment details
+        account_id = request.data.get('account_id')
+        if not account_id:
+            return Response({'error': 'Account required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        paid_at = request.data.get('paid_at')
+        if paid_at:
+            from dateutil import parser
+            paid_at = parser.parse(paid_at)
+        else:
+            paid_at = timezone.now()
+        
+        # Optional amount override
+        amount = request.data.get('amount')
+        if amount:
+            amount = Decimal(str(amount))
+            if amount <= 0:
+                return Response({'error': 'Amount must be greater than zero'}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            amount = period.amount
+        
+        # Validate account
+        try:
+            account = Account.objects.get(id=account_id, business=period.fixed_expense.business)
+        except Account.DoesNotExist:
+            return Response({'error': 'Invalid account'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Create transaction and update period
+        with transaction.atomic():
+            trx = Transaction.objects.create(
+                business=period.fixed_expense.business,
+                account=account,
+                direction=Transaction.Direction.OUT,
+                amount=amount,
+                occurred_at=paid_at,
+                description=f"Pago {period.fixed_expense.name} - {period.period.strftime('%B %Y')}",
+                reference_type='fixed_expense_period',
+                reference_id=str(period.id),
+                created_by=request.user
+            )
+            
+            period.status = FixedExpensePeriod.Status.PAID
+            period.paid_at = paid_at
+            period.paid_account = account
+            period.payment_transaction = trx
+            period.amount = amount  # Update with actual paid amount
+            period.save()
+        
+        return Response(FixedExpensePeriodSerializer(period).data)

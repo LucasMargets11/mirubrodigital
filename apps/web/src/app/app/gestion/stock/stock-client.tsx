@@ -5,6 +5,7 @@ import { z } from 'zod';
 
 import { StockStatusSelect } from '@/components/app/stock-status-select';
 import { Modal } from '@/components/ui/modal';
+import { SortableHeader } from '@/components/ui/sortable-header';
 import {
     useCreateMovement,
     useProducts,
@@ -13,6 +14,7 @@ import {
 } from '@/features/gestion/hooks';
 import type { ProductStock, StockMovement } from '@/features/gestion/types';
 import { ApiError } from '@/lib/api/client';
+import { useTableSort, sortArray, type ColumnConfig } from '@/lib/table/useTableSort';
 
 const movementSchema = z.object({
     product_id: z.string().uuid('Seleccioná un producto'),
@@ -108,6 +110,73 @@ export function StockClient({ canManage, initialStatus = '', initialAction, init
     }, [modalProductMatches, selectedProductOption]);
 
     const isSaving = createMovement.isPending;
+
+    // Configuración de columnas para niveles de stock
+    const stockColumnConfigs: Record<string, ColumnConfig<ProductStock>> = useMemo(() => ({
+        product: {
+            accessor: (row) => row.product.name,
+            sortType: 'string',
+        },
+        quantity: {
+            accessor: 'quantity',
+            sortType: 'number',
+        },
+        stock_min: {
+            accessor: (row) => row.product.stock_min,
+            sortType: 'number',
+        },
+        status: {
+            accessor: 'status',
+            customComparator: (a, b) => {
+                const statusOrder = { out: 0, low: 1, ok: 2 };
+                return statusOrder[a.status] - statusOrder[b.status];
+            },
+        },
+    }), []);
+
+    // Configuración de columnas para movimientos
+    const movementsColumnConfigs: Record<string, ColumnConfig<StockMovement>> = useMemo(() => ({
+        created_at: {
+            accessor: 'created_at',
+            sortType: 'date',
+        },
+        product: {
+            accessor: (mov) => mov.product.name,
+            sortType: 'string',
+        },
+        movement_type: {
+            accessor: 'movement_type',
+            sortType: 'string',
+        },
+        quantity: {
+            accessor: 'quantity',
+            sortType: 'number',
+        },
+    }), []);
+
+    // Hook de ordenamiento para stock
+    const stockSort = useTableSort({
+        defaultSortKey: 'product',
+        defaultSortDir: 'asc',
+        persistInUrl: false, // No persistir stock en URL para evitar conflicto con movimientos
+    });
+
+    // Hook de ordenamiento para movimientos
+    const movementsSort = useTableSort({
+        defaultSortKey: 'created_at',
+        defaultSortDir: 'desc',
+        persistInUrl: true,
+    });
+
+    // Aplicar ordenamiento a stock
+    const sortedStockRows = useMemo(() => {
+        return sortArray(stockRows, stockSort.sortKey, stockSort.sortDir, stockColumnConfigs);
+    }, [stockRows, stockSort.sortKey, stockSort.sortDir, stockColumnConfigs]);
+
+    // Aplicar ordenamiento a movimientos
+    const sortedMovements = useMemo(() => {
+        return sortArray(movements, movementsSort.sortKey, movementsSort.sortDir, movementsColumnConfigs);
+    }, [movements, movementsSort.sortKey, movementsSort.sortDir, movementsColumnConfigs]);
 
     const handleOpenModal = useCallback(
         (product?: ProductStock) => {
@@ -220,10 +289,34 @@ export function StockClient({ canManage, initialStatus = '', initialAction, init
                     <table className="min-w-full divide-y divide-slate-100 text-sm">
                         <thead>
                             <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
-                                <th className="px-3 py-2">Producto</th>
-                                <th className="px-3 py-2">Cantidad</th>
-                                <th className="px-3 py-2">Stock mínimo</th>
-                                <th className="px-3 py-2">Estado</th>
+                                <SortableHeader
+                                    label="Producto"
+                                    sortKey="product"
+                                    activeSortKey={stockSort.sortKey}
+                                    sortDir={stockSort.sortDir}
+                                    onToggleSort={stockSort.onToggleSort}
+                                />
+                                <SortableHeader
+                                    label="Cantidad"
+                                    sortKey="quantity"
+                                    activeSortKey={stockSort.sortKey}
+                                    sortDir={stockSort.sortDir}
+                                    onToggleSort={stockSort.onToggleSort}
+                                />
+                                <SortableHeader
+                                    label="Stock mínimo"
+                                    sortKey="stock_min"
+                                    activeSortKey={stockSort.sortKey}
+                                    sortDir={stockSort.sortDir}
+                                    onToggleSort={stockSort.onToggleSort}
+                                />
+                                <SortableHeader
+                                    label="Estado"
+                                    sortKey="status"
+                                    activeSortKey={stockSort.sortKey}
+                                    sortDir={stockSort.sortDir}
+                                    onToggleSort={stockSort.onToggleSort}
+                                />
                                 <th className="px-3 py-2" />
                             </tr>
                         </thead>
@@ -235,14 +328,14 @@ export function StockClient({ canManage, initialStatus = '', initialAction, init
                                     </td>
                                 </tr>
                             )}
-                            {!stockQuery.isLoading && stockRows.length === 0 && (
+                            {!stockQuery.isLoading && sortedStockRows.length === 0 && (
                                 <tr>
                                     <td colSpan={5} className="px-3 py-6 text-center text-slate-500">
                                         No hay registros para mostrar.
                                     </td>
                                 </tr>
                             )}
-                            {stockRows.map((row) => (
+                            {sortedStockRows.map((row) => (
                                 <tr key={row.id}>
                                     <td className="px-3 py-3">
                                         <p className="font-medium text-slate-900">{row.product.name}</p>
@@ -297,10 +390,34 @@ export function StockClient({ canManage, initialStatus = '', initialAction, init
                     <table className="min-w-full divide-y divide-slate-100 text-sm">
                         <thead>
                             <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
-                                <th className="px-3 py-2">Fecha</th>
-                                <th className="px-3 py-2">Producto</th>
-                                <th className="px-3 py-2">Tipo</th>
-                                <th className="px-3 py-2">Cantidad</th>
+                                <SortableHeader
+                                    label="Fecha"
+                                    sortKey="created_at"
+                                    activeSortKey={movementsSort.sortKey}
+                                    sortDir={movementsSort.sortDir}
+                                    onToggleSort={movementsSort.onToggleSort}
+                                />
+                                <SortableHeader
+                                    label="Producto"
+                                    sortKey="product"
+                                    activeSortKey={movementsSort.sortKey}
+                                    sortDir={movementsSort.sortDir}
+                                    onToggleSort={movementsSort.onToggleSort}
+                                />
+                                <SortableHeader
+                                    label="Tipo"
+                                    sortKey="movement_type"
+                                    activeSortKey={movementsSort.sortKey}
+                                    sortDir={movementsSort.sortDir}
+                                    onToggleSort={movementsSort.onToggleSort}
+                                />
+                                <SortableHeader
+                                    label="Cantidad"
+                                    sortKey="quantity"
+                                    activeSortKey={movementsSort.sortKey}
+                                    sortDir={movementsSort.sortDir}
+                                    onToggleSort={movementsSort.onToggleSort}
+                                />
                                 <th className="px-3 py-2">Nota</th>
                             </tr>
                         </thead>
@@ -312,14 +429,14 @@ export function StockClient({ canManage, initialStatus = '', initialAction, init
                                     </td>
                                 </tr>
                             )}
-                            {!movementsQuery.isLoading && movements.length === 0 && (
+                            {!movementsQuery.isLoading && sortedMovements.length === 0 && (
                                 <tr>
                                     <td colSpan={5} className="px-3 py-6 text-center text-slate-500">
                                         Aún no registraste movimientos.
                                     </td>
                                 </tr>
                             )}
-                            {movements.map((movement) => (
+                            {sortedMovements.map((movement) => (
                                 <tr key={movement.id}>
                                     <td className="px-3 py-3 text-slate-500">
                                         {new Date(movement.created_at).toLocaleString('es-AR', {

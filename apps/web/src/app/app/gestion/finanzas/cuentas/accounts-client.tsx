@@ -36,9 +36,9 @@ export function AccountsClient({ canManage }: { canManage: boolean }) {
             setEditingAccount(null);
         },
     });
-    
+
     const reconcileMutation = useMutation({
-        mutationFn: ({ id, real_balance, occurred_at }: { id: number, real_balance: string, occurred_at: string }) => 
+        mutationFn: ({ id, real_balance, occurred_at }: { id: number, real_balance: string, occurred_at: string }) =>
             reconcileAccount(id, real_balance, occurred_at),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['treasury', 'accounts'] });
@@ -96,7 +96,7 @@ export function AccountsClient({ canManage }: { canManage: boolean }) {
                 {accounts.map((account) => (
                     <div key={account.id} className="bg-white rounded-3xl border border-slate-200 p-6 flex flex-col justify-between shadow-sm hover:shadow-md transition-shadow">
                         <div>
-                             <div className="flex justify-between items-start mb-2">
+                            <div className="flex justify-between items-start mb-2">
                                 <span className={`text-xs font-semibold px-2 py-1 rounded-full ${account.is_active ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}`}>
                                     {account.is_active ? 'Activa' : 'Inactiva'}
                                 </span>
@@ -110,15 +110,15 @@ export function AccountsClient({ canManage }: { canManage: boolean }) {
                         </div>
 
                         {canManage && (
-                        <div className="mt-6 flex justify-between items-center border-t border-slate-100 pt-4">
-                             <Button variant="ghost" size="sm" onClick={() => setReconcilingAccount(account)} className="text-blue-600 hover:text-blue-700 hover:bg-blue-50/50">
-                                <RefreshCw className="h-4 w-4 mr-1.5" />
-                                Conciliar
-                            </Button>
-                            <Button variant="ghost" size="sm" onClick={() => setEditingAccount(account)} className="text-slate-500 hover:text-slate-700">
-                                <Edit className="h-4 w-4" />
-                            </Button>
-                        </div>
+                            <div className="mt-6 flex justify-between items-center border-t border-slate-100 pt-4">
+                                <Button variant="ghost" size="sm" onClick={() => setReconcilingAccount(account)} className="text-blue-600 hover:text-blue-700 hover:bg-blue-50/50">
+                                    <RefreshCw className="h-4 w-4 mr-1.5" />
+                                    Conciliar
+                                </Button>
+                                <Button variant="ghost" size="sm" onClick={() => setEditingAccount(account)} className="text-slate-500 hover:text-slate-700">
+                                    <Edit className="h-4 w-4" />
+                                </Button>
+                            </div>
                         )}
                     </div>
                 ))}
@@ -142,7 +142,7 @@ export function AccountsClient({ canManage }: { canManage: boolean }) {
                     isLoading={updateMutation.isPending}
                 />
             )}
-            
+
             {reconcilingAccount && (
                 <ReconcileModal
                     isOpen={!!reconcilingAccount}
@@ -160,7 +160,7 @@ function AccountFormModal({ isOpen, onClose, onSubmit, isLoading, account }: any
     const [name, setName] = useState(account?.name || '');
     const [type, setType] = useState(account?.type || 'cash');
     const [openingBalance, setOpeningBalance] = useState(account?.opening_balance || '0');
-    
+
     // Only allow editing opening balance if creating (simplification, real world might differ)
     // or allow editing but warn it affects history. Let's allow simple edit.
 
@@ -170,7 +170,7 @@ function AccountFormModal({ isOpen, onClose, onSubmit, isLoading, account }: any
     };
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={account ? "Editar Cuenta" : "Nueva Cuenta"}>
+        <Modal open={isOpen} onClose={onClose} title={account ? "Editar Cuenta" : "Nueva Cuenta"}>
             <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
                     <label className="block text-sm font-medium text-slate-700">Nombre</label>
@@ -186,12 +186,12 @@ function AccountFormModal({ isOpen, onClose, onSubmit, isLoading, account }: any
                         <option value="other">Otro</option>
                     </select>
                 </div>
-                 <div>
+                <div>
                     <label className="block text-sm font-medium text-slate-700">Saldo Inicial</label>
                     <input required type="number" step="0.01" value={openingBalance} onChange={e => setOpeningBalance(e.target.value)} className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-slate-900 focus:ring-slate-900 sm:text-sm p-2 border" />
                     <p className="text-xs text-slate-500 mt-1">Saldo al momento de creación.</p>
                 </div>
-                
+
                 <div className="flex justify-end gap-2 pt-4">
                     <Button type="button" variant="outline" onClick={onClose}>Cancelar</Button>
                     <Button type="submit" disabled={isLoading}>{isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Guardar</Button>
@@ -211,22 +211,22 @@ function ReconcileModal({ isOpen, onClose, onSubmit, isLoading, account }: any) 
     };
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title="Conciliar Cuenta">
-             <form onSubmit={handleSubmit} className="space-y-4">
+        <Modal open={isOpen} onClose={onClose} title="Conciliar Cuenta">
+            <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="bg-blue-50 p-3 rounded-md flex items-start text-blue-800 text-sm">
                     <AlertCircle className="h-5 w-5 mr-2 shrink-0" />
                     <p>Ingresá el saldo real que ves en tu banco o caja. Se creará automáticamente un movimiento (Ajuste) por la diferencia.</p>
                 </div>
-                
+
                 <div>
                     <label className="block text-sm font-medium text-slate-700">Saldo Real Actual</label>
                     <input autoFocus required type="number" step="0.01" value={realBalance} onChange={e => setRealBalance(e.target.value)} className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-slate-900 focus:ring-slate-900 sm:text-sm p-2 border" />
                 </div>
-                 <div>
+                <div>
                     <label className="block text-sm font-medium text-slate-700">Fecha de corte</label>
                     <input required type="date" value={occurredAt} onChange={e => setOccurredAt(e.target.value)} className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-slate-900 focus:ring-slate-900 sm:text-sm p-2 border" />
                 </div>
-                
+
                 <div className="flex justify-end gap-2 pt-4">
                     <Button type="button" variant="outline" onClick={onClose}>Cancelar</Button>
                     <Button type="submit" disabled={isLoading}>{isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Conciliar</Button>

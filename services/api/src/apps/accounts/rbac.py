@@ -182,9 +182,24 @@ def _normalize_role(role: str) -> str:
   return role or 'viewer'
 
 
-def permissions_for_service(service: str, role: str) -> Dict[str, bool]:
+def permissions_for_service(service: str, role: str, business=None) -> Dict[str, bool]:
+  """
+  Get permissions for a role in a service.
+  
+  Args:
+    service: Service name (gestion, restaurante, menu_qr)
+    role: Role name (owner, manager, cashier, etc)
+    business: Business instance (optional). If provided, applies custom overrides.
+  
+  Returns:
+    Dict mapping permission keys to boolean enabled status
+  """
   normalized_role = _normalize_role(role)
+  
+  # Start with all permissions disabled
   baseline = {perm: False for perm in ALL_PERMISSIONS}
+  
+  # Get default permissions for this role from hardcoded config
   allowed = SERVICE_ROLE_PERMISSIONS.get(service, {}).get(normalized_role)
   if allowed is None and normalized_role == 'admin':
     allowed = SERVICE_ROLE_PERMISSIONS.get(service, {}).get('owner', set())
@@ -192,8 +207,22 @@ def permissions_for_service(service: str, role: str) -> Dict[str, bool]:
     allowed = SERVICE_ROLE_PERMISSIONS.get(service, {}).get('viewer', set())
   if not allowed:
     allowed = set()
+  
+  # Apply default permissions
   for perm in allowed:
     baseline[perm] = True
+  
+  # Apply business-specific overrides if business is provided
+  if business:
+    from apps.accounts.models import RolePermissionOverride
+    overrides = RolePermissionOverride.objects.filter(
+      business=business,
+      service=service,
+      role=normalized_role
+    )
+    for override in overrides:
+      baseline[override.permission] = override.enabled
+  
   return baseline
 
 

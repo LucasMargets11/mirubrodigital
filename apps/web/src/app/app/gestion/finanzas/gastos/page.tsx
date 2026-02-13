@@ -1,4 +1,4 @@
-import { ExpensesClient } from './expenses-client';
+import { ExpensesClient } from './fixed-expenses-client';
 import { getSession } from '@/lib/auth';
 
 export default async function FinanzasGastosPage() {

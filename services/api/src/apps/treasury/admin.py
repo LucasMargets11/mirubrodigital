@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Account, TransactionCategory, Transaction, ExpenseTemplate, Expense, Employee, PayrollPayment, TreasurySettings
+from .models import Account, TransactionCategory, Transaction, ExpenseTemplate, Expense, Employee, PayrollPayment, TreasurySettings, FixedExpense, FixedExpensePeriod
 
 @admin.register(TreasurySettings)
 class TreasurySettingsAdmin(admin.ModelAdmin):
@@ -26,6 +26,18 @@ class TransactionAdmin(admin.ModelAdmin):
 class ExpenseTemplateAdmin(admin.ModelAdmin):
     list_display = ('name', 'business', 'amount', 'frequency', 'due_day')
     list_filter = ('business', 'frequency')
+
+@admin.register(FixedExpense)
+class FixedExpenseAdmin(admin.ModelAdmin):
+    list_display = ('name', 'business', 'default_amount', 'due_day', 'is_active')
+    list_filter = ('business', 'is_active')
+    search_fields = ('name',)
+
+@admin.register(FixedExpensePeriod)
+class FixedExpensePeriodAdmin(admin.ModelAdmin):
+    list_display = ('fixed_expense', 'period', 'amount', 'status', 'due_date', 'paid_at')
+    list_filter = ('status', 'fixed_expense__business', 'period')
+    search_fields = ('fixed_expense__name',)
 
 @admin.register(Expense)
 class ExpenseAdmin(admin.ModelAdmin):

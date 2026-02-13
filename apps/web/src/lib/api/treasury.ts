@@ -38,6 +38,9 @@ export interface TreasuryTransaction {
   transfer_group_id?: string;
   account: number;
   category?: number;
+  // Enhanced fields for better UI
+  transaction_type?: 'transfer' | 'expense' | 'payroll' | 'sale' | 'reconciliation' | 'other';
+  reference_details?: any;
 }
 
 export interface Expense {
@@ -74,6 +77,41 @@ export interface PayrollPayment {
   account: number;
 }
 
+export interface FixedExpense {
+  id: number;
+  name: string;
+  default_amount?: string;
+  due_day?: number;
+  frequency: 'monthly';
+  is_active: boolean;
+  current_period_status?: {
+    status: string;
+    amount: string;
+    paid_at?: string;
+    id?: number;
+  };
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FixedExpensePeriod {
+  id: number;
+  fixed_expense: number;
+  fixed_expense_name: string;
+  period: string; // YYYY-MM-DD
+  period_display: string; // YYYY-MM
+  amount: string;
+  status: 'pending' | 'paid' | 'skipped';
+  due_date?: string;
+  paid_at?: string;
+  paid_account?: number;
+  paid_account_name?: string;
+  payment_transaction?: number;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
 // Params
 export interface TransactionParams {
   account?: string;
@@ -104,6 +142,10 @@ export function reconcileAccount(id: number, real_balance: number | string, occu
 // CATEGORIES
 export function listCategories() {
   return apiGet<TransactionCategory[]>('/api/v1/treasury/categories/');
+}
+
+export function createCategory(data: { name: string; direction: 'income' | 'expense' }) {
+  return apiPost<TransactionCategory>('/api/v1/treasury/categories/', data);
 }
 
 // TRANSACTIONS
@@ -148,4 +190,33 @@ export function listPayrollPayments() {
 
 export function createPayrollPayment(data: any) {
   return apiPost<PayrollPayment>('/api/v1/treasury/payroll-payments/', data);
+}
+
+// FIXED EXPENSES
+export function listFixedExpenses() {
+  return apiGet<FixedExpense[]>('/api/v1/treasury/fixed-expenses/');
+}
+
+export function createFixedExpense(data: { name: string; default_amount?: number; due_day?: number }) {
+  return apiPost<FixedExpense>('/api/v1/treasury/fixed-expenses/', data);
+}
+
+export function updateFixedExpense(id: number, data: Partial<FixedExpense>) {
+  return apiPatch<FixedExpense>(`/api/v1/treasury/fixed-expenses/${id}/`, data);
+}
+
+export function getFixedExpensePeriods(fixedExpenseId: number, params?: { from?: string; to?: string }) {
+  const qs = new URLSearchParams();
+  if (params?.from) qs.append('from', params.from);
+  if (params?.to) qs.append('to', params.to);
+  const query = qs.toString();
+  return apiGet<FixedExpensePeriod[]>(`/api/v1/treasury/fixed-expenses/${fixedExpenseId}/periods/${query ? '?' + query : ''}`);
+}
+
+export function ensureCurrentPeriod(fixedExpenseId: number) {
+  return apiPost<{ created: boolean; period: FixedExpensePeriod }>(`/api/v1/treasury/fixed-expenses/${fixedExpenseId}/ensure-current/`);
+}
+
+export function payFixedExpensePeriod(periodId: number, data: { account_id: number; paid_at?: string; amount?: number }) {
+  return apiPost<FixedExpensePeriod>(`/api/v1/treasury/fixed-expense-periods/${periodId}/pay/`, data);
 }

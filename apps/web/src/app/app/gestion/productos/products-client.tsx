@@ -4,9 +4,11 @@ import { useDeferredValue, useMemo, useState } from 'react';
 import { z } from 'zod';
 
 import { Modal } from '@/components/ui/modal';
+import { SortableHeader } from '@/components/ui/sortable-header';
 import { useCreateProduct, useProducts, useUpdateProduct } from '@/features/gestion/hooks';
 import type { Product } from '@/features/gestion/types';
 import { ApiError } from '@/lib/api/client';
+import { useTableSort, sortArray, type ColumnConfig } from '@/lib/table/useTableSort';
 
 const productFormSchema = z.object({
     name: z.string().min(2, 'El nombre es obligatorio'),
@@ -67,6 +69,42 @@ export function ProductsClient({ canManage, canViewCost }: ProductsClientProps) 
     const isSaving = createMutation.isPending || updateMutation.isPending;
 
     const products = useMemo(() => productsQuery.data ?? [], [productsQuery.data]);
+
+    // Configuración de columnas para ordenamiento
+    const columnConfigs: Record<string, ColumnConfig<Product>> = useMemo(() => ({
+        name: {
+            accessor: 'name',
+            sortType: 'string',
+        },
+        sku: {
+            accessor: 'sku',
+            sortType: 'string',
+        },
+        price: {
+            accessor: 'price',
+            sortType: 'number',
+        },
+        stock_min: {
+            accessor: 'stock_min',
+            sortType: 'number',
+        },
+        is_active: {
+            accessor: 'is_active',
+            sortType: 'boolean',
+        },
+    }), []);
+
+    // Hook de ordenamiento (client-side)
+    const { sortKey, sortDir, onToggleSort } = useTableSort({
+        defaultSortKey: 'name',
+        defaultSortDir: 'asc',
+        persistInUrl: true,
+    });
+
+    // Aplicar ordenamiento
+    const sortedProducts = useMemo(() => {
+        return sortArray(products, sortKey, sortDir, columnConfigs);
+    }, [products, sortKey, sortDir, columnConfigs]);
 
     const handleOpenCreate = () => {
         if (!canManage) {
@@ -216,11 +254,41 @@ export function ProductsClient({ canManage, canViewCost }: ProductsClientProps) 
                     <table className="min-w-full divide-y divide-slate-100 text-sm">
                         <thead>
                             <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
-                                <th className="px-3 py-2">Producto</th>
-                                <th className="px-3 py-2">SKU</th>
-                                <th className="px-3 py-2">Precio</th>
-                                <th className="px-3 py-2">Stock min.</th>
-                                <th className="px-3 py-2">Estado</th>
+                                <SortableHeader
+                                    label="Producto"
+                                    sortKey="name"
+                                    activeSortKey={sortKey}
+                                    sortDir={sortDir}
+                                    onToggleSort={onToggleSort}
+                                />
+                                <SortableHeader
+                                    label="SKU"
+                                    sortKey="sku"
+                                    activeSortKey={sortKey}
+                                    sortDir={sortDir}
+                                    onToggleSort={onToggleSort}
+                                />
+                                <SortableHeader
+                                    label="Precio"
+                                    sortKey="price"
+                                    activeSortKey={sortKey}
+                                    sortDir={sortDir}
+                                    onToggleSort={onToggleSort}
+                                />
+                                <SortableHeader
+                                    label="Stock min."
+                                    sortKey="stock_min"
+                                    activeSortKey={sortKey}
+                                    sortDir={sortDir}
+                                    onToggleSort={onToggleSort}
+                                />
+                                <SortableHeader
+                                    label="Estado"
+                                    sortKey="is_active"
+                                    activeSortKey={sortKey}
+                                    sortDir={sortDir}
+                                    onToggleSort={onToggleSort}
+                                />
                                 {canManage ? <th className="px-3 py-2" /> : null}
                             </tr>
                         </thead>
@@ -232,14 +300,14 @@ export function ProductsClient({ canManage, canViewCost }: ProductsClientProps) 
                                     </td>
                                 </tr>
                             )}
-                            {!productsQuery.isLoading && products.length === 0 && (
+                            {!productsQuery.isLoading && sortedProducts.length === 0 && (
                                 <tr>
                                     <td colSpan={6} className="px-3 py-6 text-center text-slate-500">
                                         No encontramos productos.
                                     </td>
                                 </tr>
                             )}
-                            {products.map((product) => (
+                            {sortedProducts.map((product) => (
                                 <tr key={product.id} className="text-slate-700">
                                     <td className="px-3 py-3">
                                         <p className="font-medium">{product.name}</p>
