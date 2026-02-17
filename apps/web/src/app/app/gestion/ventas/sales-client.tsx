@@ -1,6 +1,7 @@
 "use client";
 
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 
 import { useSales } from '@/features/gestion/hooks';
@@ -22,9 +23,14 @@ const statusStyles: Record<string, string> = {
 
 type SalesClientProps = {
     canCreate: boolean;
+    canViewQuotes?: boolean;
+    canCreateQuotes?: boolean;
 };
 
-export function SalesClient({ canCreate }: SalesClientProps) {
+export function SalesClient({ canCreate, canViewQuotes = false, canCreateQuotes = false }: SalesClientProps) {
+    const pathname = usePathname();
+    const isQuotesRoute = pathname?.includes('/presupuestos');
+    
     const [filters, setFilters] = useState<SalesFilters>({
         search: '',
         status: '',
@@ -33,7 +39,7 @@ export function SalesClient({ canCreate }: SalesClientProps) {
         date_to: '',
     });
 
-    const salesQuery = useSales(filters);
+    const salesQuery = useSales(filters, { enabled: !isQuotesRoute });
     const sales = salesQuery.data?.results ?? [];
     const totalCount = salesQuery.data?.count ?? 0;
 
@@ -46,26 +52,64 @@ export function SalesClient({ canCreate }: SalesClientProps) {
 
     return (
         <section className="space-y-4">
-            <header className="flex flex-col gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:flex-row md:items-center md:justify-between">
-                <div>
-                    <h2 className="text-2xl font-semibold text-slate-900">Ventas</h2>
-                    <p className="text-sm text-slate-500">Lista de operaciones registradas en el negocio.</p>
+            <header className="flex flex-col gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div>
+                        <h2 className="text-2xl font-semibold text-slate-900">Ventas</h2>
+                        <p className="text-sm text-slate-500">Lista de operaciones registradas en el negocio.</p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                        {canCreate ? (
+                            <Link
+                                href="/app/gestion/ventas/nueva"
+                                className="inline-flex items-center justify-center rounded-full bg-slate-900 px-5 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+                            >
+                                Nueva venta
+                            </Link>
+                        ) : null}
+                        {canCreateQuotes ? (
+                            <Link
+                                href="/app/gestion/ventas/presupuestos/nuevo"
+                                className="inline-flex items-center justify-center rounded-full border border-slate-300 bg-white px-5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                            >
+                                Crear presupuesto
+                            </Link>
+                        ) : null}
+                    </div>
                 </div>
-                {canCreate ? (
-                    <Link
-                        href="/app/gestion/ventas/nueva"
-                        className="inline-flex items-center justify-center rounded-full bg-slate-900 px-5 py-2 text-sm font-semibold text-white hover:bg-slate-800"
-                    >
-                        Nueva venta
-                    </Link>
+                {canViewQuotes ? (
+                    <div className="flex gap-2 border-t border-slate-200 pt-3">
+                        <Link
+                            href="/app/gestion/ventas"
+                            className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                                !isQuotesRoute
+                                    ? 'bg-slate-900 text-white'
+                                    : 'text-slate-600 hover:bg-slate-100'
+                            }`}
+                        >
+                            Ventas
+                        </Link>
+                        <Link
+                            href="/app/gestion/ventas/presupuestos"
+                            className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                                isQuotesRoute
+                                    ? 'bg-slate-900 text-white'
+                                    : 'text-slate-600 hover:bg-slate-100'
+                            }`}
+                        >
+                            Presupuestos
+                        </Link>
+                    </div>
                 ) : null}
             </header>
-            <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-                {salesQuery.isError ? (
-                    <p className="mb-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">
-                        No pudimos cargar las ventas. Intentá de nuevo en unos segundos.
-                    </p>
-                ) : null}
+
+            {!isQuotesRoute && (
+                <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+                    {salesQuery.isError ? (
+                        <p className="mb-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">
+                            No pudimos cargar las ventas. Intentá de nuevo en unos segundos.
+                        </p>
+                    ) : null}
                 <div className="grid gap-3 md:grid-cols-5">
                     <input
                         type="search"
@@ -180,6 +224,7 @@ export function SalesClient({ canCreate }: SalesClientProps) {
                     </table>
                 </div>
             </div>
+            )}
         </section>
     );
 }

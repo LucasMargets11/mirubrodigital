@@ -17,7 +17,8 @@ function BulletList({ items }: { items: string[] }) {
 export function ProblemSolutionSection() {
     return (
         <section className="py-16">
-            <div className="space-y-6">
+            <div className="mx-auto max-w-7xl px-6 lg:px-10">
+                <div className="space-y-6">
                 <p className="text-sm font-semibold uppercase tracking-[0.25em] text-primary">Operación</p>
                 <h2 className="text-3xl font-semibold text-zinc-900">Todo en un solo lugar</h2>
                 <div className="grid gap-6 md:grid-cols-2">
@@ -40,6 +41,7 @@ export function ProblemSolutionSection() {
                         </CardContent>
                     </Card>
                 </div>
+            </div>
             </div>
         </section>
     );

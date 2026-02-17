@@ -1,4 +1,4 @@
-import { apiGet, apiPatch, apiPost } from '@/lib/api/client';
+import { apiGet, apiPatch, apiPost, apiDelete } from '@/lib/api/client';
 
 import type { PaginatedResponse } from '@/types/api';
 import type {
@@ -17,6 +17,15 @@ import type {
     StockMovementPayload,
     TopProductMetric,
     CommercialSettings,
+    Quote,
+    QuotePayload,
+    QuotesFilters,
+    BusinessBillingProfile,
+    BusinessBillingProfilePayload,
+    BusinessBranding,
+    BusinessBrandingPayload,
+    DocumentSeries,
+    DocumentSeriesPayload,
 } from './types';
 
 function buildQuery(params: Record<string, string | undefined>) {
@@ -142,4 +151,89 @@ export function fetchCommercialSettings() {
 
 export function updateCommercialSettings(payload: Partial<CommercialSettings>) {
     return apiPatch<CommercialSettings>('/api/v1/commercial/settings/', payload);
+}
+
+// Quotes (Presupuestos)
+export function fetchQuotes(params: QuotesFilters = {}) {
+    const query = buildQuery({
+        search: params.search,
+        status: params.status,
+        date_from: params.date_from,
+        date_to: params.date_to,
+        ordering: params.ordering,
+    });
+    return apiGet<PaginatedResponse<Quote>>(`/api/v1/sales/quotes/${query}`);
+}
+
+export function fetchQuote(quoteId: string) {
+    return apiGet<Quote>(`/api/v1/sales/quotes/${quoteId}/`);
+}
+
+export function createQuote(payload: QuotePayload) {
+    return apiPost<Quote>('/api/v1/sales/quotes/', payload);
+}
+
+export function updateQuote(quoteId: string, payload: Partial<QuotePayload>) {
+    return apiPatch<Quote>(`/api/v1/sales/quotes/${quoteId}/`, payload);
+}
+
+export function markQuoteSent(quoteId: string) {
+    return apiPost<Quote>(`/api/v1/sales/quotes/${quoteId}/mark-sent/`, {});
+}
+
+export function markQuoteAccepted(quoteId: string) {
+    return apiPost<Quote>(`/api/v1/sales/quotes/${quoteId}/mark-accepted/`, {});
+}
+
+export function markQuoteRejected(quoteId: string) {
+    return apiPost<Quote>(`/api/v1/sales/quotes/${quoteId}/mark-rejected/`, {});
+}
+
+export function getQuotePdfUrl(quoteId: string): string {
+    return `/api/v1/sales/quotes/${quoteId}/pdf/`;
+}
+
+// Business Configuration APIs
+
+export function fetchBusinessBillingProfile() {
+    return apiGet<BusinessBillingProfile>('/api/v1/settings/billing/');
+}
+
+export function updateBusinessBillingProfile(payload: BusinessBillingProfilePayload) {
+    return apiPatch<BusinessBillingProfile>('/api/v1/settings/billing/', payload);
+}
+
+export function fetchBusinessBranding() {
+    return apiGet<BusinessBranding>('/api/v1/settings/branding/');
+}
+
+export function updateBusinessBranding(payload: BusinessBrandingPayload) {
+    return apiPatch<BusinessBranding>('/api/v1/settings/branding/', payload);
+}
+
+export function uploadBusinessLogo(file: File, type: 'horizontal' | 'square') {
+    const formData = new FormData();
+    const fieldName = type === 'horizontal' ? 'logo_horizontal' : 'logo_square';
+    formData.append(fieldName, file);
+    return apiPatch<BusinessBranding>('/api/v1/settings/branding/', formData);
+}
+
+export function fetchDocumentSeries() {
+    return apiGet<DocumentSeries[]>('/api/v1/invoices/document-series/');
+}
+
+export function createDocumentSeries(payload: DocumentSeriesPayload) {
+    return apiPost<DocumentSeries>('/api/v1/invoices/document-series/', payload);
+}
+
+export function updateDocumentSeries(seriesId: string, payload: Partial<DocumentSeriesPayload>) {
+    return apiPatch<DocumentSeries>(`/api/v1/invoices/document-series/${seriesId}/`, payload);
+}
+
+export function deleteDocumentSeries(seriesId: string) {
+    return apiDelete<void>(`/api/v1/invoices/document-series/${seriesId}/`);
+}
+
+export function setDocumentSeriesDefault(seriesId: string) {
+    return apiPost<DocumentSeries>(`/api/v1/invoices/document-series/${seriesId}/set-default/`, {});
 }

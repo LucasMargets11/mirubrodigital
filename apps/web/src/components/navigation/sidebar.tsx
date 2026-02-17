@@ -120,10 +120,13 @@ const NAV_CONFIG: Record<string, NavGroup[]> = {
                 { href: '/app/operacion/caja', label: 'Caja', permissionKey: 'view_cash', featureKey: 'cash' },
                 { href: '/app/reports', label: 'Reportes', permissionKey: 'view_reports', featureKey: 'reports' },
                 {
-                    href: '/app/gestion/configuracion',
                     label: 'Configuración',
                     permissionKey: 'manage_commercial_settings',
                     featureKey: 'settings',
+                    children: [
+                        { href: '/app/gestion/configuracion', label: 'General' },
+                        { href: '/app/gestion/configuracion/negocio', label: 'Negocio', permissionKey: 'manage_commercial_settings' },
+                    ],
                 },
                 {
                     href: '/app/settings/access',

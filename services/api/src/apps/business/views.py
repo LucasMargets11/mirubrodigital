@@ -1,12 +1,26 @@
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.parsers import MultiPartParser, FormParser
 
 from apps.accounts.permissions import HasBusinessMembership, HasPermission
 from apps.business.context import build_business_context
 from apps.business.service_catalog import serialize_catalog
-from apps.business.models import CommercialSettings, Business, Subscription, BusinessPlan
-from apps.business.serializers import CommercialSettingsSerializer, BranchSerializer, BranchCreateSerializer
+from apps.business.models import (
+	CommercialSettings, 
+	Business, 
+	Subscription, 
+	BusinessPlan,
+	BusinessBillingProfile,
+	BusinessBranding,
+)
+from apps.business.serializers import (
+	CommercialSettingsSerializer, 
+	BranchSerializer, 
+	BranchCreateSerializer,
+	BusinessBillingProfileSerializer,
+	BusinessBrandingSerializer,
+)
 from rest_framework import viewsets, status
 from django.db import transaction
 from apps.accounts.models import Membership
@@ -109,3 +123,57 @@ class BranchViewSet(viewsets.ModelViewSet):
 		
 		return Response(BranchSerializer(branch).data, status=status.HTTP_201_CREATED)
 
+
+class BusinessBillingProfileView(APIView):
+	"""Vista para obtener y actualizar el perfil de facturación del negocio."""
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	required_permission = 'manage_commercial_settings'
+
+	def _get_profile(self, request):
+		business = getattr(request, 'business', None)
+		return BusinessBillingProfile.objects.get(business=business)
+
+	def get(self, request):
+		profile = self._get_profile(request)
+		serializer = BusinessBillingProfileSerializer(profile, context={'request': request})
+		return Response(serializer.data)
+
+	def patch(self, request):
+		profile = self._get_profile(request)
+		serializer = BusinessBillingProfileSerializer(
+			profile,
+			data=request.data,
+			partial=True,
+			context={'request': request},
+		)
+		serializer.is_valid(raise_exception=True)
+		serializer.save()
+		return Response(serializer.data)
+
+
+class BusinessBrandingView(APIView):
+	"""Vista para obtener y actualizar el branding del negocio."""
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	parser_classes = [MultiPartParser, FormParser]
+	required_permission = 'manage_commercial_settings'
+
+	def _get_branding(self, request):
+		business = getattr(request, 'business', None)
+		return BusinessBranding.objects.get(business=business)
+
+	def get(self, request):
+		branding = self._get_branding(request)
+		serializer = BusinessBrandingSerializer(branding, context={'request': request})
+		return Response(serializer.data)
+
+	def patch(self, request):
+		branding = self._get_branding(request)
+		serializer = BusinessBrandingSerializer(
+			branding,
+			data=request.data,
+			partial=True,
+			context={'request': request},
+		)
+		serializer.is_valid(raise_exception=True)
+		serializer.save()
+		return Response(serializer.data)

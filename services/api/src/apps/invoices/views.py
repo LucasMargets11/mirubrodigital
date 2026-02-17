@@ -5,7 +5,7 @@ from datetime import datetime
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.db.models import Q
-from rest_framework import generics
+from rest_framework import generics, status
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -15,13 +15,14 @@ from apps.accounts.access import resolve_business_context, resolve_request_membe
 from apps.accounts.permissions import HasBusinessMembership, HasPermission
 from apps.accounts.rbac import permissions_for_service
 from apps.business.scope import resolve_scope_ids
-from .models import Invoice, InvoiceSeries
+from .models import Invoice, InvoiceSeries, DocumentSeries
 from .pdf import render_invoice_pdf
 from .serializers import (
   InvoiceDetailSerializer,
   InvoiceIssueSerializer,
   InvoiceListSerializer,
   InvoiceSeriesSerializer,
+  DocumentSeriesSerializer,
 )
 
 
@@ -153,3 +154,79 @@ class InvoicePDFView(InvoicesFeatureMixin, APIView):
     response = HttpResponse(pdf_bytes, content_type='application/pdf')
     response['Content-Disposition'] = f'inline; filename="factura-{invoice.full_number}.pdf"'
     return response
+
+
+class DocumentSeriesListCreateView(APIView):
+  """Vista para listar y crear series de documentos."""
+  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+  required_permission = 'manage_commercial_settings'
+
+  def get(self, request):
+    """Listar todas las series del negocio."""
+    business = getattr(request, 'business')
+    series = DocumentSeries.objects.filter(business=business).order_by('document_type', 'letter', 'point_of_sale')
+    serializer = DocumentSeriesSerializer(series, many=True, context={'request': request})
+    return Response(serializer.data)
+
+  def post(self, request):
+    """Crear una nueva serie de documento."""
+    business = getattr(request, 'business')
+    serializer = DocumentSeriesSerializer(data=request.data, context={'request': request})
+    serializer.is_valid(raise_exception=True)
+    serializer.save(business=business)
+    return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class DocumentSeriesDetailView(APIView):
+  """Vista para actualizar y eliminar una serie de documento."""
+  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+  required_permission = 'manage_commercial_settings'
+
+  def patch(self, request, pk):
+    """Actualizar serie de documento."""
+    business = getattr(request, 'business')
+    series = get_object_or_404(DocumentSeries, pk=pk, business=business)
+    serializer = DocumentSeriesSerializer(series, data=request.data, partial=True, context={'request': request})
+    serializer.is_valid(raise_exception=True)
+    serializer.save()
+    return Response(serializer.data)
+
+  def delete(self, request, pk):
+    """Eliminar serie de documento (solo si no tiene documentos emitidos)."""
+    business = getattr(request, 'business')
+    series = get_object_or_404(DocumentSeries, pk=pk, business=business)
+    
+    # Validar que no tenga documentos emitidos
+    if series.next_number > 1:
+      return Response(
+        {'detail': 'No se puede eliminar una serie que tiene documentos emitidos.'},
+        status=status.HTTP_400_BAD_REQUEST
+      )
+    
+    series.delete()
+    return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class DocumentSeriesSetDefaultView(APIView):
+  """Vista para establecer una serie como predeterminada."""
+  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+  required_permission = 'manage_commercial_settings'
+
+  def post(self, request, pk):
+    """Establecer serie como predeterminada para su tipo de documento."""
+    business = getattr(request, 'business')
+    series = get_object_or_404(DocumentSeries, pk=pk, business=business)
+    
+    # Desactivar otras series default del mismo tipo
+    DocumentSeries.objects.filter(
+      business=business,
+      document_type=series.document_type,
+      is_default=True
+    ).exclude(pk=series.pk).update(is_default=False)
+    
+    # Activar esta serie como default
+    series.is_default = True
+    series.save(update_fields=['is_default'])
+    
+    serializer = DocumentSeriesSerializer(series, context={'request': request})
+    return Response(serializer.data)

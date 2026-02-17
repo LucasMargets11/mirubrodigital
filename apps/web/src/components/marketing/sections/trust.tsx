@@ -3,7 +3,8 @@ import { TRUST_LOGOS } from './data';
 export function TrustSection() {
     return (
         <section className="py-12">
-            <div className="flex flex-col gap-6">
+            <div className="mx-auto max-w-7xl px-6 lg:px-10">
+                <div className="flex flex-col gap-6">
                 <p className="text-center text-sm font-semibold uppercase tracking-[0.3em] text-zinc-400">
                     Usado por equipos que venden y operan todos los días
                 </p>
@@ -17,6 +18,7 @@ export function TrustSection() {
                         </span>
                     ))}
                 </div>
+            </div>
             </div>
         </section>
     );

@@ -10,6 +10,7 @@ from reportlab.pdfgen import canvas
 from reportlab.platypus import Paragraph, Table, TableStyle
 
 from .models import Invoice
+from apps.business.services import get_business_document_config
 
 HEADER_STYLE = ParagraphStyle(
   name='Header',
@@ -43,20 +44,33 @@ def render_invoice_pdf(invoice: Invoice) -> bytes:
   margin = 20 * mm
   current_y = height - margin
 
+  # Obtener configuración centralizada del negocio
+  config = get_business_document_config(invoice.business)
+  issuer = config.get_issuer_data()
+  branding = config.get_branding_data()
+
+  # Header con datos del emisor
   pdf.setFont('Helvetica-Bold', 16)
-  pdf.drawString(margin, current_y, 'MiRubro · Comprobante interno')
+  pdf.drawString(margin, current_y, issuer.get('legal_name') or invoice.business.name)
   pdf.setFont('Helvetica', 10)
   pdf.drawString(margin, current_y - 14, f"Factura {invoice.full_number}")
   pdf.drawString(margin, current_y - 28, f"Fecha: {invoice.issued_at.strftime('%d/%m/%Y %H:%M')} hs")
   current_y -= 50
 
+  # Datos del emisor
   pdf.setFont('Helvetica-Bold', 11)
   pdf.drawString(margin, current_y, 'Emisor')
   pdf.setFont('Helvetica', 10)
-  pdf.drawString(margin, current_y - 14, f"Negocio: {invoice.business.name}")
-  pdf.drawString(margin, current_y - 28, 'CUIT: —')
-  current_y -= 48
+  pdf.drawString(margin, current_y - 14, f"Razón Social: {issuer.get('legal_name') or invoice.business.name}")
+  pdf.drawString(margin, current_y - 28, issuer.get('tax_id_display') or 'CUIT: —')
+  pdf.drawString(margin, current_y - 42, f"IVA: {issuer.get('vat_condition_display') or '—'}")
+  if issuer.get('commercial_address'):
+    pdf.drawString(margin, current_y - 56, f"Dirección: {issuer['commercial_address']}")
+    current_y -= 76
+  else:
+    current_y -= 58
 
+  # Datos del cliente
   pdf.setFont('Helvetica-Bold', 11)
   pdf.drawString(margin, current_y, 'Cliente')
   pdf.setFont('Helvetica', 10)

@@ -3,7 +3,8 @@ import { HOW_IT_WORKS_STEPS } from './data';
 export function HowItWorksSection() {
     return (
         <section className="py-16">
-            <div className="space-y-6">
+            <div className="mx-auto max-w-7xl px-6 lg:px-10">
+                <div className="space-y-6">
                 <p className="text-sm font-semibold uppercase tracking-[0.25em] text-primary">Implementación</p>
                 <h2 className="text-3xl font-semibold text-zinc-900">¿Cómo funciona?</h2>
                 <div className="grid gap-6 md:grid-cols-3">
@@ -20,6 +21,7 @@ export function HowItWorksSection() {
                         </div>
                     ))}
                 </div>
+            </div>
             </div>
         </section>
     );

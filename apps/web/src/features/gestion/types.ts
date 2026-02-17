@@ -210,3 +210,162 @@ export type CommercialSettings = {
     enable_sales_notes: boolean;
     enable_receipts: boolean;
 };
+
+// Quotes (Presupuestos)
+export type QuoteStatus = 'draft' | 'sent' | 'accepted' | 'rejected' | 'expired' | 'converted';
+
+export type QuoteItem = {
+    id: string;
+    product_id?: string | null;
+    product_name: string;
+    quantity: string;
+    unit_price: string;
+    discount: string;
+    total_line: string;
+};
+
+export type Quote = {
+    id: string;
+    number: string;
+    status: QuoteStatus;
+    status_label: string;
+    customer_id: string | null;
+    customer_name: string | null;
+    customer?: CustomerSummary | null;
+    customer_email: string;
+    customer_phone: string;
+    valid_until: string | null;
+    notes: string;
+    terms: string;
+    currency: string;
+    subtotal: string;
+    discount_total: string;
+    tax_total: string;
+    total: string;
+    created_by?: string | null;
+    created_by_name?: string | null;
+    created_at: string;
+    updated_at: string;
+    sent_at: string | null;
+    items_count?: number;
+    items?: QuoteItem[];
+};
+
+export type QuotesFilters = {
+    search?: string;
+    status?: string;
+    date_from?: string;
+    date_to?: string;
+    ordering?: string;
+};
+
+export type QuoteItemPayload = {
+    product_id?: string | null;
+    name: string;
+    quantity: number;
+    unit_price: number;
+    discount?: number;
+};
+
+export type QuotePayload = {
+    customer_id?: string | null;
+    customer_name?: string;
+    customer_email?: string;
+    customer_phone?: string;
+    valid_until?: string | null;
+    notes?: string;
+    terms?: string;
+    currency?: string;
+    document_series_id?: string;
+    items: QuoteItemPayload[];
+};
+
+// Business Configuration Models
+
+export type TaxIdType = 'cuit' | 'cuil' | 'dni' | 'other';
+export type VatCondition = 'responsable_inscripto' | 'monotributo' | 'exento' | 'consumidor_final' | 'no_responsable';
+
+export type BusinessBillingProfile = {
+    id: string;
+    business: string;
+    legal_name: string;
+    trade_name: string;
+    tax_id_type: TaxIdType;
+    tax_id_type_display: string;
+    tax_id: string;
+    vat_condition: VatCondition;
+    vat_condition_display: string;
+    iibb: string;
+    activity_start_date: string | null;
+    commercial_address: string;
+    fiscal_address: string;
+    phone: string;
+    email: string;
+    website: string;
+    is_complete: boolean;
+    created_at: string;
+    updated_at: string;
+};
+
+export type BusinessBillingProfilePayload = {
+    legal_name?: string;
+    trade_name?: string;
+    tax_id_type?: TaxIdType;
+    tax_id?: string;
+    vat_condition?: VatCondition;
+    iibb?: string;
+    activity_start_date?: string | null;
+    commercial_address?: string;
+    fiscal_address?: string;
+    phone?: string;
+    email?: string;
+    website?: string;
+};
+
+export type BusinessBranding = {
+    id: string;
+    business: string;
+    logo_horizontal: string | null;
+    logo_horizontal_url: string | null;
+    logo_square: string | null;
+    logo_square_url: string | null;
+    accent_color: string;
+    created_at: string;
+    updated_at: string;
+};
+
+export type BusinessBrandingPayload = {
+    accent_color?: string;
+};
+
+export type DocumentType = 'invoice' | 'quote' | 'receipt' | 'credit_note' | 'debit_note' | 'delivery_note';
+export type DocumentLetter = 'A' | 'B' | 'C' | 'E' | 'M' | 'X' | 'P';
+
+export type DocumentSeries = {
+    id: string;
+    business: string;
+    business_name: string;
+    document_type: DocumentType;
+    document_type_display: string;
+    letter: DocumentLetter;
+    prefix: string;
+    suffix: string;
+    point_of_sale: number;
+    next_number: number;
+    is_active: boolean;
+    is_default: boolean;
+    branch: string | null;
+    created_at: string;
+    updated_at: string;
+};
+
+export type DocumentSeriesPayload = {
+    document_type: DocumentType;
+    letter: DocumentLetter;
+    prefix?: string;
+    suffix?: string;
+    point_of_sale?: number;
+    is_active?: boolean;
+    is_default?: boolean;
+    branch?: string | null;
+};

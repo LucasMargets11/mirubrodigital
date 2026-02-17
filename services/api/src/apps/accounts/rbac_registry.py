@@ -160,6 +160,36 @@ def _register_gestion_capabilities():
         'gestion'
     )
     
+    # Quotes (Presupuestos)
+    register_capability(
+        'view_quotes',
+        'Ver Presupuestos',
+        'Consultar presupuestos y cotizaciones',
+        'Ventas',
+        'gestion'
+    )
+    register_capability(
+        'create_quotes',
+        'Crear Presupuestos',
+        'Generar nuevos presupuestos y cotizaciones',
+        'Ventas',
+        'gestion'
+    )
+    register_capability(
+        'manage_quotes',
+        'Gestionar Presupuestos',
+        'Editar y administrar presupuestos existentes',
+        'Ventas',
+        'gestion'
+    )
+    register_capability(
+        'send_quotes',
+        'Enviar Presupuestos',
+        'Marcar presupuestos como enviados al cliente',
+        'Ventas',
+        'gestion'
+    )
+    
     # Invoices
     register_capability(
         'view_invoices',

@@ -6,7 +6,8 @@ import { PLANS } from './data';
 export function PricingTeaserSection() {
     return (
         <section className="py-16">
-            <div className="space-y-6">
+            <div className="mx-auto max-w-7xl px-6 lg:px-10">
+                <div className="space-y-6">
                 <p className="text-sm font-semibold uppercase tracking-[0.25em] text-primary">Planes</p>
                 <h2 className="text-3xl font-semibold text-zinc-900">Pensado para cada etapa</h2>
                 <p className="text-base text-zinc-600">Elige el paquete correcto y escala cuando lo necesites.</p>
@@ -38,6 +39,7 @@ export function PricingTeaserSection() {
                         </Card>
                     ))}
                 </div>
+            </div>
             </div>
         </section>
     );

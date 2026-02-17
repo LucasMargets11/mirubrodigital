@@ -11,7 +11,7 @@ from rest_framework import serializers
 
 from apps.sales.models import Sale
 from apps.sales.serializers import SaleItemSerializer
-from .models import Invoice, InvoiceSeries
+from .models import Invoice, InvoiceSeries, DocumentSeries
 
 
 @dataclass
@@ -36,6 +36,55 @@ def get_or_create_series(business, code: str) -> SeriesResult:
     except IntegrityError:
       series = InvoiceSeries.objects.select_for_update().get(business=business, code=normalized)
       return SeriesResult(series=series, created=False)
+
+
+class DocumentSeriesSerializer(serializers.ModelSerializer):
+  document_type_display = serializers.CharField(source='get_document_type_display', read_only=True)
+  business_name = serializers.CharField(source='business.name', read_only=True)
+  
+  class Meta:
+    model = DocumentSeries
+    fields = [
+      'id',
+      'business',
+      'business_name',
+      'document_type',
+      'document_type_display',
+      'letter',
+      'prefix',
+      'suffix',
+      'point_of_sale',
+      'next_number',
+      'is_active',
+      'is_default',
+      'branch',
+      'created_at',
+      'updated_at',
+    ]
+    read_only_fields = ['id', 'created_at', 'updated_at', 'business']
+  
+  def validate(self, attrs):
+    """Validar que solo haya una serie default por tipo de documento."""
+    if attrs.get('is_default', False):
+      business = attrs.get('business') or self.instance.business if self.instance else None
+      document_type = attrs.get('document_type') or self.instance.document_type if self.instance else None
+      
+      if business and document_type:
+        # Verificar que no exista otra serie default del mismo tipo
+        existing_default = DocumentSeries.objects.filter(
+          business=business,
+          document_type=document_type,
+          is_default=True
+        )
+        if self.instance:
+          existing_default = existing_default.exclude(pk=self.instance.pk)
+        
+        if existing_default.exists():
+          raise serializers.ValidationError({
+            'is_default': f'Ya existe una serie por defecto para {document_type}. Desactívala primero.'
+          })
+    
+    return attrs
 
 
 class InvoiceSeriesSerializer(serializers.ModelSerializer):

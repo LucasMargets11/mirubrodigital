@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { Modal } from '@/components/ui/modal';
 import { buildInvoicePdfUrl } from '@/features/invoices/api';
 import { useInvoiceSeries, useIssueInvoice } from '@/features/invoices/hooks';
+import { useBusinessBillingProfileQuery, useDocumentSeriesQuery } from '@/features/gestion/hooks';
 import type { SaleInvoiceSummary } from '@/features/gestion/types';
 
 const invoiceStatusLabels: Record<string, string> = {
@@ -55,10 +56,18 @@ export function InvoiceActions({
         customer_address: '',
     });
 
-    const invoiceSeriesQuery = useInvoiceSeries();
+    const billingProfileQuery = useBusinessBillingProfileQuery();
+    const documentSeriesQuery = useDocumentSeriesQuery();
     const issueInvoiceMutation = useIssueInvoice();
-    const availableSeries = invoiceSeriesQuery.data ?? [];
-    const defaultSeries = useMemo(() => availableSeries.find((serie) => serie.is_active)?.code ?? availableSeries[0]?.code ?? '', [availableSeries]);
+
+    const billingProfile = billingProfileQuery.data;
+    const isProfileComplete = billingProfile?.is_complete ?? false;
+    const allSeries = documentSeriesQuery.data ?? [];
+    const invoiceSeries = allSeries.filter(s => s.document_type === 'invoice' && s.is_active);
+    const defaultSeries = useMemo(
+        () => invoiceSeries.find((serie) => serie.is_default)?.id ?? invoiceSeries[0]?.id ?? '',
+        [invoiceSeries],
+    );
 
     useEffect(() => {
         if (!open) {
@@ -145,10 +154,10 @@ export function InvoiceActions({
                         <button
                             type="button"
                             onClick={() => setOpen(true)}
-                            disabled={!canIssue}
+                            disabled={!canIssue || !isProfileComplete}
                             className="rounded-full border border-slate-200 px-5 py-2 text-center font-semibold transition hover:border-slate-900 hover:text-slate-900 disabled:cursor-not-allowed disabled:border-slate-100 disabled:text-slate-300"
                         >
-                            Generar factura
+                            {!isProfileComplete ? 'Perfil incompleto' : 'Generar factura'}
                         </button>
                     )}
                 </div>
@@ -173,13 +182,37 @@ export function InvoiceActions({
                     No tenés permiso para generar facturas. Pedí acceso a un administrador.
                 </p>
             ) : null}
+            {canIssue && !isProfileComplete && !existingInvoice ? (
+                <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                    <p className="font-semibold">Perfil fiscal incompleto</p>
+                    <p className="mt-1">Completá los datos de tu negocio para emitir facturas.</p>
+                    <Link href="/app/gestion/configuracion/negocio" className="mt-2 inline-block font-semibold underline hover:text-rose-800">
+                        Completar datos del negocio →
+                    </Link>
+                </div>
+            ) : null}
             <Modal open={open} title="Generar factura" onClose={() => setOpen(false)}>
                 <form className="space-y-4" onSubmit={handleSubmit}>
-                    {invoiceSeriesQuery.isError ? (
+                    {documentSeriesQuery.isError ? (
                         <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">
                             No pudimos cargar las series disponibles. Reintentá más tarde.
                         </p>
                     ) : null}
+
+                    {/* Emisor (read-only) */}
+                    {billingProfile && (
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                            <h4 className="text-sm font-semibold text-slate-900">Emisor</h4>
+                            <div className="mt-2 space-y-1 text-sm text-slate-600">
+                                <p><span className="font-medium">Razón social:</span> {billingProfile.legal_name}</p>
+                                <p><span className="font-medium">CUIT:</span> {billingProfile.tax_id}</p>
+                                {billingProfile.commercial_address && (
+                                    <p><span className="font-medium">Dirección:</span> {billingProfile.commercial_address}</p>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
                     <label className="block text-sm font-semibold text-slate-700">
                         Serie <span className="text-rose-600" aria-hidden="true">*</span>
                         <span className="sr-only">Campo obligatorio</span>
@@ -191,16 +224,19 @@ export function InvoiceActions({
                             aria-required="true"
                         >
                             <option value="">Seleccionar serie</option>
-                            {availableSeries.map((serie) => (
-                                <option key={serie.id} value={serie.code}>
-                                    {serie.prefix ? `${serie.prefix} - ` : ''}
-                                    {serie.code} (#{serie.next_number})
+                            {invoiceSeries.map((serie) => (
+                                <option key={serie.id} value={serie.id}>
+                                    {serie.document_type.toUpperCase()} {serie.letter}
+                                    {serie.prefix ? ` - ${serie.prefix}` : ''}
+                                    {' '}(PV {String(serie.point_of_sale).padStart(4, '0')} - Próx: #{String(serie.next_number).padStart(8, '0')})
+                                    {serie.is_default ? ' ⭐' : ''}
                                 </option>
                             ))}
                         </select>
                     </label>
+
                     <label className="block text-sm font-semibold text-slate-700">
-                        Nombre o razón social
+                        Nombre o razón social del cliente
                         <input
                             type="text"
                             value={form.customer_name}
@@ -210,7 +246,7 @@ export function InvoiceActions({
                         />
                     </label>
                     <label className="block text-sm font-semibold text-slate-700">
-                        CUIT / Documento
+                        CUIT / Documento del cliente
                         <input
                             type="text"
                             value={form.customer_tax_id}
@@ -219,7 +255,7 @@ export function InvoiceActions({
                         />
                     </label>
                     <label className="block text-sm font-semibold text-slate-700">
-                        Dirección
+                        Dirección del cliente
                         <input
                             type="text"
                             value={form.customer_address}

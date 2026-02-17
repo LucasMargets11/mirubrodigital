@@ -6,6 +6,9 @@ from .views import (
   InvoiceListView,
   InvoicePDFView,
   InvoiceSeriesListView,
+  DocumentSeriesListCreateView,
+  DocumentSeriesDetailView,
+  DocumentSeriesSetDefaultView,
 )
 
 app_name = 'invoices'
@@ -16,4 +19,8 @@ urlpatterns = [
   path('issue/', InvoiceIssueView.as_view(), name='invoice-issue'),
   path('<uuid:pk>/', InvoiceDetailView.as_view(), name='invoice-detail'),
   path('<uuid:pk>/pdf/', InvoicePDFView.as_view(), name='invoice-pdf'),
+  # Document series (nuevo sistema unificado)
+  path('document-series/', DocumentSeriesListCreateView.as_view(), name='document-series-list'),
+  path('document-series/<uuid:pk>/', DocumentSeriesDetailView.as_view(), name='document-series-detail'),
+  path('document-series/<uuid:pk>/set-default/', DocumentSeriesSetDefaultView.as_view(), name='document-series-set-default'),
 ]

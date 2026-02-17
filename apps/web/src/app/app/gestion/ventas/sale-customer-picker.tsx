@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { useCreateCustomer, useCustomers } from '@/features/customers/hooks';
 import type { Customer, CustomerPayload, CustomerSummary } from '@/features/customers/types';
@@ -70,8 +70,7 @@ export function SaleCustomerPicker({ value, onChange }: SaleCustomerPickerProps)
         setActiveMode(lastSelectionMode ?? 'quick');
     };
 
-    const handleQuickSubmit = async (event: FormEvent<HTMLFormElement>) => {
-        event.preventDefault();
+    const handleQuickSubmit = async () => {
         const trimmed = quickName.trim();
         if (trimmed.length < MIN_NAME_LENGTH) {
             setQuickError('Ingresá al menos 2 caracteres.');
@@ -93,8 +92,7 @@ export function SaleCustomerPicker({ value, onChange }: SaleCustomerPickerProps)
         }
     };
 
-    const handleNewSubmit = async (event: FormEvent<HTMLFormElement>) => {
-        event.preventDefault();
+    const handleNewSubmit = async () => {
         const trimmed = newForm.name.trim();
         if (trimmed.length < MIN_NAME_LENGTH) {
             setNewFormError('Ingresá el nombre del cliente.');
@@ -195,31 +193,37 @@ export function SaleCustomerPicker({ value, onChange }: SaleCustomerPickerProps)
                         ))}
                     </div>
                     {activeMode === 'quick' && (
-                        <form onSubmit={handleQuickSubmit} className="space-y-3" aria-label="Crear cliente rápido">
+                        <div className="space-y-3" aria-label="Crear cliente rápido">
                             <label className="text-sm font-semibold text-slate-700">
                                 Nombre del cliente
                                 <input
                                     type="text"
                                     value={quickName}
                                     onChange={(event) => setQuickName(event.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                            e.preventDefault();
+                                            handleQuickSubmit();
+                                        }
+                                    }}
                                     minLength={MIN_NAME_LENGTH}
-                                    required
                                     placeholder="Ej. Consumidor final"
                                     className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm focus:border-slate-900 focus:outline-none"
                                 />
                             </label>
                             {quickError ? <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">{quickError}</p> : null}
                             <button
-                                type="submit"
+                                type="button"
+                                onClick={handleQuickSubmit}
                                 disabled={isSubmittingQuick}
                                 className="inline-flex items-center justify-center rounded-full bg-slate-900 px-5 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
                             >
                                 {isSubmittingQuick ? 'Guardando...' : 'Continuar'}
                             </button>
-                        </form>
+                        </div>
                     )}
                     {activeMode === 'new' && (
-                        <form onSubmit={handleNewSubmit} className="space-y-3" aria-label="Crear nuevo cliente">
+                        <div className="space-y-3" aria-label="Crear nuevo cliente">
                             <div className="grid gap-3 md:grid-cols-2">
                                 <label className="text-sm font-semibold text-slate-700 md:col-span-2">
                                     Nombre completo
@@ -228,7 +232,6 @@ export function SaleCustomerPicker({ value, onChange }: SaleCustomerPickerProps)
                                         value={newForm.name}
                                         onChange={(event) => setNewForm((prev) => ({ ...prev, name: event.target.value }))}
                                         minLength={MIN_NAME_LENGTH}
-                                        required
                                         className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm focus:border-slate-900 focus:outline-none"
                                     />
                                 </label>
@@ -266,7 +269,8 @@ export function SaleCustomerPicker({ value, onChange }: SaleCustomerPickerProps)
                             {newFormError ? <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">{newFormError}</p> : null}
                             <div className="flex flex-wrap items-center gap-3">
                                 <button
-                                    type="submit"
+                                    type="button"
+                                    onClick={handleNewSubmit}
                                     disabled={isSubmittingNew}
                                     className="rounded-full bg-slate-900 px-5 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
                                 >
@@ -274,7 +278,7 @@ export function SaleCustomerPicker({ value, onChange }: SaleCustomerPickerProps)
                                 </button>
                                 <p className="text-xs text-slate-500">Se guardará con los datos ingresados.</p>
                             </div>
-                        </form>
+                        </div>
                     )}
                     {activeMode === 'existing' && (
                         <div className="space-y-3" aria-label="Buscar cliente existente">

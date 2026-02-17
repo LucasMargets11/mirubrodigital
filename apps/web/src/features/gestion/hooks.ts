@@ -22,6 +22,23 @@ import {
     fetchTopSellingProducts,
     updateCommercialSettings,
     updateProduct,
+    createQuote,
+    fetchQuote,
+    fetchQuotes,
+    markQuoteAccepted,
+    markQuoteRejected,
+    markQuoteSent,
+    updateQuote,
+    fetchBusinessBillingProfile,
+    updateBusinessBillingProfile,
+    fetchBusinessBranding,
+    updateBusinessBranding,
+    uploadBusinessLogo,
+    fetchDocumentSeries,
+    createDocumentSeries,
+    updateDocumentSeries,
+    deleteDocumentSeries,
+    setDocumentSeriesDefault,
 } from './api';
 import type {
     CommercialSettings,
@@ -31,12 +48,18 @@ import type {
     SalesFilters,
     StockMovementPayload,
     InventorySummaryStats,
+    QuotePayload,
+    QuotesFilters,
+    BusinessBillingProfilePayload,
+    BusinessBrandingPayload,
+    DocumentSeriesPayload,
 } from './types';
 
 const productsBaseKey = ['gestion', 'products'];
 const stockBaseKey = ['gestion', 'stock'];
 const movementsBaseKey = ['gestion', 'movements'];
 const salesBaseKey = ['gestion', 'sales'];
+const quotesBaseKey = ['gestion', 'quotes'];
 const valuationBaseKey = ['gestion', 'inventory', 'valuation'];
 const dashboardBaseKey = ['gestion', 'dashboard'];
 const settingsBaseKey = ['gestion', 'commercial-settings'];
@@ -99,7 +122,7 @@ export function useCreateMovement() {
     });
 }
 
-export function useSales(filters: SalesFilters) {
+export function useSales(filters: SalesFilters, options?: { enabled?: boolean }) {
     return useQuery({
         queryKey: [...salesBaseKey, { 
             search: filters.search,
@@ -109,6 +132,7 @@ export function useSales(filters: SalesFilters) {
             date_to: filters.date_to,
         }],
         queryFn: () => fetchSales(filters),
+        ...options,
     });
 }
 
@@ -267,6 +291,179 @@ export function useUpdateCommercialSettingsMutation() {
         },
         onSettled: () => {
             queryClient.invalidateQueries({ queryKey: settingsBaseKey });
+        },
+    });
+}
+
+// Quotes (Presupuestos)
+export function useQuotes(filters: QuotesFilters) {
+    return useQuery({
+        queryKey: [...quotesBaseKey, {
+            search: filters.search,
+            status: filters.status,
+            date_from: filters.date_from,
+            date_to: filters.date_to,
+            ordering: filters.ordering,
+        }],
+        queryFn: () => fetchQuotes(filters),
+    });
+}
+
+export function useQuote(quoteId?: string) {
+    return useQuery({
+        queryKey: [...quotesBaseKey, quoteId],
+        queryFn: () => fetchQuote(quoteId as string),
+        enabled: Boolean(quoteId),
+    });
+}
+
+export function useCreateQuote() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (payload: QuotePayload) => createQuote(payload),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: quotesBaseKey });
+        },
+    });
+}
+
+export function useUpdateQuote() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ id, payload }: { id: string; payload: Partial<QuotePayload> }) => updateQuote(id, payload),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: quotesBaseKey });
+        },
+    });
+}
+
+export function useMarkQuoteSent() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (quoteId: string) => markQuoteSent(quoteId),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: quotesBaseKey });
+        },
+    });
+}
+
+export function useMarkQuoteAccepted() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (quoteId: string) => markQuoteAccepted(quoteId),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: quotesBaseKey });
+        },
+    });
+}
+
+export function useMarkQuoteRejected() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (quoteId: string) => markQuoteRejected(quoteId),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: quotesBaseKey });
+        },
+    });
+}
+
+// Business Configuration Hooks
+
+const businessBillingProfileKey = ['businessBillingProfile'] as const;
+const businessBrandingKey = ['businessBranding'] as const;
+const documentSeriesKey = ['documentSeries'] as const;
+
+export function useBusinessBillingProfileQuery() {
+    return useQuery({
+        queryKey: businessBillingProfileKey,
+        queryFn: fetchBusinessBillingProfile,
+        staleTime: 120_000,
+    });
+}
+
+export function useUpdateBusinessBillingProfileMutation() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (payload: BusinessBillingProfilePayload) => updateBusinessBillingProfile(payload),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: businessBillingProfileKey });
+        },
+    });
+}
+
+export function useBusinessBrandingQuery() {
+    return useQuery({
+        queryKey: businessBrandingKey,
+        queryFn: fetchBusinessBranding,
+        staleTime: 120_000,
+    });
+}
+
+export function useUpdateBusinessBrandingMutation() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (payload: BusinessBrandingPayload) => updateBusinessBranding(payload),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: businessBrandingKey });
+        },
+    });
+}
+
+export function useUploadBusinessLogoMutation() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ file, type }: { file: File; type: 'horizontal' | 'square' }) => uploadBusinessLogo(file, type),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: businessBrandingKey });
+        },
+    });
+}
+
+export function useDocumentSeriesQuery() {
+    return useQuery({
+        queryKey: documentSeriesKey,
+        queryFn: fetchDocumentSeries,
+        staleTime: 60_000,
+    });
+}
+
+export function useCreateDocumentSeriesMutation() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (payload: DocumentSeriesPayload) => createDocumentSeries(payload),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: documentSeriesKey });
+        },
+    });
+}
+
+export function useUpdateDocumentSeriesMutation() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ seriesId, payload }: { seriesId: string; payload: Partial<DocumentSeriesPayload> }) =>
+            updateDocumentSeries(seriesId, payload),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: documentSeriesKey });
+        },
+    });
+}
+
+export function useDeleteDocumentSeriesMutation() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (seriesId: string) => deleteDocumentSeries(seriesId),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: documentSeriesKey });
+        },
+    });
+}
+
+export function useSetDocumentSeriesDefaultMutation() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (seriesId: string) => setDocumentSeriesDefault(seriesId),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: documentSeriesKey });
         },
     });
 }
