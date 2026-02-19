@@ -15,7 +15,6 @@ from apps.cash.models import CashSession, Payment
 from apps.reports.serializers import CashClosureListSerializer
 from apps.reports.views import (
     DateRange,
-    ReportsFeatureMixin,
     _format_decimal,
     _format_money,
     _parse_date_range,
@@ -25,12 +24,7 @@ from apps.reports.views import (
 from apps.sales.models import Sale, SaleItem
 
 
-class RestaurantReportsFeatureMixin(ReportsFeatureMixin):
-    required_feature = 'resto_reports'
-    feature_denied_message = 'Tu plan no incluye Reportes de Restaurante.'
-
-
-class RestaurantReportSummaryView(RestaurantReportsFeatureMixin, APIView):
+class RestaurantReportSummaryView(APIView):
     permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
     required_permission = 'view_restaurant_reports'
 
@@ -48,7 +42,7 @@ class RestaurantReportSummaryView(RestaurantReportsFeatureMixin, APIView):
         return Response(payload)
 
 
-class RestaurantReportProductsView(RestaurantReportsFeatureMixin, APIView):
+class RestaurantReportProductsView(APIView):
     permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
     required_permission = 'view_restaurant_reports'
 
@@ -84,7 +78,7 @@ class RestaurantReportProductsView(RestaurantReportsFeatureMixin, APIView):
         return Response(response)
 
 
-class RestaurantReportCashSessionsView(RestaurantReportsFeatureMixin, APIView):
+class RestaurantReportCashSessionsView(APIView):
     permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
     required_permission = 'view_restaurant_reports'
 

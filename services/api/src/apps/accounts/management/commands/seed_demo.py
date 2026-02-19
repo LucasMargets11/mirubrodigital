@@ -155,8 +155,8 @@ class Command(BaseCommand):
             defaults={
                 'plan': BusinessPlan.PRO,
                 'status': 'active',
-                'max_branches': 3,
-                'max_seats': 20,
+                'max_branches': 1,  # PRO base tiene 1, puede comprar hasta 3
+                'max_seats': 10,     # PRO tiene 5-10 seats
                 'renews_at': timezone.now() + datetime.timedelta(days=365)
             }
         )
@@ -581,9 +581,10 @@ class Command(BaseCommand):
         Subscription.objects.update_or_create(
             business=business,
             defaults={
-                'plan': BusinessPlan.PLUS,
+                'plan': BusinessPlan.BUSINESS,  # Mapeo de PLUS a BUSINESS
                 'status': 'active',
-                'max_seats': 50,
+                'max_branches': 5,  # BUSINESS incluye 5
+                'max_seats': 20,     # BUSINESS 20+ seats
                 'renews_at': timezone.now() + datetime.timedelta(days=365)
             }
         )

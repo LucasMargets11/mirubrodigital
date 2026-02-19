@@ -2,7 +2,7 @@ from rest_framework import viewsets, status, filters, serializers
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from apps.accounts.permissions import HasBusinessMembership, HasPermission
+from apps.accounts.permissions import HasBusinessMembership, HasPermission, HasEntitlement
 from django.db import transaction
 from django.db.models import Sum
 from django.utils import timezone
@@ -18,7 +18,8 @@ import uuid
 from decimal import Decimal
 
 class BaseTreasuryViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+    permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement, HasPermission]
+    required_entitlement = 'gestion.treasury'
     required_permission = 'view_finance' 
     
     permission_map = {
@@ -43,8 +44,9 @@ class AccountViewSet(BaseTreasuryViewSet):
     queryset = Account.objects.all()
     serializer_class = AccountSerializer
 
-    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, HasBusinessMembership, HasPermission], url_path='reconcile')
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated, HasBusinessMembership, HasEntitlement, HasPermission], url_path='reconcile')
     def reconcile(self, request, pk=None):
+        self.required_entitlement = 'gestion.treasury'
         self.required_permission = 'manage_finance' 
         
         account = self.get_object()

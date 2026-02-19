@@ -7,6 +7,7 @@ from .views import (
 	BranchViewSet,
 	BusinessBillingProfileView,
 	BusinessBrandingView,
+	BusinessEntitlementsView,
 )
 
 app_name = 'business'
@@ -19,5 +20,6 @@ urlpatterns = [
 	path('commercial/settings/', CommercialSettingsView.as_view(), name='commercial-settings'),
 	path('settings/billing/', BusinessBillingProfileView.as_view(), name='billing-profile'),
 	path('settings/branding/', BusinessBrandingView.as_view(), name='branding'),
+	path('entitlements/', BusinessEntitlementsView.as_view(), name='entitlements'),
 	path('', include(router.urls)),
 ]

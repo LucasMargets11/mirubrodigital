@@ -237,3 +237,22 @@ export function deleteDocumentSeries(seriesId: string) {
 export function setDocumentSeriesDefault(seriesId: string) {
     return apiPost<DocumentSeries>(`/api/v1/invoices/document-series/${seriesId}/set-default/`, {});
 }
+
+export function fetchBusinessEntitlements() {
+    return apiGet<{
+        entitlements: string[];
+        plan: {
+            plan: string;
+            status: string;
+            max_branches: number;
+            max_seats: number;
+            effective_max_branches: number;
+            effective_max_seats: number;
+        };
+        addons: Array<{
+            code: string;
+            quantity: number;
+            is_active: boolean;
+        }>;
+    }>('/api/v1/business/entitlements/');
+}

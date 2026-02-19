@@ -39,10 +39,15 @@ class Business(models.Model):
 
 
 class BusinessPlan(models.TextChoices):
-  STARTER = 'starter', 'Starter'
+  START = 'start', 'Start'
   PRO = 'pro', 'Pro'
-  PLUS = 'plus', 'Plus'
+  BUSINESS = 'business', 'Business'
+  ENTERPRISE = 'enterprise', 'Enterprise'
   MENU_QR = 'menu_qr', 'Menú QR'
+  
+  # Legacy plans (mantener para compatibilidad)
+  STARTER = 'starter', 'Starter (Legacy)'
+  PLUS = 'plus', 'Plus (Legacy)'
 
 
 class Subscription(models.Model):
@@ -53,11 +58,11 @@ class Subscription(models.Model):
   ]
 
   business = models.OneToOneField('business.Business', related_name='subscription', on_delete=models.CASCADE)
-  plan = models.CharField(max_length=32, choices=BusinessPlan.choices, default=BusinessPlan.STARTER)
+  plan = models.CharField(max_length=32, choices=BusinessPlan.choices, default=BusinessPlan.START)
   service = models.CharField(max_length=32, choices=Business.SERVICE_CHOICES, default='gestion')
   status = models.CharField(max_length=32, choices=STATUS_CHOICES, default='active')
-  max_branches = models.PositiveIntegerField(default=0)
-  max_seats = models.PositiveIntegerField(default=5)
+  max_branches = models.PositiveIntegerField(default=1, help_text='Sucursales incluidas en el plan base')
+  max_seats = models.PositiveIntegerField(default=2, help_text='Usuarios incluidos en el plan base')
   renews_at = models.DateTimeField(null=True, blank=True)
   created_at = models.DateTimeField(auto_now_add=True)
   updated_at = models.DateTimeField(auto_now=True)
@@ -73,6 +78,86 @@ class Subscription(models.Model):
       if business and business.default_service:
         self.service = business.default_service
     super().save(*args, **kwargs)
+
+  @property
+  def effective_max_branches(self) -> int:
+    """Calcula el límite efectivo de sucursales (plan + add-ons)."""
+    base = self.max_branches
+    extra = sum(
+      addon.quantity 
+      for addon in self.addons.filter(code='extra_branch', is_active=True)
+    )
+    
+    # Aplicar límites máximos según plan
+    max_allowed = self.get_max_addon_branches_allowed()
+    if max_allowed is None:
+      return base + extra  # Ilimitado
+    return min(base + extra, max_allowed)
+  
+  @property
+  def effective_max_seats(self) -> int:
+    """Calcula el límite efectivo de usuarios (plan + add-ons)."""
+    base = self.max_seats
+    extra = sum(
+      addon.quantity 
+      for addon in self.addons.filter(code='extra_seat', is_active=True)
+    )
+    return base + extra
+  
+  def has_addon(self, code: str) -> bool:
+    """Verifica si tiene un add-on específico activo."""
+    return self.addons.filter(code=code, is_active=True).exists()
+  
+  def get_max_addon_branches_allowed(self) -> int | None:
+    """
+    Retorna el máximo de sucursales permitidas por plan.
+    None significa ilimitado.
+    """
+    plan_limits = {
+      'start': 1,       # No permite add-ons
+      'starter': 1,     # Legacy, no permite add-ons
+      'pro': 3,         # Hasta 3 total
+      'business': None, # Ilimitado desde la 1ra
+      'enterprise': None,
+      'plus': None,     # Legacy, ilimitado
+      'menu_qr': 1,
+    }
+    return plan_limits.get(self.plan.lower(), 1)
+
+
+class SubscriptionAddon(models.Model):
+  """
+  Add-ons para subscripciones (sucursales extra, usuarios extra, módulos).
+  """
+  
+  ADDON_CODE_CHOICES = [
+    ('extra_branch', 'Sucursal Extra'),
+    ('extra_seat', 'Usuario Extra'),
+    ('invoices_module', 'Módulo de Facturación'),
+  ]
+  
+  subscription = models.ForeignKey(
+    'business.Subscription',
+    related_name='addons',
+    on_delete=models.CASCADE
+  )
+  code = models.CharField(max_length=64, choices=ADDON_CODE_CHOICES)
+  quantity = models.PositiveIntegerField(default=1, help_text='Cantidad de unidades (ej: 2 sucursales extra)')
+  is_active = models.BooleanField(default=True)
+  activated_at = models.DateTimeField(auto_now_add=True)
+  deactivated_at = models.DateTimeField(null=True, blank=True)
+  
+  created_at = models.DateTimeField(auto_now_add=True)
+  updated_at = models.DateTimeField(auto_now=True)
+  
+  class Meta:
+    verbose_name = 'Subscription Add-on'
+    verbose_name_plural = 'Subscription Add-ons'
+    unique_together = ('subscription', 'code')
+  
+  def __str__(self) -> str:
+    status = "✓" if self.is_active else "✗"
+    return f"{status} {self.get_code_display()} x{self.quantity} · {self.subscription.business.name}"
 
 
 class CommercialSettingsManager(models.Manager):

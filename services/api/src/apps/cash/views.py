@@ -8,7 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.accounts.permissions import HasBusinessMembership, HasPermission
+from apps.accounts.permissions import HasBusinessMembership, HasPermission, HasEntitlement
 from .models import CashMovement, CashRegister, CashSession, Payment
 from .serializers import (
 	CashMovementCreateSerializer,
@@ -25,7 +25,8 @@ from .services import collect_pending_session_sales, get_active_session
 
 class CashRegisterListView(generics.ListAPIView):
 	serializer_class = CashRegisterSerializer
-	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement, HasPermission]
+	required_entitlement = 'gestion.cash'
 	required_permission = 'view_cash'
 
 	def get_queryset(self):
@@ -35,7 +36,8 @@ class CashRegisterListView(generics.ListAPIView):
 
 class CashSessionOpenView(generics.CreateAPIView):
 	serializer_class = CashSessionOpenSerializer
-	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement, HasPermission]
+	required_entitlement = 'gestion.cash'
 	required_permission = 'manage_cash'
 
 	def get_serializer_context(self):
@@ -46,7 +48,8 @@ class CashSessionOpenView(generics.CreateAPIView):
 
 
 class ActiveCashSessionView(APIView):
-	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement, HasPermission]
+	required_entitlement = 'gestion.cash'
 	required_permission = 'view_cash'
 
 	def get(self, request):
@@ -60,7 +63,8 @@ class ActiveCashSessionView(APIView):
 
 
 class CashSummaryView(APIView):
-	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement, HasPermission]
+	required_entitlement = 'gestion.cash'
 	required_permission = 'view_cash'
 
 	def get(self, request):
@@ -80,7 +84,8 @@ class CashSummaryView(APIView):
 
 class CashSessionSummaryView(generics.RetrieveAPIView):
 	serializer_class = CashSessionSerializer
-	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement, HasPermission]
+	required_entitlement = 'gestion.cash'
 	required_permission = 'view_cash'
 
 	def get_queryset(self):
@@ -89,7 +94,8 @@ class CashSessionSummaryView(generics.RetrieveAPIView):
 
 
 class CashSessionCloseView(APIView):
-	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement, HasPermission]
+	required_entitlement = 'gestion.cash'
 	required_permission = 'manage_cash'
 
 	def post(self, request, pk: str):
@@ -102,7 +108,8 @@ class CashSessionCloseView(APIView):
 
 
 class CashSessionCollectPendingView(APIView):
-	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement, HasPermission]
+	required_entitlement = 'gestion.cash'
 	required_permission = 'manage_cash'
 
 	def post(self, request, pk: str):
@@ -132,7 +139,8 @@ class CashSessionCollectPendingView(APIView):
 
 class CashPaymentView(generics.ListCreateAPIView):
 	serializer_class = CashPaymentSerializer
-	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement, HasPermission]
+	required_entitlement = 'gestion.cash'
 	permission_map = {
 		'GET': 'view_cash',
 		'POST': 'manage_cash',
@@ -183,7 +191,8 @@ class CashPaymentView(generics.ListCreateAPIView):
 
 class CashMovementView(generics.ListCreateAPIView):
 	serializer_class = CashMovementSerializer
-	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement, HasPermission]
+	required_entitlement = 'gestion.cash'
 	permission_map = {
 		'GET': 'view_cash',
 		'POST': 'manage_cash',

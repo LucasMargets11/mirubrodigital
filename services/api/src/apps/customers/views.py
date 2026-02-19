@@ -3,7 +3,7 @@ from rest_framework.filters import SearchFilter
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 
-from apps.accounts.permissions import HasBusinessMembership, HasPermission
+from apps.accounts.permissions import HasBusinessMembership, HasPermission, HasEntitlement
 from .models import Customer
 from .serializers import CustomerSerializer
 
@@ -17,7 +17,8 @@ class CustomerPagination(LimitOffsetPagination):
 
 class CustomerListCreateView(generics.ListCreateAPIView):
   serializer_class = CustomerSerializer
-  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+  permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement, HasPermission]
+  required_entitlement = 'gestion.customers'
   permission_map = {
     'GET': 'view_customers',
     'POST': ('manage_customers', 'create_sales'),
@@ -42,7 +43,8 @@ class CustomerListCreateView(generics.ListCreateAPIView):
 
 class CustomerDetailView(generics.RetrieveUpdateDestroyAPIView):
   serializer_class = CustomerSerializer
-  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+  permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement, HasPermission]
+  required_entitlement = 'gestion.customers'
   permission_map = {
     'GET': 'view_customers',
     'PUT': 'manage_customers',

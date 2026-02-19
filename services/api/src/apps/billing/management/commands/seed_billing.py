@@ -7,16 +7,32 @@ class Command(BaseCommand):
     help = 'Seeds billing modules and bundles'
 
     def handle(self, *args, **kwargs):
-        # Commercial Modules
+        # Commercial Modules (Gestión Comercial)
         comm_mods = [
-            ('stock', 'Stock', 'Inventory management', 'operation', 1000, True),
-            ('orders_sales', 'Orders & Sales', 'Sales processing', 'operation', 1500, True),
-            ('cash_register', 'Cash Register', 'Cash management', 'operation', 800, False), # requires sales
-            ('invoicing', 'Invoicing', 'Fiscal invoicing', 'admin', 1200, False),
-            ('customers', 'Customers', 'CRM', 'operation', 500, False),
-            ('reports_basic', 'Basic Reports', 'Daily stats', 'insights', 0, True),
-            ('reports_advanced', 'Advanced Reports', 'Deep analytics', 'insights', 2000, False),
-            ('users_roles', 'Users & Roles', 'Team management', 'admin', 800, False),
+            # Core modules (included in START)
+            ('gestion_products', 'Productos', 'Catálogo de productos con variantes y precios', 'operation', 0, True),
+            ('gestion_inventory_basic', 'Inventario Básico', 'Control de stock por sucursal', 'operation', 0, True),
+            ('gestion_sales_basic', 'Ventas Básicas', 'Registro de ventas y recibos', 'operation', 0, True),
+            ('gestion_dashboard_basic', 'Dashboard Básico', 'Vista general de ventas y stock', 'insights', 0, True),
+            ('gestion_settings_basic', 'Configuración Básica', 'Ajustes generales del negocio', 'admin', 0, True),
+            
+            # PRO modules (not in START)
+            ('gestion_customers', 'Clientes', 'CRM y listado de clientes', 'operation', 0, False),
+            ('gestion_cash', 'Caja', 'Gestión de caja y sesiones de efectivo', 'operation', 0, False),
+            ('gestion_quotes', 'Presupuestos', 'Generación de cotizaciones', 'operation', 0, False),
+            ('gestion_reports', 'Reportes', 'Reportes detallados y analytics', 'insights', 0, False),
+            ('gestion_export', 'Exportación', 'Exportar datos a Excel/CSV', 'insights', 0, False),
+            ('gestion_treasury', 'Tesorería y Finanzas', 'Control financiero, gastos e ingresos', 'admin', 0, False),
+            ('gestion_inventory_advanced', 'Inventario Avanzado', 'Ajustes, transferencias y auditoría', 'operation', 0, False),
+            ('gestion_sales_advanced', 'Ventas Avanzadas', 'Descuentos, promociones y ventas a cuenta', 'operation', 0, False),
+            ('gestion_rbac_full', 'Control de Acceso Completo', 'Roles, permisos y usuarios ilimitados', 'admin', 0, False),
+            ('gestion_audit', 'Auditoría', 'Historial de cambios y logs', 'admin', 0, False),
+            
+            # BUSINESS modules (not in PRO)
+            ('gestion_invoices', 'Facturación Electrónica', 'Emisión de facturas fiscales', 'admin', 0, False),
+            ('gestion_multi_branch', 'Multi-Sucursal', 'Gestión consolidada de múltiples sucursales', 'operation', 0, False),
+            ('gestion_transfers', 'Transferencias', 'Transferencias de stock entre sucursales', 'operation', 0, False),
+            ('gestion_consolidated_reports', 'Reportes Consolidados', 'Reportes multi-sucursal', 'insights', 0, False),
         ]
         
         created_modules = {}
@@ -28,44 +44,76 @@ class Command(BaseCommand):
                     'description': desc, 
                     'category': cat, 
                     'price_monthly': price,
-                    'price_yearly': price * 10, # discount
+                    'price_yearly': price * 10 if price > 0 else 0,
                     'is_core': is_core,
                     'vertical': 'commercial'
                 }
             )
             created_modules[code] = m
-            
-        # Dependencies
-        if 'cash_register' in created_modules and 'orders_sales' in created_modules:
-            created_modules['cash_register'].requires.add(created_modules['orders_sales'])
 
-        # Bundles
-        b_initial, _ = Bundle.objects.update_or_create(
-            code='comm_initial',
+        # Plan START - Core básico
+        start_modules = [
+            'gestion_products', 'gestion_inventory_basic', 'gestion_sales_basic',
+            'gestion_dashboard_basic', 'gestion_settings_basic'
+        ]
+        
+        b_start, _ = Bundle.objects.update_or_create(
+            code='gestion_start',
             defaults={
-                'name': 'Pack Inicial',
+                'name': 'Start',
+                'description': 'Plan inicial para emprendedores. 1 sucursal, funcionalidades esenciales.',
                 'vertical': 'commercial',
                 'pricing_mode': 'fixed_price',
-                'fixed_price_monthly': 2000,
+                'fixed_price_monthly': 9900,  # $99
+                'fixed_price_yearly': 95040,  # $99 * 12 * 0.8 (20% descuento anual)
+                'is_default_recommended': False,
+                'badge': ''
+            }
+        )
+        b_start.modules.set([created_modules[code] for code in start_modules if code in created_modules])
+
+        # Plan PRO - Todo de START + features PRO
+        pro_modules = start_modules + [
+            'gestion_customers', 'gestion_cash', 'gestion_quotes', 'gestion_reports',
+            'gestion_export', 'gestion_treasury', 'gestion_inventory_advanced',
+            'gestion_sales_advanced', 'gestion_rbac_full', 'gestion_audit'
+        ]
+        
+        b_pro, _ = Bundle.objects.update_or_create(
+            code='gestion_pro',
+            defaults={
+                'name': 'Pro',
+                'description': 'Gestión profesional con tesorería y finanzas. Hasta 3 sucursales.',
+                'vertical': 'commercial',
+                'pricing_mode': 'fixed_price',
+                'fixed_price_monthly': 29900,  # $299
+                'fixed_price_yearly': 287040,  # $299 * 12 * 0.8
                 'is_default_recommended': True,
                 'badge': 'Recomendado'
             }
         )
-        b_initial.modules.set([
-            created_modules['stock'], created_modules['orders_sales'], 
-            created_modules['reports_basic']
-        ])
+        b_pro.modules.set([created_modules[code] for code in pro_modules if code in created_modules])
 
-        b_full, _ = Bundle.objects.update_or_create(
-            code='comm_full',
+        # Plan BUSINESS - Todo de PRO + features BUSINESS
+        business_modules = pro_modules + [
+            'gestion_invoices', 'gestion_multi_branch', 'gestion_transfers',
+            'gestion_consolidated_reports'
+        ]
+        
+        b_business, _ = Bundle.objects.update_or_create(
+            code='gestion_business',
             defaults={
-                'name': 'Pack Full',
+                'name': 'Business',
+                'description': 'Solución completa con facturación electrónica. Hasta 5 sucursales incluidas.',
                 'vertical': 'commercial',
-                'pricing_mode': 'discount_percent',
-                'discount_percent': 20.00,
+                'pricing_mode': 'fixed_price',
+                'fixed_price_monthly': 49900,  # $499
+                'fixed_price_yearly': 479040,  # $499 * 12 * 0.8
+                'is_default_recommended': False,
+                'badge': 'Completo'
             }
         )
-        b_full.modules.set(list(created_modules.values()))
+        b_business.modules.set([created_modules[code] for code in business_modules if code in created_modules])
 
         # Restaurant Modules
         resto_mods = [

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { PlansBundles } from '@/features/billing/components/PlansBundles';
 import { PlansBuilderWizard } from '@/features/billing/components/PlansBuilderWizard';
+import { CommercialPlanBuilder } from '@/features/billing/components/CommercialPlanBuilder';
 import type { BillingVertical, Bundle, QuoteResponse } from '@/features/billing/types';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { QrCode, Store, UtensilsCrossed, type LucideIcon } from 'lucide-react';
@@ -83,28 +84,30 @@ export default function PricingPage() {
         router.push(`/subscribe?${params.toString()}`);
     };
 
-    const handleSubscribeCustom = (selectedModules: string[], quote: QuoteResponse) => {
+    const handleSubscribeCustom = (config: any) => {
         // Logic for public site: Redirect to registration with custom params
         const params = new URLSearchParams({
-            plan_code: 'custom',
-            modules: selectedModules.join(','),
+            plan_code: config.bundleCode || 'custom',
             billing_period: billingPeriod,
-            vertical
+            vertical,
+            branches: config.branches?.toString() || '1',
+            add_invoicing: config.addInvoicing ? 'true' : 'false',
         });
         router.push(`/subscribe?${params.toString()}`);
     };
 
     return (
-        <div className="py-20 px-4 md:px-8 max-w-7xl mx-auto">
-            <div className="text-center mb-16 space-y-4">
-                <p className="text-sm font-semibold text-brand-600 uppercase tracking-wider">Planes Flexibles</p>
-                <h1 className="text-4xl md:text-5xl font-display font-bold text-slate-900">
-                    Elige tu próximo nivel
-                </h1>
-                <p className="text-xl text-slate-600 max-w-2xl mx-auto">
-                    Escala de marketing a operaciones sin migraciones dolorosas. Precios transparentes que crecen con vos.
-                </p>
-            </div>
+        <div className="bg-white min-h-screen">
+            <div className="py-20 px-6 max-w-6xl mx-auto">
+                <div className="text-center mb-16 space-y-4">
+                    <p className="text-sm font-semibold text-brand-600 uppercase tracking-wider">Planes Flexibles</p>
+                    <h1 className="text-4xl md:text-5xl font-display font-bold text-slate-900">
+                        Elige tu próximo nivel
+                    </h1>
+                    <p className="text-xl text-slate-600 max-w-2xl mx-auto">
+                        Escala de marketing a operaciones sin migraciones dolorosas. Precios transparentes que crecen con vos.
+                    </p>
+                </div>
 
             <div className="flex flex-col items-center mb-12 space-y-6">
                 <ServiceSelectorCards value={vertical} onChange={setVertical} options={SERVICE_OPTIONS} />
@@ -153,14 +156,23 @@ export default function PricingPage() {
 
             {mode === 'custom' && (
                 <div className="animate-in fade-in zoom-in duration-300">
-                    <PlansBuilderWizard
-                        vertical={vertical}
-                        billingPeriod={billingPeriod}
-                        onSubscribe={handleSubscribeCustom}
-                        onCancel={() => setMode('packs')}
-                    />
+                    {vertical === 'commercial' ? (
+                        <CommercialPlanBuilder
+                            billingPeriod={billingPeriod}
+                            onSubscribe={handleSubscribeCustom}
+                            onCancel={() => setMode('packs')}
+                        />
+                    ) : (
+                        <PlansBuilderWizard
+                            vertical={vertical}
+                            billingPeriod={billingPeriod}
+                            onSubscribe={(modules, quote) => handleSubscribeCustom({ modules, quote })}
+                            onCancel={() => setMode('packs')}
+                        />
+                    )}
                 </div>
             )}
+            </div>
         </div>
     );
 }

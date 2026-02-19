@@ -6,6 +6,7 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from apps.accounts.permissions import HasBusinessMembership, HasPermission
 from apps.business.context import build_business_context
 from apps.business.service_catalog import serialize_catalog
+from apps.business.entitlements import get_effective_entitlements
 from apps.business.models import (
 	CommercialSettings, 
 	Business, 
@@ -177,3 +178,59 @@ class BusinessBrandingView(APIView):
 		serializer.is_valid(raise_exception=True)
 		serializer.save()
 		return Response(serializer.data)
+
+
+class BusinessEntitlementsView(APIView):
+	"""
+	Vista para obtener los entitlements (features habilitadas) del business actual.
+	Este endpoint es usado por el frontend para feature gating en UI.
+	"""
+	permission_classes = [IsAuthenticated, HasBusinessMembership]
+
+	def get(self, request):
+		business = getattr(request, 'business', None)
+		
+		# Obtener subscription y calcular entitlements
+		try:
+			subscription = business.subscription
+			entitlements = list(get_effective_entitlements(subscription))
+			
+			# Info adicional sobre el plan
+			plan_info = {
+				'plan': subscription.plan,
+				'status': subscription.status,
+				'max_branches': subscription.max_branches,
+				'max_seats': subscription.max_seats,
+				'effective_max_branches': subscription.effective_max_branches,
+				'effective_max_seats': subscription.effective_max_seats,
+			}
+			
+			# Listar add-ons activos
+			addons = []
+			if hasattr(subscription, 'addons'):
+				addons = [
+					{
+						'code': addon.code,
+						'quantity': addon.quantity,
+						'is_active': addon.is_active,
+					}
+					for addon in subscription.addons.filter(is_active=True)
+				]
+			
+		except Subscription.DoesNotExist:
+			entitlements = []
+			plan_info = {
+				'plan': 'none',
+				'status': 'inactive',
+				'max_branches': 0,
+				'max_seats': 0,
+				'effective_max_branches': 0,
+				'effective_max_seats': 0,
+			}
+			addons = []
+		
+		return Response({
+			'entitlements': entitlements,
+			'plan': plan_info,
+			'addons': addons,
+		})

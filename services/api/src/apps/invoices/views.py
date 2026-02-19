@@ -12,7 +12,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.access import resolve_business_context, resolve_request_membership
-from apps.accounts.permissions import HasBusinessMembership, HasPermission
+from apps.accounts.permissions import HasBusinessMembership, HasPermission, HasEntitlement
 from apps.accounts.rbac import permissions_for_service
 from apps.business.scope import resolve_scope_ids
 from .models import Invoice, InvoiceSeries, DocumentSeries
@@ -26,39 +26,10 @@ from .serializers import (
 )
 
 
-class InvoicesFeatureMixin:
-  required_feature = 'invoices'
-  feature_denied_message = 'Tu plan no incluye Facturas.'
-  required_service = 'gestion'
-
-  def initial(self, request, *args, **kwargs):  # type: ignore[override]
-    super().initial(request, *args, **kwargs)
-    membership = resolve_request_membership(request)
-    if membership is None:
-      raise PermissionDenied(self.feature_denied_message)
-    context = resolve_business_context(request, membership)
-    features = context.get('features', {})
-    if not features.get(self.required_feature, False):
-      raise PermissionDenied(self.feature_denied_message)
-    self._ensure_required_service(request, context, membership)
-
-  def _ensure_required_service(self, request, context, membership):
-    required_service = getattr(self, 'required_service', None)
-    if not required_service:
-      return
-    if context.get('service') == required_service and getattr(request, 'active_service', None) == required_service:
-      return
-    enabled_services = context.get('enabled_services') or []
-    if required_service not in enabled_services:
-      raise PermissionDenied(self.feature_denied_message)
-    context['service'] = required_service
-    request.active_service = required_service
-    request._permission_cache = permissions_for_service(required_service, membership.role)
-
-
-class InvoiceListView(InvoicesFeatureMixin, generics.ListAPIView):
+class InvoiceListView(generics.ListAPIView):
   serializer_class = InvoiceListSerializer
-  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+  permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement, HasPermission]
+  required_entitlement = 'gestion.invoices'
   required_permission = 'view_invoices'
   pagination_class = None
 
@@ -102,9 +73,10 @@ class InvoiceListView(InvoicesFeatureMixin, generics.ListAPIView):
       return None
 
 
-class InvoiceDetailView(InvoicesFeatureMixin, generics.RetrieveAPIView):
+class InvoiceDetailView(generics.RetrieveAPIView):
   serializer_class = InvoiceDetailSerializer
-  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+  permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement, HasPermission]
+  required_entitlement = 'gestion.invoices'
   required_permission = 'view_invoices'
 
   def get_queryset(self):
@@ -117,9 +89,10 @@ class InvoiceDetailView(InvoicesFeatureMixin, generics.RetrieveAPIView):
     return context
 
 
-class InvoiceSeriesListView(InvoicesFeatureMixin, generics.ListAPIView):
+class InvoiceSeriesListView(generics.ListAPIView):
   serializer_class = InvoiceSeriesSerializer
-  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+  permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement, HasPermission]
+  required_entitlement = 'gestion.invoices'
   required_permission = 'issue_invoices'
   pagination_class = None
 
@@ -128,8 +101,9 @@ class InvoiceSeriesListView(InvoicesFeatureMixin, generics.ListAPIView):
     return InvoiceSeries.objects.filter(business=business, is_active=True).order_by('code')
 
 
-class InvoiceIssueView(InvoicesFeatureMixin, APIView):
-  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+class InvoiceIssueView(APIView):
+  permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement, HasPermission]
+  required_entitlement = 'gestion.invoices'
   required_permission = 'issue_invoices'
 
   def post(self, request):
@@ -143,8 +117,9 @@ class InvoiceIssueView(InvoicesFeatureMixin, APIView):
     return Response(InvoiceDetailSerializer(invoice, context={'request': request}).data, status=201)
 
 
-class InvoicePDFView(InvoicesFeatureMixin, APIView):
-  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+class InvoicePDFView(APIView):
+  permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement, HasPermission]
+  required_entitlement = 'gestion.invoices'
   required_permission = 'view_invoices'
 
   def get(self, request, pk: str):

@@ -36,6 +36,19 @@ export async function login(email: string, password: string): Promise<AuthResult
   }
 }
 
+export async function register(email: string, password: string): Promise<AuthResult> {
+  try {
+    const response = await request('/api/v1/auth/register/', { email, password });
+    if (!response.ok) {
+      const errorPayload = await response.json().catch(() => ({}));
+      return { success: false, message: errorPayload?.detail ?? 'No pudimos crear la cuenta' };
+    }
+    return { success: true };
+  } catch (error) {
+    return { success: false, message: 'Error de red al crear la cuenta' };
+  }
+}
+
 export async function logout(): Promise<void> {
   try {
     await request('/api/v1/auth/logout/');

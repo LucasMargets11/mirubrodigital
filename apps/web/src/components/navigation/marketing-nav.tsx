@@ -9,7 +9,7 @@ const marketingLinks = [
     { href: '/', label: 'Inicio' },
     { href: '/pricing', label: 'Precios' },
     { href: '/services', label: 'Servicios' },
-    { href: '/entrar', label: 'Entrar' },
+    { href: '/entrar', label: 'Ingresar' },
 ];
 
 export function MarketingNav() {
@@ -25,14 +25,15 @@ export function MarketingNav() {
     }, []);
 
     return (
+        // Fixed header: h-16 = 64px (source of truth for layout padding-top)
         <header className={cn(
-            "sticky top-0 z-50 w-full transition-all duration-200",
+            "fixed top-0 inset-x-0 z-50 w-full transition-all duration-200",
             scrolled 
                 ? "bg-white/80 supports-[backdrop-filter]:bg-white/60 supports-[backdrop-filter]:backdrop-blur-md shadow-sm border-b border-black/5"
                 : "bg-transparent"
         )}>
             <div className="mx-auto max-w-7xl px-6 lg:px-10">
-                <div className="flex items-center justify-between h-16">
+                <div className="flex items-center justify-between h-16">{/* h-16 = 64px */}
                     <Link href="/" className="flex items-center gap-2 text-xl font-display font-semibold text-brand-600">
                         <Image src="/logo/rubroicono.png" alt="Mirubro Logo" width={32} height={32} />
                         Mirubro

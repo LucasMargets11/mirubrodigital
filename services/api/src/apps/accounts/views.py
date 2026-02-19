@@ -24,7 +24,7 @@ from apps.business.context import build_business_context
 from apps.business.models import Business, Subscription, BusinessPlan
 from apps.business.service_catalog import serialize_catalog
 from .models import Membership
-from .serializers import LoginSerializer
+from .serializers import LoginSerializer, RegisterSerializer
 
 User = get_user_model()
 
@@ -177,6 +177,36 @@ class LoginView(APIView):
 		_set_auth_cookies(response, refresh)
 		_set_business_cookie(response, membership.business_id)
 		return response
+
+
+class RegisterView(APIView):
+	permission_classes = [AllowAny]
+	authentication_classes: list = []
+
+	def post(self, request: Request) -> Response:
+		serializer = RegisterSerializer(data=request.data)
+		serializer.is_valid(raise_exception=True)
+		email = serializer.validated_data['email'].lower()
+		password = serializer.validated_data['password']
+
+		# Verificar si el usuario ya existe
+		if User.objects.filter(email__iexact=email).exists():
+			return Response({'detail': 'El email ya está registrado'}, status=status.HTTP_400_BAD_REQUEST)
+
+		# Crear usuario
+		user = User.objects.create_user(
+			username=email,
+			email=email,
+			password=password,
+		)
+
+		return Response({
+			'status': 'created',
+			'user': {
+				'id': user.id,
+				'email': user.email,
+			}
+		}, status=status.HTTP_201_CREATED)
 
 
 class LogoutView(APIView):

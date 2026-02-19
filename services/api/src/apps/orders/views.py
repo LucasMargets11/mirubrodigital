@@ -9,12 +9,11 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.accounts.permissions import HasBusinessMembership, HasPermission, request_has_permission
+from apps.accounts.permissions import HasBusinessMembership, HasEntitlement, HasPermission, request_has_permission
 from apps.cash.models import CashSession, Payment
 from apps.cash.serializers import CashSessionSerializer
 from apps.cash.services import get_active_session
 from apps.invoices.serializers import InvoiceDetailSerializer, InvoiceIssueSerializer
-from apps.invoices.views import InvoicesFeatureMixin
 from apps.sales.models import Sale
 from apps.sales.serializers import SaleDetailSerializer
 from .models import Order, OrderDraft, OrderDraftItem, OrderItem
@@ -403,8 +402,9 @@ class OrderDetailView(APIView):
 		return self.patch(request, pk)
 
 
-class OrderInvoiceView(InvoicesFeatureMixin, APIView):
-	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+class OrderInvoiceView(APIView):
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement, HasPermission]
+	required_entitlement = 'gestion.invoices'
 	permission_map = {
 		'GET': 'view_invoices',
 		'POST': 'issue_invoices',

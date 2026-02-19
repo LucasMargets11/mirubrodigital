@@ -71,7 +71,7 @@ export default async function ServiceHubPage() {
                                         href={entryPath}
                                         className="inline-flex w-full items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
                                     >
-                                        Entrar
+                                        Ingresar
                                     </Link>
                                 ) : (
                                     <p className="rounded-xl border border-dashed border-slate-200 px-4 py-2 text-center text-xs font-semibold text-slate-400">

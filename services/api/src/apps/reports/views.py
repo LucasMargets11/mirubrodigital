@@ -33,7 +33,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.access import resolve_business_context, resolve_request_membership
-from apps.accounts.permissions import HasBusinessMembership, HasPermission
+from apps.accounts.permissions import HasBusinessMembership, HasPermission, HasEntitlement
 from apps.cash.models import CashMovement, CashSession, Payment
 from apps.inventory.models import ProductStock
 from apps.cash.services import compute_session_totals, get_session_sales_queryset
@@ -270,21 +270,6 @@ def _apply_sales_search(queryset, term: str):
 	return queryset.filter(filters)
 
 
-class ReportsFeatureMixin:
-	required_feature = 'reports'
-	feature_denied_message = 'Tu plan no incluye Reportes.'
-
-	def initial(self, request, *args, **kwargs):  # type: ignore[override]
-		super().initial(request, *args, **kwargs)
-		membership = resolve_request_membership(request)
-		if membership is None:
-			raise PermissionDenied(self.feature_denied_message)
-		context = resolve_business_context(request, membership)
-		features = context.get('features', {})
-		if not features.get(self.required_feature, False):
-			raise PermissionDenied(self.feature_denied_message)
-
-
 class ReportsPagination(LimitOffsetPagination):
 	default_limit = 25
 	max_limit = 100
@@ -292,8 +277,9 @@ class ReportsPagination(LimitOffsetPagination):
 	offset_query_param = 'offset'
 
 
-class ReportSummaryView(ReportsFeatureMixin, APIView):
-	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+class ReportSummaryView(APIView):
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement, HasPermission]
+	required_entitlement = 'gestion.reports'
 	required_permission = 'view_reports'
 
 	def get(self, request):
@@ -448,9 +434,10 @@ class ReportSummaryView(ReportsFeatureMixin, APIView):
 		return Response(response_payload)
 
 
-class ReportSalesListView(ReportsFeatureMixin, generics.ListAPIView):
+class ReportSalesListView(generics.ListAPIView):
 	serializer_class = ReportSaleListSerializer
-	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement, HasPermission]
+	required_entitlement = 'gestion.reports'
 	required_permission = 'view_reports_sales'
 	pagination_class = ReportsPagination
 
@@ -476,9 +463,10 @@ class ReportSalesListView(ReportsFeatureMixin, generics.ListAPIView):
 		return queryset.order_by('-created_at', '-number')
 
 
-class ReportSalesDetailView(ReportsFeatureMixin, generics.RetrieveAPIView):
+class ReportSalesDetailView(generics.RetrieveAPIView):
 	serializer_class = ReportSaleDetailSerializer
-	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement, HasPermission]
+	required_entitlement = 'gestion.reports'
 	required_permission = 'view_reports_sales'
 
 	def get_queryset(self):
@@ -491,8 +479,9 @@ class ReportSalesDetailView(ReportsFeatureMixin, generics.RetrieveAPIView):
 		return _annotate_payments_total(queryset)
 
 
-class PaymentsReportView(ReportsFeatureMixin, APIView):
-	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+class PaymentsReportView(APIView):
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement, HasPermission]
+	required_entitlement = 'gestion.reports'
 	required_permission = 'view_reports_sales'
 	pagination_class = ReportsPagination()
 
@@ -572,9 +561,10 @@ class PaymentsReportView(ReportsFeatureMixin, APIView):
 		)
 
 
-class CashClosureListView(ReportsFeatureMixin, generics.ListAPIView):
+class CashClosureListView(generics.ListAPIView):
 	serializer_class = CashClosureListSerializer
-	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement, HasPermission]
+	required_entitlement = 'gestion.reports'
 	required_permission = 'view_reports_cash'
 	pagination_class = ReportsPagination
 
@@ -622,8 +612,9 @@ class CashClosureListView(ReportsFeatureMixin, generics.ListAPIView):
 		return queryset.annotate(report_sort_timestamp=Coalesce('closed_at', 'opened_at')).order_by('-report_sort_timestamp', '-opened_at')
 
 
-class CashClosureDetailView(ReportsFeatureMixin, APIView):
-	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+class CashClosureDetailView(APIView):
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement, HasPermission]
+	required_entitlement = 'gestion.reports'
 	required_permission = 'view_reports_cash'
 
 	def get(self, request, pk: str):
@@ -700,8 +691,9 @@ class CashClosureDetailView(ReportsFeatureMixin, APIView):
 		return Response(payload)
 
 
-class TopProductsReportView(ReportsFeatureMixin, APIView):
-	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+class PaymentsReportView(APIView):
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement, HasPermission]
+	required_entitlement = 'gestion.reports'
 	required_permission = 'view_reports'
 
 	def get(self, request):
@@ -780,8 +772,9 @@ class TopProductsReportView(ReportsFeatureMixin, APIView):
 		)
 
 
-class ReportProductsView(ReportsFeatureMixin, APIView):
-	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+class ReportProductsView(APIView):
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement, HasPermission]
+	required_entitlement = 'gestion.reports'
 	required_permission = 'view_reports_products'
 
 	def get(self, request):
@@ -872,8 +865,9 @@ class ReportProductsView(ReportsFeatureMixin, APIView):
 		)
 
 
-class StockAlertsReportView(ReportsFeatureMixin, APIView):
-	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+class StockAlertsReportView(APIView):
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement, HasPermission]
+	required_entitlement = 'gestion.reports'
 	required_permission = 'view_stock'
 
 	def get(self, request):

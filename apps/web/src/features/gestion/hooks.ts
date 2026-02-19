@@ -39,6 +39,7 @@ import {
     updateDocumentSeries,
     deleteDocumentSeries,
     setDocumentSeriesDefault,
+    fetchBusinessEntitlements,
 } from './api';
 import type {
     CommercialSettings,
@@ -466,4 +467,23 @@ export function useSetDocumentSeriesDefaultMutation() {
             queryClient.invalidateQueries({ queryKey: documentSeriesKey });
         },
     });
+}
+
+const entitlementsKey = ['business', 'entitlements'];
+
+export function useEntitlements() {
+    const { data, isLoading, error } = useQuery({
+        queryKey: entitlementsKey,
+        queryFn: fetchBusinessEntitlements,
+        staleTime: 5 * 60 * 1000, // Cache por 5 minutos
+    });
+
+    return {
+        entitlements: data?.entitlements ?? [],
+        plan: data?.plan,
+        addons: data?.addons ?? [],
+        hasEntitlement: (code: string) => data?.entitlements?.includes(code) ?? false,
+        isLoading,
+        error,
+    };
 }
