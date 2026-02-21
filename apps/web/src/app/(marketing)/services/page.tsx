@@ -153,19 +153,21 @@ const SERVICES: ServiceConfig[] = [
 
 export default function ServicesPage() {
     return (
-        <div className="flex w-full flex-col gap-16 py-10 md:py-16">
-            <div className="text-center space-y-4">
-                <p className="text-sm font-semibold uppercase tracking-[0.3em] text-brand-600">Servicios</p>
-                <h1 className="text-4xl font-display font-bold text-slate-900 md:text-5xl">Construido para cada vertical</h1>
-                <p className="mx-auto max-w-2xl text-lg text-slate-600">
-                    Elige el servicio que mejor representa tu operación y descubre los módulos disponibles para cada flujo.
-                </p>
-            </div>
+        <div className="mx-auto w-full max-w-7xl px-4 py-10 sm:px-6 md:py-14 lg:px-8">
+            <div className="flex flex-col gap-10">
+                <div className="text-center space-y-4">
+                    <p className="text-sm font-semibold uppercase tracking-[0.3em] text-brand-600">Servicios</p>
+                    <h1 className="text-4xl font-display font-bold text-slate-900 md:text-5xl">Construido para cada vertical</h1>
+                    <p className="mx-auto max-w-2xl text-lg text-slate-600">
+                        Elige el servicio que mejor representa tu operación y descubre los módulos disponibles para cada flujo.
+                    </p>
+                </div>
 
-            <div className="space-y-12">
-                {SERVICES.map((service) => (
-                    <ServiceSection key={service.id} service={service} />
-                ))}
+                <div className="space-y-8">
+                    {SERVICES.map((service) => (
+                        <ServiceSection key={service.id} service={service} />
+                    ))}
+                </div>
             </div>
         </div>
     );
@@ -177,13 +179,13 @@ type ServiceSectionProps = {
 
 function ServiceSection({ service }: ServiceSectionProps) {
     return (
-        <section className="w-full rounded-3xl border border-slate-200 bg-white/90 p-6 shadow-lg shadow-slate-100 ring-1 ring-slate-100 transition-shadow md:p-8 lg:p-10">
-            <div className="flex flex-col gap-6 md:gap-8 lg:gap-10 lg:grid lg:grid-cols-[minmax(280px,360px)_1fr]">
-                <div className="space-y-4 lg:pr-6">
+        <section className="w-full rounded-2xl border border-slate-200 bg-white p-5 shadow-md shadow-slate-100/50 ring-1 ring-slate-100 transition-shadow md:p-6 lg:p-7">
+            <div className="flex flex-col gap-6 lg:grid lg:grid-cols-[340px_1fr] lg:gap-8 lg:items-start">
+                <div className="space-y-4">
                     <div className="space-y-2">
                         <p className="text-xs font-semibold uppercase tracking-[0.4em] text-brand-500">Servicio</p>
-                        <h2 className="text-3xl font-display font-semibold text-slate-900">{service.title}</h2>
-                        <p className="text-base text-slate-600">{service.description}</p>
+                        <h2 className="text-2xl font-display font-semibold text-slate-900 md:text-3xl">{service.title}</h2>
+                        <p className="text-sm text-slate-600 md:text-base">{service.description}</p>
                     </div>
                     <Button
                         asChild
@@ -196,7 +198,7 @@ function ServiceSection({ service }: ServiceSectionProps) {
                     </Button>
                 </div>
                 <div className="w-full">
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 lg:gap-5">
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
                         {service.features.map((feature) => (
                             <FeatureCard key={feature.title} feature={feature} />
                         ))}
@@ -219,24 +221,24 @@ function FeatureCard({ feature }: FeatureCardProps) {
             role="group"
             tabIndex={0}
             className={cn(
-                'flex h-full flex-col border-slate-200 bg-slate-50/40 transition-all duration-200 hover:border-brand-200 hover:bg-white hover:shadow-xl hover:ring-2 hover:ring-brand-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2',
+                'flex h-full flex-col border-slate-200 bg-slate-50/40 transition-all duration-200 hover:border-brand-200 hover:bg-white hover:shadow-lg hover:ring-2 hover:ring-brand-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2',
                 feature.className
             )}
         >
-            <CardHeader className="space-y-4 pb-0 text-center">
-                <div className="mx-auto rounded-2xl bg-brand-50 p-3 text-brand-600 shadow-inner">
-                    <Icon className="h-6 w-6" aria-hidden="true" />
+            <CardHeader className="space-y-3 pb-3 text-center">
+                <div className="mx-auto rounded-xl bg-brand-50 p-2.5 text-brand-600 shadow-inner">
+                    <Icon className="h-5 w-5" aria-hidden="true" />
                 </div>
                 <div className="space-y-1">
-                    <CardTitle className="text-lg text-slate-900">{feature.title}</CardTitle>
-                    <CardDescription className="text-sm text-slate-500">{feature.description}</CardDescription>
+                    <CardTitle className="text-base font-semibold text-slate-900">{feature.title}</CardTitle>
+                    <CardDescription className="text-xs leading-relaxed text-slate-500">{feature.description}</CardDescription>
                 </div>
             </CardHeader>
-            <CardContent className="mt-auto pt-6">
-                <ul className="space-y-2 text-sm text-slate-600">
+            <CardContent className="mt-auto pt-3">
+                <ul className="space-y-1.5 text-xs text-slate-600">
                     {feature.bullets.map((bullet) => (
-                        <li key={bullet} className="flex items-start gap-2">
-                            <Check className="mt-0.5 h-4 w-4 text-brand-500" aria-hidden="true" />
+                        <li key={bullet} className="flex items-start gap-1.5">
+                            <Check className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-brand-500" aria-hidden="true" />
                             <span>{bullet}</span>
                         </li>
                     ))}
