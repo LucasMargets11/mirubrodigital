@@ -92,7 +92,7 @@ class BusinessBrandingSerializer(serializers.ModelSerializer):
       'accent_color',
       'updated_at',
     ]
-    read_only_fields = ['updated_at']
+    read_only_fields = ['updated_at', 'logo_horizontal', 'logo_square']
   
   def get_logo_horizontal_url(self, obj):
     if obj.logo_horizontal:
@@ -109,3 +109,8 @@ class BusinessBrandingSerializer(serializers.ModelSerializer):
         return request.build_absolute_uri(obj.logo_square.url)
       return obj.logo_square.url
     return None
+
+
+class BusinessLogoUploadSerializer(serializers.Serializer):
+  file = serializers.ImageField()
+  type = serializers.ChoiceField(choices=['horizontal', 'square'])

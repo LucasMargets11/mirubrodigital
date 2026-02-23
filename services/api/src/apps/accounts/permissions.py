@@ -75,13 +75,11 @@ class HasEntitlement(BasePermission):
     if not required_entitlement:
       return True
     
-    # Obtener el business del contexto
-    context = resolve_business_context(request, resolve_request_membership(request))
-    if not context or 'business' not in context:
+    # Obtener el business del request (ya fue resuelto por HasBusinessMembership)
+    business = getattr(request, 'business', None)
+    if not business:
       self.message = 'No se pudo determinar el negocio.'
       return False
-    
-    business = context['business']
     
     # Verificar el entitlement
     if not has_entitlement(business, required_entitlement):

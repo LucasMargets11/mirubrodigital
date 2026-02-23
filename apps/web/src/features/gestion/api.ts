@@ -6,6 +6,7 @@ import type {
     InventoryValuationFilters,
     InventoryValuationResponse,
     Product,
+    ProductCategory,
     ProductPayload,
     ProductStock,
     Sale,
@@ -39,10 +40,11 @@ function buildQuery(params: Record<string, string | undefined>) {
     return serialized ? `?${serialized}` : '';
 }
 
-export function fetchProducts(params: { search?: string; includeInactive?: boolean } = {}) {
+export function fetchProducts(params: { search?: string; includeInactive?: boolean; category?: string | null } = {}) {
     const query = buildQuery({
         search: params.search,
         include_inactive: params.includeInactive ? 'true' : undefined,
+        category: params.category === null ? 'null' : params.category,
     });
     return apiGet<Product[]>(`/api/v1/catalog/products/${query}`);
 }
@@ -55,8 +57,33 @@ export function updateProduct(productId: string, payload: Partial<ProductPayload
     return apiPatch<Product>(`/api/v1/catalog/products/${productId}/`, payload);
 }
 
-export function fetchStockLevels(params: { search?: string; status?: string } = {}) {
-    const query = buildQuery({ search: params.search, status: params.status });
+// Category endpoints
+export function fetchProductCategories(params: { search?: string; includeInactive?: boolean } = {}) {
+    const query = buildQuery({
+        search: params.search,
+        include_inactive: params.includeInactive ? 'true' : undefined,
+    });
+    return apiGet<ProductCategory[]>(`/api/v1/catalog/categories/${query}`);
+}
+
+export function createProductCategory(payload: { name: string }) {
+    return apiPost<ProductCategory>('/api/v1/catalog/categories/', payload);
+}
+
+export function updateProductCategory(categoryId: string, payload: { name?: string; is_active?: boolean }) {
+    return apiPatch<ProductCategory>(`/api/v1/catalog/categories/${categoryId}/`, payload);
+}
+
+export function deleteProductCategory(categoryId: string) {
+    return apiDelete(`/api/v1/catalog/categories/${categoryId}/`);
+}
+
+export function fetchStockLevels(params: { search?: string; status?: string; category?: string | null } = {}) {
+    const query = buildQuery({ 
+        search: params.search, 
+        status: params.status,
+        category: params.category === null ? 'null' : params.category,
+    });
     return apiGet<ProductStock[]>(`/api/v1/inventory/stock/${query}`);
 }
 
@@ -213,9 +240,9 @@ export function updateBusinessBranding(payload: BusinessBrandingPayload) {
 
 export function uploadBusinessLogo(file: File, type: 'horizontal' | 'square') {
     const formData = new FormData();
-    const fieldName = type === 'horizontal' ? 'logo_horizontal' : 'logo_square';
-    formData.append(fieldName, file);
-    return apiPatch<BusinessBranding>('/api/v1/settings/branding/', formData);
+    formData.append('file', file);
+    formData.append('type', type);
+    return apiPost<BusinessBranding>('/api/v1/settings/branding/upload-logo/', formData);
 }
 
 export function fetchDocumentSeries() {

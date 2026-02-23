@@ -5,12 +5,14 @@ import { ApiError } from '@/lib/api/client';
 import {
     createMovement,
     createProduct,
+    createProductCategory,
     createSale,
     fetchCommercialSettings,
     fetchInventorySummary,
     fetchInventoryValuation,
     fetchLowStockAlerts,
     fetchOutOfStockAlerts,
+    fetchProductCategories,
     fetchProducts,
     fetchRecentInventoryMovements,
     fetchRecentSales,
@@ -22,6 +24,7 @@ import {
     fetchTopSellingProducts,
     updateCommercialSettings,
     updateProduct,
+    updateProductCategory,
     createQuote,
     fetchQuote,
     fetchQuotes,
@@ -57,6 +60,7 @@ import type {
 } from './types';
 
 const productsBaseKey = ['gestion', 'products'];
+const categoriesBaseKey = ['gestion', 'categories'];
 const stockBaseKey = ['gestion', 'stock'];
 const movementsBaseKey = ['gestion', 'movements'];
 const salesBaseKey = ['gestion', 'sales'];
@@ -65,10 +69,10 @@ const valuationBaseKey = ['gestion', 'inventory', 'valuation'];
 const dashboardBaseKey = ['gestion', 'dashboard'];
 const settingsBaseKey = ['gestion', 'commercial-settings'];
 
-export function useProducts(search: string, includeInactive: boolean, options?: { enabled?: boolean }) {
+export function useProducts(search: string, includeInactive: boolean, category?: string | null, options?: { enabled?: boolean }) {
     return useQuery({
-        queryKey: [...productsBaseKey, { search, includeInactive }],
-        queryFn: () => fetchProducts({ search, includeInactive }),
+        queryKey: [...productsBaseKey, { search, includeInactive, category }],
+        queryFn: () => fetchProducts({ search, includeInactive, category }),
         enabled: options?.enabled ?? true,
     });
 }
@@ -97,10 +101,41 @@ export function useUpdateProduct() {
     });
 }
 
-export function useStockLevels(search: string, status: string) {
+// Category hooks
+export function useProductCategories(search: string = '', includeInactive: boolean = false, options?: { enabled?: boolean }) {
     return useQuery({
-        queryKey: [...stockBaseKey, { search, status }],
-        queryFn: () => fetchStockLevels({ search, status }),
+        queryKey: [...categoriesBaseKey, { search, includeInactive }],
+        queryFn: () => fetchProductCategories({ search, includeInactive }),
+        enabled: options?.enabled ?? true,
+    });
+}
+
+export function useCreateProductCategory() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (payload: { name: string }) => createProductCategory(payload),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: categoriesBaseKey });
+        },
+    });
+}
+
+export function useUpdateProductCategory() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ id, payload }: { id: string; payload: { name?: string; is_active?: boolean } }) => 
+            updateProductCategory(id, payload),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: categoriesBaseKey });
+            queryClient.invalidateQueries({ queryKey: productsBaseKey });
+        },
+    });
+}
+
+export function useStockLevels(search: string, status: string, category?: string | null) {
+    return useQuery({
+        queryKey: [...stockBaseKey, { search, status, category }],
+        queryFn: () => fetchStockLevels({ search, status, category }),
     });
 }
 

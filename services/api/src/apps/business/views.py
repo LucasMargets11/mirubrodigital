@@ -21,6 +21,7 @@ from apps.business.serializers import (
 	BranchCreateSerializer,
 	BusinessBillingProfileSerializer,
 	BusinessBrandingSerializer,
+	BusinessLogoUploadSerializer,
 )
 from rest_framework import viewsets, status
 from django.db import transaction
@@ -154,9 +155,8 @@ class BusinessBillingProfileView(APIView):
 
 
 class BusinessBrandingView(APIView):
-	"""Vista para obtener y actualizar el branding del negocio."""
+	"""Vista para obtener y actualizar el branding del negocio (solo accent_color)."""
 	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
-	parser_classes = [MultiPartParser, FormParser]
 	required_permission = 'manage_commercial_settings'
 
 	def _get_branding(self, request):
@@ -179,6 +179,35 @@ class BusinessBrandingView(APIView):
 		serializer.is_valid(raise_exception=True)
 		serializer.save()
 		return Response(serializer.data)
+
+
+class BusinessLogoUploadView(APIView):
+	"""Vista para subir logos del negocio."""
+	parser_classes = [MultiPartParser]
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	required_permission = 'manage_commercial_settings'
+
+	def post(self, request):
+		serializer = BusinessLogoUploadSerializer(data=request.data)
+		serializer.is_valid(raise_exception=True)
+		
+		file_obj = serializer.validated_data['file']
+		logo_type = serializer.validated_data['type']
+		
+		business = getattr(request, 'business')
+		branding, _ = BusinessBranding.objects.get_or_create(business=business)
+		
+		# Save the file to the appropriate field
+		if logo_type == 'horizontal':
+			branding.logo_horizontal = file_obj
+		else:
+			branding.logo_square = file_obj
+		
+		branding.save()
+		
+		# Return the updated branding
+		response_serializer = BusinessBrandingSerializer(branding, context={'request': request})
+		return Response(response_serializer.data)
 
 
 class BusinessEntitlementsView(APIView):

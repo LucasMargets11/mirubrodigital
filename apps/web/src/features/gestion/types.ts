@@ -1,7 +1,23 @@
 import type { CustomerSummary } from '@/features/customers/types';
 
+export type ProductCategory = {
+    id: string;
+    name: string;
+    is_active: boolean;
+    products_count: number;
+    created_at: string;
+    updated_at: string;
+};
+
+export type ProductCategorySummary = {
+    id: string;
+    name: string;
+};
+
 export type Product = {
     id: string;
+    category: ProductCategorySummary | null;
+    category_id?: string | null;
     name: string;
     sku: string | null;
     barcode: string | null;
@@ -16,6 +32,7 @@ export type Product = {
 
 export type ProductSummary = {
     id: string;
+    category: ProductCategorySummary | null;
     name: string;
     sku: string | null;
     barcode: string | null;
@@ -41,6 +58,7 @@ export type StockMovement = {
 };
 
 export type ProductPayload = {
+    category_id?: string | null;
     name: string;
     sku?: string;
     barcode?: string;

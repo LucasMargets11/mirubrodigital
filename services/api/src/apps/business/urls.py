@@ -7,6 +7,7 @@ from .views import (
 	BranchViewSet,
 	BusinessBillingProfileView,
 	BusinessBrandingView,
+	BusinessLogoUploadView,
 	BusinessEntitlementsView,
 	AvailableAddonsView,
 )
@@ -21,6 +22,7 @@ urlpatterns = [
 	path('commercial/settings/', CommercialSettingsView.as_view(), name='commercial-settings'),
 	path('settings/billing/', BusinessBillingProfileView.as_view(), name='billing-profile'),
 	path('settings/branding/', BusinessBrandingView.as_view(), name='branding'),
+	path('settings/branding/upload-logo/', BusinessLogoUploadView.as_view(), name='branding-upload-logo'),
 	path('entitlements/', BusinessEntitlementsView.as_view(), name='entitlements'),
 	path('addons/available/', AvailableAddonsView.as_view(), name='available-addons'),
 	path('', include(router.urls)),

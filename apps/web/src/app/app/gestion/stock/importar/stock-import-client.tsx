@@ -131,7 +131,7 @@ export function StockImportClient() {
                 <p className="text-xs uppercase tracking-[0.25em] text-slate-400">Importador</p>
                 <h1 className="text-2xl font-semibold text-slate-900">Importar stock por Excel</h1>
                 <p className="text-sm text-slate-500">
-                    Cargá un archivo .xlsx con tus productos para crearlos, actualizarlos y ajustar stock mediante movimientos.
+                    Cargá un archivo .xlsx (hasta 10 MB, máx. 2000 filas) para crear productos, actualizar datos y ajustar stock mediante movimientos automáticos.
                 </p>
             </header>
 
@@ -166,12 +166,13 @@ export function StockImportClient() {
                             ) : null}
                         </div>
                         <p className="text-xs text-slate-500">
-                            Descargá la plantilla base para completar los campos necesarios.&nbsp;
+                            Descargá la plantilla de ejemplo con instrucciones y ejemplos de productos.&nbsp;
                             <a
                                 href="/plantillas/importar-stock.xlsx"
                                 className="font-semibold text-slate-900 underline-offset-2 hover:underline"
+                                download="importar-stock-plantilla.xlsx"
                             >
-                                Descargar plantilla
+                                Descargar plantilla Excel
                             </a>
                         </p>
                     </div>

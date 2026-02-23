@@ -1,16 +1,19 @@
 "use client";
 
+import Link from 'next/link';
 import { useDeferredValue, useMemo, useState } from 'react';
 import { z } from 'zod';
 
 import { Modal } from '@/components/ui/modal';
 import { SortableHeader } from '@/components/ui/sortable-header';
-import { useCreateProduct, useProducts, useUpdateProduct } from '@/features/gestion/hooks';
+import { CategorySelect } from '@/features/gestion/components/category-select';
+import { useCreateProduct, useProducts, useProductCategories, useUpdateProduct } from '@/features/gestion/hooks';
 import type { Product } from '@/features/gestion/types';
 import { ApiError } from '@/lib/api/client';
 import { useTableSort, sortArray, type ColumnConfig } from '@/lib/table/useTableSort';
 
 const productFormSchema = z.object({
+    category_id: z.string().optional().nullable(),
     name: z.string().min(2, 'El nombre es obligatorio'),
     sku: z.string().optional(),
     barcode: z.string().optional(),
@@ -22,6 +25,7 @@ const productFormSchema = z.object({
 type FormState = z.infer<typeof productFormSchema>;
 
 const emptyForm: FormState = {
+    category_id: null,
     name: '',
     sku: '',
     barcode: '',
@@ -55,6 +59,7 @@ export function ProductsClient({ canManage, canViewCost }: ProductsClientProps) 
     const [search, setSearch] = useState('');
     const deferredSearch = useDeferredValue(search);
     const [includeInactive, setIncludeInactive] = useState(false);
+    const [categoryFilter, setCategoryFilter] = useState<string | null | undefined>(undefined);
     const [modalOpen, setModalOpen] = useState(false);
     const [form, setForm] = useState<FormState>(emptyForm);
     const [editing, setEditing] = useState<Product | null>(null);
@@ -62,18 +67,24 @@ export function ProductsClient({ canManage, canViewCost }: ProductsClientProps) 
     const [feedback, setFeedback] = useState<string>('');
     const [permissionNotice, setPermissionNotice] = useState<string>('');
 
-    const productsQuery = useProducts(deferredSearch, includeInactive);
+    const productsQuery = useProducts(deferredSearch, includeInactive, categoryFilter);
+    const categoriesQuery = useProductCategories('');
     const createMutation = useCreateProduct();
     const updateMutation = useUpdateProduct();
 
     const isSaving = createMutation.isPending || updateMutation.isPending;
 
     const products = useMemo(() => productsQuery.data ?? [], [productsQuery.data]);
+    const categories = useMemo(() => categoriesQuery.data ?? [], [categoriesQuery.data]);
 
     // Configuración de columnas para ordenamiento
     const columnConfigs: Record<string, ColumnConfig<Product>> = useMemo(() => ({
         name: {
             accessor: 'name',
+            sortType: 'string',
+        },
+        category: {
+            accessor: (product) => product.category?.name ?? '',
             sortType: 'string',
         },
         sku: {
@@ -125,6 +136,7 @@ export function ProductsClient({ canManage, canViewCost }: ProductsClientProps) 
         }
         setEditing(product);
         setForm({
+            category_id: product.category?.id ?? null,
             name: product.name,
             sku: product.sku ?? '',
             barcode: product.barcode ?? '',
@@ -160,6 +172,7 @@ export function ProductsClient({ canManage, canViewCost }: ProductsClientProps) 
         setErrors({});
 
         const payload = {
+            category_id: parsed.data.category_id || null,
             name: parsed.data.name,
             sku: parsed.data.sku || undefined,
             barcode: parsed.data.barcode || undefined,
@@ -203,13 +216,8 @@ export function ProductsClient({ canManage, canViewCost }: ProductsClientProps) 
     }
 
     return (
-        <section className="space-y-4">
-            <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <div>
-                    <h2 className="text-2xl font-semibold text-slate-900">Productos</h2>
-                    <p className="text-sm text-slate-500">Catálogo multi-tenant sincronizado con inventario.</p>
-                </div>
-                <div className="flex flex-col gap-3 md:flex-row md:items-center">
+        <>            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-4">
+                <div className="flex items-center gap-3">
                     <label className="flex items-center gap-2 text-sm text-slate-500">
                         <input
                             type="checkbox"
@@ -219,31 +227,59 @@ export function ProductsClient({ canManage, canViewCost }: ProductsClientProps) 
                         />
                         Mostrar inactivos
                     </label>
-                    {canManage ? (
-                        <button
-                            type="button"
-                            onClick={handleOpenCreate}
-                            className="rounded-full bg-slate-900 px-5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
-                        >
-                            Nuevo producto
-                        </button>
-                    ) : null}
                 </div>
-            </header>
+                {canManage && (
+                    <button
+                        type="button"
+                        onClick={handleOpenCreate}
+                        className="rounded-full bg-slate-900 px-5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
+                    >
+                        Nuevo producto
+                    </button>
+                )}
+            </div>
             {!canManage && (
-                <p className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+                <p className="mb-4 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
                     Tu rol puede consultar el catálogo pero no crear ni editar productos.
                 </p>
             )}
             <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                    <input
-                        type="search"
-                        value={search}
-                        onChange={(event) => setSearch(event.target.value)}
-                        placeholder="Buscar por nombre o SKU"
-                        className="w-full rounded-xl border border-slate-200 px-4 py-2 text-sm focus:border-slate-900 focus:outline-none"
-                    />
+                <div className="flex flex-col gap-3 mb-4">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center">
+                        <input
+                            type="search"
+                            value={search}
+                            onChange={(event) => setSearch(event.target.value)}
+                            placeholder="Buscar por nombre o SKU"
+                            className="flex-1 rounded-xl border border-slate-200 px-4 py-2 text-sm focus:border-slate-900 focus:outline-none"
+                        />
+                        <div className="flex gap-2">
+                            <select
+                                value={categoryFilter ?? ''}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    setCategoryFilter(val === '' ? undefined : val === 'null' ? null : val);
+                                }}
+                                className="rounded-xl border border-slate-200 px-4 py-2 text-sm focus:border-slate-900 focus:outline-none"
+                                aria-label="Filtrar por categoría"
+                            >
+                                <option value="">Todas las categorías</option>
+                                <option value="null">Sin categoría</option>
+                                {categories.map((cat) => (
+                                    <option key={cat.id} value={cat.id}>
+                                        {cat.name}
+                                    </option>
+                                ))}
+                            </select>
+                            <Link
+                                href="/app/gestion/productos/categorias"
+                                className="rounded-xl border border-slate-300 px-4 py-2 text-sm text-slate-600 hover:border-slate-900 hover:text-slate-900 flex items-center whitespace-nowrap"
+                                title="Administrar categorías"
+                            >
+                                Administrar
+                            </Link>
+                        </div>
+                    </div>
                     <div className="text-right text-sm">
                         {productsQuery.isError && <p className="text-rose-600">No pudimos cargar los productos.</p>}
                         {feedback && <p className="text-slate-500">{feedback}</p>}
@@ -257,6 +293,13 @@ export function ProductsClient({ canManage, canViewCost }: ProductsClientProps) 
                                 <SortableHeader
                                     label="Producto"
                                     sortKey="name"
+                                    activeSortKey={sortKey}
+                                    sortDir={sortDir}
+                                    onToggleSort={onToggleSort}
+                                />
+                                <SortableHeader
+                                    label="Categoría"
+                                    sortKey="category"
                                     activeSortKey={sortKey}
                                     sortDir={sortDir}
                                     onToggleSort={onToggleSort}
@@ -295,15 +338,17 @@ export function ProductsClient({ canManage, canViewCost }: ProductsClientProps) 
                         <tbody className="divide-y divide-slate-100">
                             {productsQuery.isLoading && (
                                 <tr>
-                                    <td colSpan={6} className="px-3 py-6 text-center text-slate-500">
+                                    <td colSpan={7} className="px-3 py-6 text-center text-slate-500">
                                         Cargando productos...
                                     </td>
                                 </tr>
                             )}
                             {!productsQuery.isLoading && sortedProducts.length === 0 && (
                                 <tr>
-                                    <td colSpan={6} className="px-3 py-6 text-center text-slate-500">
-                                        No encontramos productos.
+                                    <td colSpan={7} className="px-3 py-6 text-center text-slate-500">
+                                        {categoryFilter !== undefined 
+                                            ? 'No hay productos en esta categoría.' 
+                                            : 'No encontramos productos.'}
                                     </td>
                                 </tr>
                             )}
@@ -312,6 +357,15 @@ export function ProductsClient({ canManage, canViewCost }: ProductsClientProps) 
                                     <td className="px-3 py-3">
                                         <p className="font-medium">{product.name}</p>
                                         {product.barcode && <p className="text-xs text-slate-400">EAN {product.barcode}</p>}
+                                    </td>
+                                    <td className="px-3 py-3 text-slate-500">
+                                        {product.category ? (
+                                            <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-800">
+                                                {product.category.name}
+                                            </span>
+                                        ) : (
+                                            <span className="text-slate-400">Sin categoría</span>
+                                        )}
                                     </td>
                                     <td className="px-3 py-3 text-slate-500">{product.sku || '—'}</td>
                                     <td className="px-3 py-3">{formatCurrency(product.price)}</td>
@@ -351,6 +405,14 @@ export function ProductsClient({ canManage, canViewCost }: ProductsClientProps) 
                 </div>
             </div>
             <Modal open={modalOpen} onClose={handleCloseModal} title={editing ? 'Editar producto' : 'Nuevo producto'}>
+                <div className="mb-4">
+                    <CategorySelect
+                        value={form.category_id}
+                        onChange={(value) => setForm((prev) => ({ ...prev, category_id: value }))}
+                        disabled={isSaving}
+                        error={errors.category_id}
+                    />
+                </div>
                 <div className="grid gap-4 md:grid-cols-2">
                     <label className="text-sm font-medium text-slate-700">
                         Nombre <span className="text-rose-600" aria-hidden="true">*</span>
@@ -453,6 +515,6 @@ export function ProductsClient({ canManage, canViewCost }: ProductsClientProps) 
                     </button>
                 </div>
             </Modal>
-        </section>
+        </>
     );
 }

@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { Sidebar } from '@/components/navigation/sidebar';
 import { AccessMessage } from '@/components/app/access-message';
 import { MobileMenuProvider, useMobileMenu } from '@/components/app/mobile-menu-context';
+import { MobileMenuButton } from '@/components/app/mobile-menu-button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetCloseButton } from '@/components/ui/sheet';
 import type { Session } from '@/lib/auth/types';
 
@@ -86,6 +87,14 @@ function AppShellContent({ session, children }: { session: Session; children: Re
             </Sheet>
 
             <div className="flex flex-1 flex-col min-w-0">
+                {/* Mobile header with menu button - Only visible on mobile */}
+                <div className="md:hidden flex items-center justify-between px-4 py-3 border-b border-slate-200 bg-white shrink-0">
+                    <h1 className="text-lg font-semibold text-slate-900">
+                        {session.current.business.name}
+                    </h1>
+                    <MobileMenuButton />
+                </div>
+
                 <main className="flex-1 space-y-6 overflow-y-auto p-6">
                     {isRestricted ? (
                         <AccessMessage

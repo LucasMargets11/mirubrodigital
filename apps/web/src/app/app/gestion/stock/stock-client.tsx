@@ -9,6 +9,7 @@ import { SortableHeader } from '@/components/ui/sortable-header';
 import {
     useCreateMovement,
     useProducts,
+    useProductCategories,
     useStockLevels,
     useStockMovements,
 } from '@/features/gestion/hooks';
@@ -43,6 +44,7 @@ export function StockClient({ canManage, initialStatus = '', initialAction, init
     const [search, setSearch] = useState('');
     const deferredSearch = useDeferredValue(search);
     const [statusFilter, setStatusFilter] = useState(initialStatus ?? '');
+    const [categoryFilter, setCategoryFilter] = useState<string | null | undefined>(undefined);
     const [selectedProductForMovements, setSelectedProductForMovements] = useState<string | undefined>();
     const [pendingAction, setPendingAction] = useState<'movement' | undefined>(initialAction);
     const [productSearch, setProductSearch] = useState('');
@@ -55,13 +57,15 @@ export function StockClient({ canManage, initialStatus = '', initialAction, init
     const [feedback, setFeedback] = useState('');
     const [permissionNotice, setPermissionNotice] = useState('');
 
-    const stockQuery = useStockLevels(deferredSearch, statusFilter);
+    const stockQuery = useStockLevels(deferredSearch, statusFilter, categoryFilter);
+    const categoriesQuery = useProductCategories('');
     const productsQuery = useProducts('', true);
-    const modalProductsQuery = useProducts(deferredModalSearch, true, { enabled: modalSearchEnabled });
+    const modalProductsQuery = useProducts(deferredModalSearch, true, undefined, { enabled: modalSearchEnabled });
     const movementsQuery = useStockMovements(selectedProductForMovements);
     const createMovement = useCreateMovement();
 
     const products = useMemo(() => productsQuery.data ?? [], [productsQuery.data]);
+    const categories = useMemo(() => categoriesQuery.data ?? [], [categoriesQuery.data]);
     const stockRows = useMemo(() => stockQuery.data ?? [], [stockQuery.data]);
     const movements = useMemo(() => movementsQuery.data ?? [], [movementsQuery.data]);
     const productSelectId = useId();
@@ -275,15 +279,36 @@ export function StockClient({ canManage, initialStatus = '', initialAction, init
                 <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">{permissionNotice}</p>
             )}
             <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                    <input
-                        type="search"
-                        value={search}
-                        onChange={(event) => setSearch(event.target.value)}
-                        placeholder="Buscar producto"
-                        className="w-full rounded-xl border border-slate-200 px-4 py-2 text-sm focus:border-slate-900 focus:outline-none"
-                    />
-                    <StockStatusSelect value={statusFilter} onValueChange={setStatusFilter} className="w-full md:w-60" />
+                <div className="flex flex-col gap-3 mb-4">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center">
+                        <input
+                            type="search"
+                            value={search}
+                            onChange={(event) => setSearch(event.target.value)}
+                            placeholder="Buscar producto"
+                            className="flex-1 rounded-xl border border-slate-200 px-4 py-2 text-sm focus:border-slate-900 focus:outline-none"
+                        />
+                        <div className="flex gap-2">
+                            <select
+                                value={categoryFilter ?? ''}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    setCategoryFilter(val === '' ? undefined : val === 'null' ? null : val);
+                                }}
+                                className="rounded-xl border border-slate-200 px-4 py-2 text-sm focus:border-slate-900 focus:outline-none"
+                                aria-label="Filtrar por categoría"
+                            >
+                                <option value="">Todas las categorías</option>
+                                <option value="null">Sin categoría</option>
+                                {categories.map((cat) => (
+                                    <option key={cat.id} value={cat.id}>
+                                        {cat.name}
+                                    </option>
+                                ))}
+                            </select>
+                            <StockStatusSelect value={statusFilter} onValueChange={setStatusFilter} className="w-full md:w-60" />
+                        </div>
+                    </div>
                 </div>
                 <div className="mt-4 overflow-x-auto">
                     <table className="min-w-full divide-y divide-slate-100 text-sm">
@@ -331,7 +356,9 @@ export function StockClient({ canManage, initialStatus = '', initialAction, init
                             {!stockQuery.isLoading && sortedStockRows.length === 0 && (
                                 <tr>
                                     <td colSpan={5} className="px-3 py-6 text-center text-slate-500">
-                                        No hay registros para mostrar.
+                                        {categoryFilter !== undefined 
+                                            ? 'No hay productos en esta categoría.' 
+                                            : 'No hay registros para mostrar.'}
                                     </td>
                                 </tr>
                             )}

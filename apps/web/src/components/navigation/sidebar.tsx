@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useTransition } from 'react';
+import { useState, useMemo, useTransition, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { ChevronDown, ChevronRight, LogOut } from 'lucide-react';
@@ -158,6 +158,73 @@ const NAV_CONFIG: Record<string, NavGroup[]> = {
         },
     ],
 };
+
+type ScrollableNavProps = {
+    children: React.ReactNode;
+    className?: string;
+};
+
+function ScrollableNav({ children, className }: ScrollableNavProps) {
+    const scrollRef = useRef<HTMLDivElement>(null);
+    const [showTopFade, setShowTopFade] = useState(false);
+    const [showBottomFade, setShowBottomFade] = useState(false);
+
+    const checkScroll = () => {
+        const element = scrollRef.current;
+        if (!element) return;
+
+        const { scrollTop, scrollHeight, clientHeight } = element;
+        const isScrollable = scrollHeight > clientHeight;
+
+        // Show top fade if scrolled down
+        setShowTopFade(isScrollable && scrollTop > 10);
+
+        // Show bottom fade if not at bottom
+        setShowBottomFade(isScrollable && scrollTop + clientHeight < scrollHeight - 10);
+    };
+
+    useEffect(() => {
+        checkScroll();
+        const element = scrollRef.current;
+        if (!element) return;
+
+        const resizeObserver = new ResizeObserver(checkScroll);
+        resizeObserver.observe(element);
+
+        return () => resizeObserver.disconnect();
+    }, [children]);
+
+    return (
+        <div className="relative flex-1 min-h-0">
+            {/* Top fade indicator */}
+            <div
+                className={cn(
+                    'absolute left-0 right-0 top-0 z-10 h-8 pointer-events-none transition-opacity duration-300',
+                    'bg-gradient-to-b from-white to-transparent',
+                    showTopFade ? 'opacity-100' : 'opacity-0'
+                )}
+            />
+
+            {/* Scrollable content */}
+            <div
+                ref={scrollRef}
+                onScroll={checkScroll}
+                className={cn('sidebar-scroll h-full overflow-y-auto', className)}
+            >
+                {children}
+            </div>
+
+            {/* Bottom fade indicator */}
+            <div
+                className={cn(
+                    'absolute left-0 right-0 bottom-0 z-10 h-8 pointer-events-none transition-opacity duration-300',
+                    'bg-gradient-to-t from-white to-transparent',
+                    showBottomFade ? 'opacity-100' : 'opacity-0'
+                )}
+            />
+        </div>
+    );
+}
 
 type SidebarProps = {
     businessName: string;
@@ -374,7 +441,7 @@ export function Sidebar({
                 subscriptionStatus={subscriptionStatus}
                 service={service}
             />
-            <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-4 text-sm">
+            <ScrollableNav className="space-y-5 px-3 py-4 text-sm">
                 {sections.map((section) => {
                     const visibleLinks = section.items.filter((link) => {
                         if (link.services && !link.services.includes(service)) {
@@ -400,7 +467,7 @@ export function Sidebar({
                         </div>
                     );
                 })}
-            </nav>
+            </ScrollableNav>
         </aside>
     );
 }

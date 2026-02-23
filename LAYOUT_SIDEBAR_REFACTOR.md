@@ -105,7 +105,76 @@ This refactor eliminates the horizontal topbar from the application and restruct
 
 ---
 
-### 4. PageHeader Component (New)
+### 4. Custom Scrollbar with Fade Indicators
+
+**Files Modified**: 
+- `components/navigation/sidebar.tsx` - Added `ScrollableNav` component
+- `styles/globals.css` - Added `.sidebar-scroll` styles
+
+**Problem Solved**:
+Default scrollbars can be visually intrusive, especially on Windows. This implementation provides a clean, subtle scrollbar that only appears when needed.
+
+**Implementation Details**:
+
+**Scrollbar Behavior**:
+- **Default State**: Scrollbar is transparent/invisible
+- **Hover State**: Scrollbar thumb becomes visible with subtle slate color (opacity 0.3)
+- **Active Scroll**: Scrollbar remains visible while scrolling
+- **Hover on Thumb**: Darker shade (opacity 0.5) for better visibility
+
+**CSS Implementation** (scoped to `.sidebar-scroll`):
+```css
+/* Firefox */
+scrollbar-width: thin;
+scrollbar-color: transparent transparent; /* hidden by default */
+scrollbar-color: rgba(148, 163, 184, 0.3) transparent; /* on hover */
+
+/* Webkit (Chrome, Safari, Edge) */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-thumb { background-color: transparent; } /* hidden */
+:hover::-webkit-scrollbar-thumb { background-color: rgba(148, 163, 184, 0.3); }
+```
+
+**Fade Indicators**:
+
+The `ScrollableNav` component provides visual cues for overflow:
+
+- **Top Fade**: `bg-gradient-to-b from-white` - Shows when scrolled down
+- **Bottom Fade**: `bg-gradient-to-t from-white` - Shows when more content below
+- **Height**: 32px (8 Tailwind units) subtle gradient
+- **Behavior**: Appears/disappears with smooth 300ms transition
+- **Pointer Events**: `pointer-events-none` (doesn't block clicks)
+
+**Scroll Detection Logic**:
+```tsx
+- scrollTop > 10 → show top fade
+- scrollTop + clientHeight < scrollHeight - 10 → show bottom fade
+- ResizeObserver monitors content changes
+- Updates on scroll events
+```
+
+**Benefits**:
+- ✅ Clean visual appearance (no intrusive scrollbar)
+- ✅ Clear overflow indication (fade gradients)
+- ✅ Cross-platform consistency (works on macOS, Windows, Linux)
+- ✅ Accessibility maintained (scroll still works with keyboard, wheel, touch)
+- ✅ Performance optimized (CSS-based, no JavaScript scroll hijacking)
+
+**Browser Compatibility**:
+- **macOS**: Overlay scrollbars already subtle, behavior enhanced
+- **Windows**: Scrollbar hidden by default, visible on hover
+- **Mobile**: Touch scroll unaffected, fades provide visual cues
+
+**Why Not Global**:
+This styling applies ONLY to `.sidebar-scroll` class to avoid affecting:
+- Content area scrolling
+- Table/list scrolling in main content
+- Modal/dialog scrolling
+- Other scrollable containers
+
+---
+
+### 5. PageHeader Component (New)
 
 **File Created**: `components/app/page-header.tsx`
 
@@ -128,6 +197,7 @@ Replaces functionality of removed topbar by providing page-level context:
     { label: 'Nueva Venta', href: '/app/gestion/ventas/nueva' },
   ]}
   actions={<Button>Guardar</Button>}
+```
 />
 ```
 
@@ -140,23 +210,40 @@ Replaces functionality of removed topbar by providing page-level context:
 
 ---
 
-### 5. Mobile Menu Implementation
+### 6. Mobile Menu Implementation
 
 **Files Created**:
 - `components/app/mobile-menu-context.tsx` - Context provider for mobile menu state
 - `components/app/mobile-menu-button.tsx` - Button component to trigger menu
 
+**Files Modified**:
+- `components/app/app-shell.tsx` - Added mobile header with menu button
+
 **How it works**:
 1. `AppShell` wraps content in `MobileMenuProvider`
 2. Mobile menu state is shared via context
-3. `PageHeader` includes `MobileMenuButton` automatically (md:hidden)
-4. Pages can also manually add `MobileMenuButton` if needed
+3. **Mobile header** (`md:hidden`) always displays at top with:
+   - Business name (for context)
+   - `MobileMenuButton` (hamburger icon)
+4. `PageHeader` can optionally include `MobileMenuButton` (for pages that use it)
 5. Sidebar renders in a Sheet (drawer) on mobile, controlled by context
 
+**Mobile Header** (always visible on <md):
+```tsx
+<div className="md:hidden flex items-center justify-between px-4 py-3 border-b">
+  <h1>{businessName}</h1>
+  <MobileMenuButton />
+</div>
+```
+
 **Responsive Behavior**:
-- **Desktop (md+)**: Sidebar always visible, menu button hidden
+- **Desktop (md+)**: Sidebar always visible, mobile header hidden
 - **Tablet**: Same as desktop (sidebar visible)
-- **Mobile (<md)**: Sidebar hidden, accessible via menu button → opens drawer
+- **Mobile (<md)**: 
+  - Mobile header visible with menu button
+  - Sidebar hidden, accessible via menu button → opens drawer
+  - Tap menu button → drawer opens from left
+  - Tap navigation link → drawer closes automatically
 
 ---
 
@@ -237,11 +324,15 @@ Replaces functionality of removed topbar by providing page-level context:
 - Sidebar in drawer when opened
 
 ### After
-- No topbar
-- PageHeader contains mobile menu button (top-right)
-- Sidebar in drawer with full AccountHeader + navigation
+- **No topbar** (removed entirely)
+- **Mobile header** appears on small screens (<md):
+  - Shows business name for context
+  - Contains menu button (hamburger icon)
+  - Fixed at top, doesn't scroll
+- **Sidebar in drawer** with full AccountHeader + navigation
+- **Menu button always accessible** (no dependency on PageHeader)
 - Drawer closes automatically on navigation
-- Sheet component handles backdrop, closebutton, and gestures
+- Sheet component handles backdrop, close button, and gestures
 
 ---
 
@@ -256,15 +347,22 @@ Replaces functionality of removed topbar by providing page-level context:
 - [ ] Content scrolls smoothly without double scrollbar
 - [ ] AccountHeader shows all info: business, role, plan, user
 - [ ] Status warning appears if subscription inactive
+- [ ] **Scrollbar hidden by default** (sidebar navigation)
+- [ ] **Scrollbar appears on hover** over sidebar
+- [ ] **Top fade indicator shows** when scrolled down
+- [ ] **Bottom fade indicator shows** when more content below
+- [ ] **Scrollbar works** with mouse wheel, keyboard (arrows), and touchpad
 
 #### Mobile (<768px)
 - [ ] Sidebar hidden by default
-- [ ] Mobile menu button visible in PageHeader (or page content)
-- [ ] Tapping menu button opens sidebar drawer
+- [ ] **Mobile header visible** at top with business name and menu button
+- [ ] **Menu button (hamburger) always accessible**
+- [ ] Tapping menu button opens sidebar drawer from left
 - [ ] Drawer shows full sidebar with AccountHeader
 - [ ] Tapping nav link closes drawer and navigates
 - [ ] Close button (X) works
 - [ ] Backdrop click closes drawer
+- [ ] Mobile header doesn't scroll with content
 
 #### Key Routes to Test
 - `/app/dashboard` - Dashboard
@@ -305,9 +403,17 @@ Replaces functionality of removed topbar by providing page-level context:
 
 2. `apps/web/src/components/navigation/sidebar.tsx`
    - Added AccountHeader component
+   - Added ScrollableNav component with fade indicators
    - Updated SidebarProps with user/role/plan
    - Removed old business display section
    - Improved structure and spacing
+   - Implemented scroll detection logic
+
+3. `apps/web/src/styles/globals.css`
+   - Added `.sidebar-scroll` custom scrollbar styles
+   - Scoped to sidebar only (not global)
+   - Webkit and Firefox support
+   - Hidden by default, visible on hover
 
 ### Created Files
 1. `apps/web/src/components/app/page-header.tsx`
@@ -419,6 +525,8 @@ If issues arise and rollback is needed:
 ✅ **Topbar eliminated**  
 ✅ **Sidebar restructured with AccountHeader**  
 ✅ **Full-height layout with proper scroll behavior**  
+✅ **Custom scrollbar with hover visibility**  
+✅ **Fade indicators for overflow detection**  
 ✅ **Mobile menu fully functional**  
 ✅ **Accessibility improved**  
 ✅ **No visual style regressions**  
@@ -426,8 +534,9 @@ If issues arise and rollback is needed:
 
 **Next Steps**:
 1. Test thoroughly across devices
-2. Gradually add PageHeader to key pages
-3. Monitor user feedback
+2. Verify scrollbar behavior on Windows/macOS
+3. Gradually add PageHeader to key pages
+4. Monitor user feedback
 4. Consider future improvements (collapsible sidebar, etc.)
 
 ---

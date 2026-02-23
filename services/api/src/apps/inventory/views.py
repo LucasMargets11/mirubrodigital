@@ -63,7 +63,15 @@ class ProductStockListView(generics.ListAPIView):
 
 	def get_queryset(self):
 		business = getattr(self.request, 'business')
-		queryset = ProductStock.objects.select_related('product').filter(business=business, product__is_active=True)
+		queryset = ProductStock.objects.select_related('product', 'product__category').filter(business=business, product__is_active=True)
+
+		# Filter by category
+		category_id = self.request.query_params.get('category')
+		if category_id is not None:
+			if category_id.lower() == 'null' or category_id == '':
+				queryset = queryset.filter(product__category__isnull=True)
+			else:
+				queryset = queryset.filter(product__category_id=category_id)
 
 		search = self.request.query_params.get('search')
 		if search:
@@ -81,7 +89,15 @@ class ProductStockListView(generics.ListAPIView):
 		elif status_filter == 'ok':
 			queryset = queryset.filter(quantity__gte=F('product__stock_min'))
 
-		return queryset.order_by('product__name')
+		# Ordering
+		ordering = self.request.query_params.get('ordering', 'product__name')
+		valid_orderings = ['product__name', '-product__name', 'product__category__name', '-product__category__name', 'quantity', '-quantity']
+		if ordering in valid_orderings:
+			queryset = queryset.order_by(ordering)
+		else:
+			queryset = queryset.order_by('product__name')
+
+		return queryset
 
 
 class StockMovementListCreateView(generics.ListCreateAPIView):

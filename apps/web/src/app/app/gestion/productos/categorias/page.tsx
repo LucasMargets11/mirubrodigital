@@ -2,9 +2,9 @@ import { redirect } from 'next/navigation';
 
 import { getSession } from '@/lib/auth';
 
-import { ProductsClient } from './products-client';
+import { CategoriesClient } from './categories-client';
 
-export default async function GestionProductosPage() {
+export default async function GestionCategoriasPage() {
     const session = await getSession();
 
     if (!session) {
@@ -13,5 +13,5 @@ export default async function GestionProductosPage() {
 
     const canManage = session.permissions?.manage_products ?? false;
 
-    return <ProductsClient canManage={canManage} canViewCost={canManage} />;
+    return <CategoriesClient canManage={canManage} />;
 }
