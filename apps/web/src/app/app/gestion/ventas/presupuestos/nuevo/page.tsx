@@ -11,11 +11,16 @@ export default async function NuevoPresupuestoPage() {
         redirect('/entrar');
     }
 
-    const featureEnabled = session.features?.sales !== false;
+    const salesFeature = session.features?.sales !== false;
+    const quotesFeature = session.features?.quotes !== false;
     const canCreate = session.permissions?.create_quotes ?? false;
 
-    if (!featureEnabled) {
+    if (!salesFeature) {
         return <AccessMessage title="Tu plan no incluye Ventas" description="Actualizá tu plan para habilitar ventas." />;
+    }
+
+    if (!quotesFeature) {
+        return <AccessMessage title="Tu plan no incluye Presupuestos" description="Actualizá a PRO para usar presupuestos y cotizaciones." />;
     }
 
     if (!canCreate) {

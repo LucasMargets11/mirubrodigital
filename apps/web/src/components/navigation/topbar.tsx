@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from 'react';
+import { Menu } from 'lucide-react';
 
 import { logout } from '@/lib/auth/client';
 
@@ -16,9 +17,10 @@ type TopbarProps = {
     businessName: string;
     subscriptionStatus: string;
     service: string;
+    onMenuClick?: () => void;
 };
 
-export function Topbar({ userName, role, businessName, subscriptionStatus, service }: TopbarProps) {
+export function Topbar({ userName, role, businessName, subscriptionStatus, service, onMenuClick }: TopbarProps) {
     const [error, setError] = useState<string | null>(null);
     const [isPending, startTransition] = useTransition();
 
@@ -50,15 +52,28 @@ export function Topbar({ userName, role, businessName, subscriptionStatus, servi
 
     return (
         <header className="flex items-center justify-between border-b border-slate-200 bg-white/80 px-6 py-4 backdrop-blur">
-            <div>
-                <p className="text-xs uppercase tracking-wide text-slate-400">{businessName}</p>
-                <h2 className="text-lg font-semibold text-slate-800">{statusLabel}</h2>
-                <p className="text-xs text-slate-400">{role} · {serviceLabel}</p>
+            <div className="flex items-center gap-4">
+                {/* Mobile Menu Button - Hidden on desktop */}
+                {onMenuClick ? (
+                    <button
+                        type="button"
+                        onClick={onMenuClick}
+                        className="md:hidden rounded-md p-2 text-slate-600 hover:bg-slate-100"
+                        aria-label="Abrir menú"
+                    >
+                        <Menu className="h-6 w-6" />
+                    </button>
+                ) : null}
+                <div>
+                    <p className="text-xs uppercase tracking-wide text-slate-400">{businessName}</p>
+                    <h2 className="text-lg font-semibold text-slate-800">{statusLabel}</h2>
+                    <p className="text-xs text-slate-400">{role} · {serviceLabel}</p>
+                </div>
             </div>
             <div className="flex items-center gap-4">
                 {error ? <span className="text-xs text-red-500">{error}</span> : null}
                 <div className="flex items-center gap-3 rounded-full border border-slate-200 bg-white px-3 py-1.5">
-                    <div className="text-right">
+                    <div className="text-right hidden sm:block">
                         <p className="text-sm font-medium text-slate-800">{userName}</p>
                         <p className="text-xs text-slate-400">{subscriptionStatus}</p>
                     </div>

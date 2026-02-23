@@ -8,6 +8,7 @@ from .views import (
 	BusinessBillingProfileView,
 	BusinessBrandingView,
 	BusinessEntitlementsView,
+	AvailableAddonsView,
 )
 
 app_name = 'business'
@@ -21,5 +22,6 @@ urlpatterns = [
 	path('settings/billing/', BusinessBillingProfileView.as_view(), name='billing-profile'),
 	path('settings/branding/', BusinessBrandingView.as_view(), name='branding'),
 	path('entitlements/', BusinessEntitlementsView.as_view(), name='entitlements'),
+	path('addons/available/', AvailableAddonsView.as_view(), name='available-addons'),
 	path('', include(router.urls)),
 ]

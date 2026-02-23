@@ -3,7 +3,6 @@
 import type { InventorySummaryStats } from '@/features/gestion/types';
 
 import { HealthCards } from './components/health-cards';
-import { LaunchChecklist } from './components/launch-checklist';
 import { QuickActions } from './components/quick-actions';
 import { RecentActivity } from './components/recent-activity';
 import { StockAlerts } from './components/stock-alerts';
@@ -57,7 +56,6 @@ export function DashboardClient({ initialSummary, permissions, features, planNam
                         canViewSales={permissions.canViewSales}
                         salesEnabled={features.sales}
                     />
-                    <LaunchChecklist summary={initialSummary} permissions={permissions} features={features} planName={planName} />
                 </div>
             </div>
         </div>

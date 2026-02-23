@@ -34,6 +34,7 @@ PLAN_ENTITLEMENTS = {
         'gestion.sales_advanced',
         'gestion.rbac_full',
         'gestion.audit',
+        'gestion.invoices',
     },
     'business': {
         # Todos los de PRO +
@@ -116,12 +117,13 @@ PLAN_ENTITLEMENTS = {
 # Entitlements agregados por add-ons
 ADDON_ENTITLEMENTS = {
     'invoices_module': {'gestion.invoices'},
+    'customers_module': {'gestion.customers'},
 }
 
 
 # Mapeo de entitlements a upgrade hint
 ENTITLEMENT_UPGRADE_HINTS = {
-    'gestion.customers': 'PRO',
+    'gestion.customers': 'PRO o ADD-ON',
     'gestion.cash': 'PRO',
     'gestion.quotes': 'PRO',
     'gestion.reports': 'PRO',
@@ -131,7 +133,7 @@ ENTITLEMENT_UPGRADE_HINTS = {
     'gestion.sales_advanced': 'PRO',
     'gestion.rbac_full': 'PRO',
     'gestion.audit': 'PRO',
-    'gestion.invoices': 'BUSINESS o ADD-ON',
+    'gestion.invoices': 'PRO o ADD-ON',
     'gestion.multi_branch': 'BUSINESS',
     'gestion.transfers': 'BUSINESS',
     'gestion.consolidated_reports': 'BUSINESS',

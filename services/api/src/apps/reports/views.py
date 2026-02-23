@@ -278,9 +278,8 @@ class ReportsPagination(LimitOffsetPagination):
 
 
 class ReportSummaryView(APIView):
-	permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement, HasPermission]
-	required_entitlement = 'gestion.reports'
-	required_permission = 'view_reports'
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	required_permission = 'view_dashboard'
 
 	def get(self, request):
 		business = getattr(request, 'business')
@@ -866,8 +865,7 @@ class ReportProductsView(APIView):
 
 
 class StockAlertsReportView(APIView):
-	permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement, HasPermission]
-	required_entitlement = 'gestion.reports'
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
 	required_permission = 'view_stock'
 
 	def get(self, request):
@@ -931,3 +929,51 @@ class StockAlertsReportView(APIView):
 			}
 		)
 
+
+class TopProductsLeaderboardView(APIView):
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	required_permission = 'view_dashboard'
+
+	def get(self, request):
+		business = getattr(request, 'business')
+		business_ids = _resolve_report_business_ids(request)
+		tzinfo = _resolve_timezone(business)
+		date_range = _parse_date_range(request.query_params, tzinfo)
+		metric = request.query_params.get('metric', 'amount')
+		limit = _parse_limit(request.query_params.get('limit'), default=10, max_value=50)
+		statuses = _parse_statuses(request.query_params)
+
+		items_queryset = (
+			SaleItem.objects.filter(
+				sale__business__in=business_ids,
+				sale__created_at__gte=date_range.start,
+				sale__created_at__lte=date_range.end,
+			)
+			.select_related('product')
+		)
+		if statuses:
+			items_queryset = items_queryset.filter(sale__status__in=statuses)
+
+		ordering = '-total_amount' if metric == 'amount' else '-total_quantity'
+		aggregated = (
+			items_queryset.values('product_id', 'product_name_snapshot')
+			.annotate(
+				total_quantity=Coalesce(Sum('quantity'), Decimal('0')),
+				total_amount=Coalesce(Sum('line_total'), Decimal('0')),
+			)
+			.order_by(ordering)[:limit]
+		)
+
+		results: List[Dict[str, object]] = []
+		for row in aggregated:
+			product_id = row.get('product_id')
+			results.append(
+				{
+					'product_id': str(product_id) if product_id else None,
+					'name': row.get('product_name_snapshot') or 'Producto',
+					'quantity': _format_decimal(row.get('total_quantity')),
+					'amount': _format_money(row.get('total_amount')),
+				}
+			)
+
+		return Response({'results': results})

@@ -133,8 +133,13 @@ class InvoicePDFView(APIView):
 
 class DocumentSeriesListCreateView(APIView):
   """Vista para listar y crear series de documentos."""
-  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
-  required_permission = 'manage_commercial_settings'
+  permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement, HasPermission]
+  required_entitlement = 'gestion.invoices'
+  # Permite 'issue_invoices' para GET y 'manage_commercial_settings' para POST
+  permission_map = {
+    'GET': 'issue_invoices',
+    'POST': 'manage_commercial_settings',
+  }
 
   def get(self, request):
     """Listar todas las series del negocio."""

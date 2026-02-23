@@ -167,3 +167,55 @@ class Subscription(models.Model):
     
     def __str__(self):
         return f"{self.business} - {self.plan_type}"
+
+
+class PendingSubscriptionChange(models.Model):
+    """
+    Tracks subscription changes awaiting payment or scheduled for later.
+    For Gestión Comercial plan changes, upgrades, and add-on modifications.
+    """
+    STATUS_CHOICES = [
+        ('pending_payment', 'Pending Payment'),
+        ('scheduled', 'Scheduled'),  # Downgrades scheduled for next cycle
+        ('processing', 'Processing'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+        ('canceled', 'Canceled'),
+    ]
+    
+    business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name='pending_subscription_changes')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    
+    # Target configuration
+    target_plan_code = models.CharField(max_length=32)
+    billing_cycle = models.CharField(max_length=16)  # monthly or yearly
+    config_snapshot = models.JSONField(default=dict, help_text="Full configuration: crm, invoicing, branches_extra_qty, seats_extra_qty")
+    
+    # Pricing snapshot
+    line_items = models.JSONField(default=list, help_text="List of line items with description, quantity, unit_price, total")
+    total_amount = models.IntegerField(help_text="Total amount in centavos")
+    
+    # Payment tracking
+    requires_checkout = models.BooleanField(default=False)
+    mp_preference_id = models.CharField(max_length=128, null=True, blank=True)
+    mp_init_point = models.URLField(max_length=500, null=True, blank=True)
+    mp_payment_id = models.CharField(max_length=128, null=True, blank=True)
+    
+    # Status and metadata
+    status = models.CharField(max_length=32, choices=STATUS_CHOICES, default='pending_payment')
+    is_upgrade = models.BooleanField(default=False)
+    is_downgrade = models.BooleanField(default=False)
+    
+    # Scheduling
+    scheduled_for = models.DateTimeField(null=True, blank=True, help_text="When to apply the change (downgrades)")
+    applied_at = models.DateTimeField(null=True, blank=True)
+    
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"{self.business.name} - {self.target_plan_code} ({self.status})"

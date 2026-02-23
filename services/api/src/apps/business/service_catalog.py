@@ -18,8 +18,8 @@ SERVICE_CATALOG: Iterable[ServiceDefinition] = (
     slug='gestion',
     name='Gestion Comercial',
     description='Stock, ventas, caja y clientes en un solo lugar.',
-    features=['products', 'inventory', 'stock', 'sales', 'customers', 'cash', 'reports'],
-    min_plan=BusinessPlan.STARTER,
+    features=['products', 'inventory', 'stock', 'sales'],
+    min_plan=BusinessPlan.START,
   ),
   ServiceDefinition(
     slug='restaurante',
@@ -43,9 +43,15 @@ def serialize_catalog() -> List[Dict[str, object]]:
 
 
 PLAN_ORDER = {
+  # Legacy plans
   BusinessPlan.STARTER: 0,
-  BusinessPlan.PRO: 1,
   BusinessPlan.PLUS: 2,
+  # New plans
+  BusinessPlan.START: 0,
+  BusinessPlan.PRO: 1,
+  BusinessPlan.BUSINESS: 2,
+  BusinessPlan.ENTERPRISE: 3,
+  # Menu QR
   BusinessPlan.MENU_QR: 0,
 }
 

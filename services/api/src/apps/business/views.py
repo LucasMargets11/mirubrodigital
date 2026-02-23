@@ -24,6 +24,7 @@ from apps.business.serializers import (
 )
 from rest_framework import viewsets, status
 from django.db import transaction
+from django.db.models import Sum
 from apps.accounts.models import Membership
 
 
@@ -93,7 +94,7 @@ class BranchViewSet(viewsets.ModelViewSet):
 			)
 
 		sub = getattr(hq, 'subscription', None)
-		max_branches = sub.max_branches if sub else 0
+		max_branches = sub.effective_max_branches if sub else 0
 		current_branches = hq.branches.count()
 
 		if current_branches >= max_branches:
@@ -233,4 +234,94 @@ class BusinessEntitlementsView(APIView):
 			'entitlements': entitlements,
 			'plan': plan_info,
 			'addons': addons,
+		})
+
+
+class AvailableAddonsView(APIView):
+	"""
+	Vista para obtener los addons disponibles para el plan actual.
+	"""
+	permission_classes = [IsAuthenticated, HasBusinessMembership]
+
+	def get(self, request):
+		business = getattr(request, 'business', None)
+		
+		try:
+			subscription = business.subscription
+			plan = subscription.plan.lower()
+			
+			# Definir addons disponibles por plan
+			addons_catalog = {
+				'start': [
+					{
+						'code': 'customers_module',
+						'name': 'Gestión de Clientes',
+						'description': 'CRM básico con historial de compras',
+						'type': 'module',
+						'price_monthly': 1500,  # en centavos
+						'price_yearly': 15000,
+					},
+					{
+						'code': 'invoices_module',
+						'name': 'Facturación Electrónica',
+						'description': 'Emisión de facturas válidas (AFIP, SAT)',
+						'type': 'module',
+						'price_monthly': 2000,
+						'price_yearly': 20000,
+					},
+				],
+				'pro': [
+					{
+						'code': 'extra_branch',
+						'name': 'Sucursales Extra',
+						'description': 'Agrega hasta 2 sucursales adicionales (3 total)',
+						'type': 'resource',
+						'price_monthly': 3000,  # por sucursal
+						'price_yearly': 30000,
+						'max_quantity': 2,  # Pro puede tener hasta 3 total (1 base + 2 extra)
+						'current_quantity': subscription.addons.filter(
+							code='extra_branch', 
+							is_active=True
+						).aggregate(models.Sum('quantity'))['quantity__sum'] or 0,
+					},
+					{
+						'code': 'extra_seat',
+						'name': 'Usuarios Extra',
+						'description': 'Agrega asientos de usuario adicionales',
+						'type': 'resource',
+						'price_monthly': 500,  # por usuario
+						'price_yearly': 5000,
+						'max_quantity': None,  # Sin límite explícito
+						'current_quantity': subscription.addons.filter(
+							code='extra_seat',
+							is_active=True
+						).aggregate(models.Sum('quantity'))['quantity__sum'] or 0,
+					},
+				],
+				'business': [
+					{
+						'code': 'extra_seat',
+						'name': 'Usuarios Extra',
+						'description': 'Agrega asientos de usuario adicionales',
+						'type': 'resource',
+						'price_monthly': 500,
+						'price_yearly': 5000,
+						'max_quantity': None,
+						'current_quantity': subscription.addons.filter(
+							code='extra_seat',
+							is_active=True
+						).aggregate(models.Sum('quantity'))['quantity__sum'] or 0,
+					},
+				],
+				'enterprise': [],  # Custom pricing
+			}
+			
+			available = addons_catalog.get(plan, [])
+			
+		except Subscription.DoesNotExist:
+			available = []
+		
+		return Response({
+			'available_addons': available,
+			'plan': plan if 'subscription' in locals() else 'none',
 		})

@@ -30,7 +30,7 @@ export function UpgradePrompt({ feature, plan, description, className }: Upgrade
                         </p>
                         <div className="flex gap-2 mt-4">
                             <Button asChild size="sm" className="gap-2">
-                                <Link href="/app/settings/billing">
+                                <Link href="/app/servicios">
                                     <Sparkles className="h-4 w-4" />
                                     Actualizar Plan
                                 </Link>
@@ -68,7 +68,7 @@ export function UpgradeBlock({ feature, plan, description }: UpgradeBlockProps) 
                 </div>
                 <div className="flex gap-2 justify-center mt-6">
                     <Button asChild className="gap-2">
-                        <Link href="/app/settings/billing">
+                        <Link href="/app/servicios">
                             <Sparkles className="h-4 w-4" />
                             Actualizar a {plan}
                         </Link>

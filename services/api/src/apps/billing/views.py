@@ -7,6 +7,7 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils import timezone
 from django.conf import settings
+import logging
 
 from apps.accounts.access import resolve_business_context, resolve_request_membership
 from apps.accounts.permissions import HasBusinessMembership
@@ -21,6 +22,7 @@ from .serializers import (
 from .services import PricingService
 from .mp_service import MercadoPagoService
 
+logger = logging.getLogger(__name__)
 User = get_user_model()
 
 class BillingViewSet(viewsets.ViewSet):
@@ -284,8 +286,100 @@ class MercadoPagoWebhookView(APIView):
         
         if topic == 'subscription_preapproval':
              self.process_subscription_event(data_id)
+        elif topic == 'payment':
+             self.process_payment_event(data_id)
         
         return Response(status=200)
+
+    def process_payment_event(self, payment_id):
+        """Process one-time payments (for subscription changes and addon purchases)."""
+        if not payment_id:
+            return
+        
+        from apps.billing.models import PendingSubscriptionChange
+        from apps.billing.services.commercial.apply import apply_subscription_change, apply_addon_activation
+        
+        mp_service = MercadoPagoService()
+        
+        try:
+            # Get payment details from MercadoPago
+            payment = mp_service.sdk.payment().get(payment_id)
+            if payment["status"] != 200:
+                return
+            
+            payment_data = payment["response"]
+            external_reference = payment_data.get('external_reference')
+            payment_status = payment_data.get('status')
+            
+            if not external_reference:
+                return
+            
+            # Determine the type of purchase
+            is_subscription_change = external_reference.startswith('subscription_change_')
+            is_addon_purchase = external_reference.startswith('addon_purchase_')
+            
+            if not (is_subscription_change or is_addon_purchase):
+                return
+            
+            # Extract pending_change_id
+            pending_change_id = external_reference.split('_')[-1]
+            
+            try:
+                pending_change = PendingSubscriptionChange.objects.get(id=pending_change_id)
+            except PendingSubscriptionChange.DoesNotExist:
+                logger.warning(f"PendingSubscriptionChange {pending_change_id} not found")
+                return
+            
+            # Update pending change with payment info
+            pending_change.mp_payment_id = str(payment_id)
+            
+            # If payment approved, apply the change
+            if payment_status == 'approved':
+                pending_change.status = 'processing'
+                pending_change.save()
+                
+                try:
+                    if is_addon_purchase:
+                        # Extract addon code from config_snapshot
+                        addon_codes = [key for key, value in pending_change.config_snapshot.items() if value is True]
+                        
+                        if addon_codes:
+                            # Activate the addon
+                            addon_code = addon_codes[0]  # Should only be one for addon purchases
+                            apply_addon_activation(
+                                business=pending_change.business,
+                                addon_code=addon_code,
+                            )
+                        else:
+                            raise ValueError("No addon code found in config_snapshot")
+                    else:
+                        # Standard subscription change
+                        apply_subscription_change(
+                            business=pending_change.business,
+                            target_plan_code=pending_change.target_plan_code,
+                            billing_cycle=pending_change.billing_cycle,
+                            config=pending_change.config_snapshot,
+                        )
+                    
+                    pending_change.status = 'completed'
+                    pending_change.applied_at = timezone.now()
+                    pending_change.save()
+                    
+                except Exception as e:
+                    pending_change.status = 'failed'
+                    pending_change.save()
+                    logger.error(f"Error applying change {pending_change_id}: {e}")
+            
+            elif payment_status in ['rejected', 'cancelled']:
+                pending_change.status = 'failed'
+                pending_change.save()
+            
+            else:
+                # pending, in_process, etc.
+                pending_change.save()
+        
+        except Exception as e:
+            logger.error(f"Error processing payment event {payment_id}: {e}")
 
     def process_subscription_event(self, preapproval_id):
         if not preapproval_id:

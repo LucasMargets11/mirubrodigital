@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useMemo, useTransition } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, LogOut } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
+import { logout } from '@/lib/auth/client';
 import type { FeatureFlags, PermissionMap } from '@/lib/auth/types';
 
 const SERVICE_LABELS: Record<string, string> = {
@@ -34,7 +35,7 @@ const NAV_CONFIG: Record<string, NavGroup[]> = {
             title: 'Panel',
             items: [
                 { href: '/app/dashboard', label: 'Inicio' },
-                { href: '/app/owner', label: 'Sucursales', permissionKey: 'manage_settings' },
+                { href: '/app/owner', label: 'Sucursales', permissionKey: 'manage_settings', featureKey: 'multi_branch' },
                 { href: '/app/servicios', label: 'Servicios' },
             ],
         },
@@ -98,7 +99,7 @@ const NAV_CONFIG: Record<string, NavGroup[]> = {
             title: 'Panel',
             items: [
                 { href: '/app/dashboard', label: 'Inicio' },
-                { href: '/app/owner', label: 'Sucursales', permissionKey: 'manage_settings' },
+                { href: '/app/owner', label: 'Sucursales', permissionKey: 'manage_settings', featureKey: 'multi_branch' },
                 { href: '/app/servicios', label: 'Servicios' },
             ],
         },
@@ -110,7 +111,7 @@ const NAV_CONFIG: Record<string, NavGroup[]> = {
                 { href: '/app/gestion/stock', label: 'Stock', permissionKey: 'view_stock', featureKey: 'inventory' },
                 { href: '/app/gestion/ventas', label: 'Ventas', permissionKey: 'view_sales', featureKey: 'sales' },
                 { href: '/app/gestion/facturas', label: 'Facturas', permissionKey: 'view_invoices', featureKey: 'invoices' },
-                { href: '/app/gestion/finanzas', label: 'Finanzas', permissionKey: 'view_finance' },
+                { href: '/app/gestion/finanzas', label: 'Finanzas', permissionKey: 'view_finance', featureKey: 'treasury' },
                 { href: '/app/gestion/clientes', label: 'Clientes', permissionKey: 'view_customers', featureKey: 'customers' },
             ],
         },
@@ -118,7 +119,7 @@ const NAV_CONFIG: Record<string, NavGroup[]> = {
             title: 'Operación',
             items: [
                 { href: '/app/operacion/caja', label: 'Caja', permissionKey: 'view_cash', featureKey: 'cash' },
-                { href: '/app/reports', label: 'Reportes', permissionKey: 'view_reports', featureKey: 'reports' },
+                { href: '/app/gestion/reportes', label: 'Reportes', permissionKey: 'view_dashboard' },
                 {
                     label: 'Configuración',
                     permissionKey: 'manage_commercial_settings',
@@ -160,12 +161,138 @@ const NAV_CONFIG: Record<string, NavGroup[]> = {
 
 type SidebarProps = {
     businessName: string;
+    branchName?: string;
     features: FeatureFlags;
     permissions: PermissionMap;
     service: string;
+    userName: string;
+    role: string;
+    subscriptionStatus: string;
+    subscriptionPlan?: string;
+    isMobile?: boolean;
+    onNavigate?: () => void;
 };
 
-function NavItem({ item, pathname }: { item: AppLink; pathname: string }) {
+type AccountHeaderProps = {
+    businessName: string;
+    branchName?: string;
+    userName: string;
+    role: string;
+    subscriptionPlan?: string;
+    subscriptionStatus: string;
+    service: string;
+};
+
+function AccountHeader({ 
+    businessName, 
+    branchName, 
+    userName, 
+    role, 
+    subscriptionPlan,
+    subscriptionStatus,
+    service 
+}: AccountHeaderProps) {
+    const [error, setError] = useState<string | null>(null);
+    const [isPending, startTransition] = useTransition();
+
+    const initials = useMemo(() => {
+        if (!userName) {
+            return '??';
+        }
+        return userName
+            .split(' ')
+            .filter(Boolean)
+            .map((part) => part[0]?.toUpperCase())
+            .slice(0, 2)
+            .join('');
+    }, [userName]);
+
+    const handleLogout = () => {
+        setError(null);
+        startTransition(async () => {
+            try {
+                await logout();
+            } catch (err) {
+                setError('Error al cerrar sesión.');
+            }
+        });
+    };
+
+    const serviceLabel = SERVICE_LABELS[service] ?? service;
+    const displayRole = role === 'owner' ? 'Dueño' : role === 'manager' ? 'Gerente' : 'Staff';
+    const hasIssue = subscriptionStatus !== 'active';
+
+    return (
+        <div className="border-b border-slate-200 px-4 py-4 space-y-3">
+            {/* Business Info */}
+            <div className="space-y-1">
+                <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-slate-900 truncate">
+                            {businessName}
+                        </p>
+                        {branchName && (
+                            <p className="text-xs text-slate-500 truncate">
+                                {branchName}
+                            </p>
+                        )}
+                    </div>
+                    {subscriptionPlan && (
+                        <span className="shrink-0 rounded-full bg-brand-100 px-2 py-0.5 text-xs font-medium text-brand-700">
+                            {subscriptionPlan}
+                        </span>
+                    )}
+                </div>
+                <p className="text-xs text-slate-500">
+                    {displayRole} · {serviceLabel}
+                </p>
+            </div>
+
+            {/* User Info & Actions */}
+            <div className="flex items-center gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-slate-700">
+                    {initials}
+                </div>
+                <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-slate-800 truncate">
+                        {userName}
+                    </p>
+                </div>
+                <button
+                    type="button"
+                    onClick={handleLogout}
+                    disabled={isPending}
+                    className="shrink-0 rounded-md p-2 text-slate-600 hover:bg-slate-100 hover:text-slate-900 disabled:opacity-60 transition-colors"
+                    aria-label="Cerrar sesión"
+                    title="Salir"
+                >
+                    <LogOut className="h-4 w-4" />
+                </button>
+            </div>
+
+            {/* Status Warning (only if there's an issue) */}
+            {hasIssue && (
+                <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2">
+                    <p className="text-xs text-amber-800">
+                        Estado: <span className="font-medium">{subscriptionStatus}</span>
+                    </p>
+                    <Link 
+                        href="/app/planes"
+                        className="text-xs text-amber-900 underline hover:no-underline"
+                    >
+                        Revisar facturación
+                    </Link>
+                </div>
+            )}
+
+            {error && (
+                <p className="text-xs text-red-600">{error}</p>
+            )}
+        </div>
+    );
+}
+
+function NavItem({ item, pathname, onNavigate }: { item: AppLink; pathname: string; onNavigate?: () => void }) {
     const isActive = item.href ? pathname?.startsWith(item.href) : false;
     // Check if any child is active to auto-expand or highlight parent
     const hasActiveChild = item.children?.some((child) => child.href && pathname?.startsWith(child.href));
@@ -189,7 +316,7 @@ function NavItem({ item, pathname }: { item: AppLink; pathname: string }) {
                 {isOpen && (
                     <div className="ml-4 space-y-1 border-l border-slate-200 pl-2">
                         {item.children.map((child) => (
-                            <NavItem key={child.href || child.label} item={child} pathname={pathname} />
+                            <NavItem key={child.href || child.label} item={child} pathname={pathname} onNavigate={onNavigate} />
                         ))}
                     </div>
                 )}
@@ -202,6 +329,7 @@ function NavItem({ item, pathname }: { item: AppLink; pathname: string }) {
     return (
         <Link
             href={item.href}
+            onClick={() => onNavigate?.()}
             className={cn(
                 'block rounded-md px-3 py-2 font-medium text-slate-600 hover:bg-brand-50',
                 isActive && 'bg-brand-100 text-brand-700'
@@ -212,9 +340,20 @@ function NavItem({ item, pathname }: { item: AppLink; pathname: string }) {
     );
 }
 
-export function Sidebar({ businessName, features, permissions, service }: SidebarProps) {
+export function Sidebar({ 
+    businessName, 
+    branchName,
+    features, 
+    permissions, 
+    service, 
+    userName,
+    role,
+    subscriptionStatus,
+    subscriptionPlan,
+    isMobile, 
+    onNavigate 
+}: SidebarProps) {
     const pathname = usePathname() || '';
-    const serviceLabel = SERVICE_LABELS[service] ?? service;
 
     // Fallback to empty list or default structure if service not found, 
     // but here we just handle the known ones or fallback to 'gestion' structure if needed.
@@ -222,13 +361,20 @@ export function Sidebar({ businessName, features, permissions, service }: Sideba
     const sections = NAV_CONFIG[service] ?? [];
 
     return (
-        <aside className="sticky top-0 flex h-screen w-64 flex-col border-r border-slate-200 bg-white/70 backdrop-blur">
-            <div className="px-6 py-5">
-                <p className="text-xs uppercase tracking-wide text-slate-400">Operando</p>
-                <p className="text-lg font-display font-semibold text-brand-600">{businessName}</p>
-                <p className="text-xs text-slate-400">Servicio: {serviceLabel}</p>
-            </div>
-            <nav className="flex-1 space-y-5 overflow-y-auto px-3 pb-4 text-sm">
+        <aside className={cn(
+            "flex w-full flex-col bg-white",
+            isMobile ? "h-full" : "sticky top-0 h-screen w-64 border-r border-slate-200"
+        )}>
+            <AccountHeader 
+                businessName={businessName}
+                branchName={branchName}
+                userName={userName}
+                role={role}
+                subscriptionPlan={subscriptionPlan}
+                subscriptionStatus={subscriptionStatus}
+                service={service}
+            />
+            <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-4 text-sm">
                 {sections.map((section) => {
                     const visibleLinks = section.items.filter((link) => {
                         if (link.services && !link.services.includes(service)) {
@@ -249,7 +395,7 @@ export function Sidebar({ businessName, features, permissions, service }: Sideba
                         <div key={section.title} className="space-y-1">
                             <p className="px-3 text-xs font-semibold uppercase tracking-wide text-slate-400">{section.title}</p>
                             {visibleLinks.map((link) => (
-                                <NavItem key={link.href || link.label} item={link} pathname={pathname} />
+                                <NavItem key={link.href || link.label} item={link} pathname={pathname} onNavigate={onNavigate} />
                             ))}
                         </div>
                     );

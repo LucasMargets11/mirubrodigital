@@ -39,23 +39,27 @@ export function StockAlerts({ canView, inventoryEnabled }: StockAlertsProps) {
                     Activá el módulo de inventario o pedí permisos para ver alertas.
                 </div>
             ) : (
-                <div className="space-y-4">
-                    <AlertGroup
-                        title="Sin stock"
-                        tone="critical"
-                        status="out"
-                        items={outOfStockQuery.data ?? []}
-                        isLoading={outOfStockQuery.isLoading}
-                        emptyLabel="Todo abastecido"
-                    />
-                    <AlertGroup
-                        title="Stock bajo"
-                        tone="warning"
-                        status="low"
-                        items={lowStockQuery.data ?? []}
-                        isLoading={lowStockQuery.isLoading}
-                        emptyLabel="Sin alertas por ahora"
-                    />
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 items-stretch">
+                    <div className="h-full md:min-h-[280px] flex flex-col">
+                        <AlertGroup
+                            title="Sin stock"
+                            tone="critical"
+                            status="out"
+                            items={outOfStockQuery.data ?? []}
+                            isLoading={outOfStockQuery.isLoading}
+                            emptyLabel="Todo abastecido"
+                        />
+                    </div>
+                    <div className="h-full md:min-h-[280px] flex flex-col">
+                        <AlertGroup
+                            title="Stock bajo"
+                            tone="warning"
+                            status="low"
+                            items={lowStockQuery.data ?? []}
+                            isLoading={lowStockQuery.isLoading}
+                            emptyLabel="Sin alertas por ahora"
+                        />
+                    </div>
                 </div>
             )}
         </section>
@@ -77,7 +81,7 @@ function AlertGroup({ title, tone, status, items, isLoading, emptyLabel }: Alert
     const chipClass = tone === 'critical' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700';
 
     return (
-        <div className={cn('rounded-2xl border p-4', bgClass)}>
+        <div className={cn('h-full flex flex-col rounded-2xl border p-4', bgClass)}>
             <div className="mb-3 flex items-center justify-between">
                 <p className="text-sm font-semibold text-slate-900">{title}</p>
                 <Link
@@ -87,7 +91,7 @@ function AlertGroup({ title, tone, status, items, isLoading, emptyLabel }: Alert
                     Ver todos →
                 </Link>
             </div>
-            <div className="space-y-3">
+            <div className="flex-1 space-y-3">
                 {isLoading ? (
                     <SkeletonRow />
                 ) : null}

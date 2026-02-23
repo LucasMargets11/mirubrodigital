@@ -12,11 +12,11 @@ type ReportsLayoutProps = {
 };
 
 const subTabs = [
-    { href: '/app/gestion/reportes', label: 'Resumen', permission: 'view_reports' },
-    { href: '/app/gestion/reportes/ventas', label: 'Ventas', permission: 'view_reports_sales' },
-    { href: '/app/gestion/reportes/pagos', label: 'Pagos', permission: 'view_reports_sales' },
-    { href: '/app/gestion/reportes/caja', label: 'Caja', permission: 'view_reports_cash' },
-    { href: '/app/gestion/reportes/productos', label: 'Productos', permission: 'view_reports_products' },
+    { href: '/app/gestion/reportes', label: 'Resumen', permission: 'view_dashboard' },
+    { href: '/app/gestion/reportes/ventas', label: 'Ventas', permission: 'view_reports_sales', feature: 'reports' },
+    { href: '/app/gestion/reportes/pagos', label: 'Pagos', permission: 'view_reports_sales', feature: 'reports' },
+    { href: '/app/gestion/reportes/caja', label: 'Caja', permission: 'view_reports_cash', feature: 'reports' },
+    { href: '/app/gestion/reportes/productos', label: 'Productos', permission: 'view_reports_products', feature: 'reports' },
 ];
 
 export default async function ReportsLayout({ children }: ReportsLayoutProps) {
@@ -27,11 +27,23 @@ export default async function ReportsLayout({ children }: ReportsLayoutProps) {
     }
 
     const resolved = session as Session;
-    const featureEnabled = resolved.features?.reports !== false;
     const permissions = resolved.permissions ?? {};
-    const visibleTabs = subTabs.filter((tab) => permissions?.[tab.permission] === true);
+    const features = resolved.features ?? {};
+    
+    // Filtrar tabs según permisos y features
+    const visibleTabs = subTabs.filter((tab) => {
+        // Verificar permiso
+        if (!permissions?.[tab.permission]) {
+            return false;
+        }
+        // Verificar feature si está definido
+        if (tab.feature && features?.[tab.feature] === false) {
+            return false;
+        }
+        return true;
+    });
 
-    if (!featureEnabled || visibleTabs.length === 0) {
+    if (visibleTabs.length === 0) {
         return (
             <AccessMessage
                 title="Sin acceso a Reportes"

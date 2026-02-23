@@ -23,7 +23,7 @@ Los planes del servicio **Gestión Comercial** (`gestion`) están diseñados par
 | **Configuración Comercial** | ✅ Básico | ✅ Completo | ✅ Completo | ✅ Completo |
 | **RBAC (Roles)** | ✅ Mínimo | ✅ Completo + Auditoría | ✅ Completo + Auditoría | ✅ Custom |
 | | | | | |
-| **Clientes** | ❌ | ✅ | ✅ | ✅ |
+| **Clientes** | 🔌 Add-on | ✅ | ✅ | ✅ |
 | **Caja / Sesiones** | ❌ | ✅ | ✅ | ✅ |
 | **Cotizaciones + PDF** | ❌ | ✅ | ✅ | ✅ |
 | **Reportes + Export** | ❌ | ✅ | ✅ | ✅ |
@@ -31,7 +31,7 @@ Los planes del servicio **Gestión Comercial** (`gestion`) están diseñados par
 | **Ventas Avanzado** | ❌ | ✅ | ✅ | ✅ |
 | **Tesorería / Finanzas** | ❌ | ✅ | ✅ | ✅ |
 | | | | | |
-| **Facturación Electrónica** | ❌ | 🔌 Add-on | ✅ Incluido | ✅ Incluido |
+| **Facturación Electrónica** | 🔌 Add-on | ✅ Incluido | ✅ Incluido | ✅ Incluido |
 | **Multi-sucursal Consolidado** | ❌ | ❌ | ✅ | ✅ |
 | **Soporte** | Comunidad | Email | Prioritario | Dedicado |
 
@@ -50,12 +50,14 @@ Los planes del servicio **Gestión Comercial** (`gestion`) están diseñados par
 - Configuración comercial básica
 - RBAC mínimo (owner + 1 staff)
 
-**NO incluye**:
-- Gestión de clientes
+**Add-ons disponibles**:
+- **Gestión de Clientes** ($A/mes): CRM básico, historial de compras
+- **Facturación Electrónica** ($Z/mes): Emisión de facturas válidas (AFIP, SAT)
+
+**NO incluido por defecto**:
 - Caja / Sesiones de caja
 - Cotizaciones
 - Reportes avanzados / Exportación
-- Facturación electrónica
 - Tesorería / Finanzas
 
 **Límites**:
@@ -69,7 +71,8 @@ Los planes del servicio **Gestión Comercial** (`gestion`) están diseñados par
 **Para**: Negocios establecidos con operación completa.
 
 **Incluye** (todo START +):
-- Gestión de clientes (CRM básico)
+- **Gestión de clientes** (CRM básico)
+- **Facturación Electrónica INCLUIDA** (AFIP, SAT, etc.)
 - Caja / Sesiones de caja registradora
 - Cotizaciones con generación de PDF
 - Reportes avanzados + Exportación (Excel/CSV)
@@ -80,10 +83,8 @@ Los planes del servicio **Gestión Comercial** (`gestion`) están diseñados par
 
 **Add-ons disponibles**:
 - **Sucursales extra**: hasta 3 sucursales totales
-- **Facturación Electrónica**: módulo de invoices (AFIP, SAT, etc.)
 
 **NO incluido por defecto**:
-- Facturación electrónica (requiere add-on)
 - Multi-sucursal consolidado (limitado a operación independiente por sucursal)
 
 **Límites**:
@@ -97,7 +98,6 @@ Los planes del servicio **Gestión Comercial** (`gestion`) están diseñados par
 **Para**: Empresas multi-sucursal con operaciones consolidadas.
 
 **Incluye** (todo PRO +):
-- **Facturación Electrónica incluida** (sin add-on)
 - **Multi-sucursal consolidado**: dashboards, reportes e inventario unificado
 - Transferencias entre sucursales
 - Reportes corporativos consolidados
@@ -129,9 +129,15 @@ Los planes del servicio **Gestión Comercial** (`gestion`) están diseñados par
 
 ## Add-ons
 
+### � Gestión de Clientes (customers_module)
+- **Disponible para**: START
+- **Incluido en**: PRO, BUSINESS, ENTERPRISE
+- **Descripción**: CRM básico con historial de compras, datos fiscales y contacto.
+- **Precio**: $A/mes
+
 ### 🔌 Facturación Electrónica (invoices_module)
-- **Disponible para**: PRO
-- **Incluido en**: BUSINESS, ENTERPRISE
+- **Disponible para**: START
+- **Incluido en**: PRO, BUSINESS, ENTERPRISE
 - **Descripción**: Integración con AFIP (Argentina), SAT (México), u otros entes fiscales para emisión de facturas electrónicas válidas.
 - **Precio**: $Z/mes
 
@@ -142,7 +148,7 @@ Los planes del servicio **Gestión Comercial** (`gestion`) están diseñados par
 - **Límite BUSINESS**: Ilimitado desde la 6ta
 - **Precio**: $W/mes por sucursal
 
-### 👥 Asientos Extra (extra_seat)
+### � Asientos Extra (extra_seat)
 - **Disponible para**: Todos los planes
 - **Descripción**: Agrega un usuario adicional más allá del límite del plan.
 - **Precio**: $V/mes por seat
@@ -164,8 +170,8 @@ Los planes anteriores (`STARTER`, `PRO`, `PLUS`) se mapean de la siguiente forma
 
 ## FAQ
 
-**¿Por qué Facturación no está incluida en PRO?**  
-La facturación electrónica tiene costos de integración y mantenimiento fiscal significativos. Se ofrece como add-on para PRO y se incluye en BUSINESS donde la operación justifica el costo.
+**¿Por qué Facturación ahora está incluida en PRO?**  
+A partir de esta actualización, la facturación electrónica se incluye en PRO y superiores, reconociendo que es una necesidad básica para negocios establecidos. Para el plan START, está disponible como add-on.
 
 **¿Puedo tener más de 3 sucursales en PRO?**  
 No. Para más de 3 sucursales debes upgraded a BUSINESS, que incluye además reportes consolidados desde la 1ra sucursal.

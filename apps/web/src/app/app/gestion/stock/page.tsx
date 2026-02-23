@@ -7,7 +7,7 @@ import { StockClient } from './stock-client';
 import { StockNav } from './stock-nav';
 
 type GestionStockPageProps = {
-    searchParams?: Record<string, string | string[] | undefined>;
+    searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
 export default async function GestionStockPage({ searchParams }: GestionStockPageProps) {
@@ -29,9 +29,10 @@ export default async function GestionStockPage({ searchParams }: GestionStockPag
         return <AccessMessage title="Sin acceso" description="Tu rol no puede ver el inventario." hint="Pedí acceso a un administrador" />;
     }
 
-    const initialStatus = typeof searchParams?.status === 'string' ? searchParams.status : '';
-    const initialAction = typeof searchParams?.action === 'string' ? searchParams.action : undefined;
-    const initialProductId = typeof searchParams?.product === 'string' ? searchParams.product : undefined;
+    const resolvedParams = searchParams ? await searchParams : {};
+    const initialStatus = typeof resolvedParams?.status === 'string' ? resolvedParams.status : '';
+    const initialAction = typeof resolvedParams?.action === 'string' ? resolvedParams.action : undefined;
+    const initialProductId = typeof resolvedParams?.product === 'string' ? resolvedParams.product : undefined;
 
     return (
         <section className="space-y-6">

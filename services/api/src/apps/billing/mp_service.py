@@ -52,3 +52,34 @@ class MercadoPagoService:
         if result["status"] == 200:
             return result["response"]
         return None
+
+    def create_preference(self, items: list, external_reference: str, back_urls: dict, metadata: dict = None):
+        """
+        Creates a one-time payment preference in MercadoPago.
+        
+        Args:
+            items: List of items [{'title': 'X', 'quantity': 1, 'unit_price': 100}]
+            external_reference: Reference ID to track this payment
+            back_urls: Dict with 'success', 'failure', 'pending' URLs
+            metadata: Optional metadata dict
+        
+        Returns:
+            Response dict with init_point and preference_id
+        """
+        preference_data = {
+            "items": items,
+            "external_reference": external_reference,
+            "back_urls": back_urls,
+            "auto_return": "approved",
+            "notification_url": f"{settings.BASE_URL}/api/v1/billing/mercadopago/webhook",
+        }
+        
+        if metadata:
+            preference_data["metadata"] = metadata
+        
+        result = self.sdk.preference().create(preference_data)
+        if result["status"] == 201:
+            return result["response"]
+        else:
+            logger.error(f"Error creating MP preference: {result}")
+            raise Exception(f"Error creating MP preference: {result}")

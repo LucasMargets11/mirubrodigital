@@ -13,10 +13,11 @@ export default async function GestionVentasPage() {
     }
 
     const featureEnabled = session.features?.sales !== false;
+    const quotesFeatureEnabled = session.features?.quotes !== false;
     const canView = session.permissions?.view_sales ?? false;
     const canCreate = session.permissions?.create_sales ?? false;
-    const canViewQuotes = session.permissions?.view_quotes ?? false;
-    const canCreateQuotes = session.permissions?.create_quotes ?? false;
+    const canViewQuotes = (session.permissions?.view_quotes ?? false) && quotesFeatureEnabled;
+    const canCreateQuotes = (session.permissions?.create_quotes ?? false) && quotesFeatureEnabled;
 
     if (!featureEnabled) {
         return <AccessMessage title="Tu plan no incluye Ventas" description="Actualizá tu plan para habilitar el módulo de ventas." />;
