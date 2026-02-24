@@ -13,15 +13,15 @@ import { Modal } from '@/components/ui/modal';
 import { EmptyState } from '../components/empty-state';
 import { cn } from '@/lib/utils';
 
-export function ExpensesClient({ canManage }: { canManage: boolean }) {
+export function PunctualExpensesClient({ canManage }: { canManage: boolean }) {
     const queryClient = useQueryClient();
     const [activeTab, setActiveTab] = useState<'pending' | 'paid'>('pending');
     const [isCreateOpen, setIsCreateOpen] = useState(false);
     const [payingExpense, setPayingExpense] = useState<Expense | null>(null);
 
-    const { data: expenses, isLoading } = useQuery({
-        queryKey: ['treasury', 'expenses'],
-        queryFn: listExpenses,
+    const { data: expensesData, isLoading } = useQuery({
+        queryKey: ['treasury', 'expenses', activeTab],
+        queryFn: () => listExpenses({ status: activeTab === 'pending' ? 'pending' : 'paid', limit: 100 }),
     });
 
     const { data: categories } = useQuery({ queryKey: ['treasury', 'categories'], queryFn: listCategories });
@@ -47,7 +47,7 @@ export function ExpensesClient({ canManage }: { canManage: boolean }) {
 
     if (isLoading) return <div className="flex justify-center p-12"><Loader2 className="h-8 w-8 animate-spin text-slate-400" /></div>;
 
-    const filteredExpenses = expenses?.filter(e => activeTab === 'pending' ? e.status === 'pending' : e.status === 'paid') || [];
+    const filteredExpenses = expensesData?.results || [];
 
     return (
         <div className="space-y-6">

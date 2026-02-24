@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { Modal } from '@/components/ui/modal';
-import { buildInvoicePdfUrl } from '@/features/invoices/api';
+import { InvoicePdfDownloadButton } from '@/components/invoicing/invoice-pdf-download-button';
 import { useInvoiceSeries, useIssueInvoice } from '@/features/invoices/hooks';
 import { useIssueOrderInvoice } from '@/features/orders/hooks';
 import { useBusinessBillingProfileQuery, useDocumentSeriesQuery } from '@/features/gestion/hooks';
@@ -160,14 +160,12 @@ export function InvoiceActions({
                                     Ver detalle
                                 </Link>
                             ) : null}
-                            <a
-                                href={buildInvoicePdfUrl(existingInvoice.id)}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="rounded-full border border-slate-200 px-4 py-2 text-center hover:border-slate-900 hover:text-slate-900"
+                            <InvoicePdfDownloadButton
+                                invoiceId={existingInvoice.id}
+                                variant="btn"
                             >
                                 Descargar PDF
-                            </a>
+                            </InvoicePdfDownloadButton>
                         </>
                     ) : (
                         <button

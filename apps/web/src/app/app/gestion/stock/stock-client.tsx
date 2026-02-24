@@ -2,6 +2,8 @@
 
 import { useCallback, useDeferredValue, useEffect, useId, useMemo, useState } from 'react';
 import { z } from 'zod';
+import Link from 'next/link';
+import { ShoppingCart } from 'lucide-react';
 
 import { StockStatusSelect } from '@/components/app/stock-status-select';
 import { Modal } from '@/components/ui/modal';
@@ -35,12 +37,13 @@ const movementLabels: Record<MovementForm['movement_type'], string> = {
 
 type StockClientProps = {
     canManage: boolean;
+    canManagePurchases?: boolean;
     initialStatus?: string;
     initialAction?: 'movement';
     initialProductId?: string;
 };
 
-export function StockClient({ canManage, initialStatus = '', initialAction, initialProductId }: StockClientProps) {
+export function StockClient({ canManage, canManagePurchases = false, initialStatus = '', initialAction, initialProductId }: StockClientProps) {
     const [search, setSearch] = useState('');
     const deferredSearch = useDeferredValue(search);
     const [statusFilter, setStatusFilter] = useState(initialStatus ?? '');
@@ -261,13 +264,24 @@ export function StockClient({ canManage, initialStatus = '', initialAction, init
                     <p className="text-sm text-slate-500">Disponibilidad por producto y alertas preventivas.</p>
                 </div>
                 {canManage ? (
-                    <button
-                        type="button"
-                        onClick={() => handleOpenModal()}
-                        className="rounded-full bg-slate-900 px-5 py-2 text-sm font-semibold text-white hover:bg-slate-800"
-                    >
-                        Registrar movimiento
-                    </button>
+                    <div className="flex items-center gap-2 flex-wrap">
+                        {canManagePurchases && (
+                            <Link
+                                href="/app/gestion/stock/reponer"
+                                className="inline-flex items-center gap-2 rounded-full bg-orange-500 px-5 py-2 text-sm font-semibold text-white hover:bg-orange-600"
+                            >
+                                <ShoppingCart className="h-4 w-4" />
+                                Reponer stock
+                            </Link>
+                        )}
+                        <button
+                            type="button"
+                            onClick={() => handleOpenModal()}
+                            className="rounded-full bg-slate-900 px-5 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+                        >
+                            Registrar movimiento
+                        </button>
+                    </div>
                 ) : null}
             </header>
             {!canManage && (

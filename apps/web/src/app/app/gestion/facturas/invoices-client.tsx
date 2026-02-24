@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 
-import { buildInvoicePdfUrl } from '@/features/invoices/api';
+import { InvoicePdfDownloadButton } from '@/components/invoicing/invoice-pdf-download-button';
 import { useInvoices } from '@/features/invoices/hooks';
 import type { InvoiceFilters } from '@/features/invoices/types';
 
@@ -22,12 +22,13 @@ function formatCurrency(value: string | number) {
     return new Intl.NumberFormat('es-AR', {
         style: 'currency',
         currency: 'ARS',
+        minimumFractionDigits: 0,
         maximumFractionDigits: 2,
     }).format(Number.isNaN(numeric) ? 0 : numeric);
 }
 
 function formatDate(value: string) {
-    return new Date(value).toLocaleString('es-AR', { dateStyle: 'medium', timeStyle: 'short' });
+    return new Date(value).toLocaleString('es-AR', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'America/Argentina/Buenos_Aires' });
 }
 
 type InvoicesClientProps = {
@@ -162,14 +163,9 @@ export function InvoicesClient({ canIssue }: InvoicesClientProps) {
                                             <Link href={`/app/gestion/facturas/${invoice.id}`} className="text-slate-600 hover:text-slate-900">
                                                 Ver detalle →
                                             </Link>
-                                            <a
-                                                href={buildInvoicePdfUrl(invoice.id)}
-                                                target="_blank"
-                                                rel="noreferrer"
-                                                className="text-slate-600 hover:text-slate-900"
-                                            >
+                                            <InvoicePdfDownloadButton invoiceId={invoice.id}>
                                                 PDF
-                                            </a>
+                                            </InvoicePdfDownloadButton>
                                         </div>
                                     </td>
                                 </tr>

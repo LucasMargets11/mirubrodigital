@@ -13,6 +13,7 @@ import type { SalesWithBalance } from '@/features/cash/types';
 import { useCashSummary } from '@/features/cash/hooks';
 import { useSales } from '@/features/gestion/hooks';
 import type { SalesFilters } from '@/features/gestion/types';
+import { todayDateString } from '@/lib/dates';
 
 type CashHomeClientProps = {
     canManage: boolean;
@@ -27,7 +28,7 @@ export function CashHomeClient({ canManage, canCollect }: CashHomeClientProps) {
     const [filter, setFilter] = useState<FilterValue>('pending');
     const [collectAllOpen, setCollectAllOpen] = useState(false);
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayDateString();
     const filters: SalesFilters = useMemo(
         () => ({ status: 'completed', date_from: today, date_to: today }),
         [today]

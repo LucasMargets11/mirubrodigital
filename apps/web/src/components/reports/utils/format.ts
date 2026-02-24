@@ -1,6 +1,9 @@
+import { parseDateOnly } from '@/lib/dates';
+
 const currencyFormatter = new Intl.NumberFormat('es-AR', {
   style: 'currency',
   currency: 'ARS',
+  minimumFractionDigits: 0,
   maximumFractionDigits: 2,
 });
 
@@ -74,12 +77,16 @@ export function compactNumber(value?: number | string | null): string {
 }
 
 export function formatDateShort(value: string | Date): string {
-  const date = value instanceof Date ? value : new Date(value);
+  const date = value instanceof Date ? value
+    : /^\d{4}-\d{2}-\d{2}$/.test(value) ? parseDateOnly(value)
+    : new Date(value);
   return dateShortFormatter.format(date);
 }
 
 export function formatDateLong(value: string | Date): string {
-  const date = value instanceof Date ? value : new Date(value);
+  const date = value instanceof Date ? value
+    : /^\d{4}-\d{2}-\d{2}$/.test(value) ? parseDateOnly(value)
+    : new Date(value);
   return dateLongFormatter.format(date);
 }
 

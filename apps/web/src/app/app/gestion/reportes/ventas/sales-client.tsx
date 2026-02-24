@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { downloadCsv } from '@/lib/csv';
 import { formatCurrency, formatNumber } from '@/lib/format';
 import { useReportsSales } from '@/features/reports/hooks';
+import { todayDateString, dateOffsetFromToday } from '@/lib/dates';
 
 import { ReportsFilters, type ReportsFiltersValue } from '@/modules/reports/components/filters';
 import { ReportsPagination } from '@/modules/reports/components/pagination';
@@ -211,18 +212,12 @@ function formatDate(value: string) {
     return new Intl.DateTimeFormat('es-AR', {
         dateStyle: 'medium',
         timeStyle: 'short',
+        timeZone: 'America/Argentina/Buenos_Aires',
     }).format(new Date(value));
 }
 
 function getDefaultRange() {
-    const to = new Date();
-    const from = new Date();
-    from.setDate(to.getDate() - 6);
-    return { from: toIso(from), to: toIso(to) };
-}
-
-function toIso(date: Date) {
-    return date.toISOString().slice(0, 10);
+    return { from: dateOffsetFromToday(-6), to: todayDateString() };
 }
 
 type StatusBadgeProps = {

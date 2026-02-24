@@ -22,7 +22,7 @@ import { Modal } from '@/components/ui/modal';
 import { EmptyState } from '../components/empty-state';
 import { cn } from '@/lib/utils';
 
-export function ExpensesClient({ canManage }: { canManage: boolean }) {
+export function FixedExpensesClient({ canManage }: { canManage: boolean }) {
     const queryClient = useQueryClient();
     const [selectedFixed, setSelectedFixed] = useState<FixedExpense | null>(null);
     const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -272,7 +272,7 @@ export function ExpensesClient({ canManage }: { canManage: boolean }) {
                                                     <div className="flex-1">
                                                         <div className="flex items-center gap-3">
                                                             <p className="font-medium text-slate-900">
-                                                                {format(new Date(period.period + '-15'), 'MMMM yyyy', { locale: es })}
+                                                                {format(new Date(period.period_display + '-15'), 'MMMM yyyy', { locale: es })}
                                                             </p>
                                                             <span className={cn(
                                                                 "text-xs px-2 py-0.5 rounded-full font-medium",
@@ -444,7 +444,7 @@ function PayPeriodModal({ isOpen, onClose, onSubmit, isLoading, accounts, period
                 <div className="p-4 bg-slate-50 rounded-md">
                     <p className="text-sm text-slate-500">Periodo</p>
                     <p className="text-lg font-bold text-slate-900">
-                        {format(new Date(period.period + '-15'), 'MMMM yyyy', { locale: es })}
+                        {format(new Date(period.period_display + '-15'), 'MMMM yyyy', { locale: es })}
                     </p>
                 </div>
 

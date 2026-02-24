@@ -160,19 +160,53 @@ class InvoiceIssueSerializer(serializers.Serializer):
     return value
 
   def validate_series_code(self, value: Optional[str]) -> str:
-    return _normalize_series_code(value or 'X')
+    """
+    Accept either a DocumentSeries UUID (sent by the frontend) or a short
+    legacy code like 'X' / 'A'.
+    When a UUID is received, resolve it to the DocumentSeries and store the
+    instance in context so that create() can use it for proper sequencing.
+    """
+    raw = (value or '').strip()
+    # If it looks like a UUID (>8 chars), try to resolve as DocumentSeries id
+    if len(raw) > 8:
+      business = self.context.get('business')
+      try:
+        doc_series = DocumentSeries.objects.get(
+          pk=raw,
+          business=business,
+          document_type='invoice',
+          is_active=True,
+        )
+        self.context['document_series'] = doc_series
+        # Return the letter as the short code for the legacy InvoiceSeries stub
+        return _normalize_series_code(doc_series.letter or 'X')
+      except (DocumentSeries.DoesNotExist, Exception):
+        pass
+    return _normalize_series_code(raw or 'X')
 
   @transaction.atomic
   def create(self, validated_data):
     business = self.context['business']
     user = self.context.get('user')
     sale: Sale = self.context['sale']
-    series_result = get_or_create_series(business, validated_data['series_code'])
-    series = series_result.series
+    doc_series: Optional[DocumentSeries] = self.context.get('document_series')
 
-    series = InvoiceSeries.objects.select_for_update().get(pk=series.pk)
-    number = series.next_number
-    full_number = series.format_full_number(number)
+    # Get or create the legacy InvoiceSeries stub (needed for Invoice.series FK)
+    series_result = get_or_create_series(business, validated_data['series_code'])
+    series = InvoiceSeries.objects.select_for_update().get(pk=series_result.series.pk)
+
+    if doc_series is not None:
+      # New path: use InvoiceSeries.next_number as the authoritative counter
+      # (the DB unique constraint is on business+InvoiceSeries+number).
+      # DocumentSeries is used only for full_number formatting; its counter
+      # is kept in sync so the UI shows the correct "next" value.
+      doc_series_locked = DocumentSeries.objects.select_for_update().get(pk=doc_series.pk)
+      number = series.next_number
+      full_number = doc_series_locked.format_full_number(number)
+    else:
+      # Legacy path: use InvoiceSeries for number sequencing
+      number = series.next_number
+      full_number = series.format_full_number(number)
 
     customer_name = validated_data.get('customer_name') or (sale.customer.name if sale.customer else '')
     customer_tax_id = validated_data.get('customer_tax_id') or (sale.customer.doc_number if sale.customer else '')
@@ -195,8 +229,16 @@ class InvoiceIssueSerializer(serializers.Serializer):
       created_by=user if getattr(user, 'is_authenticated', False) else None,
     )
 
-    series.next_number = number + 1
-    series.save(update_fields=['next_number', 'updated_at'])
+    if doc_series is not None:
+      series.next_number = number + 1
+      series.save(update_fields=['next_number', 'updated_at'])
+      # Sync DocumentSeries counter so the UI "next number" stays accurate
+      doc_series_locked.next_number = number + 1
+      doc_series_locked.save(update_fields=['next_number', 'updated_at'])
+    else:
+      series.next_number = number + 1
+      series.save(update_fields=['next_number', 'updated_at'])
+
     return invoice
 
   def to_representation(self, instance):

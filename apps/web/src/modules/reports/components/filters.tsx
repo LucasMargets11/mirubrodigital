@@ -4,6 +4,13 @@ import { useCallback, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 
 import { getRegisters } from '@/features/cash/api';
+import {
+    todayDateString,
+    dateOffsetFromToday,
+    startOfCurrentMonthDateString,
+    currentMonthRange,
+    previousMonthRange,
+} from '@/lib/dates';
 
 export type ReportsFiltersValue = {
     preset: string;
@@ -46,57 +53,41 @@ const presetDefinitions: Array<{
             key: 'today',
             label: 'Hoy',
             getRange: () => {
-                const today = new Date();
-                return { from: formatDate(today), to: formatDate(today) };
+                const today = todayDateString();
+                return { from: today, to: today };
             },
         },
         {
             key: 'yesterday',
             label: 'Ayer',
             getRange: () => {
-                const date = new Date();
-                date.setDate(date.getDate() - 1);
-                return { from: formatDate(date), to: formatDate(date) };
+                const yesterday = dateOffsetFromToday(-1);
+                return { from: yesterday, to: yesterday };
             },
         },
         {
             key: 'last7',
             label: '7 días',
             getRange: () => {
-                const to = new Date();
-                const from = new Date();
-                from.setDate(to.getDate() - 6);
-                return { from: formatDate(from), to: formatDate(to) };
+                return { from: dateOffsetFromToday(-6), to: todayDateString() };
             },
         },
         {
             key: 'last30',
             label: '30 días',
             getRange: () => {
-                const to = new Date();
-                const from = new Date();
-                from.setDate(to.getDate() - 29);
-                return { from: formatDate(from), to: formatDate(to) };
+                return { from: dateOffsetFromToday(-29), to: todayDateString() };
             },
         },
         {
             key: 'mtd',
             label: 'Mes actual',
-            getRange: () => {
-                const to = new Date();
-                const from = new Date(to.getFullYear(), to.getMonth(), 1);
-                return { from: formatDate(from), to: formatDate(to) };
-            },
+            getRange: () => currentMonthRange(),
         },
         {
             key: 'last_month',
             label: 'Mes anterior',
-            getRange: () => {
-                const ref = new Date();
-                const from = new Date(ref.getFullYear(), ref.getMonth() - 1, 1);
-                const to = new Date(ref.getFullYear(), ref.getMonth(), 0);
-                return { from: formatDate(from), to: formatDate(to) };
-            },
+            getRange: () => previousMonthRange(),
         },
     ];
 
@@ -107,7 +98,10 @@ const defaultStatusOptions: StatusOption[] = [
 ];
 
 function formatDate(date: Date) {
-    return date.toISOString().slice(0, 10);
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
 }
 
 export function ReportsFilters({

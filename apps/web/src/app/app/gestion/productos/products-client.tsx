@@ -39,7 +39,7 @@ function formatCurrency(value: string) {
     if (Number.isNaN(numeric)) {
         return '$0';
     }
-    return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 2 }).format(numeric);
+    return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(numeric);
 }
 
 function formatQuantity(value: string) {

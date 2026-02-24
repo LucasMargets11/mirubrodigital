@@ -13,6 +13,7 @@ function formatCurrency(value: string | number) {
     return new Intl.NumberFormat('es-AR', {
         style: 'currency',
         currency: 'ARS',
+        minimumFractionDigits: 0,
         maximumFractionDigits: 2,
     }).format(Number.isNaN(numeric) ? 0 : numeric);
 }
@@ -76,7 +77,7 @@ export default async function SaleDetailPage({ params }: PageProps) {
                         <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Venta #{sale.number}</p>
                         <h1 className="text-2xl font-semibold text-slate-900">{formatCurrency(sale.total)}</h1>
                         <p className="text-sm text-slate-500">
-                            {new Date(sale.created_at).toLocaleString('es-AR', { dateStyle: 'full', timeStyle: 'short' })}
+                            {new Date(sale.created_at).toLocaleString('es-AR', { dateStyle: 'full', timeStyle: 'short', timeZone: 'America/Argentina/Buenos_Aires' })}
                         </p>
                     </div>
                     <div className="flex flex-col items-end gap-2">

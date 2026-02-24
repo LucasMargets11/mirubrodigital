@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { parseDateOnly, localDateToString } from '@/lib/dates';
 
 import { ChartCard } from '@/components/reports/charts/ChartCard';
 import { PaymentsDonutChart } from '@/components/reports/charts/PaymentsDonutChart';
@@ -41,11 +42,11 @@ type KpiKey = keyof ReportSummaryResponse['kpis'];
 type ReportsSummaryClientProps = {
     canViewStock: boolean;
     hasInventoryFeature: boolean;
+    initialFrom: string;
+    initialTo: string;
 };
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
-
-const defaultRange = getDefaultRange();
 
 const metricDefinitions: MetricDefinition[] = [
     {
@@ -96,11 +97,13 @@ const kpiDefinitions: Array<{ key: KpiKey; label: string }> = [
 export function ReportsSummaryClient({
     canViewStock,
     hasInventoryFeature,
+    initialFrom,
+    initialTo,
 }: ReportsSummaryClientProps) {
     const [filters, setFilters] = useState<ReportsFiltersValue>({
         preset: 'last7',
-        from: defaultRange.from,
-        to: defaultRange.to,
+        from: initialFrom,
+        to: initialTo,
         groupBy: 'day',
     });
 
@@ -532,8 +535,8 @@ function buildInsights({
 }
 
 function getPreviousRange(from: string, to: string) {
-    const fromDate = new Date(from);
-    const toDate = new Date(to);
+    const fromDate = parseDateOnly(from);
+    const toDate = parseDateOnly(to);
     const daysDiff = Math.max(1, Math.round((toDate.getTime() - fromDate.getTime()) / DAY_IN_MS) + 1);
     const previousTo = new Date(fromDate);
     previousTo.setDate(previousTo.getDate() - 1);
@@ -545,47 +548,8 @@ function getPreviousRange(from: string, to: string) {
     };
 }
 
-function getRangeForPreset(key: string) {
-    const now = new Date();
-    switch (key) {
-        case 'today':
-            return { from: dateString(now), to: dateString(now) };
-        case 'yesterday': {
-            const date = new Date(now);
-            date.setDate(date.getDate() - 1);
-            return { from: dateString(date), to: dateString(date) };
-        }
-        case 'last30': {
-            const to = new Date(now);
-            const from = new Date(now);
-            from.setDate(from.getDate() - 29);
-            return { from: dateString(from), to: dateString(to) };
-        }
-        case 'mtd': {
-            const from = new Date(now.getFullYear(), now.getMonth(), 1);
-            return { from: dateString(from), to: dateString(now) };
-        }
-        case 'last_month': {
-            const from = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-            const to = new Date(now.getFullYear(), now.getMonth(), 0);
-            return { from: dateString(from), to: dateString(to) };
-        }
-        case 'last7':
-        default: {
-            const to = new Date(now);
-            const from = new Date(now);
-            from.setDate(from.getDate() - 6);
-            return { from: dateString(from), to: dateString(to) };
-        }
-    }
-}
-
-function getDefaultRange() {
-    return getRangeForPreset('last7');
-}
-
 function dateString(date: Date) {
-    return date.toISOString().slice(0, 10);
+    return localDateToString(date);
 }
 
 function EmptyState({ label }: { label: string }) {

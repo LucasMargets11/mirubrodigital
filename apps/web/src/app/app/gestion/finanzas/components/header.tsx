@@ -10,6 +10,8 @@ const tabs = [
     { href: '/app/gestion/finanzas/movimientos', label: 'Movimientos' },
     { href: '/app/gestion/finanzas/gastos', label: 'Gastos' },
     { href: '/app/gestion/finanzas/sueldos', label: 'Sueldos' },
+    { href: '/app/gestion/finanzas/reportes', label: 'Reportes' },
+    { href: '/app/gestion/finanzas/configuracion', label: 'Configuración' },
 ];
 
 export function FinanceTabs() {

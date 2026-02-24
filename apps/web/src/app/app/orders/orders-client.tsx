@@ -48,13 +48,14 @@ function formatCurrency(value: string | number) {
     return new Intl.NumberFormat('es-AR', {
         style: 'currency',
         currency: 'ARS',
+        minimumFractionDigits: 0,
         maximumFractionDigits: 2,
     }).format(numeric);
 }
 
 function formatTimestamp(iso: string) {
     const date = new Date(iso);
-    return date.toLocaleString('es-AR', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' });
+    return date.toLocaleString('es-AR', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short', timeZone: 'America/Argentina/Buenos_Aires' });
 }
 
 export function OrdersClient({ canCreate, canUpdate, canClose }: OrdersClientProps) {

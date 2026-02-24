@@ -13,6 +13,7 @@ import { apiGet } from "@/lib/api/client";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import { branchService } from "@/services/branches";
 import type { Branch } from "@/services/branches";
+import { localDateToString, parseDateOnly } from "@/lib/dates";
 
 // We'll reuse existing reporting components or fetch data manually for the aggregated view
 // Since this is a new feature, a simple dashboard is better than reusing complex components that rely on context hooks.
@@ -353,7 +354,7 @@ function addDaysFromToday(deltaDays: number) {
 
 function formatForApi(date?: Date) {
     if (!date) return undefined;
-    return date.toISOString().split('T')[0];
+    return localDateToString(date);
 }
 
 function buildQueryString(params: Record<string, string | number | undefined>) {
@@ -388,17 +389,17 @@ function statusLabel(status?: string) {
 
 function formatDateLabel(value?: string) {
     if (!value) return 'Fecha desconocida';
-    const date = new Date(value);
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(value) ? parseDateOnly(value) : new Date(value);
     if (Number.isNaN(date.getTime())) return 'Fecha desconocida';
-    return date.toLocaleDateString('es-AR', { day: 'numeric', month: 'short', year: 'numeric' });
+    return date.toLocaleDateString('es-AR', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'America/Argentina/Buenos_Aires' });
 }
 
 function formatPeriod(value: string) {
-    const date = new Date(value);
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(value) ? parseDateOnly(value) : new Date(value);
     if (Number.isNaN(date.getTime())) {
         return value;
     }
-    return date.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' });
+    return date.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'America/Argentina/Buenos_Aires' });
 }
 
 type TrendPoint = {

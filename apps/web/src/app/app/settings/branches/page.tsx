@@ -27,6 +27,7 @@ import {
     TableRow,
 } from '@/components/ui/table';
 import { branchService } from '@/services/branches';
+import { formatDateFromTimestampAR } from '@/lib/dates';
 
 export default function BranchesPage() {
     const queryClient = useQueryClient();
@@ -151,7 +152,7 @@ export default function BranchesPage() {
                                         </span>
                                     </TableCell>
                                     <TableCell>
-                                        {new Date(branch.created_at).toLocaleDateString()}
+                                        {formatDateFromTimestampAR(branch.created_at)}
                                     </TableCell>
                                     <TableCell className="text-muted-foreground">{branch.id}</TableCell>
                                 </TableRow>

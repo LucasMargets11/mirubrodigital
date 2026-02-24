@@ -13,7 +13,7 @@ from django.db.models import (
 )
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
-from rest_framework import generics
+from rest_framework import generics, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
@@ -27,12 +27,15 @@ from .importer import (
 	parse_inventory_import,
 	serialize_preview_rows,
 )
-from .models import InventoryImportJob, ProductStock, StockMovement
+from .models import InventoryImportJob, ProductStock, StockMovement, StockReplenishment
 from .serializers import (
     InventoryImportJobSerializer,
 	ProductStockSerializer,
 	StockMovementCreateSerializer,
 	StockMovementSerializer,
+	StockReplenishmentCreateSerializer,
+	StockReplenishmentDetailSerializer,
+	StockReplenishmentListSerializer,
 )
 
 
@@ -445,4 +448,99 @@ class InventoryImportApplyView(APIView):
 		except InventoryImportError as exc:
 			return Response({'detail': str(exc)}, status=400)
 		serializer = InventoryImportJobSerializer(job)
+		return Response(serializer.data)
+
+
+# ---------------------------------------------------------------------------
+# Replenishment views
+# ---------------------------------------------------------------------------
+
+class ReplenishmentListCreateView(APIView):
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	permission_map = {
+		'GET': 'view_purchases',
+		'POST': 'manage_purchases',
+	}
+
+	def get_required_permission(self):
+		return self.permission_map.get(self.request.method.upper())
+
+	def get(self, request):
+		business = getattr(request, 'business')
+		queryset = (
+			StockReplenishment.objects
+			.select_related('account', 'transaction')
+			.filter(business=business)
+			.order_by('-occurred_at')
+		)
+
+		# Filters
+		date_from = request.query_params.get('date_from')
+		date_to = request.query_params.get('date_to')
+		search = request.query_params.get('search')
+		account_id = request.query_params.get('account_id')
+
+		if date_from:
+			queryset = queryset.filter(occurred_at__gte=date_from)
+		if date_to:
+			queryset = queryset.filter(occurred_at__lte=date_to)
+		if search:
+			queryset = queryset.filter(
+				Q(supplier_name__icontains=search) | Q(invoice_number__icontains=search)
+			)
+		if account_id:
+			queryset = queryset.filter(account_id=account_id)
+
+		serializer = StockReplenishmentListSerializer(queryset, many=True)
+		return Response(serializer.data)
+
+	def post(self, request):
+		serializer = StockReplenishmentCreateSerializer(
+			data=request.data, context={'request': request}
+		)
+		serializer.is_valid(raise_exception=True)
+		replenishment = serializer.save()
+		out = StockReplenishmentDetailSerializer(replenishment, context={'request': request})
+		return Response(out.data, status=status.HTTP_201_CREATED)
+
+
+class ReplenishmentDetailView(APIView):
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	required_permission = 'view_purchases'
+
+	def get(self, request, pk):
+		business = getattr(request, 'business')
+		replenishment = get_object_or_404(
+			StockReplenishment.objects.select_related(
+				'account', 'transaction', 'transaction__account', 'purchase_category'
+			),
+			pk=pk,
+			business=business,
+		)
+		serializer = StockReplenishmentDetailSerializer(replenishment, context={'request': request})
+		return Response(serializer.data)
+
+
+class ReplenishmentVoidView(APIView):
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	required_permission = 'manage_purchases'
+
+	def post(self, request, pk):
+		business = getattr(request, 'business')
+		replenishment = get_object_or_404(
+			StockReplenishment.objects.select_related('transaction'),
+			pk=pk,
+			business=business,
+		)
+		reason = (request.data.get('reason') or '').strip()
+		if not reason:
+			return Response({'detail': 'El motivo de anulación es requerido.'}, status=400)
+
+		from .services import void_stock_replenishment
+		replenishment = void_stock_replenishment(
+			replenishment=replenishment,
+			reason=reason,
+			voided_by=request.user,
+		)
+		serializer = StockReplenishmentDetailSerializer(replenishment, context={'request': request})
 		return Response(serializer.data)

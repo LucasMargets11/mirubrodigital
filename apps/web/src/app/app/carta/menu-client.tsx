@@ -3,6 +3,7 @@
 import { ChangeEvent, useMemo, useRef, useState } from 'react';
 
 import { Modal } from '@/components/ui/modal';
+import { todayDateString } from '@/lib/dates';
 import {
     useCreateMenuCategory,
     useCreateMenuItem,
@@ -21,6 +22,7 @@ import type { MenuCategory, MenuImportResult, MenuItem } from '@/features/menu/t
 const pesosFormatter = new Intl.NumberFormat('es-AR', {
     style: 'currency',
     currency: 'ARS',
+    minimumFractionDigits: 0,
     maximumFractionDigits: 2,
 });
 
@@ -355,7 +357,7 @@ export function MenuClient({ canManage, canImport, canExport }: MenuClientProps)
             const url = URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
-            link.download = `carta-${new Date().toISOString().slice(0, 10)}.xlsx`;
+            link.download = `carta-${todayDateString()}.xlsx`;
             document.body.appendChild(link);
             link.click();
             link.remove();

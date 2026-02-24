@@ -63,7 +63,7 @@ export default async function ReportSaleDetailPage({ params }: PageProps) {
                         <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Venta #{sale.number}</p>
                         <h1 className="text-3xl font-semibold text-slate-900">{formatCurrency(sale.total)}</h1>
                         <p className="text-sm text-slate-500">
-                            {new Intl.DateTimeFormat('es-AR', { dateStyle: 'full', timeStyle: 'short' }).format(new Date(sale.created_at))}
+                            {new Intl.DateTimeFormat('es-AR', { dateStyle: 'full', timeStyle: 'short', timeZone: 'America/Argentina/Buenos_Aires' }).format(new Date(sale.created_at))}
                         </p>
                     </div>
                     <div className="flex flex-col items-end gap-2">
@@ -187,5 +187,6 @@ function formatDate(value: string) {
     return new Intl.DateTimeFormat('es-AR', {
         dateStyle: 'medium',
         timeStyle: 'short',
+        timeZone: 'America/Argentina/Buenos_Aires',
     }).format(new Date(value));
 }

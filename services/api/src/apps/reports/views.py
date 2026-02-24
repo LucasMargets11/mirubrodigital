@@ -964,16 +964,43 @@ class TopProductsLeaderboardView(APIView):
 			.order_by(ordering)[:limit]
 		)
 
+		aggregated_list = list(aggregated)
+
+		# Compute grand total for share_pct
+		if metric == 'amount':
+			grand_total = sum(row.get('total_amount') or Decimal('0') for row in aggregated_list)
+		else:
+			grand_total = sum(row.get('total_quantity') or Decimal('0') for row in aggregated_list)
+
 		results: List[Dict[str, object]] = []
-		for row in aggregated:
+		for row in aggregated_list:
 			product_id = row.get('product_id')
+			total_amount = row.get('total_amount') or Decimal('0')
+			total_quantity = row.get('total_quantity') or Decimal('0')
+			if metric == 'amount':
+				row_value = total_amount
+			else:
+				row_value = total_quantity
+			share_pct = (
+				round(float(row_value) / float(grand_total) * 100, 1)
+				if grand_total and grand_total > 0
+				else 0.0
+			)
 			results.append(
 				{
 					'product_id': str(product_id) if product_id else None,
 					'name': row.get('product_name_snapshot') or 'Producto',
-					'quantity': _format_decimal(row.get('total_quantity')),
-					'amount': _format_money(row.get('total_amount')),
+					'units': _format_decimal(total_quantity),
+					'amount_total': _format_money(total_amount),
+					'share_pct': str(share_pct),
 				}
 			)
 
-		return Response({'results': results})
+		return Response({
+			'range': {
+				'from': date_range.start_local.date().isoformat(),
+				'to': date_range.end_local.date().isoformat(),
+			},
+			'metric': metric,
+			'items': results,
+		})

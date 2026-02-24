@@ -1,3 +1,5 @@
+import { parseDateOnly, localDateToString } from '@/lib/dates';
+
 export type GroupBy = 'day' | 'week' | 'month';
 
 export type TrendPoint = {
@@ -26,8 +28,8 @@ export function fillMissingPeriods(params: FillMissingPeriodsParams): TrendPoint
     return series;
   }
 
-  const start = startOfInterval(new Date(from), groupBy);
-  const end = startOfInterval(new Date(to), groupBy);
+  const start = startOfInterval(parseDateOnly(from), groupBy);
+  const end = startOfInterval(parseDateOnly(to), groupBy);
 
   const map = new Map<string, TrendPoint>();
   series.forEach((item) => {
@@ -80,10 +82,10 @@ function addInterval(date: Date, groupBy: GroupBy): Date {
 }
 
 function normalizePeriod(period: string, groupBy: GroupBy): string {
-  const date = startOfInterval(new Date(period), groupBy);
+  const date = startOfInterval(parseDateOnly(period), groupBy);
   return toIsoDate(date);
 }
 
 function toIsoDate(date: Date): string {
-  return date.toISOString().slice(0, 10);
+  return localDateToString(date);
 }

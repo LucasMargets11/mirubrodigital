@@ -2,9 +2,9 @@ import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 
 import { AccessMessage } from '@/components/app/access-message';
+import { InvoicePdfDownloadButton } from '@/components/invoicing/invoice-pdf-download-button';
 import { serverApiFetch } from '@/lib/api/server';
 import { getSession } from '@/lib/auth';
-import { buildInvoicePdfUrl } from '@/features/invoices/api';
 import type { Invoice } from '@/features/invoices/types';
 
 function formatCurrency(value: string | number) {
@@ -12,21 +12,23 @@ function formatCurrency(value: string | number) {
     return new Intl.NumberFormat('es-AR', {
         style: 'currency',
         currency: 'ARS',
+        minimumFractionDigits: 0,
         maximumFractionDigits: 2,
     }).format(Number.isNaN(numeric) ? 0 : numeric);
 }
 
 function formatDate(value: string) {
-    return new Date(value).toLocaleString('es-AR', { dateStyle: 'full', timeStyle: 'short' });
+    return new Date(value).toLocaleString('es-AR', { dateStyle: 'full', timeStyle: 'short', timeZone: 'America/Argentina/Buenos_Aires' });
 }
 
 type PageProps = {
-    params: {
+    params: Promise<{
         id: string;
-    };
+    }>;
 };
 
 export default async function InvoiceDetailPage({ params }: PageProps) {
+    const { id } = await params;
     const session = await getSession();
 
     if (!session) {
@@ -46,7 +48,7 @@ export default async function InvoiceDetailPage({ params }: PageProps) {
 
     let invoice: Invoice | null = null;
     try {
-        invoice = await serverApiFetch<Invoice>(`/api/v1/invoices/${params.id}/`);
+        invoice = await serverApiFetch<Invoice>(`/api/v1/invoices/${id}/`);
     } catch (error) {
         notFound();
     }
@@ -73,14 +75,12 @@ export default async function InvoiceDetailPage({ params }: PageProps) {
                         <p className="text-sm text-slate-500">Venta asociada #{invoice.sale_number}</p>
                     </div>
                     <div className="flex flex-col items-end gap-3 text-sm">
-                        <a
-                            href={buildInvoicePdfUrl(invoice.id)}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="rounded-full border border-slate-200 px-4 py-2 font-semibold text-slate-700 hover:border-slate-900 hover:text-slate-900"
+                        <InvoicePdfDownloadButton
+                            invoiceId={invoice.id}
+                            variant="btn"
                         >
                             Descargar PDF
-                        </a>
+                        </InvoicePdfDownloadButton>
                         <button
                             type="button"
                             disabled

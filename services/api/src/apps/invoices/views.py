@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 
 from django.http import HttpResponse
@@ -15,6 +16,7 @@ from apps.accounts.access import resolve_business_context, resolve_request_membe
 from apps.accounts.permissions import HasBusinessMembership, HasPermission, HasEntitlement
 from apps.accounts.rbac import permissions_for_service
 from apps.business.scope import resolve_scope_ids
+from apps.business.services import get_business_document_config
 from .models import Invoice, InvoiceSeries, DocumentSeries
 from .pdf import render_invoice_pdf
 from .serializers import (
@@ -24,6 +26,8 @@ from .serializers import (
   InvoiceSeriesSerializer,
   DocumentSeriesSerializer,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class InvoiceListView(generics.ListAPIView):
@@ -124,8 +128,37 @@ class InvoicePDFView(APIView):
 
   def get(self, request, pk: str):
     business = getattr(request, 'business')
-    invoice = get_object_or_404(Invoice.objects.select_related('sale', 'sale__customer', 'business'), pk=pk, business=business)
-    pdf_bytes = render_invoice_pdf(invoice)
+    invoice = get_object_or_404(
+      Invoice.objects.select_related('sale', 'sale__customer', 'business'),
+      pk=pk,
+      business=business,
+    )
+
+    # Validar perfil fiscal antes de intentar generar el PDF
+    config = get_business_document_config(business)
+    missing_fields = config.get_missing_issuer_fields()
+    if missing_fields:
+      return Response(
+        {
+          'code': 'issuer_profile_incomplete',
+          'missing_fields': missing_fields,
+          'message': (
+            'El perfil fiscal del negocio está incompleto. '
+            'Completá los datos requeridos para generar el PDF.'
+          ),
+        },
+        status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+      )
+
+    try:
+      pdf_bytes = render_invoice_pdf(invoice)
+    except Exception:
+      logger.exception('Error inesperado al generar PDF de factura pk=%s', pk)
+      return Response(
+        {'code': 'pdf_generation_error', 'message': 'No se pudo generar el PDF. Intentá nuevamente.'},
+        status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+      )
+
     response = HttpResponse(pdf_bytes, content_type='application/pdf')
     response['Content-Disposition'] = f'inline; filename="factura-{invoice.full_number}.pdf"'
     return response

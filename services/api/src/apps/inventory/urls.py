@@ -11,6 +11,9 @@ from .views import (
 	LowStockAlertView,
 	OutOfStockAlertView,
 	ProductStockListView,
+	ReplenishmentDetailView,
+	ReplenishmentListCreateView,
+	ReplenishmentVoidView,
 	StockMovementDetailView,
 	StockMovementListCreateView,
 )
@@ -30,4 +33,8 @@ urlpatterns = [
 	path('imports/<uuid:import_id>/', InventoryImportDetailView.as_view(), name='inventory-import-detail'),
 	path('imports/<uuid:import_id>/preview/', InventoryImportPreviewView.as_view(), name='inventory-import-preview'),
 	path('imports/<uuid:import_id>/apply/', InventoryImportApplyView.as_view(), name='inventory-import-apply'),
+	# Replenishments (compras)
+	path('replenishments/', ReplenishmentListCreateView.as_view(), name='replenishment-list'),
+	path('replenishments/<uuid:pk>/', ReplenishmentDetailView.as_view(), name='replenishment-detail'),
+	path('replenishments/<uuid:pk>/void/', ReplenishmentVoidView.as_view(), name='replenishment-void'),
 ]

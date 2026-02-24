@@ -3,6 +3,7 @@ import type { CashMovementCategory, CashMovementType, CashPaymentMethod, SalesWi
 const currencyFormatter = new Intl.NumberFormat('es-AR', {
   style: 'currency',
   currency: 'ARS',
+  minimumFractionDigits: 0,
   maximumFractionDigits: 2,
 });
 
@@ -21,6 +22,7 @@ export function formatDateTime(value: string | null | undefined): string {
   return new Date(value).toLocaleString('es-AR', {
     dateStyle: 'medium',
     timeStyle: 'short',
+    timeZone: 'America/Argentina/Buenos_Aires',
   });
 }
 

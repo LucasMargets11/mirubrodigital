@@ -136,6 +136,20 @@ def _register_gestion_capabilities():
         'Stock',
         'gestion'
     )
+    register_capability(
+        'view_purchases',
+        'Ver Compras / Reposición',
+        'Consultar reposiciones de stock e historial de compras',
+        'Stock',
+        'gestion'
+    )
+    register_capability(
+        'manage_purchases',
+        'Gestionar Compras / Reposición',
+        'Crear y anular reposiciones de stock vinculadas a finanzas',
+        'Stock',
+        'gestion'
+    )
     
     # Sales
     register_capability(

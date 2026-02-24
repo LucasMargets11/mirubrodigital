@@ -296,7 +296,7 @@ function JobDetails({ job }: { job: InventoryImportJob }) {
                 <InfoRow label="Ajustes" value={job.adjusted_count} />
                 <InfoRow label="Omisiones" value={job.skipped_count} />
                 <InfoRow label="Errores" value={job.error_count} />
-                <InfoRow label="Actualizado" value={new Date(job.updated_at).toLocaleString('es-AR', { dateStyle: 'medium', timeStyle: 'short' })} />
+                <InfoRow label="Actualizado" value={new Date(job.updated_at).toLocaleString('es-AR', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'America/Argentina/Buenos_Aires' })} />
             </dl>
             {job.errors && job.errors.length > 0 ? (
                 <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">

@@ -42,3 +42,41 @@ const PUBLIC_API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000
 export function buildInvoicePdfUrl(invoiceId: string) {
     return `${PUBLIC_API_URL}${API_BASE}/${invoiceId}/pdf/`;
 }
+
+// ─── PDF Download ────────────────────────────────────────────────────────────
+
+export type PdfDownloadError =
+    | { type: 'issuer_profile_incomplete'; missing_fields: string[] }
+    | { type: 'generic'; message: string };
+
+/**
+ * Descarga los bytes del PDF de una factura.
+ * Lanza objetos tipados de PdfDownloadError para errores conocidos (422, etc.)
+ * de modo que los componentes puedan mostrar mensajes amigables.
+ */
+export async function downloadInvoicePdf(invoiceId: string): Promise<Blob> {
+    const response = await fetch(buildInvoicePdfUrl(invoiceId), {
+        credentials: 'include',
+    });
+
+    if (response.ok) {
+        return response.blob();
+    }
+
+    // Intentar leer JSON de la respuesta de error
+    const data = await response.json().catch(() => ({}));
+
+    if (response.status === 422 && data.code === 'issuer_profile_incomplete') {
+        // eslint-disable-next-line @typescript-eslint/no-throw-literal
+        throw {
+            type: 'issuer_profile_incomplete',
+            missing_fields: (data.missing_fields as string[]) ?? [],
+        } satisfies PdfDownloadError;
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-throw-literal
+    throw {
+        type: 'generic',
+        message: (data.message as string) ?? 'No se pudo descargar el PDF. Intentá nuevamente.',
+    } satisfies PdfDownloadError;
+}

@@ -2,6 +2,7 @@
 
 import type { ChangeEvent } from 'react';
 
+import { parseDateOnly, localDateToString } from '@/lib/dates';
 import { cn } from '@/lib/utils';
 
 export type DateRange = {
@@ -20,12 +21,12 @@ export type DateRangePickerProps = {
     };
 };
 
-const formatInputValue = (value?: Date) => (value ? value.toISOString().split('T')[0] : '');
+const formatInputValue = (value?: Date) => (value ? localDateToString(value) : '');
 
 export function DateRangePicker({ from, to, onSelect, className, labels }: DateRangePickerProps) {
     const handleChange = (field: 'from' | 'to') => (event: ChangeEvent<HTMLInputElement>) => {
         const value = event.target.value;
-        const nextDate = value ? new Date(value) : undefined;
+        const nextDate = value ? parseDateOnly(value) : undefined;
         const nextRange: DateRange = {
             from: field === 'from' ? nextDate : from,
             to: field === 'to' ? nextDate : to,

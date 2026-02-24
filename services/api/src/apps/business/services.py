@@ -23,16 +23,20 @@ class BusinessDocumentConfig:
     
     @property
     def billing_profile(self) -> BusinessBillingProfile:
-        """Obtener perfil de facturación (lazy load)."""
+        """Obtener perfil de facturación (lazy load, auto-crea si no existe)."""
         if self._billing_profile is None:
-            self._billing_profile = BusinessBillingProfile.objects.get(business=self.business)
+            self._billing_profile, _ = BusinessBillingProfile.objects.get_or_create(
+                business=self.business
+            )
         return self._billing_profile
     
     @property
     def branding(self) -> BusinessBranding:
-        """Obtener branding (lazy load)."""
+        """Obtener branding (lazy load, auto-crea si no existe)."""
         if self._branding is None:
-            self._branding = BusinessBranding.objects.get(business=self.business)
+            self._branding, _ = BusinessBranding.objects.get_or_create(
+                business=self.business
+            )
         return self._branding
     
     def is_ready_to_emit(self) -> bool:
@@ -83,16 +87,23 @@ class BusinessDocumentConfig:
     def get_issuer_data(self) -> Dict[str, Any]:
         """
         Obtener datos del emisor formateados para uso en PDFs y documentos.
-        
+        Robusto: usa getattr para todos los campos; nunca lanza AttributeError
+        aunque el modelo no tenga algún campo opcional.
+        El campo 'legal_address' expone fiscal_address (fuente real del modelo)
+        con fallback a commercial_address para compatibilidad.
+
         Returns:
             Dict con datos del emisor:
             {
                 'legal_name': str,
+                'trade_name': str,
                 'tax_id': str,
+                'tax_id_type': str,
                 'tax_id_display': str (formateado),
                 'vat_condition': str,
                 'vat_condition_display': str,
-                'legal_address': str,
+                'fiscal_address': str  (campo real del modelo),
+                'legal_address': str   (alias de fiscal_address para compatibilidad PDF),
                 'commercial_address': str,
                 'city': str,
                 'state_province': str,
@@ -101,26 +112,81 @@ class BusinessDocumentConfig:
                 'phone': str,
                 'email': str,
                 'website': str,
+                'iibb': str,
+                'activity_start_date': date or None,
             }
         """
         profile = self.billing_profile
+
+        # Domicilios — el modelo tiene fiscal_address y commercial_address.
+        # legal_address es un alias para compatibilidad con el PDF.
+        fiscal_address = getattr(profile, 'fiscal_address', '') or ''
+        # Por si en una migración futura se agrega legal_address al modelo:
+        _model_legal_address = getattr(profile, 'legal_address', '') or ''
+        legal_address = _model_legal_address or fiscal_address
+        commercial_address = getattr(profile, 'commercial_address', '') or legal_address
+
+        # Identificación fiscal
+        tax_id = getattr(profile, 'tax_id', '') or ''
+        tax_id_display = ''
+        if tax_id:
+            try:
+                tax_id_display = f"{profile.get_tax_id_type_display()}: {tax_id}"
+            except Exception:
+                tax_id_display = tax_id
+
+        # Condición IVA
+        vat_condition = getattr(profile, 'vat_condition', '') or ''
+        vat_condition_display = ''
+        try:
+            vat_condition_display = profile.get_vat_condition_display() or ''
+        except Exception:
+            vat_condition_display = vat_condition
+
         return {
-            'legal_name': profile.legal_name,
-            'tax_id': profile.tax_id,
-            'tax_id_display': f"{profile.get_tax_id_type_display()}: {profile.tax_id}" if profile.tax_id else '',
-            'vat_condition': profile.vat_condition,
-            'vat_condition_display': profile.get_vat_condition_display(),
-            'legal_address': profile.legal_address,
-            'commercial_address': profile.commercial_address or profile.legal_address,
-            'city': profile.city,
-            'state_province': profile.state_province,
-            'postal_code': profile.postal_code,
-            'country': profile.country,
-            'phone': profile.phone,
-            'email': profile.email,
-            'website': profile.website,
+            'legal_name': getattr(profile, 'legal_name', '') or '',
+            'trade_name': getattr(profile, 'trade_name', '') or '',
+            'tax_id': tax_id,
+            'tax_id_type': getattr(profile, 'tax_id_type', '') or '',
+            'tax_id_display': tax_id_display,
+            'vat_condition': vat_condition,
+            'vat_condition_display': vat_condition_display,
+            'fiscal_address': fiscal_address,
+            'legal_address': legal_address,
+            'commercial_address': commercial_address,
+            # Campos opcionales que el modelo puede no tener aún:
+            'city': getattr(profile, 'city', '') or '',
+            'state_province': getattr(profile, 'state_province', '') or '',
+            'postal_code': getattr(profile, 'postal_code', '') or '',
+            'country': getattr(profile, 'country', '') or '',
+            'phone': getattr(profile, 'phone', '') or '',
+            'email': getattr(profile, 'email', '') or '',
+            'website': getattr(profile, 'website', '') or '',
+            'iibb': getattr(profile, 'iibb', '') or '',
+            'activity_start_date': getattr(profile, 'activity_start_date', None),
         }
-    
+
+    def get_missing_issuer_fields(self) -> list:
+        """
+        Retorna lista de claves de campos obligatorios que están vacíos en el perfil de emisor.
+        Usado para devolver 422 con detalle antes de generar PDF.
+
+        Returns:
+            Lista de strings con nombres de campos faltantes. Lista vacía = perfil completo.
+        """
+        profile = self.billing_profile
+        missing = []
+
+        if not (getattr(profile, 'legal_name', '') or '').strip():
+            missing.append('legal_name')
+
+        fiscal_address = (getattr(profile, 'fiscal_address', '') or '').strip()
+        commercial_address = (getattr(profile, 'commercial_address', '') or '').strip()
+        if not fiscal_address and not commercial_address:
+            missing.append('fiscal_address')
+
+        return missing
+
     def get_branding_data(self) -> Dict[str, Any]:
         """
         Obtener datos de branding formateados.
@@ -135,10 +201,44 @@ class BusinessDocumentConfig:
         """
         branding = self.branding
         return {
-            'logo_horizontal': branding.logo_horizontal,
-            'logo_square': branding.logo_square,
-            'accent_color': branding.accent_color,
+            'logo_horizontal': getattr(branding, 'logo_horizontal', None) or None,
+            'logo_square': getattr(branding, 'logo_square', None) or None,
+            'accent_color': getattr(branding, 'accent_color', '') or '#0f172a',
         }
+
+    def get_invoice_branding(self) -> Dict[str, Any]:
+        """
+        Obtener datos de branding específicos para facturas PDF.
+        Nunca lanza excepción; fallbacks seguros para todos los campos.
+
+        Returns:
+            Dict:
+            {
+                'logo_header': ImageFieldFile o None  (logo_horizontal, fallback logo_square),
+                'logo_horizontal': ImageFieldFile o None,
+                'logo_square': ImageFieldFile o None,
+                'accent_color': str (hex),
+            }
+        """
+        try:
+            branding = self.branding
+            logo_horizontal = getattr(branding, 'logo_horizontal', None) or None
+            logo_square = getattr(branding, 'logo_square', None) or None
+            # "logo_header" usa horizontal de preferencia, fallback al cuadrado
+            logo_header = logo_horizontal or logo_square
+            return {
+                'logo_header': logo_header,
+                'logo_horizontal': logo_horizontal,
+                'logo_square': logo_square,
+                'accent_color': getattr(branding, 'accent_color', '') or '#0f172a',
+            }
+        except Exception:
+            return {
+                'logo_header': None,
+                'logo_horizontal': None,
+                'logo_square': None,
+                'accent_color': '#0f172a',
+            }
 
 
 def get_business_document_config(business: Business) -> BusinessDocumentConfig:

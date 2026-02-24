@@ -3,7 +3,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     AccountViewSet, TransactionCategoryViewSet, TransactionViewSet,
     ExpenseTemplateViewSet, ExpenseViewSet, EmployeeViewSet, PayrollPaymentViewSet,
-    FixedExpenseViewSet, FixedExpensePeriodViewSet
+    FixedExpenseViewSet, FixedExpensePeriodViewSet, TreasurySettingsViewSet, BudgetViewSet
 )
 
 router = DefaultRouter()
@@ -16,6 +16,8 @@ router.register(r'employees', EmployeeViewSet)
 router.register(r'payroll-payments', PayrollPaymentViewSet)
 router.register(r'fixed-expenses', FixedExpenseViewSet)
 router.register(r'fixed-expense-periods', FixedExpensePeriodViewSet)
+router.register(r'settings', TreasurySettingsViewSet, basename='treasury-settings')
+router.register(r'budgets', BudgetViewSet)
 
 urlpatterns = [
     path('', include(router.urls)),

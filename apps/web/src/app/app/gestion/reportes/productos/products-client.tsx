@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { downloadCsv } from '@/lib/csv';
 import { formatCurrency, formatNumber } from '@/lib/format';
 import { useReportsProducts } from '@/features/reports/hooks';
+import { todayDateString, dateOffsetFromToday } from '@/lib/dates';
 
 import { ReportsFilters, type ReportsFiltersValue } from '@/modules/reports/components/filters';
 import { ReportsPagination } from '@/modules/reports/components/pagination';
@@ -196,14 +197,7 @@ export function ReportsProductsClient() {
 }
 
 function getDefaultRange() {
-    const to = new Date();
-    const from = new Date();
-    from.setDate(to.getDate() - 29);
-    return { from: toIso(from), to: toIso(to) };
-}
-
-function toIso(date: Date) {
-    return date.toISOString().slice(0, 10);
+    return { from: dateOffsetFromToday(-29), to: todayDateString() };
 }
 
 function KpiCard({ label, value }: { label: string; value: string }) {

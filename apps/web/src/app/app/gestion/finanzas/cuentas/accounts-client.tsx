@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from 'react';
+import { todayDateString } from '@/lib/dates';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Loader2, Edit, AlertCircle, RefreshCw } from 'lucide-react';
 
@@ -203,7 +204,7 @@ function AccountFormModal({ isOpen, onClose, onSubmit, isLoading, account }: any
 
 function ReconcileModal({ isOpen, onClose, onSubmit, isLoading, account }: any) {
     const [realBalance, setRealBalance] = useState('');
-    const [occurredAt, setOccurredAt] = useState(new Date().toISOString().split('T')[0]);
+    const [occurredAt, setOccurredAt] = useState(() => todayDateString());
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();

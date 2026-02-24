@@ -20,6 +20,7 @@ export default async function GestionStockPage({ searchParams }: GestionStockPag
     const featureEnabled = session.features?.inventory !== false;
     const canView = session.permissions?.view_stock ?? false;
     const canManage = session.permissions?.manage_stock ?? false;
+    const canManagePurchases = session.permissions?.manage_purchases ?? false;
 
     if (!featureEnabled) {
         return <AccessMessage title="Tu plan no incluye Stock" description="Actualizá el plan para habilitar inventario en tiempo real." />;
@@ -37,7 +38,7 @@ export default async function GestionStockPage({ searchParams }: GestionStockPag
     return (
         <section className="space-y-6">
             <StockNav />
-            <StockClient canManage={canManage} initialStatus={initialStatus} initialAction={initialAction} initialProductId={initialProductId} />
+            <StockClient canManage={canManage} canManagePurchases={canManagePurchases} initialStatus={initialStatus} initialAction={initialAction} initialProductId={initialProductId} />
         </section>
     );
 }

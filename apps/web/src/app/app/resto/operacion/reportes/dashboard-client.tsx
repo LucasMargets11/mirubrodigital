@@ -8,6 +8,7 @@ import { ChartCard } from '@/components/reports/charts/ChartCard';
 import { PaymentsDonutChart } from '@/components/reports/charts/PaymentsDonutChart';
 import { SalesTrendChart } from '@/components/reports/charts/SalesTrendChart';
 import { MetricCard } from '@/components/reports/metrics/MetricCard';
+import { todayDateString, dateOffsetFromToday } from '@/lib/dates';
 import { calculateDeltaPct, getToneFromDelta } from '@/components/reports/metrics/utils';
 import type { MetricTone } from '@/components/reports/metrics/utils';
 import type { TrendPoint } from '@/components/reports/utils/fillMissingPeriods';
@@ -282,14 +283,7 @@ function convertTrendPoint(point: { date: string; revenue: string; sales_count: 
 }
 
 function getDefaultRange() {
-    const to = new Date();
-    const from = new Date();
-    from.setDate(to.getDate() - 6);
-    return { from: toIso(from), to: toIso(to) };
-}
-
-function toIso(date: Date) {
-    return date.toISOString().slice(0, 10);
+    return { from: dateOffsetFromToday(-6), to: todayDateString() };
 }
 
 function toNumber(value: unknown): number {
@@ -447,6 +441,7 @@ function formatDateTime(value: string) {
         return new Intl.DateTimeFormat('es-AR', {
             dateStyle: 'medium',
             timeStyle: 'short',
+            timeZone: 'America/Argentina/Buenos_Aires',
         }).format(new Date(value));
     } catch (error) {
         return value;

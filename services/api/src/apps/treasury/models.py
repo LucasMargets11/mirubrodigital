@@ -75,10 +75,14 @@ class Transaction(models.Model):
 class FixedExpense(models.Model):
     """Representa un gasto fijo recurrente (ej: Internet, Alquiler, Luz)"""
     class Frequency(models.TextChoices):
+        WEEKLY = 'weekly', 'Semanal'
         MONTHLY = 'monthly', 'Mensual'
+        QUARTERLY = 'quarterly', 'Trimestral'
+        YEARLY = 'yearly', 'Anual'
 
     business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name='fixed_expenses')
     name = models.CharField(max_length=255, help_text="Nombre del gasto fijo (ej: Internet, Alquiler)")
+    category = models.ForeignKey('TransactionCategory', on_delete=models.SET_NULL, null=True, blank=True, related_name='fixed_expenses', help_text="Categoría para agrupación")
     default_amount = models.DecimalField(max_digits=19, decimal_places=4, null=True, blank=True, help_text="Monto por defecto opcional")
     due_day = models.PositiveSmallIntegerField(null=True, blank=True, help_text="Día del mes de vencimiento (1-28)")
     frequency = models.CharField(max_length=20, choices=Frequency.choices, default=Frequency.MONTHLY)
@@ -162,15 +166,40 @@ class Expense(models.Model):
     amount = models.DecimalField(max_digits=19, decimal_places=4)
     due_date = models.DateField()
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
-    
+
     paid_at = models.DateTimeField(null=True, blank=True)
     paid_account = models.ForeignKey(Account, on_delete=models.SET_NULL, null=True, blank=True, related_name='paid_expenses')
     payment_transaction = models.ForeignKey(Transaction, on_delete=models.SET_NULL, null=True, blank=True, related_name='expense_payments')
-    
+
     attachment = models.FileField(upload_to='treasury/expenses/%Y/%m/', null=True, blank=True)
     notes = models.TextField(null=True, blank=True)
-    
+
+    # Polymorphic source reference — used for auto-generated expenses (e.g. stock replenishments).
+    # UNIQUE(business, source_type, source_id) prevents duplicates.
+    source_type = models.CharField(
+        max_length=50, null=True, blank=True,
+        help_text="Tipo de origen del gasto automático (ej: 'stock_replenishment')",
+    )
+    source_id = models.CharField(
+        max_length=100, null=True, blank=True,
+        help_text="ID del registro de origen (UUID o entero como string)",
+    )
+    # Flag to distinguish auto-generated expenses from manually created ones
+    is_auto_generated = models.BooleanField(
+        default=False,
+        help_text="True cuando fue creado automáticamente por el sistema (ej. reposición de stock)",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['business', 'source_type', 'source_id'],
+                condition=models.Q(source_type__isnull=False),
+                name='expense_unique_auto_source',
+            )
+        ]
 
     def __str__(self):
         return f"{self.name} - {self.amount}"
@@ -191,6 +220,12 @@ class Employee(models.Model):
         return self.full_name
 
 class PayrollPayment(models.Model):
+    STATUS_PAID = 'paid'
+    STATUS_REVERTED = 'reverted'
+    STATUS_CHOICES = [
+        (STATUS_PAID, 'Paid'),
+        (STATUS_REVERTED, 'Reverted'),
+    ]
     business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name='payroll_payments')
     employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='payments')
     amount = models.DecimalField(max_digits=19, decimal_places=4)
@@ -199,6 +234,7 @@ class PayrollPayment(models.Model):
     transaction = models.ForeignKey(Transaction, on_delete=models.SET_NULL, null=True, blank=True, related_name='payroll_payments')
     notes = models.TextField(null=True, blank=True)
     attachment = models.FileField(upload_to='treasury/payroll/%Y/%m/', null=True, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PAID)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -206,9 +242,45 @@ class PayrollPayment(models.Model):
 
 class TreasurySettings(models.Model):
     business = models.OneToOneField(Business, on_delete=models.CASCADE, related_name='treasury_settings')
+    # Payment method → account mapping
     default_cash_account = models.ForeignKey(Account, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
     default_bank_account = models.ForeignKey(Account, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
     default_mercadopago_account = models.ForeignKey(Account, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
-    
+    default_card_account = models.ForeignKey(Account, on_delete=models.SET_NULL, null=True, blank=True, related_name='+', help_text="Cuenta destino para pagos con tarjeta")
+    default_other_account = models.ForeignKey(Account, on_delete=models.SET_NULL, null=True, blank=True, related_name='+', help_text="Cuenta destino para otros medios de pago")
+    # Functional defaults
+    default_income_account = models.ForeignKey(Account, on_delete=models.SET_NULL, null=True, blank=True, related_name='+', help_text="Cuenta por defecto para ingresos manuales")
+    default_expense_account = models.ForeignKey(Account, on_delete=models.SET_NULL, null=True, blank=True, related_name='+', help_text="Cuenta por defecto para egresos manuales")
+    default_payroll_account = models.ForeignKey(Account, on_delete=models.SET_NULL, null=True, blank=True, related_name='+', help_text="Cuenta por defecto para sueldos")
+
+    def get_account_for_payment_method(self, payment_method: str):
+        """Return the configured account for a given payment method string."""
+        mapping = {
+            'cash': self.default_cash_account,
+            'transfer': self.default_bank_account,
+            'mercadopago': self.default_mercadopago_account,
+            'card': self.default_card_account,
+            'other': self.default_other_account,
+        }
+        return mapping.get(payment_method)
+
     def __str__(self):
         return f"Treasury Settings for {self.business.name}"
+
+
+class Budget(models.Model):
+    """Presupuesto mensual por categoría para alertas de gasto."""
+    business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name='treasury_budgets')
+    year = models.PositiveSmallIntegerField()
+    month = models.PositiveSmallIntegerField(help_text="Mes (1-12)")
+    category = models.ForeignKey(TransactionCategory, on_delete=models.CASCADE, related_name='budgets')
+    limit_amount = models.DecimalField(max_digits=19, decimal_places=4)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [['business', 'year', 'month', 'category']]
+        ordering = ['-year', '-month']
+
+    def __str__(self):
+        return f"Budget {self.category.name} {self.year}-{self.month:02d}: {self.limit_amount}"

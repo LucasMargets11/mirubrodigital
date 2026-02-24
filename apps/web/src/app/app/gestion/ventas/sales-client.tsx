@@ -12,6 +12,7 @@ function formatCurrency(value: string | number) {
     return new Intl.NumberFormat('es-AR', {
         style: 'currency',
         currency: 'ARS',
+        minimumFractionDigits: 0,
         maximumFractionDigits: 2,
     }).format(Number.isNaN(numeric) ? 0 : numeric);
 }

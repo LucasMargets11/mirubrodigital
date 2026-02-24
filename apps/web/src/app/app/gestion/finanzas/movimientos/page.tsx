@@ -27,5 +27,9 @@ export default async function FinanzasMovimientosPage() {
     // We could do this client side with react-query too, but layout pattern suggests client usually.
     // I'll stick to client fetching in the Client Component for consistency with AccountsClient.
     
-    return <TransactionsClient canManage={canManage} />;
+    const now = new Date();
+    const initialDateFrom = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+    const initialDateTo = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+    return <TransactionsClient canManage={canManage} initialDateFrom={initialDateFrom} initialDateTo={initialDateTo} />;
 }
