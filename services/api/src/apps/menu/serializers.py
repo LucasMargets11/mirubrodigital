@@ -37,6 +37,7 @@ class MenuItemBaseSerializer(serializers.ModelSerializer):
     tags = TagListField(required=False, allow_empty=True)
     category_name = serializers.SerializerMethodField(read_only=True)
     category_id = serializers.UUIDField(required=False, allow_null=True)
+    image_url = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = MenuItem
@@ -53,8 +54,9 @@ class MenuItemBaseSerializer(serializers.ModelSerializer):
             'is_featured',
             'position',
             'estimated_time_minutes',
+            'image_url',
         ]
-        read_only_fields = ['id', 'category_name']
+        read_only_fields = ['id', 'category_name', 'image_url']
 
     def to_representation(self, instance: MenuItem):  # type: ignore[override]
         payload = super().to_representation(instance)
@@ -63,6 +65,14 @@ class MenuItemBaseSerializer(serializers.ModelSerializer):
 
     def get_category_name(self, instance: MenuItem) -> str | None:
         return instance.category.name if instance.category else None
+
+    def get_image_url(self, instance: MenuItem) -> str | None:
+        url = instance.image_url_value
+        if url:
+            request = self.context.get('request')
+            if request and url.startswith('/'):
+                return request.build_absolute_uri(url)
+        return url
 
     def _prepare_tags(self, validated_data: dict) -> None:
         tags: List[str] | None = validated_data.pop('tags', None)
@@ -121,13 +131,22 @@ class MenuItemWriteSerializer(MenuItemBaseSerializer):
 
 class MenuStructureItemSerializer(serializers.ModelSerializer):
     tags = serializers.SerializerMethodField()
+    image_url = serializers.SerializerMethodField()
 
     class Meta:
         model = MenuItem
-        fields = ['id', 'name', 'description', 'price', 'tags', 'is_available', 'is_featured', 'position']
+        fields = ['id', 'name', 'description', 'price', 'tags', 'is_available', 'is_featured', 'position', 'image_url']
 
     def get_tags(self, obj: MenuItem) -> List[str]:
         return obj.tag_list
+
+    def get_image_url(self, instance: MenuItem) -> str | None:
+        url = instance.image_url_value
+        if url:
+            request = self.context.get('request') if hasattr(self, 'context') else None
+            if request and url.startswith('/'):
+                return request.build_absolute_uri(url)
+        return url
 
 
 class MenuStructureCategorySerializer(serializers.ModelSerializer):
@@ -205,6 +224,8 @@ class MenuBrandingSettingsSerializer(serializers.ModelSerializer):
 
 
 class PublicMenuItemSerializer(serializers.ModelSerializer):
+    image_url = serializers.SerializerMethodField()
+
     class Meta:
         model = MenuItem
         fields = [
@@ -215,7 +236,16 @@ class PublicMenuItemSerializer(serializers.ModelSerializer):
             'is_available',
             'tags',
             'sku',
+            'image_url',
         ]
+
+    def get_image_url(self, instance: MenuItem) -> str | None:
+        url = instance.image_url_value
+        if url:
+            request = self.context.get('request')
+            if request and url.startswith('/'):
+                return request.build_absolute_uri(url)
+        return url
 
 
 class PublicMenuCategorySerializer(serializers.ModelSerializer):
@@ -228,4 +258,30 @@ class PublicMenuCategorySerializer(serializers.ModelSerializer):
     def get_items(self, obj):
         # We show all items to indicate availability status
         items = obj.items.all().order_by('position', 'name')
-        return PublicMenuItemSerializer(items, many=True).data
+        return PublicMenuItemSerializer(
+            items,
+            many=True,
+            context=self.context,
+        ).data
+
+
+class MenuItemImageUploadSerializer(serializers.Serializer):
+    """Validates the image file before upload to a MenuItem."""
+
+    ALLOWED_TYPES = {'image/jpeg', 'image/png', 'image/webp'}
+    MAX_SIZE_BYTES = 5 * 1024 * 1024  # 5 MB
+
+    file = serializers.ImageField()
+
+    def validate_file(self, value):
+        content_type = getattr(value, 'content_type', None)
+        if content_type and content_type not in self.ALLOWED_TYPES:
+            raise serializers.ValidationError(
+                'Formato no válido. Subí una imagen JPG, PNG o WebP.'
+            )
+        if value.size > self.MAX_SIZE_BYTES:
+            max_mb = self.MAX_SIZE_BYTES // (1024 * 1024)
+            raise serializers.ValidationError(
+                f'El archivo es demasiado grande. Máximo {max_mb} MB.'
+            )
+        return value

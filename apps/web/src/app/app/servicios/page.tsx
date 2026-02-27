@@ -4,12 +4,27 @@ import { getSession } from '@/lib/auth';
 import { serverApiFetch } from '@/lib/api/server';
 import type { CommercialSubscription } from '@/types/billing';
 import { BillingPageClient } from '@/components/gestion/billing-page-client';
+import { MenuQrBillingView } from '@/components/app/menu-qr-billing-view';
 
 export default async function BillingHubPage() {
     const session = await getSession();
 
     if (!session) {
         redirect('/entrar');
+    }
+
+    const service = session.current?.service ?? 'gestion';
+
+    // Non-commercial services (menu_qr, restaurante) don't use the commercial subscription endpoint
+    if (service !== 'gestion') {
+        return (
+            <MenuQrBillingView
+                service={service}
+                plan={session.subscription?.plan ?? ''}
+                status={session.subscription?.status ?? 'active'}
+                businessName={session.current?.business?.name ?? ''}
+            />
+        );
     }
 
     let subscription: CommercialSubscription | null = null;

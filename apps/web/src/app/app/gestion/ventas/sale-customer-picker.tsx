@@ -72,16 +72,19 @@ export function SaleCustomerPicker({ value, onChange }: SaleCustomerPickerProps)
 
     const handleQuickSubmit = async () => {
         const trimmed = quickName.trim();
-        if (trimmed.length < MIN_NAME_LENGTH) {
+        const nameToUse = trimmed === '' ? 'Consumidor Final' : trimmed;
+        if (nameToUse !== 'Consumidor Final' && nameToUse.length < MIN_NAME_LENGTH) {
             setQuickError('Ingresá al menos 2 caracteres.');
             return;
         }
+        // Reflect default in the input so the user sees what was used
+        if (trimmed === '') setQuickName('Consumidor Final');
         setQuickError(null);
         try {
             setPendingMode('quick');
             const customer = await createCustomer.mutateAsync({
                 ...quickDefaults,
-                name: trimmed,
+                name: nameToUse,
             });
             handleSelect(toSummary(customer), 'quick');
             setQuickName('');

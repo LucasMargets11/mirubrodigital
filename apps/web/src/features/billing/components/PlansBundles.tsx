@@ -106,7 +106,7 @@ export function PlansBundles({ vertical, billingPeriod, onChooseBundle }: PlansB
 
               {/* Checklist de módulos */}
               <ul className="space-y-2 flex-1">
-                {getKeyModules(bundle.modules, bundle.code).map((m) => (
+                {getKeyModules(bundle.modules, bundle.code, vertical).map((m) => (
                   <li key={m.code} className="flex items-start text-sm text-slate-700">
                     <span className="mr-2 text-green-500 font-bold">✓</span>
                     <span>{m.name}</span>
@@ -137,44 +137,86 @@ export function PlansBundles({ vertical, billingPeriod, onChooseBundle }: PlansB
 
 // Helper para obtener características específicas de cada plan
 function getPlanFeatures(bundleCode: string, vertical: BillingVertical) {
-  if (vertical !== 'commercial') return null;
+  if (vertical === 'commercial') {
+    const features: Record<string, { branches: string; users?: string; highlight?: string }> = {
+      gestion_start: {
+        branches: '1 sucursal',
+        users: 'Usuarios ilimitados',
+        highlight: 'Ideal para empezar'
+      },
+      gestion_pro: {
+        branches: 'Hasta 3 sucursales',
+        users: 'Usuarios ilimitados',
+        highlight: 'Incluye Tesorería'
+      },
+      gestion_business: {
+        branches: 'Hasta 5 sucursales',
+        users: 'Usuarios ilimitados',
+        highlight: 'Facturación incluida'
+      }
+    };
+    return features[bundleCode] || null;
+  }
 
-  const features: Record<string, { branches: string; users?: string; highlight?: string }> = {
-    gestion_start: {
-      branches: '1 sucursal',
-      users: 'Usuarios ilimitados',
-      highlight: 'Ideal para empezar'
-    },
-    gestion_pro: {
-      branches: 'Hasta 3 sucursales',
-      users: 'Usuarios ilimitados',
-      highlight: 'Incluye Tesorería'
-    },
-    gestion_business: {
-      branches: 'Hasta 5 sucursales',
-      users: 'Usuarios ilimitados',
-      highlight: 'Facturación incluida'
-    }
-  };
+  if (vertical === 'restaurant') {
+    const features: Record<string, { branches: string; users?: string; highlight?: string }> = {
+      restaurante_inteligente: {
+        branches: '1 sucursal',
+        users: 'Usuarios ilimitados',
+        highlight: '✓ Menú QR Online incluido'
+      },
+      resto_basic: {
+        branches: '1 sucursal',
+        highlight: 'Starter para restaurantes'
+      }
+    };
+    return features[bundleCode] || null;
+  }
 
-  return features[bundleCode] || null;
+  if (vertical === 'menu_qr') {
+    const features: Record<string, { branches?: string; users?: string; highlight?: string }> = {
+      menu_qr_online: {
+        highlight: 'Carta digital con QR propio'
+      }
+    };
+    return features[bundleCode] || { highlight: 'Carta digital con QR propio' };
+  }
+
+  return null;
 }
 
 // Helper para mostrar solo los módulos más relevantes (max 6)
-function getKeyModules(modules: any[], bundleCode: string) {
-  const priorityModules = [
-    'gestion_products',
-    'gestion_customers',
-    'gestion_cash',
-    'gestion_treasury',
-    'gestion_invoices',
-    'gestion_reports',
-    'gestion_multi_branch',
-    'gestion_inventory_advanced'
-  ];
+function getKeyModules(modules: any[], bundleCode: string, vertical: BillingVertical = 'commercial') {
+  const priorityByVertical: Record<BillingVertical, string[]> = {
+    commercial: [
+      'gestion_products',
+      'gestion_customers',
+      'gestion_cash',
+      'gestion_treasury',
+      'gestion_invoices',
+      'gestion_reports',
+      'gestion_multi_branch',
+      'gestion_inventory_advanced'
+    ],
+    restaurant: [
+      'tables_map',
+      'table_orders',
+      'kitchen_tickets',
+      'split_payments',
+      'menu_builder_core',
+      'menu_branding_basic',
+      'menu_qr_tools'
+    ],
+    menu_qr: [
+      'menu_builder_core',
+      'menu_branding_basic',
+      'menu_qr_tools'
+    ],
+  };
 
-  // Ordenar por prioridad y tomar los primeros 6
-  const sorted = modules.sort((a, b) => {
+  const priorityModules = priorityByVertical[vertical] ?? priorityByVertical.commercial;
+
+  const sorted = [...modules].sort((a, b) => {
     const aIndex = priorityModules.indexOf(a.code);
     const bIndex = priorityModules.indexOf(b.code);
     if (aIndex === -1 && bIndex === -1) return 0;
@@ -192,9 +234,9 @@ function MenuQrPlaceholder() {
       <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-50 text-brand-600">
         <QrCode className="h-8 w-8" aria-hidden="true" />
       </div>
-      <h3 className="text-2xl font-semibold text-slate-900">Planes en preparación</h3>
+      <h3 className="text-2xl font-semibold text-slate-900">Menú QR Online</h3>
       <p className="mt-2 text-base text-slate-600">
-        Estamos terminando los packs comerciales para Menú QR Online. Mientras tanto coordinamos la implementación con nuestro equipo.
+        Tu carta digital siempre al día, con marca propia y sin comisiones. Consultanos para activar tu plan.
       </p>
       <Button asChild className="mt-6 bg-brand-600 text-white hover:bg-brand-700">
         <Link href="/subscribe?service=menu_qr">Consultar</Link>

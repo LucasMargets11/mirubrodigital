@@ -15,6 +15,8 @@ import {
     updateMenuBrandingSettings,
     updateMenuCategory,
     updateMenuItem,
+    uploadMenuItemImage,
+    deleteMenuItemImage,
 } from './api';
 import type { MenuCategoryPayload, MenuItemFilters, MenuItemPayload } from './types';
 
@@ -164,5 +166,28 @@ export function useMenuQrCode(businessId: number | null) {
         queryKey: menuKeys.qr(businessId || 0),
         queryFn: () => getMenuQrCode(businessId as number),
         enabled: !!businessId,
+    });
+}
+
+export function useUploadMenuItemImage() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ id, file }: { id: string; file: File }) =>
+            uploadMenuItemImage(id, file),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: menuItemsRootKey });
+            queryClient.invalidateQueries({ queryKey: menuStructureKey });
+        },
+    });
+}
+
+export function useDeleteMenuItemImage() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (id: string) => deleteMenuItemImage(id),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: menuItemsRootKey });
+            queryClient.invalidateQueries({ queryKey: menuStructureKey });
+        },
     });
 }

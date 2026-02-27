@@ -58,7 +58,7 @@ class CommercialSubscriptionView(APIView):
         if not plan_config:
             return Response(
                 {'detail': f'Plan configuration not found for {plan_code}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                status=status.HTTP_404_NOT_FOUND
             )
         
         # Obtener addons actualmente contratados (no incluidos en el plan)

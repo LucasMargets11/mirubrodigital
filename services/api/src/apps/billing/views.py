@@ -9,7 +9,7 @@ from django.utils import timezone
 from django.conf import settings
 import logging
 
-from apps.accounts.access import resolve_business_context, resolve_request_membership
+from apps.accounts.access import resolve_request_membership
 from apps.accounts.permissions import HasBusinessMembership
 from apps.business.models import Business
 from apps.accounts.models import Membership
@@ -131,7 +131,10 @@ class BillingViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=['get'])
     def subscription(self, request):
-        business = resolve_business_context(request)
+        # request.business is set by HasBusinessMembership which runs first
+        business = getattr(request, 'business', None)
+        if not business:
+            return Response({})
         try:
             sub = Subscription.objects.get(business=business)
             return Response(SubscriptionSerializer(sub).data)

@@ -8,6 +8,8 @@ class Business(models.Model):
     ('gestion', 'Gestion Comercial'),
     ('restaurante', 'Restaurantes'),
     ('menu_qr', 'Menú QR Online'),
+    ('menu_qr_visual', 'Menú QR Visual'),
+    ('menu_qr_marca', 'Menú QR Marca'),
   ]
 
   name = models.CharField(max_length=255)
@@ -44,7 +46,9 @@ class BusinessPlan(models.TextChoices):
   BUSINESS = 'business', 'Business'
   ENTERPRISE = 'enterprise', 'Enterprise'
   MENU_QR = 'menu_qr', 'Menú QR'
-  
+  MENU_QR_VISUAL = 'menu_qr_visual', 'Menú QR Visual'
+  MENU_QR_MARCA = 'menu_qr_marca', 'Menú QR Marca'
+
   # Legacy plans (mantener para compatibilidad)
   STARTER = 'starter', 'Starter (Legacy)'
   PLUS = 'plus', 'Plus (Legacy)'

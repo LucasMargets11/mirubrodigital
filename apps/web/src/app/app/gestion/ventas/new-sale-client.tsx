@@ -119,7 +119,7 @@ export function NewSaleClient() {
         [warnLowStock, lowStockThreshold]
     );
 
-    const productsQuery = useProducts(trimmedSearch, false, { enabled: canFetchProducts });
+    const productsQuery = useProducts(trimmedSearch, false, undefined, { enabled: canFetchProducts });
     const rawProducts = canFetchProducts ? productsQuery.data ?? [] : [];
 
     const filteredProducts = useMemo(() => {
@@ -376,7 +376,20 @@ export function NewSaleClient() {
                                             {products.map((product) => {
                                                 const stockMeta = getStockMeta(product, stockMetaConfig);
                                                 return (
-                                                    <li key={product.id} className="flex flex-wrap items-center justify-between gap-4 px-4 py-3">
+                                                    <li
+                                                        key={product.id}
+                                                        role="button"
+                                                        tabIndex={0}
+                                                        aria-label={`Agregar ${product.name} al carrito`}
+                                                        onClick={() => addProductToCart(product)}
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === 'Enter' || e.key === ' ') {
+                                                                e.preventDefault();
+                                                                addProductToCart(product);
+                                                            }
+                                                        }}
+                                                        className="flex cursor-pointer flex-wrap items-center justify-between gap-4 px-4 py-3 transition hover:bg-slate-50 active:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-slate-900"
+                                                    >
                                                         <div className="min-w-0 flex-1">
                                                             <p className="font-medium text-slate-900">{product.name}</p>
                                                             <p className="text-xs text-slate-400">SKU {product.sku || '—'}</p>
@@ -389,7 +402,7 @@ export function NewSaleClient() {
                                                             <p className="text-sm font-semibold text-slate-600">{formatCurrency(Number(product.price))}</p>
                                                             <button
                                                                 type="button"
-                                                                onClick={() => addProductToCart(product)}
+                                                                onClick={(e) => { e.stopPropagation(); addProductToCart(product); }}
                                                                 disabled={stockMeta.status === 'out'}
                                                                 aria-disabled={stockMeta.status === 'out'}
                                                                 className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 transition hover:border-slate-900 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
@@ -477,6 +490,7 @@ export function NewSaleClient() {
                                                     step="0.5"
                                                     value={item.quantity}
                                                     onChange={(event) => updateQuantity(item.product.id, event.target.value)}
+                                                    onFocus={(e) => e.target.select()}
                                                     className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-slate-900 focus:outline-none"
                                                 />
                                             </label>
@@ -488,6 +502,7 @@ export function NewSaleClient() {
                                                     step="0.5"
                                                     value={item.unitPrice}
                                                     onChange={(event) => updateUnitPrice(item.product.id, event.target.value)}
+                                                    onFocus={(e) => e.target.select()}
                                                     className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-slate-900 focus:outline-none"
                                                 />
                                             </label>

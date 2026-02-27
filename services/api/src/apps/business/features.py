@@ -30,6 +30,9 @@ FEATURE_KEYS: Iterable[str] = (
   'menu_branding',
   'public_menu',
   'menu_qr_tools',
+  # Premium QR menu features
+  'menu_item_images',
+  'menu_custom_domain',
 )
 
 PLAN_FEATURES: Dict[str, Iterable[str]] = {
@@ -46,6 +49,7 @@ PLAN_FEATURES: Dict[str, Iterable[str]] = {
     'quotes',
     'treasury',
     'reports',
+    'multi_branch',
     'orders',
     'tables',
     'whatsapp_bot',
@@ -56,18 +60,42 @@ PLAN_FEATURES: Dict[str, Iterable[str]] = {
     'resto_recipes',
     'resto_menu',
     'resto_reports',
+    # Restaurante Inteligente includes the full Menú QR Online feature set
+    # (including images), so that feature-gated QR menu UI elements are shown.
+    'menu_builder',
+    'menu_branding',
+    'public_menu',
+    'menu_qr_tools',
+    'menu_item_images',
   ),
   # New plans (Gestión Comercial)
   'start': ('products', 'inventory', 'stock', 'sales'),
   'pro': ('products', 'inventory', 'stock', 'sales', 'customers', 'invoices', 'cash', 'quotes', 'treasury', 'reports'),
   'business': ('products', 'inventory', 'stock', 'sales', 'customers', 'invoices', 'cash', 'quotes', 'treasury', 'reports', 'multi_branch'),
   'enterprise': ('products', 'inventory', 'stock', 'sales', 'customers', 'invoices', 'cash', 'quotes', 'treasury', 'reports', 'multi_branch'),
-  # Menu QR
+  # Menu QR Básico (standalone — sin imágenes)
   'menu_qr': (
     'menu_builder',
     'menu_branding',
     'public_menu',
     'menu_qr_tools',
+  ),
+  # Menu QR Visual — con imágenes por producto
+  'menu_qr_visual': (
+    'menu_builder',
+    'menu_branding',
+    'public_menu',
+    'menu_qr_tools',
+    'menu_item_images',
+  ),
+  # Menu QR Marca — con imágenes + dominio personalizado
+  'menu_qr_marca': (
+    'menu_builder',
+    'menu_branding',
+    'public_menu',
+    'menu_qr_tools',
+    'menu_item_images',
+    'menu_custom_domain',
   ),
 }
 

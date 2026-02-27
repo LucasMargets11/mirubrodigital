@@ -20,6 +20,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.permissions import HasBusinessMembership, HasPermission
+from apps.billing.permissions import CheckFeatureAccess
 from apps.business.service_policy import require_service
 from .importer import MenuImportError, apply_menu_import, export_menu_to_workbook
 from .models import (
@@ -36,6 +37,7 @@ from .serializers import (
     MenuLogoUploadSerializer,
     MenuItemSerializer,
     MenuItemWriteSerializer,
+    MenuItemImageUploadSerializer,
     MenuStructureCategorySerializer,
     PublicMenuConfigSerializer,
     PublicMenuCategorySerializer,
@@ -206,9 +208,19 @@ class MenuLogoUploadView(APIView):
             url = request.build_absolute_uri(url)
 
         config = ensure_public_menu_config(business)
+        update_fields: list[str] = []
         if config.logo_url != url:
             config.logo_url = url
-            config.save(update_fields=['logo_url'])
+            update_fields.append('logo_url')
+        # Keep theme_json in sync so the public menu page shows the logo
+        # without requiring a separate "Guardar Cambios" click.
+        theme = config.theme_json or {}
+        if theme.get('menuLogoUrl') != url:
+            theme['menuLogoUrl'] = url
+            config.theme_json = theme
+            update_fields.append('theme_json')
+        if update_fields:
+            config.save(update_fields=update_fields)
 
         return Response({'url': url})
 
@@ -282,7 +294,9 @@ class PublicMenuBySlugView(APIView):
             .order_by('position', 'name')
         )
 
-        menu_data = PublicMenuCategorySerializer(categories, many=True).data
+        menu_data = PublicMenuCategorySerializer(
+            categories, many=True, context={'request': request}
+        ).data
         branding_data = MenuBrandingSettingsSerializer(branding, context={'request': request}).data
         config_data = PublicMenuConfigSerializer(config).data
 
@@ -330,6 +344,66 @@ class MenuQRCodeView(APIView):
             'qr_svg': qr_svg,
             'generated_at': timezone.now(),
         })
+
+
+class MenuItemImageView(APIView):
+    """
+    POST   /api/v1/menu/items/<uuid>/image/  — Upload or replace product image.
+    DELETE /api/v1/menu/items/<uuid>/image/  — Remove product image.
+
+    Both endpoints require the business subscription to include the
+    'menu_item_images' billing module (Plan QR Visual or QR Marca).
+    """
+    parser_classes = [MultiPartParser]
+    permission_classes = [
+        IsAuthenticated,
+        HasBusinessMembership,
+        HasPermission,
+        CheckFeatureAccess,
+    ]
+    permission_map = {
+        'POST': 'manage_menu',
+        'DELETE': 'manage_menu',
+    }
+    # CheckFeatureAccess reads this attribute:
+    required_feature = 'menu_item_images'
+
+    def _get_item(self, request, pk):
+        business = getattr(request, 'business')
+        return get_object_or_404(MenuItem, pk=pk, business=business)
+
+    def post(self, request, pk):
+        item = self._get_item(request, pk)
+        serializer = MenuItemImageUploadSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        uploaded_file = serializer.validated_data['file']
+        # Delete old image file from storage if present
+        if item.image:
+            item.image.delete(save=False)
+
+        item.image = uploaded_file
+        item.image_updated_at = timezone.now()
+        item.save(update_fields=['image', 'image_updated_at'])
+
+        # Build absolute URL for the response
+        url = item.image.url
+        if url.startswith('/'):
+            url = request.build_absolute_uri(url)
+
+        return Response({'image_url': url}, status=status.HTTP_200_OK)
+
+    def delete(self, request, pk):
+        item = self._get_item(request, pk)
+        if not item.image:
+            return Response({'detail': 'Este producto no tiene imagen.'}, status=status.HTTP_404_NOT_FOUND)
+
+        item.image.delete(save=False)
+        item.image = None
+        item.image_updated_at = None
+        item.save(update_fields=['image', 'image_updated_at'])
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 def build_public_menu_url(slug: str) -> str:

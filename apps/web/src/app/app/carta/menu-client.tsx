@@ -1,6 +1,7 @@
 "use client";
 
 import { ChangeEvent, useMemo, useRef, useState } from 'react';
+import Image from 'next/image';
 
 import { Modal } from '@/components/ui/modal';
 import { todayDateString } from '@/lib/dates';
@@ -9,6 +10,7 @@ import {
     useCreateMenuItem,
     useDeleteMenuCategory,
     useDeleteMenuItem,
+    useDeleteMenuItemImage,
     useExportMenu,
     useImportMenu,
     useMenuCategories,
@@ -16,6 +18,7 @@ import {
     useMenuStructure,
     useUpdateMenuCategory,
     useUpdateMenuItem,
+    useUploadMenuItemImage,
 } from '@/features/menu/hooks';
 import type { MenuCategory, MenuImportResult, MenuItem } from '@/features/menu/types';
 
@@ -60,6 +63,7 @@ type MenuClientProps = {
     canManage: boolean;
     canImport: boolean;
     canExport: boolean;
+    canUploadImages: boolean;
 };
 
 const emptyCategoryForm: CategoryFormState = {
@@ -95,7 +99,7 @@ function formatCurrency(value: string | number | undefined) {
     return pesosFormatter.format(numeric);
 }
 
-export function MenuClient({ canManage, canImport, canExport }: MenuClientProps) {
+export function MenuClient({ canManage, canImport, canExport, canUploadImages }: MenuClientProps) {
     const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
     const [search, setSearch] = useState('');
     const [availability, setAvailability] = useState<AvailabilityFilter>('all');
@@ -108,6 +112,9 @@ export function MenuClient({ canManage, canImport, canExport }: MenuClientProps)
     const [importResult, setImportResult] = useState<MenuImportResult | null>(null);
     const [importError, setImportError] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
+    const imageInputRef = useRef<HTMLInputElement | null>(null);
+    const [imageUploadItemId, setImageUploadItemId] = useState<string | null>(null);
+    const [imageUploadError, setImageUploadError] = useState<string | null>(null);
 
     const categoryQuery = useMenuCategories();
     const categories = categoryQuery.data ?? [];
@@ -133,6 +140,8 @@ export function MenuClient({ canManage, canImport, canExport }: MenuClientProps)
     const deleteItem = useDeleteMenuItem();
     const importMenu = useImportMenu();
     const exportMenu = useExportMenu();
+    const uploadImage = useUploadMenuItemImage();
+    const deleteImage = useDeleteMenuItemImage();
 
     const hasCategories = categories.length > 0;
 
@@ -364,6 +373,34 @@ export function MenuClient({ canManage, canImport, canExport }: MenuClientProps)
             URL.revokeObjectURL(url);
         } catch (error) {
             window.alert('No pudimos generar la descarga.');
+        }
+    };
+
+    const handleImageUploadClick = (itemId: string) => {
+        setImageUploadItemId(itemId);
+        setImageUploadError(null);
+        imageInputRef.current?.click();
+    };
+
+    const handleImageFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file || !imageUploadItemId) return;
+        setImageUploadError(null);
+        try {
+            await uploadImage.mutateAsync({ id: imageUploadItemId, file });
+        } catch {
+            setImageUploadError('No pudimos subir la imagen. Verificá que sea JPG/PNG/WebP y menor a 5 MB.');
+        } finally {
+            event.target.value = '';
+        }
+    };
+
+    const handleDeleteImage = async (item: MenuItem) => {
+        if (!window.confirm(`¿Eliminar la imagen de "${item.name}"?`)) return;
+        try {
+            await deleteImage.mutateAsync(item.id);
+        } catch {
+            window.alert('No pudimos eliminar la imagen.');
         }
     };
 
@@ -636,6 +673,17 @@ export function MenuClient({ canManage, canImport, canExport }: MenuClientProps)
                                             ))}
                                         </div>
                                     ) : null}
+                                    {item.image_url ? (
+                                        <div className="relative h-40 w-full overflow-hidden rounded-2xl bg-slate-100">
+                                            <Image
+                                                src={item.image_url}
+                                                alt={item.name}
+                                                fill
+                                                className="object-cover"
+                                                sizes="(max-width: 768px) 100vw, 50vw"
+                                            />
+                                        </div>
+                                    ) : null}
                                     <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500">
                                         <div className="flex items-center gap-2">
                                             <span className={`flex h-2 w-2 items-center justify-center rounded-full ${item.is_available ? 'bg-emerald-400' : 'bg-slate-300'
@@ -677,12 +725,53 @@ export function MenuClient({ canManage, canImport, canExport }: MenuClientProps)
                                             >
                                                 Eliminar
                                             </button>
+                                            {canUploadImages ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleImageUploadClick(item.id)}
+                                                    className="rounded-full border border-slate-200 px-4 py-1 text-xs font-semibold text-slate-600 disabled:opacity-50"
+                                                    disabled={uploadImage.isPending && imageUploadItemId === item.id}
+                                                >
+                                                    {uploadImage.isPending && imageUploadItemId === item.id
+                                                        ? 'Subiendo...'
+                                                        : item.image_url
+                                                        ? 'Cambiar imagen'
+                                                        : 'Subir imagen'}
+                                                </button>
+                                            ) : (
+                                                <span className="text-xs italic text-slate-400">
+                                                    Imágenes disponibles en{' '}
+                                                    <a href="/app/planes" className="text-amber-600 underline">
+                                                        QR Visual
+                                                    </a>
+                                                </span>
+                                            )}
+                                            {item.image_url ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleDeleteImage(item)}
+                                                    className="rounded-full border border-rose-200 px-4 py-1 text-xs font-semibold text-rose-600 disabled:opacity-50"
+                                                    disabled={deleteImage.isPending}
+                                                >
+                                                    Quitar imagen
+                                                </button>
+                                            ) : null}
                                         </div>
                                     ) : null}
                                 </article>
                             ))}
                         </div>
                     </div>
+                    <input
+                        ref={imageInputRef}
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        className="hidden"
+                        onChange={handleImageFileChange}
+                    />
+                    {imageUploadError ? (
+                        <p className="text-center text-xs text-rose-500">{imageUploadError}</p>
+                    ) : null}
                 </div>
             </div>
 

@@ -37,7 +37,7 @@ export function NewQuoteClient() {
     const documentSeriesQuery = useDocumentSeriesQuery();
     const trimmedSearch = search.trim();
     const shouldSearch = trimmedSearch.length >= 2;
-    const productsQuery = useProducts(trimmedSearch, false, { enabled: shouldSearch });
+    const productsQuery = useProducts(trimmedSearch, false, undefined, { enabled: shouldSearch });
     const products = shouldSearch ? (productsQuery.data ?? []).slice(0, 20) : [];
 
     const createQuote = useCreateQuote();

@@ -1,6 +1,5 @@
 from rest_framework.permissions import BasePermission
 from .services import PricingService
-from apps.accounts.access import resolve_business_context
 
 class CheckFeatureAccess(BasePermission):
     message = "Esta función no está incluida en su plan actual."
@@ -9,9 +8,10 @@ class CheckFeatureAccess(BasePermission):
         feature = getattr(view, 'required_feature', None)
         if not feature:
             return True
-            
-        business = resolve_business_context(request)
+
+        # request.business is set by HasBusinessMembership, which always runs first
+        business = getattr(request, 'business', None)
         if not business:
             return False
-            
+
         return PricingService.tenant_has_feature(business.id, feature)

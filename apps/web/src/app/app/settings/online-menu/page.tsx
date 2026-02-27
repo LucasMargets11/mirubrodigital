@@ -191,7 +191,13 @@ export default function OnlineMenuSettingsPage() {
                                     setUploadingLogo(true);
                                     try {
                                         const res = await uploadMenuLogo(file);
-                                        setConfig({...config, theme_json: {...config.theme_json, menuLogoUrl: res.url}});
+                                        const updatedTheme = {...config.theme_json, menuLogoUrl: res.url};
+                                        // Persist theme_json immediately so the public page shows the logo
+                                        // without requiring a separate "Guardar Cambios" click.
+                                        const updated = await updatePublicMenuConfig({
+                                            theme_json: updatedTheme,
+                                        });
+                                        setConfig(updated);
                                     } catch (err) {
                                         console.error("Error uploading logo", err);
                                         // Using browser alert for simplicity in this specific user flow request
@@ -222,7 +228,16 @@ export default function OnlineMenuSettingsPage() {
                                 variant="outline" 
                                 size="sm" 
                                 className="text-red-500 hover:text-red-700 hover:bg-red-50 border-red-200 hover:border-red-300" 
-                                onClick={() => setConfig({...config, theme_json: {...config.theme_json, menuLogoUrl: ''}})}
+                                onClick={async () => {
+                                    const updatedTheme = {...config.theme_json, menuLogoUrl: ''};
+                                    try {
+                                        const updated = await updatePublicMenuConfig({ theme_json: updatedTheme });
+                                        setConfig(updated);
+                                    } catch {
+                                        // Fallback: update local state anyway so preview reflects removal
+                                        setConfig({...config, theme_json: updatedTheme});
+                                    }
+                                }}
                                 disabled={uploadingLogo}
                             >
                                 Quitar

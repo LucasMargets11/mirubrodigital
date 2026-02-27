@@ -65,6 +65,8 @@ RESTAURANT_PERMISSIONS: Set[str] = {
 MENU_QR_PERMISSIONS: Set[str] = {
   'view_menu',
   'manage_menu',
+  'import_menu',
+  'export_menu',
   'manage_menu_branding',
   'view_menu_admin',
   'view_public_menu',

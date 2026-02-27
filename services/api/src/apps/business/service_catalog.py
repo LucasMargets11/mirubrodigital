@@ -51,8 +51,10 @@ PLAN_ORDER = {
   BusinessPlan.PRO: 1,
   BusinessPlan.BUSINESS: 2,
   BusinessPlan.ENTERPRISE: 3,
-  # Menu QR
+  # Menu QR tiers
   BusinessPlan.MENU_QR: 0,
+  BusinessPlan.MENU_QR_VISUAL: 1,
+  BusinessPlan.MENU_QR_MARCA: 2,
 }
 
 

@@ -49,6 +49,8 @@ class MenuItem(models.Model):
     is_featured = models.BooleanField(default=False)
     position = models.PositiveIntegerField(default=0)
     estimated_time_minutes = models.PositiveIntegerField(default=0)
+    image = models.ImageField(upload_to='menu/items/', blank=True, null=True)
+    image_updated_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -75,6 +77,12 @@ class MenuItem(models.Model):
         if not self.tags:
             return []
         return [tag.strip() for tag in self.tags.split(',') if tag.strip()]
+
+    @property
+    def image_url_value(self) -> str | None:
+        if self.image:
+            return self.image.url
+        return None
 
 
 class PublicMenuConfig(models.Model):

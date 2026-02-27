@@ -146,10 +146,52 @@ class Command(BaseCommand):
                 'vertical': 'restaurant',
                 'pricing_mode': 'fixed_price',
                 'fixed_price_monthly': 2500,
-                'is_default_recommended': True
+                'is_default_recommended': False
             }
         )
         b_resto_basic.modules.set([resto_modules_obj['tables_map'], resto_modules_obj['table_orders']])
+
+        # Restaurante Inteligente: full restaurant pack + Menú QR Online included
+        # Ensure menu_qr modules are created first (they may vary by run order, so
+        # we create them inline here too rather than depending on the later block).
+        resto_menu_qr_mods_data = [
+            ('menu_builder_core', 'Editor de Carta', 'Categorías e items ilimitados dentro del plan.', 'operation', 0, True),
+            ('menu_branding_basic', 'Branding Básico', 'Logo, colores y tipografías personalizadas.', 'admin', 0, True),
+            ('menu_qr_tools', 'QR & Link Público', 'Generación de QR ilimitado y vista previa pública.', 'insights', 0, True),
+        ]
+        resto_menu_mods_obj = {}
+        for code, name, desc, cat, price, is_core in resto_menu_qr_mods_data:
+            mod, _ = Module.objects.update_or_create(
+                code=code,
+                defaults={
+                    'name': name,
+                    'description': desc,
+                    'category': cat,
+                    'price_monthly': price,
+                    'price_yearly': price * 10 if price else 0,
+                    'is_core': is_core,
+                    'vertical': 'menu_qr',
+                }
+            )
+            resto_menu_mods_obj[code] = mod
+
+        b_restaurante_inteligente, _ = Bundle.objects.update_or_create(
+            code='restaurante_inteligente',
+            defaults={
+                'name': 'Restaurante Inteligente',
+                'description': 'Gestión completa del salón, cocina y carta digital con QR incluido.',
+                'vertical': 'restaurant',
+                'pricing_mode': 'fixed_price',
+                'fixed_price_monthly': 14900,   # $149/mes
+                'fixed_price_yearly': 143040,   # $149 * 12 * 0.8 (20% desc. anual)
+                'is_default_recommended': True,
+                'badge': 'Completo',
+            }
+        )
+        # Restaurant modules + all menu_qr modules (QR incluido en Restaurante Inteligente)
+        b_restaurante_inteligente.modules.set(
+            list(resto_modules_obj.values()) + list(resto_menu_mods_obj.values())
+        )
         
         # Menu QR Online Modules & Bundle
         menu_modules_data = [
@@ -174,6 +216,7 @@ class Command(BaseCommand):
             )
             menu_modules[code] = mod
 
+        # Legacy bundle — keep for backwards compatibility (existing subscriptions reference it)
         menu_bundle, _ = Bundle.objects.update_or_create(
             code='menu_qr_online',
             defaults={
@@ -183,11 +226,107 @@ class Command(BaseCommand):
                 'pricing_mode': 'fixed_price',
                 'fixed_price_monthly': 4900,
                 'fixed_price_yearly': 4900 * 10,
-                'is_default_recommended': True,
-                'badge': 'Nuevo',
+                'is_default_recommended': False,
+                'badge': '',
             }
         )
         menu_bundle.modules.set(list(menu_modules.values()))
+
+        # -------------------------------------------------------------------
+        # Menú QR — 3 tiers (Básico / Visual / Marca)
+        # -------------------------------------------------------------------
+        premium_menu_mods_data = [
+            (
+                'menu_item_images',
+                'Imágenes por producto',
+                'Sube una imagen por producto visible en la carta pública.',
+                'operation',
+                0,
+                False,
+            ),
+            (
+                'menu_custom_domain',
+                'Dominio personalizado',
+                'Servir la carta desde tu propio dominio o subdominio.',
+                'admin',
+                0,
+                False,
+            ),
+        ]
+        premium_menu_mods = {}
+        for code, name, desc, cat, price, is_core in premium_menu_mods_data:
+            mod, _ = Module.objects.update_or_create(
+                code=code,
+                defaults={
+                    'name': name,
+                    'description': desc,
+                    'category': cat,
+                    'price_monthly': price,
+                    'price_yearly': price * 10 if price else 0,
+                    'is_core': is_core,
+                    'vertical': 'menu_qr',
+                }
+            )
+            premium_menu_mods[code] = mod
+
+        # Plan A: QR Básico — manage menu + QR + branding, sin imágenes
+        basico_module_codes = ['menu_builder_core', 'menu_branding_basic', 'menu_qr_tools']
+        b_qr_basico, _ = Bundle.objects.update_or_create(
+            code='menu_qr_basico',
+            defaults={
+                'name': 'QR Básico',
+                'description': 'Carta digital con QR, branding básico. Sin imágenes por producto.',
+                'vertical': 'menu_qr',
+                'pricing_mode': 'fixed_price',
+                'fixed_price_monthly': 2900,   # $29/mes
+                'fixed_price_yearly': 27840,   # $29 * 12 * 0.8
+                'is_default_recommended': False,
+                'badge': '',
+            }
+        )
+        b_qr_basico.modules.set(
+            [menu_modules[c] for c in basico_module_codes if c in menu_modules]
+        )
+
+        # Plan B: QR Visual — todo de Básico + imágenes por producto
+        visual_module_codes = basico_module_codes + ['menu_item_images']
+        b_qr_visual, _ = Bundle.objects.update_or_create(
+            code='menu_qr_visual',
+            defaults={
+                'name': 'QR Visual',
+                'description': 'Carta visual con imágenes por producto y branding completo.',
+                'vertical': 'menu_qr',
+                'pricing_mode': 'fixed_price',
+                'fixed_price_monthly': 5900,   # $59/mes
+                'fixed_price_yearly': 56640,   # $59 * 12 * 0.8
+                'is_default_recommended': True,
+                'badge': 'Popular',
+            }
+        )
+        b_qr_visual.modules.set(
+            [menu_modules.get(c) or premium_menu_mods.get(c) for c in visual_module_codes
+             if menu_modules.get(c) or premium_menu_mods.get(c)]
+        )
+
+        # Plan C: QR Marca — todo de Visual + dominio personalizado
+        marca_module_codes = visual_module_codes + ['menu_custom_domain']
+        b_qr_marca, _ = Bundle.objects.update_or_create(
+            code='menu_qr_marca',
+            defaults={
+                'name': 'QR Marca',
+                'description': 'Carta premium con imágenes, dominio personalizado y sin branding de Mirubro.',
+                'vertical': 'menu_qr',
+                'pricing_mode': 'fixed_price',
+                'fixed_price_monthly': 9900,   # $99/mes
+                'fixed_price_yearly': 95040,   # $99 * 12 * 0.8
+                'is_default_recommended': False,
+                'badge': 'Completo',
+            }
+        )
+        b_qr_marca.modules.set(
+            [menu_modules.get(c) or premium_menu_mods.get(c) for c in marca_module_codes
+             if menu_modules.get(c) or premium_menu_mods.get(c)]
+        )
 
         # Plans for checkout flow
         Plan.objects.update_or_create(

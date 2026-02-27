@@ -100,3 +100,13 @@ export function updateMenuBrandingSettings(payload: Partial<MenuBrandingSettings
 export function getMenuQrCode(businessId: number) {
     return apiGet<MenuQrResponse>(`/api/v1/menu-qr/${businessId}/`);
 }
+
+export function uploadMenuItemImage(itemId: string, file: File) {
+    const formData = new FormData();
+    formData.append('file', file);
+    return apiPost<{ image_url: string }>(`/api/v1/menu/items/${itemId}/image/`, formData);
+}
+
+export function deleteMenuItemImage(itemId: string) {
+    return apiDelete<void>(`/api/v1/menu/items/${itemId}/image/`);
+}

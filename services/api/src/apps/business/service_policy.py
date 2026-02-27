@@ -1,10 +1,22 @@
 from __future__ import annotations
 
-from typing import Type
+from typing import Dict, FrozenSet, Type
 
 from rest_framework.permissions import BasePermission
 
 from apps.accounts.access import resolve_request_membership
+
+# Service hierarchy: a business with service X implicitly has access to all
+# service endpoints listed in its implied set.
+# Rationale: 'restaurante' bundles the full Menú QR feature set.
+# 'menu_qr_visual' and 'menu_qr_marca' are supersets of 'menu_qr', so they
+# also satisfy require_service('menu_qr').
+SERVICE_IMPLIES: Dict[str, FrozenSet[str]] = {
+    'restaurante': frozenset({'restaurante', 'menu_qr'}),
+    'menu_qr_visual': frozenset({'menu_qr', 'menu_qr_visual'}),
+    'menu_qr_marca': frozenset({'menu_qr', 'menu_qr_visual', 'menu_qr_marca'}),
+}
+
 
 
 def _resolve_business(request):
@@ -19,17 +31,30 @@ def _resolve_business(request):
 
 
 def business_has_service(business, service_slug: str) -> bool:
+    """
+    Return True if the business has access to *service_slug*.
+
+    A business's actual service is resolved from its subscription (preferred)
+    or its ``default_service`` field.  The actual service is then expanded
+    through SERVICE_IMPLIES so that, e.g., a ``restaurante`` subscription
+    also satisfies ``require_service('menu_qr')``.
+    """
     if business is None or not service_slug:
         return False
     subscription = getattr(business, 'subscription', None)
     subscription_service = getattr(subscription, 'service', None)
-    if subscription_service:
-        return subscription_service == service_slug
-    default_service = getattr(business, 'default_service', None) or 'gestion'
-    return default_service == service_slug
+    actual_service = subscription_service or getattr(business, 'default_service', None) or 'gestion'
+    implied: FrozenSet[str] = SERVICE_IMPLIES.get(actual_service, frozenset({actual_service}))
+    return service_slug in implied
 
 
 def require_service(service_slug: str) -> Type[BasePermission]:
+    """DRF permission class factory: gates a view behind a service check.
+
+    Usage::
+
+        permission_classes = [IsAuthenticated, HasBusinessMembership, require_service('menu_qr')]
+    """
     class RequireBusinessService(BasePermission):
         message = 'Este recurso no está disponible para tu servicio actual.'
 

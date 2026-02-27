@@ -27,6 +27,7 @@ export type MenuItem = {
     is_featured: boolean;
     position: number;
     estimated_time_minutes: number;
+    image_url: string | null;
 };
 
 export type LayoutTheme = {
@@ -59,7 +60,9 @@ export type PublicMenuConfig = {
   updated_at: string
 }
 
-export type PublicMenuItem = Pick<MenuItem, 'id' | 'name' | 'description' | 'price' | 'is_available' | 'tags' | 'sku'>
+export type PublicMenuItem = Pick<MenuItem, 'id' | 'name' | 'description' | 'price' | 'is_available' | 'tags' | 'sku'> & {
+  image_url: string | null
+}
 
 export type PublicMenuCategory = Pick<MenuCategory, 'id' | 'name' | 'description' | 'position'> & {
   items: PublicMenuItem[]
@@ -105,6 +108,7 @@ export type MenuStructureItem = {
     is_available: boolean;
     is_featured: boolean;
     position: number;
+    image_url: string | null;
 };
 
 export type MenuStructureCategory = {

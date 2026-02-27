@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { PlansBundles } from '@/features/billing/components/PlansBundles';
 import { PlansBuilderWizard } from '@/features/billing/components/PlansBuilderWizard';
 import { CommercialPlanBuilder } from '@/features/billing/components/CommercialPlanBuilder';
+import { GestionComercialComparisonTable } from '@/features/billing/components/GestionComercialComparisonTable';
 import type { BillingVertical, Bundle, QuoteResponse } from '@/features/billing/types';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { QrCode, Store, UtensilsCrossed, type LucideIcon } from 'lucide-react';
@@ -172,6 +173,9 @@ export default function PricingPage() {
                     )}
                 </div>
             )}
+
+            {/* Comparison table — only for Gestión Comercial */}
+            {vertical === 'commercial' && <GestionComercialComparisonTable />}
             </div>
         </div>
     );

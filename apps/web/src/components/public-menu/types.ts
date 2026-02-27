@@ -5,6 +5,7 @@ export interface MenuItem {
     price: number | string;
     is_available: boolean;
     image?: string;
+    image_url?: string | null;
     is_featured?: boolean; // Assumed field
 }
 

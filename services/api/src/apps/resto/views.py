@@ -6,6 +6,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.permissions import HasBusinessMembership, HasPermission, request_has_permission
+from apps.business.service_policy import require_service
 from apps.orders.models import Order
 from apps.orders.serializers import OrderCreateSerializer, OrderSerializer
 
@@ -28,7 +29,7 @@ from .services import (
 
 class TableListView(generics.ListAPIView):
 	serializer_class = TableSerializer
-	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	permission_classes = [IsAuthenticated, HasBusinessMembership, require_service('restaurante'), HasPermission]
 	required_permission = ['view_tables', 'manage_order_table']
 	pagination_class = None
 
@@ -44,7 +45,7 @@ class TableListView(generics.ListAPIView):
 
 
 class TableLayoutView(APIView):
-	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	permission_classes = [IsAuthenticated, HasBusinessMembership, require_service('restaurante'), HasPermission]
 	required_permission = 'view_tables'
 
 	def get(self, request):
@@ -55,7 +56,7 @@ class TableLayoutView(APIView):
 
 
 class TableStatusView(APIView):
-	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	permission_classes = [IsAuthenticated, HasBusinessMembership, require_service('restaurante'), HasPermission]
 	required_permission = 'view_tables'
 
 	def get(self, request):
@@ -66,7 +67,7 @@ class TableStatusView(APIView):
 
 class RestoOrderCreateView(generics.CreateAPIView):
 	serializer_class = OrderCreateSerializer
-	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	permission_classes = [IsAuthenticated, HasBusinessMembership, require_service('restaurante'), HasPermission]
 	required_permission = 'create_orders'
 
 	def get_serializer_context(self):
@@ -78,7 +79,7 @@ class RestoOrderCreateView(generics.CreateAPIView):
 
 
 class OrderTableAssignmentView(APIView):
-	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	permission_classes = [IsAuthenticated, HasBusinessMembership, require_service('restaurante'), HasPermission]
 	required_permission = 'manage_order_table'
 
 	def post(self, request, pk: str):
@@ -94,7 +95,7 @@ class OrderTableAssignmentView(APIView):
 
 
 class TableConfigurationView(APIView):
-	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	permission_classes = [IsAuthenticated, HasBusinessMembership, require_service('restaurante'), HasPermission]
 	required_permission = 'manage_tables'
 
 	def get(self, request):
@@ -124,7 +125,7 @@ class TableConfigurationView(APIView):
 
 
 class RestaurantTablesSnapshotView(APIView):
-	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	permission_classes = [IsAuthenticated, HasBusinessMembership, require_service('restaurante'), HasPermission]
 	required_permission = 'view_tables'
 
 	def get(self, request):
@@ -134,7 +135,7 @@ class RestaurantTablesSnapshotView(APIView):
 
 
 class RestaurantTablesMapStateView(APIView):
-	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	permission_classes = [IsAuthenticated, HasBusinessMembership, require_service('restaurante'), HasPermission]
 	required_permission = 'view_tables'
 
 	def get(self, request):
