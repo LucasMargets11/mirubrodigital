@@ -2,6 +2,12 @@ import { notFound } from 'next/navigation'
 import { getServerApiBaseUrl } from '@/lib/api-url'
 import { PublicMenuLayout } from '@/components/public-menu/menu-layout' // Adjust path if needed
 import { MenuCategory, MenuConfig } from '@/components/public-menu/types'
+import type { PublicMenuEngagement } from '@/features/menu/types'
+
+// Do not cache this route at the Next.js level — engagement/settings must reflect
+// the latest values on every request (no stale CTA visibility issues).
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
 
 type MenuData = {
   config: {
@@ -27,6 +33,7 @@ type MenuData = {
       is_featured?: boolean;
     }>;
   }>;
+  engagement?: PublicMenuEngagement;
 };
 
 type FetchResult = 
@@ -89,7 +96,7 @@ export default async function PublicMenuPage({ params }: { params: Promise<{ slu
       )
   }
 
-  const { config, categories } = result.data;
+  const { config, categories, engagement } = result.data;
   
   // Cast/Map to expected types
   const mappedConfig: MenuConfig = {
@@ -108,8 +115,12 @@ export default async function PublicMenuPage({ params }: { params: Promise<{ slu
       }))
   }));
 
-
   return (
-    <PublicMenuLayout config={mappedConfig} categories={mappedCategories} />
+    <PublicMenuLayout
+      config={mappedConfig}
+      categories={mappedCategories}
+      engagement={engagement ?? null}
+      slug={slug}
+    />
   )
 }

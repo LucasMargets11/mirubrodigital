@@ -9,6 +9,7 @@ import type { PublicMenuConfig } from '@/features/menu/types'
 import { MENU_FONTS_MAP, menuFontsVariablesClassName, getMenuFontFamily } from '@/lib/fonts'
 import { ONLINE_MENU_PRESETS, applyPreset } from '@/lib/online-menu-presets'
 import { MenuBrandHeader } from '@/components/public-menu/brand-header'
+import { EngagementSettingsSection } from '@/components/app/engagement-settings-section'
 
 function ColorInput({ label, value, onChange }: { label: string, value: string, onChange: (val: string) => void }) {
     const [localValue, setLocalValue] = useState(value);
@@ -497,6 +498,12 @@ export default function OnlineMenuSettingsPage() {
               </p>
            </div>
         </div>
+      </div>
+
+      {/* ── Propinas y Reseñas ───────────────────────────────────────────── */}
+      <div>
+        <h2 className="text-xl font-semibold mb-4 tracking-tight">Propinas y Reseñas</h2>
+        <EngagementSettingsSection />
       </div>
     </div>
   )

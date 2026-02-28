@@ -1,9 +1,13 @@
 import { apiDelete, apiGet, apiGetBlob, apiPatch, apiPost } from '@/lib/api/client';
 
 import type {
+    CreateTipPreferenceResponse,
+    MercadoPagoConnectionStatus,
     MenuBrandingSettings,
     MenuCategory,
     MenuCategoryPayload,
+    MenuEngagementSettings,
+    MenuEngagementSettingsPayload,
     MenuImportResult,
     MenuItem,
     MenuItemFilters,
@@ -11,6 +15,8 @@ import type {
     MenuQrResponse,
     MenuStructureCategory,
     PublicMenuConfig,
+    TipTransaction,
+    TipVerifyResponse,
 } from './types';
 
 function buildQuery(params: Record<string, string | undefined>) {
@@ -109,4 +115,59 @@ export function uploadMenuItemImage(itemId: string, file: File) {
 
 export function deleteMenuItemImage(itemId: string) {
     return apiDelete<void>(`/api/v1/menu/items/${itemId}/image/`);
+}
+
+// ---------------------------------------------------------------------------
+// Engagement: tips + reviews (admin panel)
+// ---------------------------------------------------------------------------
+
+export function getMenuEngagementSettings() {
+    return apiGet<MenuEngagementSettings>('/api/v1/menu/engagement/');
+}
+
+export function updateMenuEngagementSettings(payload: MenuEngagementSettingsPayload) {
+    return apiPatch<MenuEngagementSettings>('/api/v1/menu/engagement/', payload);
+}
+
+export function uploadEngagementQRImage(file: File) {
+    const formData = new FormData();
+    formData.append('file', file);
+    return apiPost<{ url: string }>('/api/v1/menu/engagement/upload-qr/', formData);
+}
+
+// ---------------------------------------------------------------------------
+// Mercado Pago OAuth per-business (Fase 2)
+// ---------------------------------------------------------------------------
+
+export function getMercadoPagoConnectionStatus() {
+    return apiGet<MercadoPagoConnectionStatus>('/api/v1/menu/mercadopago/connect/status/');
+}
+
+export function startMercadoPagoOAuth() {
+    return apiGet<{ auth_url: string }>('/api/v1/menu/mercadopago/connect/start/');
+}
+
+export function disconnectMercadoPago() {
+    return apiDelete<{ detail: string }>('/api/v1/menu/mercadopago/connect/');
+}
+
+// ---------------------------------------------------------------------------
+// Public: Tip preferences (Fase 2)
+// ---------------------------------------------------------------------------
+
+export function createPublicTipPreference(slug: string, amount: number, tableRef?: string) {
+    return apiPost<CreateTipPreferenceResponse>(
+        `/api/v1/menu/public/slug/${slug}/tips/create-preference/`,
+        { amount, table_ref: tableRef ?? '' },
+    );
+}
+
+export function getPublicTipStatus(tipId: string) {
+    return apiGet<TipTransaction>(`/api/v1/menu/public/tips/${tipId}/status/`);
+}
+
+export function verifyPublicTip(tipId: string, paymentId: string) {
+    return apiGet<TipVerifyResponse>(
+        `/api/v1/menu/public/tips/${tipId}/verify/?payment_id=${encodeURIComponent(paymentId)}`,
+    );
 }

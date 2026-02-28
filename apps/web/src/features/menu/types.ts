@@ -78,6 +78,7 @@ export type PublicMenuResponse = {
     config: PublicMenuConfig
     branding: MenuBrandingSettings
     categories: PublicMenuCategory[]
+    engagement: PublicMenuEngagement
 }
 
 export type MenuItemPayload = {
@@ -162,4 +163,68 @@ export type MenuQrResponse = {
     public_url: string;
     qr_svg: string;
     generated_at: string;
+};
+
+// ---------------------------------------------------------------------------
+// Engagement: tips + reviews
+// ---------------------------------------------------------------------------
+
+export type TipsMode = 'mp_link' | 'mp_qr_image' | 'mp_oauth_checkout';
+
+export type MenuEngagementSettings = {
+    tips_enabled: boolean;
+    tips_mode: TipsMode;
+    mp_tip_url: string | null;
+    mp_qr_image: File | null; // write-only (upload)
+    mp_qr_image_url: string | null;
+    reviews_enabled: boolean;
+    google_place_id: string | null;
+    google_review_url: string | null;
+    google_write_review_url: string | null;
+    updated_at: string;
+};
+
+export type MenuEngagementSettingsPayload = Partial<Omit<MenuEngagementSettings, 'mp_qr_image' | 'mp_qr_image_url' | 'google_write_review_url' | 'updated_at'>>;
+
+/** Safe public engagement data returned inside PublicMenuResponse. Never contains tokens. */
+export type PublicMenuEngagement = {
+    tips_enabled: boolean;
+    tips_mode: TipsMode;
+    mp_tip_url: string | null;
+    mp_qr_image_url: string | null;
+    reviews_enabled: boolean;
+    google_write_review_url: string | null;
+};
+
+export type MercadoPagoConnectionStatus = {
+    connected: boolean;
+    status: 'connected' | 'expired' | 'revoked' | 'error' | null;
+    mp_user_id: string | null;
+    updated_at: string | null;
+};
+
+export type TipTransaction = {
+    id: string;
+    amount: string;
+    currency: string;
+    status: 'created' | 'pending' | 'approved' | 'rejected' | 'cancelled';
+    external_reference: string;
+    created_at: string;
+};
+
+export type TipVerifyResponse = {
+    tip_id: string;
+    status: 'created' | 'pending' | 'approved' | 'rejected' | 'cancelled';
+    mp_payment_id: string | null;
+    amount: string;
+    currency: string;
+    mp_status: string;
+    mp_status_detail: string;
+    verified_at: string;
+};
+
+export type CreateTipPreferenceResponse = {
+    tip_id: string;
+    init_point: string;
+    external_reference: string;
 };

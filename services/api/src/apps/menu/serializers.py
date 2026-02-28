@@ -9,6 +9,9 @@ from .models import (
     MenuCategory,
     MenuItem,
     PublicMenuConfig,
+    MenuEngagementSettings,
+    MercadoPagoConnection,
+    TipTransaction,
     ensure_public_menu_config,
 )
 
@@ -285,3 +288,105 @@ class MenuItemImageUploadSerializer(serializers.Serializer):
                 f'El archivo es demasiado grande. Máximo {max_mb} MB.'
             )
         return value
+
+
+# ---------------------------------------------------------------------------
+# Engagement: tips + reviews serializers
+# ---------------------------------------------------------------------------
+
+class MenuEngagementSettingsSerializer(serializers.ModelSerializer):
+    """Private serializer for the admin panel (full data, write access)."""
+
+    google_write_review_url = serializers.ReadOnlyField()
+    mp_qr_image_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = MenuEngagementSettings
+        fields = [
+            'tips_enabled',
+            'tips_mode',
+            'mp_tip_url',
+            'mp_qr_image',
+            'mp_qr_image_url',
+            'reviews_enabled',
+            'google_place_id',
+            'google_review_url',
+            'google_write_review_url',
+            'updated_at',
+        ]
+        read_only_fields = ['google_write_review_url', 'mp_qr_image_url', 'updated_at']
+        extra_kwargs = {
+            'mp_qr_image': {'write_only': True, 'required': False},
+        }
+
+    def get_mp_qr_image_url(self, obj) -> str | None:
+        if not obj.mp_qr_image:
+            return None
+        url = obj.mp_qr_image.url
+        request = self.context.get('request')
+        if request and url.startswith('/'):
+            return request.build_absolute_uri(url)
+        return url
+
+    def validate(self, data):
+        inst = self.instance
+        tips_enabled = data.get('tips_enabled', inst.tips_enabled if inst else False)
+        tips_mode = data.get('tips_mode', inst.tips_mode if inst else 'mp_link')
+        mp_tip_url = data.get('mp_tip_url', inst.mp_tip_url if inst else None)
+        mp_qr_image = data.get('mp_qr_image', inst.mp_qr_image if inst else None)
+
+        reviews_enabled = data.get('reviews_enabled', inst.reviews_enabled if inst else False)
+        place_id = data.get('google_place_id', inst.google_place_id if inst else None)
+        review_url = data.get('google_review_url', inst.google_review_url if inst else None)
+
+        # Auto-enable reviews when a place_id or review_url is provided and the caller
+        # did not explicitly set reviews_enabled=False in this payload.
+        if (place_id or review_url) and 'reviews_enabled' not in data:
+            data['reviews_enabled'] = True
+            reviews_enabled = True
+
+        if tips_enabled:
+            if tips_mode == 'mp_link' and not mp_tip_url:
+                raise serializers.ValidationError(
+                    {'mp_tip_url': 'URL de Mercado Pago requerida para modo Link.'}
+                )
+            if tips_mode == 'mp_qr_image' and not mp_qr_image:
+                raise serializers.ValidationError(
+                    {'mp_qr_image': 'Imagen QR requerida para modo QR. Subí la imagen primero.'}
+                )
+
+        if reviews_enabled and not place_id and not review_url:
+            raise serializers.ValidationError(
+                {'google_place_id': 'Se requiere Google Place ID o URL de reseña cuando las reseñas están activas.'}
+            )
+
+        return data
+
+
+class MercadoPagoConnectionStatusSerializer(serializers.Serializer):
+    """Read-only connection status for the admin panel (never exposes tokens)."""
+    connected = serializers.BooleanField()
+    status = serializers.CharField(allow_null=True)
+    mp_user_id = serializers.CharField(allow_blank=True, allow_null=True)
+    updated_at = serializers.DateTimeField(allow_null=True)
+
+
+class TipCreatePreferenceSerializer(serializers.Serializer):
+    """Validates a tip preference creation request from the public menu."""
+    amount = serializers.DecimalField(max_digits=8, decimal_places=2, min_value=10)
+    table_ref = serializers.CharField(max_length=64, required=False, allow_blank=True, default='')
+
+    def validate_amount(self, value):
+        if value > 50000:
+            raise serializers.ValidationError('El monto máximo de propina es $50.000.')
+        return value
+
+
+class TipTransactionSerializer(serializers.Serializer):
+    """Public read-only tip transaction status."""
+    id = serializers.UUIDField()
+    amount = serializers.DecimalField(max_digits=12, decimal_places=2)
+    currency = serializers.CharField()
+    status = serializers.CharField()
+    external_reference = serializers.CharField()
+    created_at = serializers.DateTimeField()

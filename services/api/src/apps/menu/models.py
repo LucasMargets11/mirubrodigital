@@ -6,6 +6,16 @@ from django.db import models
 from django.utils.text import slugify
 
 
+# ---------------------------------------------------------------------------
+# Engagement: tips + reviews modes
+# ---------------------------------------------------------------------------
+
+class TipsModeChoices(models.TextChoices):
+    MP_LINK = 'mp_link', 'MP Link (Fase 1)'
+    MP_QR_IMAGE = 'mp_qr_image', 'MP QR Image (Fase 1)'
+    MP_OAUTH_CHECKOUT = 'mp_oauth_checkout', 'MP OAuth Checkout (Fase 2)'
+
+
 class MenuCategory(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     business = models.ForeignKey('business.Business', related_name='menu_categories', on_delete=models.CASCADE)
@@ -156,3 +166,138 @@ def _generate_menu_slug(business):
         slug = f"{base_slug[:40]}-{counter}"
         counter += 1
     return slug
+
+
+# ---------------------------------------------------------------------------
+# MenuEngagementSettings — tips + reviews configuration per business
+# ---------------------------------------------------------------------------
+
+class MenuEngagementSettings(models.Model):
+    business = models.OneToOneField(
+        'business.Business',
+        related_name='menu_engagement_settings',
+        on_delete=models.CASCADE,
+    )
+    # Tips
+    tips_enabled = models.BooleanField(default=False)
+    tips_mode = models.CharField(
+        max_length=20,
+        choices=TipsModeChoices.choices,
+        default=TipsModeChoices.MP_LINK,
+    )
+    mp_tip_url = models.URLField(blank=True, null=True, help_text='Link de Mercado Pago para propinas (Fase 1)')
+    mp_qr_image = models.ImageField(
+        upload_to='menu/tips/qr/',
+        blank=True,
+        null=True,
+        help_text='Imagen QR de Mercado Pago (Fase 1)',
+    )
+    # Reviews
+    reviews_enabled = models.BooleanField(default=False)
+    google_place_id = models.CharField(max_length=255, blank=True, null=True)
+    google_review_url = models.URLField(blank=True, null=True, help_text='URL directa de reseña de Google (fallback si no hay place_id)')
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Menu Engagement Settings'
+        verbose_name_plural = 'Menu Engagement Settings'
+
+    def __str__(self) -> str:  # pragma: no cover
+        return f"EngagementSettings · {self.business_id}"
+
+    @property
+    def google_write_review_url(self) -> str | None:
+        """Returns the best Google write-review URL: place_id preferred, URL fallback."""
+        place_id = (self.google_place_id or '').strip()
+        if place_id:
+            return f"https://search.google.com/local/writereview?placeid={place_id}"
+        return self.google_review_url or None
+
+
+# ---------------------------------------------------------------------------
+# MercadoPagoConnection — per-business OAuth (Fase 2)
+# ---------------------------------------------------------------------------
+
+class MercadoPagoConnection(models.Model):
+    STATUS_CHOICES = [
+        ('connected', 'Connected'),
+        ('expired', 'Expired'),
+        ('revoked', 'Revoked'),
+        ('error', 'Error'),
+    ]
+
+    business = models.OneToOneField(
+        'business.Business',
+        related_name='mp_connection',
+        on_delete=models.CASCADE,
+    )
+    access_token = models.CharField(max_length=512)
+    refresh_token = models.CharField(max_length=512, blank=True)
+    token_expires_at = models.DateTimeField(null=True, blank=True)
+    mp_user_id = models.CharField(max_length=128, blank=True)
+    scope = models.CharField(max_length=255, blank=True)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default='connected')
+    last_error = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:  # pragma: no cover
+        return f"MPConnection · {self.business_id} ({self.status})"
+
+
+# ---------------------------------------------------------------------------
+# TipTransaction — one tip payment attempt (Fase 2)
+# ---------------------------------------------------------------------------
+
+class TipTransaction(models.Model):
+    STATUS_CHOICES = [
+        ('created', 'Created'),
+        ('pending', 'Pending'),
+        ('approved', 'Approved'),
+        ('rejected', 'Rejected'),
+        ('cancelled', 'Cancelled'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    business = models.ForeignKey(
+        'business.Business',
+        related_name='tip_transactions',
+        on_delete=models.CASCADE,
+    )
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    currency = models.CharField(max_length=8, default='ARS')
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default='created')
+    provider = models.CharField(max_length=32, default='mercadopago')
+    mp_preference_id = models.CharField(max_length=128, blank=True, null=True)
+    mp_payment_id = models.CharField(max_length=128, blank=True, null=True)
+    # Stable unique ref sent to MP; format: "TIP-{uuid}"
+    external_reference = models.CharField(max_length=64, unique=True)
+    # Context
+    menu_slug = models.CharField(max_length=50, blank=True)
+    table_ref = models.CharField(max_length=64, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['business', 'created_at']),
+            models.Index(fields=['status']),
+            models.Index(fields=['external_reference']),
+        ]
+
+    def __str__(self) -> str:  # pragma: no cover
+        return f"Tip · {self.external_reference} · {self.status}"
+
+
+# ---------------------------------------------------------------------------
+# Helper factories
+# ---------------------------------------------------------------------------
+
+def ensure_menu_engagement(business) -> MenuEngagementSettings:
+    """Get-or-create MenuEngagementSettings for a business."""
+    if business is None:
+        raise ValueError('Business is required')
+    obj, _ = MenuEngagementSettings.objects.get_or_create(business=business)
+    return obj

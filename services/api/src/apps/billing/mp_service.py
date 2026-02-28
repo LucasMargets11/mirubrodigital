@@ -66,13 +66,21 @@ class MercadoPagoService:
         Returns:
             Response dict with init_point and preference_id
         """
+        # BASE_PUBLIC_URL must be the externally-reachable URL of the *API* server
+        # (e.g. ngrok in DEV, real domain in prod). Never use the frontend URL here —
+        # MP sends webhook POST requests to this address, and they must reach Django.
+        # If not set, omit notification_url so the app still works (no webhooks in DEV).
+        base_public_url = getattr(settings, 'BASE_PUBLIC_URL', None)
         preference_data = {
             "items": items,
             "external_reference": external_reference,
             "back_urls": back_urls,
             "auto_return": "approved",
-            "notification_url": f"{settings.BASE_URL}/api/v1/billing/mercadopago/webhook",
         }
+        if base_public_url:
+            preference_data["notification_url"] = f"{base_public_url.rstrip('/')}/api/v1/billing/mercadopago/webhook"
+        else:
+            logger.warning("[MPService] BASE_PUBLIC_URL not set — notification_url omitted. Webhooks will NOT fire in DEV.")
         
         if metadata:
             preference_data["metadata"] = metadata

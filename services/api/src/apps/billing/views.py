@@ -7,6 +7,8 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils import timezone
 from django.conf import settings
+import hashlib
+import hmac as hmac_lib
 import logging
 
 from apps.accounts.access import resolve_request_membership
@@ -270,8 +272,59 @@ class IntentStatusView(APIView):
 
 class MercadoPagoWebhookView(APIView):
     permission_classes = [AllowAny]
-    
+
+    def _verify_mp_signature(self, request) -> bool:
+        """
+        Verify the Mercado Pago webhook signature.
+        Header format: x-signature: ts=<timestamp>,v1=<hmac_hex>
+        Message: "id:<data.id>;request-id:<x-request-id>;ts:<timestamp>"
+        Returns True if valid OR if MP_WEBHOOK_SECRET is not configured (DEV bypass).
+        """
+        secret = getattr(settings, 'MP_WEBHOOK_SECRET', None)
+        if not secret:
+            logger.warning("[MPWebhook] MP_WEBHOOK_SECRET not set — skipping signature verification (DEV mode)")
+            return True
+
+        x_signature = request.headers.get('x-signature', '')
+        x_request_id = request.headers.get('x-request-id', '')
+
+        # Parse ts and v1 from header
+        ts = ''
+        v1 = ''
+        for part in x_signature.split(','):
+            if part.startswith('ts='):
+                ts = part[3:]
+            elif part.startswith('v1='):
+                v1 = part[3:]
+
+        if not ts or not v1:
+            logger.warning("[MPWebhook] x-signature header missing or malformed")
+            return False
+
+        data_id = request.data.get('data', {}).get('id', '')
+        manifest = f"id:{data_id};request-id:{x_request_id};ts:{ts}"
+
+        try:
+            expected = hmac_lib.new(
+                secret.encode('utf-8'),
+                manifest.encode('utf-8'),
+                hashlib.sha256,
+            ).hexdigest()
+        except Exception as exc:
+            logger.error(f"[MPWebhook] HMAC computation error: {exc}")
+            return False
+
+        if not hmac_lib.compare_digest(expected, v1):
+            logger.warning(f"[MPWebhook] Signature mismatch. manifest={manifest!r}")
+            return False
+
+        return True
+
     def post(self, request):
+        # Verify MP signature (skipped in DEV when MP_WEBHOOK_SECRET is not set)
+        if not self._verify_mp_signature(request):
+            return Response({'detail': 'Invalid signature'}, status=status.HTTP_400_BAD_REQUEST)
+
         topic = request.data.get('type')
         data_id = request.data.get('data', {}).get('id')
         
@@ -317,9 +370,14 @@ class MercadoPagoWebhookView(APIView):
             if not external_reference:
                 return
             
-            # Determine the type of purchase
+            # ── Route by external_reference prefix ──────────────────────
             is_subscription_change = external_reference.startswith('subscription_change_')
             is_addon_purchase = external_reference.startswith('addon_purchase_')
+            is_tip = external_reference.startswith('TIP-')
+            
+            if is_tip:
+                self.process_tip_payment(external_reference, payment_status, payment_id)
+                return
             
             if not (is_subscription_change or is_addon_purchase):
                 return
@@ -384,6 +442,37 @@ class MercadoPagoWebhookView(APIView):
         except Exception as e:
             logger.error(f"Error processing payment event {payment_id}: {e}")
 
+    def process_tip_payment(self, external_reference: str, payment_status: str, payment_id):
+        """Idempotently update a TipTransaction from an MP payment webhook."""
+        from apps.menu.models import TipTransaction
+        try:
+            tip = TipTransaction.objects.get(external_reference=external_reference)
+        except TipTransaction.DoesNotExist:
+            logger.warning(f"[TipWebhook] TipTransaction not found for ref {external_reference}")
+            return
+
+        # Map MP statuses → TipTransaction statuses
+        status_map = {
+            'approved': 'approved',
+            'authorized': 'approved',
+            'rejected': 'rejected',
+            'cancelled': 'cancelled',
+            'pending': 'pending',
+            'in_process': 'pending',
+        }
+        new_status = status_map.get(payment_status, tip.status)
+
+        update_fields = ['updated_at']
+        if tip.status != new_status:
+            tip.status = new_status
+            update_fields.append('status')
+        if payment_id and not tip.mp_payment_id:
+            tip.mp_payment_id = str(payment_id)
+            update_fields.append('mp_payment_id')
+
+        tip.save(update_fields=update_fields)
+        logger.info(f"[TipWebhook] {external_reference} → {new_status} (mp_payment_id={payment_id})")
+
     def process_subscription_event(self, preapproval_id):
         if not preapproval_id:
             return
@@ -430,4 +519,110 @@ class MercadoPagoWebhookView(APIView):
                 business=intent.tenant,
                 defaults={'role': 'owner'}
             )
+
+
+# ---------------------------------------------------------------------------
+# DEV: Mercado Pago diagnostics ping (never expose tokens in response)
+# ---------------------------------------------------------------------------
+
+_MP_PLACEHOLDER_PATTERNS = ('xxxx', 'placeholder', 'your_token', 'changeme', 'APP_USR-0000', 'TEST-0000')
+
+
+def _is_placeholder(value: str | None) -> bool:
+    """Return True if the value looks like a template placeholder, not a real credential."""
+    if not value:
+        return False
+    lower = value.lower()
+    return any(p in lower for p in _MP_PLACEHOLDER_PATTERNS)
+
+
+class DevMercadoPagoPingView(APIView):
+    """
+    GET /api/v1/billing/dev/mercadopago/ping
+    GET /api/v1/billing/dev/mp/status   (alias)
+    Quick health-check for MP credentials. Returns diagnostic info without
+    exposing the access token. Only available when DJANGO_DEBUG=True.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        if not getattr(settings, 'DEBUG', False):
+            return Response({'detail': 'Not available in production.'}, status=403)
+
+        access_token = getattr(settings, 'MP_ACCESS_TOKEN', None)
+        webhook_secret = getattr(settings, 'MP_WEBHOOK_SECRET', None)
+        # BASE_PUBLIC_URL = API server public URL (for notification_url / webhooks)
+        # PUBLIC_MENU_BASE_URL / FRONTEND_URL = frontend public URL (for back_urls)
+        api_public_url = getattr(settings, 'BASE_PUBLIC_URL', None)
+        frontend_public_url = (
+            getattr(settings, 'PUBLIC_MENU_BASE_URL', None)
+            or getattr(settings, 'FRONTEND_URL', None)
+        )
+        # Use api_public_url for the rest of this view's display
+        base_public_url = api_public_url or frontend_public_url
+
+        warnings: list[str] = []
+
+        token_is_placeholder = _is_placeholder(access_token)
+        if token_is_placeholder:
+            warnings.append('MP_ACCESS_TOKEN looks like a placeholder. Paste a real TEST token from mercadopago.com → Credenciales de prueba.')
+        if not access_token:
+            warnings.append('MP_ACCESS_TOKEN is not set. The tip create-preference endpoint will return 503.')
+
+        api_url_is_placeholder = _is_placeholder(api_public_url)
+        if api_url_is_placeholder:
+            warnings.append(
+                'BASE_PUBLIC_URL looks like a placeholder. '
+                'Run `ngrok http 8000`, copy the HTTPS URL, set BASE_PUBLIC_URL=https://xxxx.ngrok-free.app in services/api/.env, '
+                'and restart the API container.'
+            )
+        if not api_public_url or api_url_is_placeholder:
+            warnings.append('MP webhook notifications and back_urls will NOT work correctly without a valid BASE_PUBLIC_URL.')
+
+        if not webhook_secret:
+            warnings.append('MP_WEBHOOK_SECRET is not set. Webhook signature verification is disabled (DEV bypass active).')
+        elif _is_placeholder(webhook_secret):
+            warnings.append('MP_WEBHOOK_SECRET looks like a placeholder. Set the same value you configure in the MP Webhooks panel.')
+
+        result: dict = {
+            'mp_access_token_set': bool(access_token) and not token_is_placeholder,
+            'mp_access_token_placeholder': token_is_placeholder,
+            'mp_access_token_prefix': (access_token[:15] + '…') if access_token else None,
+            'mp_webhook_secret_set': bool(webhook_secret) and not _is_placeholder(webhook_secret),
+            # API public URL — used for notification_url (must reach Django port 8000 via ngrok)
+            'api_public_url': api_public_url if not api_url_is_placeholder else f'PLACEHOLDER: {api_public_url}',
+            'api_public_url_valid': bool(api_public_url) and not api_url_is_placeholder,
+            'webhook_url': f"{api_public_url.rstrip('/')}/api/v1/billing/mercadopago/webhook" if (api_public_url and not api_url_is_placeholder) else '(not set — set BASE_PUBLIC_URL to your ngrok URL)',
+            # Frontend public URL — used for back_urls (user browser redirect after payment)
+            'frontend_public_url': frontend_public_url,
+            'mp_client_id_set': bool(getattr(settings, 'MP_CLIENT_ID', None)),
+        }
+
+        # Try a live MP API call — use payment search (very cheap, verifies auth)
+        mp_reachable = False
+        mp_error = None
+        if access_token and not token_is_placeholder:
+            try:
+                from .mp_service import MercadoPagoService
+                sdk = MercadoPagoService().sdk
+                # GET /v1/payments/search with limit=1 — works with any valid token
+                resp = sdk.payment().search({"limit": 1, "offset": 0})
+                mp_reachable = resp.get('status') == 200
+                if not mp_reachable:
+                    mp_error = (
+                        f"MP API returned {resp.get('status')}: "
+                        f"{resp.get('response', {}).get('message', str(resp.get('response', '')))}"
+                    )
+            except Exception as exc:
+                mp_error = str(exc)
+        elif token_is_placeholder:
+            mp_error = 'Skipped live ping — token is a placeholder.'
+
+        result['mp_api_reachable'] = mp_reachable
+        if mp_error:
+            result['mp_error'] = mp_error
+        if warnings:
+            result['warnings'] = warnings
+
+        return Response(result)
 

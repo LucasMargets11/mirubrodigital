@@ -33,6 +33,10 @@ FEATURE_KEYS: Iterable[str] = (
   # Premium QR menu features
   'menu_item_images',
   'menu_custom_domain',
+  # Engagement features (Fase 1+)
+  'menu_qr_reviews',   # Google Reviews CTA on public carta
+  'menu_qr_tips',      # Tip CTA on public carta (MP link / QR image)
+  'menu_qr_tips_pro',  # Dynamic tip amount via MP OAuth Checkout (Fase 2)
 )
 
 PLAN_FEATURES: Dict[str, Iterable[str]] = {
@@ -67,6 +71,8 @@ PLAN_FEATURES: Dict[str, Iterable[str]] = {
     'public_menu',
     'menu_qr_tools',
     'menu_item_images',
+    'menu_qr_reviews',
+    'menu_qr_tips',
   ),
   # New plans (Gestión Comercial)
   'start': ('products', 'inventory', 'stock', 'sales'),
@@ -79,6 +85,8 @@ PLAN_FEATURES: Dict[str, Iterable[str]] = {
     'menu_branding',
     'public_menu',
     'menu_qr_tools',
+    'menu_qr_reviews',
+    'menu_qr_tips',
   ),
   # Menu QR Visual — con imágenes por producto
   'menu_qr_visual': (
@@ -87,6 +95,8 @@ PLAN_FEATURES: Dict[str, Iterable[str]] = {
     'public_menu',
     'menu_qr_tools',
     'menu_item_images',
+    'menu_qr_reviews',
+    'menu_qr_tips',
   ),
   # Menu QR Marca — con imágenes + dominio personalizado
   'menu_qr_marca': (
@@ -96,6 +106,9 @@ PLAN_FEATURES: Dict[str, Iterable[str]] = {
     'menu_qr_tools',
     'menu_item_images',
     'menu_custom_domain',
+    'menu_qr_reviews',
+    'menu_qr_tips',
+    'menu_qr_tips_pro',
   ),
 }
 

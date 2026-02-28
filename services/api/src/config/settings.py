@@ -12,6 +12,16 @@ SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'unsafe-secret')
 DEBUG = os.getenv('DJANGO_DEBUG', 'True').lower() == 'true'
 ALLOWED_HOSTS = [host.strip() for host in os.getenv('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1,mirubro-api').split(',') if host]
 
+# Dynamically add the ngrok/tunnel host to ALLOWED_HOSTS and CORS so Django
+# doesn't reject requests arriving through the tunnel in DEV.
+_BASE_PUBLIC_URL = os.getenv('BASE_PUBLIC_URL', '').strip()
+if _BASE_PUBLIC_URL and 'xxxx' not in _BASE_PUBLIC_URL.lower():
+    from urllib.parse import urlparse as _urlparse
+    _parsed = _urlparse(_BASE_PUBLIC_URL)
+    _ngrok_host = _parsed.hostname  # e.g. 'abc123.ngrok-free.app'
+    if _ngrok_host and _ngrok_host not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS.append(_ngrok_host)
+
 INSTALLED_APPS = [
   'django.contrib.admin',
   'django.contrib.auth',
@@ -112,6 +122,14 @@ CORS_ALLOWED_ORIGINS = [
   for origin in os.getenv('CORS_ALLOWED_ORIGINS', 'http://localhost:3000').split(',')
   if origin
 ]
+
+# Also allow the ngrok/tunnel origin so browser-to-API calls work when
+# accessing the frontend through the tunnel in DEV.
+if _BASE_PUBLIC_URL and 'xxxx' not in _BASE_PUBLIC_URL.lower():
+    # Strip trailing slash for CORS match
+    _cors_origin = _BASE_PUBLIC_URL.rstrip('/')
+    if _cors_origin not in CORS_ALLOWED_ORIGINS:
+        CORS_ALLOWED_ORIGINS.append(_cors_origin)
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_HEADERS = ['authorization', 'content-type', 'x-requested-with']
 
@@ -165,4 +183,20 @@ REPORTS_LOW_STOCK_THRESHOLD_DEFAULT = Decimal(os.getenv('REPORTS_LOW_STOCK_THRES
 MP_ACCESS_TOKEN = os.getenv('MP_ACCESS_TOKEN')
 MP_WEBHOOK_SECRET = os.getenv('MP_WEBHOOK_SECRET')
 MP_BASE_URL = os.getenv('MP_BASE_URL', 'https://api.mercadopago.com')
+
+# Mercado Pago OAuth per-business (Fase 2 — QR Menu tips)
+MP_CLIENT_ID = os.getenv('MP_CLIENT_ID', '')
+MP_CLIENT_SECRET = os.getenv('MP_CLIENT_SECRET', '')
+MP_REDIRECT_URI = os.getenv('MP_REDIRECT_URI', '')
+
+# Public frontend URL (used in QR menu URLs and back_urls for MP checkout)
+FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:3000')
+PUBLIC_MENU_BASE_URL = os.getenv('PUBLIC_MENU_BASE_URL', FRONTEND_URL)
+
+# BASE_PUBLIC_URL: externally reachable URL of the *API* server.
+# Used to build the MP notification_url (webhook callback).
+# In DEV: set to your ngrok/cloudflared HTTPS URL.
+# In prod: set to your real domain (e.g. https://api.example.com).
+# If not set, falls back to PUBLIC_MENU_BASE_URL then FRONTEND_URL.
+BASE_PUBLIC_URL = os.getenv('BASE_PUBLIC_URL', '') or None
 

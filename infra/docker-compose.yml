@@ -10,12 +10,22 @@ services:
       - '5432:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mirubro} -d ${POSTGRES_DB:-mirubro}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   redis:
     image: redis:7-alpine
     container_name: mirubro-redis
     ports:
       - '6379:6379'
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   api:
     build:
@@ -30,8 +40,10 @@ services:
     ports:
       - '8000:8000'
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   web:
     build:
@@ -40,6 +52,7 @@ services:
     env_file:
       - ../apps/web/.env
     environment:
+      # Internal Docker hostname overrides .env for SSR fetches (never use localhost here)
       - API_URL_INTERNAL=http://api:8000
     volumes:
       - ../apps/web:/app
@@ -47,7 +60,34 @@ services:
     ports:
       - '3000:3000'
     depends_on:
-      - api
+      api:
+        condition: service_started
+
+  # ── Optional: ngrok tunnel (expose API to internet for MP webhooks/back_urls) ──
+  # Usage: docker compose --profile tunnel up
+  # The NGROK_AUTHTOKEN must be set as an environment variable or in a .env file
+  # at the infra/ level. Get your token at https://dashboard.ngrok.com/authtokens
+  #
+  # After startup, get the public URL from:
+  #   docker compose logs ngrok   (look for "url=https://xxxx.ngrok-free.app")
+  #   or visit http://localhost:4040 (ngrok dashboard)
+  # Then update services/api/.env:
+  #   BASE_PUBLIC_URL=https://xxxx.ngrok-free.app
+  #   PUBLIC_MENU_BASE_URL=https://xxxx.ngrok-free.app
+  # And restart: docker compose up api
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: mirubro-ngrok
+    profiles:
+      - tunnel
+    command: http api:8000 --log=stdout
+    environment:
+      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN:-}
+    ports:
+      - '4040:4040'
+    depends_on:
+      api:
+        condition: service_started
 
 volumes:
   postgres_data:
