@@ -37,3 +37,23 @@ export function updateCustomer(id: string, payload: Partial<CustomerPayload>) {
 export function getCustomer(id: string) {
     return apiGet<Customer>(`/api/v1/customers/${id}/`);
 }
+
+export function getCustomerSales(customerId: string, params: { limit?: number; offset?: number } = {}) {
+    const searchParams = new URLSearchParams();
+    if (params.limit !== undefined) searchParams.set('limit', String(params.limit));
+    if (params.offset !== undefined) searchParams.set('offset', String(params.offset));
+    const query = searchParams.toString();
+    return apiGet<import('@/types/api').PaginatedResponse<import('@/features/gestion/types').Sale>>(
+        `/api/v1/customers/${customerId}/sales/${query ? `?${query}` : ''}`,
+    );
+}
+
+export function getCustomerQuotes(customerId: string, params: { limit?: number; offset?: number } = {}) {
+    const searchParams = new URLSearchParams();
+    if (params.limit !== undefined) searchParams.set('limit', String(params.limit));
+    if (params.offset !== undefined) searchParams.set('offset', String(params.offset));
+    const query = searchParams.toString();
+    return apiGet<import('@/types/api').PaginatedResponse<import('@/features/gestion/types').Quote>>(
+        `/api/v1/customers/${customerId}/quotes/${query ? `?${query}` : ''}`,
+    );
+}

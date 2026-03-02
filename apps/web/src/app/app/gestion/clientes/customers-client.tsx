@@ -1,5 +1,6 @@
 "use client";
 
+import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 
 import { Modal } from '@/components/ui/modal';
@@ -201,6 +202,12 @@ export function CustomersClient({ canCreate, canManage }: CustomersClientProps) 
                                         </td>
                                         <td className="px-3 py-3 text-right text-sm font-semibold text-slate-600">
                                             <div className="flex flex-col gap-2 md:flex-row md:justify-end">
+                                                <Link
+                                                    href={`/app/gestion/clientes/${customer.id}` as any}
+                                                    className="text-slate-600 hover:text-slate-900"
+                                                >
+                                                    Ver ficha
+                                                </Link>
                                                 {canManage ? (
                                                     <button
                                                         type="button"
