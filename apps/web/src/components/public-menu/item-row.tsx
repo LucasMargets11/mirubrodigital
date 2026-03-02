@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { buildMediaUrl } from "@/lib/api-url";
 import { MenuItem } from "./types";
 
 interface MenuItemRowProps {
@@ -44,7 +45,7 @@ export function MenuItemRow({ item, currency = "$" }: MenuItemRowProps) {
                 {(item.image_url || item.image) ? (
                     <div className="h-16 w-16 overflow-hidden rounded-xl bg-[var(--menu-divider)]">
                         <img
-                            src={item.image_url ?? item.image}
+                            src={buildMediaUrl(item.image_url ?? item.image) ?? undefined}
                             alt={item.name}
                             className="h-full w-full object-cover"
                             loading="lazy"

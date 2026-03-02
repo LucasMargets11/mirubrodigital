@@ -78,6 +78,7 @@ export type PublicMenuResponse = {
     config: PublicMenuConfig
     branding: MenuBrandingSettings
     categories: PublicMenuCategory[]
+    layout_blocks: PublicMenuLayoutBlock[]
     engagement: PublicMenuEngagement
 }
 
@@ -228,3 +229,56 @@ export type CreateTipPreferenceResponse = {
     init_point: string;
     external_reference: string;
 };
+
+// ---------------------------------------------------------------------------
+// Menu Layout Blocks — template-driven carta structure
+// ---------------------------------------------------------------------------
+
+export type BlockLayout = 'stack' | 'grid';
+export type LayoutTemplate = 'drinks_first' | 'food_first' | 'custom';
+
+/** A category entry inside a block (admin view) */
+export type LayoutBlockCategory = {
+    category_id: string;
+    category_name: string;
+    is_active: boolean;
+    position: number;
+};
+
+/** Admin read/write model for a single layout block */
+export type MenuLayoutBlock = {
+    id: string;
+    title: string;
+    position: number;
+    layout: BlockLayout;
+    columns_desktop: number;
+    columns_tablet: number;
+    columns_mobile: number;
+    badge_text: string;
+    block_categories: LayoutBlockCategory[];
+};
+
+export type MenuLayoutBlockPayload = Omit<MenuLayoutBlock, 'id' | 'block_categories'> & {
+    category_ids?: string[];
+};
+
+/** Public version — categories already include items */
+export type PublicLayoutBlockCategory = {
+    id: string;
+    name: string;
+    description: string;
+    items: PublicMenuItem[];
+};
+
+export type PublicMenuLayoutBlock = {
+    id: string;
+    title: string;
+    position: number;
+    layout: BlockLayout;
+    columns_desktop: number;
+    columns_tablet: number;
+    columns_mobile: number;
+    badge_text: string;
+    categories: PublicLayoutBlockCategory[];
+};
+

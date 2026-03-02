@@ -4,10 +4,13 @@ from typing import Any, Iterable, List
 
 from rest_framework import serializers
 
+from .qr_entitlements import get_subscription_for_business, resolve_menu_qr_flags, NEW_MENU_QR_PLANS
 from .models import (
     MenuBrandingSettings,
     MenuCategory,
     MenuItem,
+    MenuLayoutBlock,
+    MenuLayoutBlockCategory,
     PublicMenuConfig,
     MenuEngagementSettings,
     MercadoPagoConnection,
@@ -339,6 +342,33 @@ class MenuEngagementSettingsSerializer(serializers.ModelSerializer):
         place_id = data.get('google_place_id', inst.google_place_id if inst else None)
         review_url = data.get('google_review_url', inst.google_review_url if inst else None)
 
+        # ── Plan-level entitlement check ─────────────────────────────────
+        # Only enforce for businesses on a new QR plan (Lite/Pro/Premium).
+        # Legacy plans (menu_qr, menu_qr_visual, menu_qr_marca) keep existing behavior.
+        request = self.context.get('request')
+        if request and hasattr(request, 'business'):
+            business = request.business
+            subscription = get_subscription_for_business(business)
+            plan = getattr(subscription, 'plan', None) if subscription else None
+            if plan in NEW_MENU_QR_PLANS:
+                flags = resolve_menu_qr_flags(subscription)
+                if tips_enabled and not flags['tips_allowed']:
+                    raise serializers.ValidationError({
+                        'tips_enabled': (
+                            'Propinas no está disponible en tu plan actual. '
+                            'Actualizá a Menú QR Pro (elige Propina como módulo incluido) '
+                            'o agregá el add-on Propina.'
+                        )
+                    })
+                if reviews_enabled and not flags['reviews_allowed']:
+                    raise serializers.ValidationError({
+                        'reviews_enabled': (
+                            'Reseñas no está disponible en tu plan actual. '
+                            'Actualizá a Menú QR Pro (elige Reseñas como módulo incluido) '
+                            'o agregá el add-on Reseñas.'
+                        )
+                    })
+
         # Auto-enable reviews when a place_id or review_url is provided and the caller
         # did not explicitly set reviews_enabled=False in this payload.
         if (place_id or review_url) and 'reviews_enabled' not in data:
@@ -390,3 +420,127 @@ class TipTransactionSerializer(serializers.Serializer):
     status = serializers.CharField()
     external_reference = serializers.CharField()
     created_at = serializers.DateTimeField()
+
+
+# ---------------------------------------------------------------------------
+# MenuLayoutBlock — admin + public serializers
+# ---------------------------------------------------------------------------
+
+class MenuLayoutBlockCategorySerializer(serializers.ModelSerializer):
+    category_id = serializers.UUIDField(source='category.id', read_only=True)
+    category_name = serializers.CharField(source='category.name', read_only=True)
+    is_active = serializers.BooleanField(source='category.is_active', read_only=True)
+
+    class Meta:
+        model = MenuLayoutBlockCategory
+        fields = ['category_id', 'category_name', 'is_active', 'position']
+
+
+class MenuLayoutBlockSerializer(serializers.ModelSerializer):
+    """Admin serializer for reading and writing a single layout block."""
+    block_categories = MenuLayoutBlockCategorySerializer(many=True, read_only=True)
+    # Write: ordered list of category UUIDs
+    category_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        write_only=True,
+        required=False,
+        default=list,
+    )
+
+    class Meta:
+        model = MenuLayoutBlock
+        fields = [
+            'id', 'title', 'position', 'layout',
+            'columns_desktop', 'columns_tablet', 'columns_mobile',
+            'badge_text', 'block_categories', 'category_ids',
+        ]
+        read_only_fields = ['id']
+
+    def _sync_categories(self, block: MenuLayoutBlock, category_ids: list) -> None:
+        business = block.business
+        # Delete orphans
+        MenuLayoutBlockCategory.objects.filter(block=block).exclude(
+            category_id__in=category_ids
+        ).delete()
+        existing = {
+            str(bc.category_id): bc
+            for bc in MenuLayoutBlockCategory.objects.filter(block=block)
+        }
+        for pos, cat_id in enumerate(category_ids):
+            cat_id_str = str(cat_id)
+            if cat_id_str in existing:
+                bc = existing[cat_id_str]
+                if bc.position != pos:
+                    bc.position = pos
+                    bc.save(update_fields=['position'])
+            else:
+                from apps.menu.models import MenuCategory as MC
+                try:
+                    cat = MC.objects.get(pk=cat_id, business=business)
+                    MenuLayoutBlockCategory.objects.get_or_create(
+                        block=block, category=cat, defaults={'position': pos}
+                    )
+                except MC.DoesNotExist:
+                    pass
+
+    def create(self, validated_data: dict):
+        category_ids = validated_data.pop('category_ids', [])
+        block = super().create(validated_data)
+        self._sync_categories(block, category_ids)
+        return block
+
+    def update(self, instance: MenuLayoutBlock, validated_data: dict):
+        category_ids = validated_data.pop('category_ids', None)
+        block = super().update(instance, validated_data)
+        if category_ids is not None:
+            self._sync_categories(block, category_ids)
+        return block
+
+
+class MenuLayoutBlockReorderSerializer(serializers.Serializer):
+    """PATCH /layout/blocks/reorder/ — list of {id, position}."""
+    id = serializers.UUIDField()
+    position = serializers.IntegerField(min_value=0)
+
+
+# Public version: lightweight, used in PublicMenuBySlugView response
+class PublicMenuLayoutBlockCategorySerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(source='category.id')
+    name = serializers.CharField(source='category.name')
+    description = serializers.CharField(source='category.description')
+    items = serializers.SerializerMethodField()
+
+    class Meta:
+        model = MenuLayoutBlockCategory
+        fields = ['id', 'name', 'description', 'items']
+
+    def get_items(self, obj):
+        # .all() hits the prefetch cache set in PublicMenuBySlugView
+        items = obj.category.items.all()
+        return PublicMenuItemSerializer(items, many=True, context=self.context).data
+
+
+class PublicMenuLayoutBlockSerializer(serializers.ModelSerializer):
+    categories = serializers.SerializerMethodField()
+
+    class Meta:
+        model = MenuLayoutBlock
+        fields = [
+            'id', 'title', 'position', 'layout',
+            'columns_desktop', 'columns_tablet', 'columns_mobile',
+            'badge_text', 'categories',
+        ]
+
+    def get_categories(self, obj):
+        block_cats = (
+            obj.block_categories
+            .select_related('category')
+            .prefetch_related('category__items')
+            .order_by('position', 'category__name')
+        )
+        # Filter: only active categories with at least one item
+        active = [bc for bc in block_cats if bc.category.is_active]
+        return PublicMenuLayoutBlockCategorySerializer(
+            active, many=True, context=self.context
+        ).data
+

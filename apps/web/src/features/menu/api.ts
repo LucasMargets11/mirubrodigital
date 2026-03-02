@@ -12,6 +12,8 @@ import type {
     MenuItem,
     MenuItemFilters,
     MenuItemPayload,
+    MenuLayoutBlock,
+    MenuLayoutBlockPayload,
     MenuQrResponse,
     MenuStructureCategory,
     PublicMenuConfig,
@@ -171,3 +173,32 @@ export function verifyPublicTip(tipId: string, paymentId: string) {
         `/api/v1/menu/public/tips/${tipId}/verify/?payment_id=${encodeURIComponent(paymentId)}`,
     );
 }
+
+// ---------------------------------------------------------------------------
+// Menu Layout Blocks — template-driven carta structure
+// ---------------------------------------------------------------------------
+
+export function listMenuLayoutBlocks() {
+    return apiGet<MenuLayoutBlock[]>('/api/v1/menu/layout/blocks/');
+}
+
+export function createMenuLayoutBlock(payload: MenuLayoutBlockPayload) {
+    return apiPost<MenuLayoutBlock>('/api/v1/menu/layout/blocks/', payload);
+}
+
+export function updateMenuLayoutBlock(id: string, payload: Partial<MenuLayoutBlockPayload>) {
+    return apiPatch<MenuLayoutBlock>(`/api/v1/menu/layout/blocks/${id}/`, payload);
+}
+
+export function deleteMenuLayoutBlock(id: string) {
+    return apiDelete<void>(`/api/v1/menu/layout/blocks/${id}/`);
+}
+
+export function reorderMenuLayoutBlocks(items: { id: string; position: number }[]) {
+    return apiPatch<{ detail: string }>('/api/v1/menu/layout/blocks/reorder/', items);
+}
+
+export function applyMenuLayoutPreset(template: 'drinks_first' | 'food_first') {
+    return apiPost<MenuLayoutBlock[]>('/api/v1/menu/layout/blocks/apply-preset/', { template });
+}
+

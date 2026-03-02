@@ -10,6 +10,7 @@ import { MENU_FONTS_MAP, menuFontsVariablesClassName, getMenuFontFamily } from '
 import { ONLINE_MENU_PRESETS, applyPreset } from '@/lib/online-menu-presets'
 import { MenuBrandHeader } from '@/components/public-menu/brand-header'
 import { EngagementSettingsSection } from '@/components/app/engagement-settings-section'
+import { MenuLayoutEditor } from '@/components/app/menu-layout-editor'
 
 function ColorInput({ label, value, onChange }: { label: string, value: string, onChange: (val: string) => void }) {
     const [localValue, setLocalValue] = useState(value);
@@ -504,6 +505,19 @@ export default function OnlineMenuSettingsPage() {
       <div>
         <h2 className="text-xl font-semibold mb-4 tracking-tight">Propinas y Reseñas</h2>
         <EngagementSettingsSection />
+      </div>
+
+      {/* ── Estructura de la Carta (Layout por Bloques) ──────────────────── */}
+      <div>
+        <div className="mb-4">
+          <h2 className="text-xl font-semibold tracking-tight">Estructura de la Carta</h2>
+          <p className="text-sm text-slate-500 mt-1">
+            Agrupa y ordena tus categorías en secciones (bloques). El orden se refleja inmediatamente en la carta pública.
+          </p>
+        </div>
+        <div className="bg-white rounded-xl border shadow-sm p-5">
+          <MenuLayoutEditor />
+        </div>
       </div>
     </div>
   )

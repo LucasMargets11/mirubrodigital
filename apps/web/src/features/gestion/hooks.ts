@@ -403,6 +403,32 @@ export function useMarkQuoteRejected() {
     });
 }
 
+// Dashboard-specific quote helpers (cached, share key with normal quote fetches)
+
+export function usePendingQuotesSummary(enabled = true) {
+    return useQuery({
+        queryKey: [...dashboardBaseKey, 'pending-quotes-summary'],
+        queryFn: async () => {
+            const data = await fetchQuotes({ status: 'draft,sent' });
+            return { count: data.count };
+        },
+        enabled,
+        staleTime: 60_000,
+    });
+}
+
+export function useRecentQuotes(limit = 5, enabled = true) {
+    return useQuery({
+        queryKey: [...dashboardBaseKey, 'recent-quotes', { limit }],
+        queryFn: async () => {
+            const data = await fetchQuotes({ ordering: '-created_at' });
+            return data.results.slice(0, limit);
+        },
+        enabled,
+        staleTime: 60_000,
+    });
+}
+
 // Business Configuration Hooks
 
 const businessBillingProfileKey = ['businessBillingProfile'] as const;

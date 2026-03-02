@@ -113,8 +113,13 @@ export function MenuClient({ canManage, canImport, canExport, canUploadImages }:
     const [importError, setImportError] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
     const imageInputRef = useRef<HTMLInputElement | null>(null);
+    // State for UI feedback (loading button text, error message)
     const [imageUploadItemId, setImageUploadItemId] = useState<string | null>(null);
     const [imageUploadError, setImageUploadError] = useState<string | null>(null);
+    // Ref to avoid stale-closure bug: programmatic .click() on the file input
+    // can block the JS thread (Windows Chrome/Edge) before React re-renders,
+    // so we read the ID from a ref rather than from state in the onChange handler.
+    const imageUploadItemIdRef = useRef<string | null>(null);
 
     const categoryQuery = useMenuCategories();
     const categories = categoryQuery.data ?? [];
@@ -377,18 +382,59 @@ export function MenuClient({ canManage, canImport, canExport, canUploadImages }:
     };
 
     const handleImageUploadClick = (itemId: string) => {
+        // Write to ref BEFORE click so the onChange handler always reads
+        // the correct ID even if React hasn't re-rendered yet (stale closure).
+        imageUploadItemIdRef.current = itemId;
         setImageUploadItemId(itemId);
         setImageUploadError(null);
+        if (process.env.NODE_ENV !== 'production') {
+            console.log('[ImageUpload] upload start — productId:', itemId);
+        }
         imageInputRef.current?.click();
     };
 
     const handleImageFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
-        if (!file || !imageUploadItemId) return;
+        // Read from ref (always current) instead of state (may be stale
+        // when the file dialog blocks the JS thread before React re-renders).
+        const itemId = imageUploadItemIdRef.current;
+
+        if (process.env.NODE_ENV !== 'production') {
+            console.log('[ImageUpload] file selected —', file?.name, file?.size, 'bytes | itemId:', itemId);
+        }
+
+        if (!file || !itemId) {
+            if (process.env.NODE_ENV !== 'production') {
+                console.warn('[ImageUpload] aborted — file:', file, '| itemId:', itemId);
+            }
+            return;
+        }
+
+        // Client-side validation: type
+        const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+        if (!ALLOWED_TYPES.includes(file.type)) {
+            setImageUploadError('Formato no válido. Subí una imagen JPG, PNG o WebP.');
+            event.target.value = '';
+            return;
+        }
+        // Client-side validation: size (5 MB)
+        const MAX_BYTES = 5 * 1024 * 1024;
+        if (file.size > MAX_BYTES) {
+            setImageUploadError('El archivo es demasiado grande. Máximo 5 MB.');
+            event.target.value = '';
+            return;
+        }
+
         setImageUploadError(null);
         try {
-            await uploadImage.mutateAsync({ id: imageUploadItemId, file });
-        } catch {
+            const result = await uploadImage.mutateAsync({ id: itemId, file });
+            if (process.env.NODE_ENV !== 'production') {
+                console.log('[ImageUpload] upload success —', result);
+            }
+        } catch (err) {
+            if (process.env.NODE_ENV !== 'production') {
+                console.error('[ImageUpload] upload error —', err);
+            }
             setImageUploadError('No pudimos subir la imagen. Verificá que sea JPG/PNG/WebP y menor a 5 MB.');
         } finally {
             event.target.value = '';
@@ -397,9 +443,18 @@ export function MenuClient({ canManage, canImport, canExport, canUploadImages }:
 
     const handleDeleteImage = async (item: MenuItem) => {
         if (!window.confirm(`¿Eliminar la imagen de "${item.name}"?`)) return;
+        if (process.env.NODE_ENV !== 'production') {
+            console.log('[ImageUpload] delete image — productId:', item.id);
+        }
         try {
             await deleteImage.mutateAsync(item.id);
-        } catch {
+            if (process.env.NODE_ENV !== 'production') {
+                console.log('[ImageUpload] delete success — productId:', item.id);
+            }
+        } catch (err) {
+            if (process.env.NODE_ENV !== 'production') {
+                console.error('[ImageUpload] delete error —', err);
+            }
             window.alert('No pudimos eliminar la imagen.');
         }
     };

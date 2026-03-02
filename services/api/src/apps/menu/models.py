@@ -292,6 +292,73 @@ class TipTransaction(models.Model):
 
 
 # ---------------------------------------------------------------------------
+# MenuLayoutBlock — template-driven carta layout per business
+# ---------------------------------------------------------------------------
+
+class LayoutTemplateChoices(models.TextChoices):
+    DRINKS_FIRST = 'drinks_first', 'Bebidas primero'
+    FOOD_FIRST = 'food_first', 'Comida primero'
+    CUSTOM = 'custom', 'Personalizado'
+
+
+class BlockLayoutChoices(models.TextChoices):
+    STACK = 'stack', 'Lista (stack)'
+    GRID = 'grid', 'Cuadrícula (grid)'
+
+
+class MenuLayoutBlock(models.Model):
+    """An ordered section of the public menu (e.g. "Bebidas", "Comida", "Postres")."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    business = models.ForeignKey(
+        'business.Business',
+        related_name='menu_layout_blocks',
+        on_delete=models.CASCADE,
+    )
+    title = models.CharField(max_length=120)
+    position = models.PositiveIntegerField(default=0)
+    layout = models.CharField(
+        max_length=16,
+        choices=BlockLayoutChoices.choices,
+        default=BlockLayoutChoices.STACK,
+    )
+    columns_desktop = models.PositiveSmallIntegerField(default=3)
+    columns_tablet = models.PositiveSmallIntegerField(default=2)
+    columns_mobile = models.PositiveSmallIntegerField(default=1)
+    badge_text = models.CharField(max_length=80, blank=True)
+    categories = models.ManyToManyField(
+        MenuCategory,
+        through='MenuLayoutBlockCategory',
+        related_name='layout_blocks',
+        blank=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['position', 'title']
+        indexes = [
+            models.Index(fields=['business', 'position']),
+        ]
+
+    def __str__(self) -> str:  # pragma: no cover
+        return f"Block · {self.title} ({self.business_id})"
+
+
+class MenuLayoutBlockCategory(models.Model):
+    """Ordered M2M through model: category inside a layout block."""
+    block = models.ForeignKey(MenuLayoutBlock, related_name='block_categories', on_delete=models.CASCADE)
+    category = models.ForeignKey(MenuCategory, related_name='block_memberships', on_delete=models.CASCADE)
+    position = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['position', 'category__name']
+        unique_together = [('block', 'category')]
+
+    def __str__(self) -> str:  # pragma: no cover
+        return f"{self.block.title} → {self.category.name}"
+
+
+# ---------------------------------------------------------------------------
 # Helper factories
 # ---------------------------------------------------------------------------
 

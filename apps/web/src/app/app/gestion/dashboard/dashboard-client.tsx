@@ -15,6 +15,11 @@ export type DashboardPermissions = {
     canViewStock: boolean;
     canViewSales: boolean;
     canViewCash: boolean;
+    canViewQuotes: boolean;
+    canCreateQuotes: boolean;
+    canViewCustomers: boolean;
+    canViewInvoices: boolean;
+    canViewFinance: boolean;
 };
 
 export type DashboardFeatures = {
@@ -22,6 +27,10 @@ export type DashboardFeatures = {
     inventory: boolean;
     sales: boolean;
     cash: boolean;
+    quotes: boolean;
+    customers: boolean;
+    invoices: boolean;
+    treasury: boolean;
 };
 
 type DashboardClientProps = {
@@ -42,6 +51,8 @@ export function DashboardClient({ initialSummary, permissions, features, planNam
                 salesEnabled={features.sales}
                 canViewCash={permissions.canViewCash}
                 cashEnabled={features.cash}
+                canViewQuotes={permissions.canViewQuotes}
+                quotesEnabled={features.quotes}
             />
             <QuickActions permissions={permissions} features={features} />
             <div className="grid gap-6 xl:grid-cols-2">
@@ -55,6 +66,8 @@ export function DashboardClient({ initialSummary, permissions, features, planNam
                         inventoryEnabled={features.inventory}
                         canViewSales={permissions.canViewSales}
                         salesEnabled={features.sales}
+                        canViewQuotes={permissions.canViewQuotes}
+                        quotesEnabled={features.quotes}
                     />
                 </div>
             </div>

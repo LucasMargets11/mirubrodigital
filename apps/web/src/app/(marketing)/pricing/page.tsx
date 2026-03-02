@@ -5,6 +5,9 @@ import { PlansBundles } from '@/features/billing/components/PlansBundles';
 import { PlansBuilderWizard } from '@/features/billing/components/PlansBuilderWizard';
 import { CommercialPlanBuilder } from '@/features/billing/components/CommercialPlanBuilder';
 import { GestionComercialComparisonTable } from '@/features/billing/components/GestionComercialComparisonTable';
+import { MenuQrPlanBuilder, type MenuQrSubscribeConfig } from '@/features/billing/components/MenuQrPlanBuilder';
+import { MenuQrComparisonTable, type QrProState } from '@/features/billing/components/MenuQrComparisonTable';
+import type { ProModule } from '@/features/billing/data/menu-qr-catalog';
 import type { BillingVertical, Bundle, QuoteResponse } from '@/features/billing/types';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { QrCode, Store, UtensilsCrossed, type LucideIcon } from 'lucide-react';
@@ -66,6 +69,15 @@ export default function PricingPage() {
     const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>('monthly');
     const [mode, setMode] = useState<'packs' | 'custom'>('packs');
 
+    // PRO state for Menu QR — lifted so the comparison table can react to it
+    const [qrProModule, setQrProModule] = useState<ProModule | null>(null);
+    const [qrProAddonEnabled, setQrProAddonEnabled] = useState(false);
+
+    const qrProState: QrProState = {
+      proIncludedModule: qrProModule,
+      proAddonEnabled: qrProAddonEnabled,
+    };
+
     const serviceParam = searchParams.get('service');
 
     useEffect(() => {
@@ -94,6 +106,22 @@ export default function PricingPage() {
             branches: config.branches?.toString() || '1',
             add_invoicing: config.addInvoicing ? 'true' : 'false',
         });
+        router.push(`/subscribe?${params.toString()}`);
+    };
+
+    const handleSubscribeMenuQr = (config: MenuQrSubscribeConfig) => {
+        // Menu QR subscription — encode plan + module choice + add-ons
+        const params = new URLSearchParams({
+            plan_code: config.planCode,
+            billing_period: billingPeriod,
+            vertical,
+        });
+        if (config.proIncludedModule) {
+            params.set('pro_included_module', config.proIncludedModule);
+        }
+        if (config.addonCodes.length > 0) {
+            params.set('addons', config.addonCodes.join(','));
+        }
         router.push(`/subscribe?${params.toString()}`);
     };
 
@@ -138,16 +166,31 @@ export default function PricingPage() {
                     >
                         Packs Recomendados
                     </button>
-                    <button
-                        className={`pb-4 border-b-2 font-medium text-lg transition-colors px-4 ${mode === 'custom' ? 'border-brand-600 text-brand-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-                        onClick={() => setMode('custom')}
-                    >
-                        Armá tu plan
-                    </button>
+                    {/* "Armá tu plan" tab is hidden for Menú QR — the plan builder is inline in Packs */}
+                    {vertical !== 'menu_qr' && (
+                        <button
+                            className={`pb-4 border-b-2 font-medium text-lg transition-colors px-4 ${mode === 'custom' ? 'border-brand-600 text-brand-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                            onClick={() => setMode('custom')}
+                        >
+                            Armá tu plan
+                        </button>
+                    )}
                 </div>
             </div>
 
-            {mode === 'packs' && (
+            {/* Menú QR — custom plan builder shown in packs mode */}
+            {mode === 'packs' && vertical === 'menu_qr' && (
+                <MenuQrPlanBuilder
+                    billingPeriod={billingPeriod}
+                    onSubscribe={handleSubscribeMenuQr}
+                    onProStateChange={(mod, addon) => {
+                        setQrProModule(mod);
+                        setQrProAddonEnabled(addon);
+                    }}
+                />
+            )}
+
+            {mode === 'packs' && vertical !== 'menu_qr' && (
                 <PlansBundles
                     vertical={vertical}
                     billingPeriod={billingPeriod}
@@ -174,8 +217,9 @@ export default function PricingPage() {
                 </div>
             )}
 
-            {/* Comparison table — only for Gestión Comercial */}
+            {/* Comparison tables */}
             {vertical === 'commercial' && <GestionComercialComparisonTable />}
+            {vertical === 'menu_qr' && <MenuQrComparisonTable proState={qrProState} />}
             </div>
         </div>
     );

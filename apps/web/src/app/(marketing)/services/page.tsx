@@ -32,36 +32,36 @@ const SERVICES: ServiceConfig[] = [
     {
         id: 'commercial',
         title: 'Gestión Comercial',
-        description: 'Controla inventario, ventas y equipo desde un único tablero pensado para retail y tiendas multi-sucursal.',
+        description: 'Inventario, ventas y caja en un solo lugar — desde el primer producto hasta la multi-sucursal.',
         features: [
             {
                 title: 'Stock & Inventario',
-                description: 'Seguimiento granular de productos, costos y movimientos.',
-                bullets: ['Productos', 'Movimientos', 'Valuación'],
+                description: 'Control en tiempo real de productos, costos y alertas.',
+                bullets: ['Tiempo real', 'Alertas de stock bajo', 'Valuación de inventario'],
                 icon: Boxes
             },
             {
                 title: 'Ventas / POS',
-                description: 'Cobrá en mostrador o móvil con tickets claros.',
-                bullets: ['Ventas rápidas', 'Clientes', 'Cancelaciones'],
+                description: 'Cobrá en mostrador o móvil con historial completo de clientes.',
+                bullets: ['Ventas rápidas', 'CRM de clientes (historial)', 'Cancelaciones'],
                 icon: ShoppingBag
             },
             {
                 title: 'Caja',
-                description: 'Aperturas y cierres guiados para cada turno.',
+                description: 'Aperturas y cierres guiados con arqueos por turno.',
                 bullets: ['Apertura/Cierre', 'Arqueos', 'Turnos'],
                 icon: Wallet
             },
             {
-                title: 'Reportes & Métricas',
-                description: 'Métricas accionables para planificar cada día.',
-                bullets: ['Facturación', 'Top productos', 'Evolución'],
+                title: 'Facturación & Reportes',
+                description: 'Facturación electrónica, finanzas y reportes exportables.',
+                bullets: ['Fact. electrónica + PDF', 'Gastos y movimientos (Pro+)', 'Exportación Excel/CSV'],
                 icon: BarChart3
             },
             {
                 title: 'Roles & Permisos',
-                description: 'Define accesos por perfil y sucursal.',
-                bullets: ['Owner/Manager/Cashier/Staff', 'Control de acceso'],
+                description: 'Define accesos por perfil, módulo y sucursal.',
+                bullets: ['Owner/Manager/Cashier/Staff', 'Multi-sucursal (Business+)', 'Control de acceso'],
                 icon: ShieldCheck,
                 className: 'lg:col-span-2'
             }
@@ -69,31 +69,31 @@ const SERVICES: ServiceConfig[] = [
     },
     {
         id: 'restaurant',
-        title: 'Restaurantes',
-        description: 'Orquesta salón, cocina y clientes en tiempo real con herramientas pensadas para operaciones gastronómicas.',
+        title: 'Restaurante Inteligente',
+        description: 'Orquesten salón, cocina y carta desde un solo sistema — en tiempo real, en cualquier dispositivo.',
         features: [
             {
                 title: 'Órdenes & Pedidos',
-                description: 'Desde la toma hasta el cobro en un flujo único.',
-                bullets: ['Crear/cobrar', 'Estados', 'Control salón'],
+                description: 'Flujo completo desde la toma hasta el cobro.',
+                bullets: ['Crear/cobrar', 'Estados de orden', 'Control salón'],
                 icon: ListChecks
             },
             {
                 title: 'Cocina en vivo',
-                description: 'KDS con prioridades y tiempos visibles.',
+                description: 'Pantalla KDS con prioridades y tiempos visibles.',
                 bullets: ['Pantalla cocina', 'Prioridades', 'Tiempos'],
                 icon: ChefHat
             },
             {
                 title: 'Mapa de mesas',
-                description: 'Visualiza ocupación y rotación por turno.',
-                bullets: ['Posición real', 'Ocupación', 'Asignación'],
+                description: 'Visualizá ocupación y rotación por turno en tiempo real.',
+                bullets: ['Posición real', 'Ocupación en tiempo real', 'Asignación'],
                 icon: Map
             },
             {
                 title: 'Carta online QR',
-                description: 'Menú editable con identidad de marca.',
-                bullets: ['Subdominio', 'Colores', 'Tipografía/Logo'],
+                description: 'Carta pública por QR incluida, editable desde el admin.',
+                bullets: ['Admin + carta pública', 'Colores/Tipografía/Logo', 'Siempre actualizada'],
                 icon: QrCode
             },
             {
@@ -108,42 +108,42 @@ const SERVICES: ServiceConfig[] = [
     {
         id: 'menu_qr',
         title: 'Menú QR Online',
-        description: 'Tu carta digital siempre al día, con marca propia y sin depender de comisiones externas.',
+        description: 'Tu carta digital con marca propia, fotos y analytics — sin apps, sin impresiones, sin comisiones.',
         features: [
             {
-                title: 'Carta por QR',
-                description: 'URL propia y códigos QR ilimitados.',
-                bullets: ['Subdominio propio', 'Multi-sucursal', 'QR descargables'],
+                title: 'QR y URL propios',
+                description: 'URL propia y QR en alta resolución, listos para imprimir.',
+                bullets: ['Subdominio propio', 'QR descargables', 'Dominio personalizado (Premium)'],
                 icon: QrCode
             },
             {
-                title: 'Categorías y productos',
-                description: 'Organiza cada menú como quieras.',
-                bullets: ['Categorías flexibles', 'Destacados', 'Disponibilidad'],
+                title: 'Editor de carta',
+                description: 'Categorías, precios y disponibilidad desde el panel.',
+                bullets: ['Categorías flexibles', 'Precios y disponibilidad', 'Destacados'],
                 icon: Layers
             },
             {
                 title: 'Branding personalizable',
-                description: 'Colores, tipografías y logos alineados a tu marca.',
+                description: 'Colores, tipografías y logo alineados a tu marca.',
                 bullets: ['Paleta propia', 'Fuentes', 'Logo en portada'],
                 icon: Palette
             },
             {
                 title: 'Fotos por producto',
-                description: 'Mostrá variantes y combos con imágenes HD.',
-                bullets: ['Galería por ítem', 'Formatos optimizados', 'Carga masiva'],
+                description: 'Mostrá cada ítem con imágenes HD.',
+                bullets: ['Galería por ítem (Pro+)', 'Formatos optimizados', 'Carga masiva'],
                 icon: Image
             },
             {
-                title: 'Acceso instantáneo',
-                description: 'Sin apps ni descargas: escaneás y ves.',
-                bullets: ['Compatible con todos', 'Modo oscuro', 'SEO básico'],
+                title: 'Reseñas y acceso',
+                description: 'Escaneás y ves al instante — con reseñas y propinas integradas.',
+                bullets: ['Sin apps ni descargas', 'Reseñas de Google (Pro+)', 'Propinas Mercado Pago (Pro+)'],
                 icon: Smartphone
             },
             {
-                title: 'Actualización en vivo',
-                description: 'Cambios reflejados al instante en todos los QR.',
-                bullets: ['Sin publicación manual', 'Precios dinámicos', 'Edición segura'],
+                title: 'Multi-sucursal',
+                description: 'Administrá múltiples cartas desde un único panel.',
+                bullets: ['Cartas independientes (Premium)', 'Panel unificado', 'Edición segura'],
                 icon: RefreshCw,
                 className: 'lg:col-span-2'
             }

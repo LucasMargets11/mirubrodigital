@@ -32,6 +32,8 @@ export function NewQuoteClient() {
     const [terms, setTerms] = useState('');
     const [selectedSeriesId, setSelectedSeriesId] = useState('');
     const [feedback, setFeedback] = useState('');
+    const searchInputRef = useRef<HTMLInputElement>(null);
+    const [highlightedId, setHighlightedId] = useState<number | null>(null);
 
     const billingProfileQuery = useBusinessBillingProfileQuery();
     const documentSeriesQuery = useDocumentSeriesQuery();
@@ -89,7 +91,12 @@ export function NewQuoteClient() {
                 },
             ];
         });
-        setSearch('');
+        // Highlight the row briefly and refocus the search — do NOT clear search so the list stays open
+        setHighlightedId(product.id);
+        requestAnimationFrame(() => {
+            searchInputRef.current?.focus();
+        });
+        setTimeout(() => setHighlightedId(null), 500);
     };
 
     const addManualItem = () => {
@@ -171,26 +178,9 @@ export function NewQuoteClient() {
 
     return (
         <form onSubmit={handleSubmit} className="space-y-4">
-            <header className="flex flex-col gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:flex-row md:items-center md:justify-between">
-                <div>
-                    <h2 className="text-2xl font-semibold text-slate-900">Nuevo presupuesto</h2>
-                    <p className="text-sm text-slate-500">Creá una cotización para enviar al cliente.</p>
-                </div>
-                <div className="flex gap-2">
-                    <Link
-                        href={"/app/gestion/ventas/presupuestos" as any}
-                        className="inline-flex items-center justify-center rounded-full border border-slate-300 bg-white px-5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                    >
-                        Cancelar
-                    </Link>
-                    <button
-                        type="submit"
-                        disabled={createQuote.isPending || !isProfileComplete}
-                        className="inline-flex items-center justify-center rounded-full bg-slate-900 px-5 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
-                    >
-                        {createQuote.isPending ? 'Guardando...' : 'Guardar presupuesto'}
-                    </button>
-                </div>
+            <header className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+                <h2 className="text-2xl font-semibold text-slate-900">Nuevo presupuesto</h2>
+                <p className="text-sm text-slate-500">Creá una cotización para enviar al cliente.</p>
             </header>
 
             {feedback && (
@@ -264,46 +254,124 @@ export function NewQuoteClient() {
                 </div>
             )}
 
-            <div className="grid gap-4 md:grid-cols-2">
-                {/* Cliente */}
-                <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-                    <h3 className="mb-3 text-lg font-semibold text-slate-900">Cliente</h3>
-                    <div className="space-y-3">
-                        <SaleCustomerPicker
-                            value={selectedCustomer}
-                            onChange={setSelectedCustomer}
+            {/* Cliente */}
+            <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+                <h3 className="mb-3 text-lg font-semibold text-slate-900">Cliente</h3>
+                <div className="space-y-3">
+                    <SaleCustomerPicker
+                        value={selectedCustomer}
+                        onChange={setSelectedCustomer}
+                    />
+                    {!selectedCustomer && (
+                        <>
+                            <input
+                                type="text"
+                                value={customerName}
+                                onChange={(e) => setCustomerName(e.target.value)}
+                                placeholder="Nombre del cliente"
+                                className="w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm focus:border-slate-900 focus:outline-none"
+                            />
+                            <input
+                                type="email"
+                                value={customerEmail}
+                                onChange={(e) => setCustomerEmail(e.target.value)}
+                                placeholder="Email (opcional)"
+                                className="w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm focus:border-slate-900 focus:outline-none"
+                            />
+                            <input
+                                type="tel"
+                                value={customerPhone}
+                                onChange={(e) => setCustomerPhone(e.target.value)}
+                                placeholder="Teléfono (opcional)"
+                                className="w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm focus:border-slate-900 focus:outline-none"
+                            />
+                        </>
+                    )}
+                </div>
+            </div>
+
+            <div className="grid items-start gap-6 lg:grid-cols-[2fr_1fr]">
+
+            {/* Productos */}
+            <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+                <h3 className="mb-3 text-lg font-semibold text-slate-900">Productos / Servicios</h3>
+                
+                <div className="mb-4 space-y-2">
+                    <div className="relative">
+                        <input
+                            ref={searchInputRef}
+                            type="search"
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                            placeholder="Buscar productos por nombre, SKU o código de barras…"
+                            autoComplete="off"
+                            aria-label="Buscar productos"
+                            aria-autocomplete="list"
+                            aria-expanded={shouldSearch && products.length > 0}
+                            className="w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm focus:border-slate-900 focus:outline-none"
                         />
-                        {!selectedCustomer && (
-                            <>
-                                <input
-                                    type="text"
-                                    value={customerName}
-                                    onChange={(e) => setCustomerName(e.target.value)}
-                                    placeholder="Nombre del cliente"
-                                    className="w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm focus:border-slate-900 focus:outline-none"
-                                />
-                                <input
-                                    type="email"
-                                    value={customerEmail}
-                                    onChange={(e) => setCustomerEmail(e.target.value)}
-                                    placeholder="Email (opcional)"
-                                    className="w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm focus:border-slate-900 focus:outline-none"
-                                />
-                                <input
-                                    type="tel"
-                                    value={customerPhone}
-                                    onChange={(e) => setCustomerPhone(e.target.value)}
-                                    placeholder="Teléfono (opcional)"
-                                    className="w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm focus:border-slate-900 focus:outline-none"
-                                />
-                            </>
+                        {search.length > 0 && (
+                            <button
+                                type="button"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => { setSearch(''); searchInputRef.current?.focus(); }}
+                                aria-label="Limpiar búsqueda"
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+                            >
+                                ✕
+                            </button>
                         )}
                     </div>
+                    {shouldSearch && productsQuery.isLoading && (
+                        <p className="text-sm text-slate-500">Buscando…</p>
+                    )}
+                    {shouldSearch && !productsQuery.isLoading && products.length === 0 && (
+                        <p className="text-sm text-slate-400">Sin resultados para &ldquo;{search}&rdquo;</p>
+                    )}
+                    {shouldSearch && !productsQuery.isLoading && products.length > 0 && (
+                        <div
+                            role="listbox"
+                            aria-label="Resultados de productos"
+                            className="max-h-60 overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-sm"
+                        >
+                            {products.map((product) => (
+                                <button
+                                    key={product.id}
+                                    type="button"
+                                    role="option"
+                                    aria-selected={cart.some((i) => i.product?.id === product.id)}
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() => addToCart(product)}
+                                    className="flex w-full items-center justify-between gap-2 px-4 py-2.5 text-left transition-colors hover:bg-slate-50 focus-visible:bg-slate-50 focus-visible:outline-none"
+                                >
+                                    <div className="min-w-0 flex-1">
+                                        <p className="truncate text-sm font-medium text-slate-900">{product.name}</p>
+                                        <p className="text-xs text-slate-400">
+                                            {product.sku || product.barcode || 'Sin código'}
+                                        </p>
+                                    </div>
+                                    <div className="flex shrink-0 items-center gap-2">
+                                        {cart.some((i) => i.product?.id === product.id) && (
+                                            <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">
+                                                ✓ en lista
+                                            </span>
+                                        )}
+                                        <span className="text-sm font-semibold text-slate-900">
+                                            {formatCurrencySmart(Number(product.price))}
+                                        </span>
+                                    </div>
+                                </button>
+                            ))}
+                        </div>
+                    )}
                 </div>
 
-                {/* Detalles */}
-                <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-                    <h3 className="mb-3 text-lg font-semibold text-slate-900">Detalles</h3>
+            </div>
+
+            {/* Detalles */}
+            <div className="flex flex-col rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+                <h3 className="mb-3 text-lg font-semibold text-slate-900">Detalles</h3>
+                <div className="flex flex-1 flex-col">
                     <div className="space-y-3">
                         <div>
                             <label className="mb-1 block text-sm font-medium text-slate-700">
@@ -329,127 +397,159 @@ export function NewQuoteClient() {
                             />
                         </div>
                     </div>
+
+                    {/* Ítems agregados */}
+                    <div className="mt-4">
+                        <div className="mb-2 flex items-center justify-between">
+                            <p className="text-sm font-semibold text-slate-700">
+                                Ítems del presupuesto
+                                {cart.length > 0 && <span className="ml-1.5 font-normal text-slate-400">{cart.length} {cart.length === 1 ? 'producto' : 'productos'}</span>}
+                            </p>
+                            <button
+                                type="button"
+                                onClick={addManualItem}
+                                className="text-xs font-semibold text-blue-600 hover:text-blue-800"
+                            >
+                                + Agregar manual
+                            </button>
+                        </div>
+
+                        {cart.length === 0 ? (
+                            <p className="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500">
+                                Buscá productos a la izquierda para agregarlos al presupuesto.
+                            </p>
+                        ) : (
+                            <div className="space-y-3">
+                                {cart.map((item, index) => {
+                                    const rowSubtotal = item.quantity * item.unitPrice - item.discount;
+                                    const isHighlighted = item.product?.id != null && item.product.id === highlightedId;
+                                    return (
+                                        <div
+                                            key={index}
+                                            className={[
+                                                'rounded-2xl border border-slate-100 p-3 transition-colors duration-300',
+                                                isHighlighted ? 'bg-emerald-50' : '',
+                                            ].join(' ')}
+                                        >
+                                            <div className="flex items-start justify-between gap-3">
+                                                <div>
+                                                    {item.product === null ? (
+                                                        <input
+                                                            type="text"
+                                                            value={item.name}
+                                                            onChange={(e) => updateCartItem(index, { name: e.target.value })}
+                                                            placeholder="Nombre del producto"
+                                                            aria-label="Nombre del ítem"
+                                                            className="rounded-xl border border-slate-200 px-3 py-1 text-sm font-medium text-slate-900 focus:border-slate-400 focus:outline-none"
+                                                        />
+                                                    ) : (
+                                                        <>
+                                                            <p className="font-medium text-slate-900">{item.name}</p>
+                                                            {(item.product.sku || item.product.barcode) && (
+                                                                <p className="text-xs text-slate-400">SKU {item.product.sku || item.product.barcode}</p>
+                                                            )}
+                                                        </>
+                                                    )}
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => removeFromCart(index)}
+                                                    aria-label="Quitar ítem"
+                                                    className="shrink-0 text-xs font-semibold text-rose-600 hover:text-rose-700"
+                                                >
+                                                    Quitar
+                                                </button>
+                                            </div>
+                                            <div className="mt-3 grid gap-3 sm:grid-cols-4">
+                                                <label className="text-xs font-semibold text-slate-500">
+                                                    Cantidad
+                                                    <input
+                                                        type="number"
+                                                        min="1"
+                                                        step="1"
+                                                        value={item.quantity}
+                                                        onChange={(e) => updateCartItem(index, { quantity: Math.max(1, Number(e.target.value) || 1) })}
+                                                        onBlur={(e) => { if (!e.target.value || Number(e.target.value) < 1) updateCartItem(index, { quantity: 1 }); }}
+                                                        onFocus={(e) => e.target.select()}
+                                                        aria-label="Cantidad"
+                                                        className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-slate-900 focus:outline-none"
+                                                    />
+                                                </label>
+                                                <label className="text-xs font-semibold text-slate-500">
+                                                    Precio unitario
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        step="0.01"
+                                                        value={item.unitPrice}
+                                                        onChange={(e) => updateCartItem(index, { unitPrice: Math.max(0, Number(e.target.value)) })}
+                                                        onFocus={(e) => e.target.select()}
+                                                        aria-label="Precio unitario"
+                                                        className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-slate-900 focus:outline-none"
+                                                    />
+                                                </label>
+                                                <label className="text-xs font-semibold text-slate-500">
+                                                    Descuento ($)
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        step="0.01"
+                                                        value={item.discount}
+                                                        onChange={(e) => updateCartItem(index, { discount: Math.max(0, Number(e.target.value)) })}
+                                                        onFocus={(e) => e.target.select()}
+                                                        placeholder="0"
+                                                        aria-label="Descuento"
+                                                        className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-slate-900 focus:outline-none"
+                                                    />
+                                                </label>
+                                                <div className="text-right text-xs font-semibold text-slate-500">
+                                                    Total
+                                                    <p className="mt-1 text-base text-slate-900">{formatCurrencySmart(rowSubtotal)}</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Totales */}
+                    <div className="mt-auto space-y-1 border-t border-slate-100 pt-3">
+                        <div className="flex justify-between text-sm">
+                            <span className="text-slate-500">Subtotal:</span>
+                            <span className="font-semibold text-slate-900">{formatCurrencySmart(subtotal)}</span>
+                        </div>
+                        {discountTotal > 0 && (
+                            <div className="flex justify-between text-sm">
+                                <span className="text-slate-500">Descuentos:</span>
+                                <span className="font-semibold text-rose-600">-{formatCurrencySmart(discountTotal)}</span>
+                            </div>
+                        )}
+                        <div className="flex justify-between border-t border-slate-200 pt-2">
+                            <span className="text-base font-semibold text-slate-900">Total:</span>
+                            <span className="text-base font-semibold text-slate-900">{formatCurrencySmart(total)}</span>
+                        </div>
+                    </div>
+
+                    {/* Acciones */}
+                    <div className="flex gap-2 pt-1">
+                        <Link
+                            href={"/app/gestion/ventas/presupuestos" as any}
+                            className="inline-flex flex-1 items-center justify-center rounded-full border border-slate-300 bg-white px-5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                        >
+                            Cancelar
+                        </Link>
+                        <button
+                            type="submit"
+                            disabled={createQuote.isPending || !isProfileComplete}
+                            className="inline-flex flex-1 items-center justify-center rounded-full bg-slate-900 px-5 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+                        >
+                            {createQuote.isPending ? 'Guardando...' : 'Guardar presupuesto'}
+                        </button>
+                    </div>
                 </div>
             </div>
-
-            {/* Productos */}
-            <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-                <h3 className="mb-3 text-lg font-semibold text-slate-900">Productos / Servicios</h3>
-                
-                <div className="mb-4 space-y-2">
-                    <input
-                        type="search"
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                        placeholder="Buscar productos por nombre, SKU o código de barras"
-                        className="w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm focus:border-slate-900 focus:outline-none"
-                    />
-                    {shouldSearch && productsQuery.isLoading && (
-                        <p className="text-sm text-slate-500">Buscando...</p>
-                    )}
-                    {shouldSearch && !productsQuery.isLoading && products.length > 0 && (
-                        <div className="max-h-60 overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50">
-                            {products.map((product) => (
-                                <button
-                                    key={product.id}
-                                    type="button"
-                                    onClick={() => addToCart(product)}
-                                    className="flex w-full items-center justify-between px-4 py-2 text-left hover:bg-slate-100"
-                                >
-                                    <div>
-                                        <p className="font-medium text-slate-900">{product.name}</p>
-                                        <p className="text-xs text-slate-500">
-                                            {product.sku || product.barcode || 'Sin código'}
-                                        </p>
-                                    </div>
-                                    <span className="font-semibold text-slate-900">
-                                        {formatCurrencySmart(Number(product.price))}
-                                    </span>
-                                </button>
-                            ))}
-                        </div>
-                    )}
-                </div>
-
-                <button
-                    type="button"
-                    onClick={addManualItem}
-                    className="mb-3 text-sm font-semibold text-blue-600 hover:text-blue-800"
-                >
-                    + Agregar ítem manual
-                </button>
-
-                {cart.length > 0 && (
-                    <div className="space-y-2">
-                        {cart.map((item, index) => (
-                            <div
-                                key={index}
-                                className="grid grid-cols-12 gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-3"
-                            >
-                                <input
-                                    type="text"
-                                    value={item.name}
-                                    onChange={(e) =>
-                                        updateCartItem(index, { name: e.target.value })
-                                    }
-                                    placeholder="Nombre"
-                                    className="col-span-4 rounded-xl border border-slate-300 px-3 py-1 text-sm focus:border-slate-900 focus:outline-none"
-                                />
-                                <input
-                                    type="number"
-                                    value={item.quantity}
-                                    onChange={(e) =>
-                                        updateCartItem(index, {
-                                            quantity: Math.max(1, Number(e.target.value)),
-                                        })
-                                    }
-                                    min="1"
-                                    step="1"
-                                    className="col-span-2 rounded-xl border border-slate-300 px-3 py-1 text-sm focus:border-slate-900 focus:outline-none"
-                                />
-                                <input
-                                    type="number"
-                                    value={item.unitPrice}
-                                    onChange={(e) =>
-                                        updateCartItem(index, {
-                                            unitPrice: Number(e.target.value),
-                                        })
-                                    }
-                                    min="0"
-                                    step="0.01"
-                                    className="col-span-2 rounded-xl border border-slate-300 px-3 py-1 text-sm focus:border-slate-900 focus:outline-none"
-                                />
-                                <input
-                                    type="number"
-                                    value={item.discount}
-                                    onChange={(e) =>
-                                        updateCartItem(index, {
-                                            discount: Math.max(0, Number(e.target.value)),
-                                        })
-                                    }
-                                    min="0"
-                                    step="0.01"
-                                    placeholder="Desc."
-                                    className="col-span-2 rounded-xl border border-slate-300 px-3 py-1 text-sm focus:border-slate-900 focus:outline-none"
-                                />
-                                <div className="col-span-1 flex items-center justify-end">
-                                    <span className="text-sm font-semibold text-slate-900">
-                                        {formatCurrencySmart(item.quantity * item.unitPrice - item.discount)}
-                                    </span>
-                                </div>
-                                <div className="col-span-1 flex items-center justify-end">
-                                    <button
-                                        type="button"
-                                        onClick={() => removeFromCart(index)}
-                                        className="text-rose-600 hover:text-rose-800"
-                                    >
-                                        ✕
-                                    </button>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
             </div>
 
             {/* Términos */}
@@ -462,26 +562,6 @@ export function NewQuoteClient() {
                     rows={3}
                     className="w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm focus:border-slate-900 focus:outline-none"
                 />
-            </div>
-
-            {/* Totales */}
-            <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="space-y-2">
-                    <div className="flex justify-between text-sm">
-                        <span className="text-slate-600">Subtotal:</span>
-                        <span className="font-semibold text-slate-900">{formatCurrencySmart(subtotal)}</span>
-                    </div>
-                    {discountTotal > 0 && (
-                        <div className="flex justify-between text-sm">
-                            <span className="text-slate-600">Descuentos:</span>
-                            <span className="font-semibold text-rose-600">-{formatCurrencySmart(discountTotal)}</span>
-                        </div>
-                    )}
-                    <div className="flex justify-between border-t border-slate-200 pt-2">
-                        <span className="text-lg font-semibold text-slate-900">Total:</span>
-                        <span className="text-lg font-semibold text-slate-900">{formatCurrencySmart(total)}</span>
-                    </div>
-                </div>
             </div>
         </form>
     );

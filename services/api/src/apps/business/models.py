@@ -49,6 +49,11 @@ class BusinessPlan(models.TextChoices):
   MENU_QR_VISUAL = 'menu_qr_visual', 'Menú QR Visual'
   MENU_QR_MARCA = 'menu_qr_marca', 'Menú QR Marca'
 
+  # New Menu QR plans (Lite / Pro / Premium)
+  MENU_QR_LITE = 'menu_qr_lite', 'Menú QR Lite'
+  MENU_QR_PRO = 'menu_qr_pro', 'Menú QR Pro'
+  MENU_QR_PREMIUM = 'menu_qr_premium', 'Menú QR Premium'
+
   # Legacy plans (mantener para compatibilidad)
   STARTER = 'starter', 'Starter (Legacy)'
   PLUS = 'plus', 'Plus (Legacy)'
@@ -61,6 +66,11 @@ class Subscription(models.Model):
     ('canceled', 'Canceled'),
   ]
 
+  PRO_MODULE_CHOICES = [
+    ('reviews', 'Reseñas de Google'),
+    ('tips', 'Propina (Mercado Pago)'),
+  ]
+
   business = models.OneToOneField('business.Business', related_name='subscription', on_delete=models.CASCADE)
   plan = models.CharField(max_length=32, choices=BusinessPlan.choices, default=BusinessPlan.START)
   service = models.CharField(max_length=32, choices=Business.SERVICE_CHOICES, default='gestion')
@@ -68,6 +78,14 @@ class Subscription(models.Model):
   max_branches = models.PositiveIntegerField(default=1, help_text='Sucursales incluidas en el plan base')
   max_seats = models.PositiveIntegerField(default=2, help_text='Usuarios incluidos en el plan base')
   renews_at = models.DateTimeField(null=True, blank=True)
+  # Menú QR Pro: módulo incluido elegido por el usuario al contratar
+  pro_included_module = models.CharField(
+    max_length=16,
+    choices=PRO_MODULE_CHOICES,
+    null=True,
+    blank=True,
+    help_text='Solo para plan menu_qr_pro: módulo incluido en el precio base (reviews|tips)',
+  )
   created_at = models.DateTimeField(auto_now_add=True)
   updated_at = models.DateTimeField(auto_now=True)
 
@@ -124,7 +142,13 @@ class Subscription(models.Model):
       'business': None, # Ilimitado desde la 1ra
       'enterprise': None,
       'plus': None,     # Legacy, ilimitado
+      # Menú QR plans
       'menu_qr': 1,
+      'menu_qr_visual': 1,
+      'menu_qr_marca': 1,
+      'menu_qr_lite': 1,    # No permite sucursales extra
+      'menu_qr_pro': 1,     # No permite sucursales extra
+      'menu_qr_premium': None,  # Ilimitado
     }
     return plan_limits.get(self.plan.lower(), 1)
 
@@ -138,6 +162,9 @@ class SubscriptionAddon(models.Model):
     ('extra_branch', 'Sucursal Extra'),
     ('extra_seat', 'Usuario Extra'),
     ('invoices_module', 'Módulo de Facturación'),
+    # Menú QR Pro add-ons
+    ('menu_qr_addon_reviews', 'Módulo Reseñas (Menú QR)'),
+    ('menu_qr_addon_tips', 'Módulo Propina (Menú QR)'),
   ]
   
   subscription = models.ForeignKey(

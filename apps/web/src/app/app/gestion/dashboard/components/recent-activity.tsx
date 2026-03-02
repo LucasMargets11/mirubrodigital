@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useMemo } from 'react';
 
-import { useRecentInventoryMovements, useRecentSales } from '@/features/gestion/hooks';
+import { useRecentInventoryMovements, useRecentQuotes, useRecentSales } from '@/features/gestion/hooks';
 import { formatCurrency, formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
@@ -12,11 +12,13 @@ type RecentActivityProps = {
     inventoryEnabled: boolean;
     canViewSales: boolean;
     salesEnabled: boolean;
+    canViewQuotes: boolean;
+    quotesEnabled: boolean;
 };
 
 type ActivityEvent = {
     id: string;
-    kind: 'sale' | 'movement';
+    kind: 'sale' | 'movement' | 'quote';
     title: string;
     description: string;
     timestamp: string;
@@ -25,12 +27,14 @@ type ActivityEvent = {
     amountLabel?: string;
 };
 
-export function RecentActivity({ canViewSales, salesEnabled, canViewStock, inventoryEnabled }: RecentActivityProps) {
+export function RecentActivity({ canViewSales, salesEnabled, canViewStock, inventoryEnabled, canViewQuotes, quotesEnabled }: RecentActivityProps) {
     const salesAllowed = canViewSales && salesEnabled;
     const stockAllowed = canViewStock && inventoryEnabled;
+    const quotesAllowed = canViewQuotes && quotesEnabled;
 
     const salesQuery = useRecentSales(5, salesAllowed);
     const movementsQuery = useRecentInventoryMovements(5, stockAllowed);
+    const quotesQuery = useRecentQuotes(5, quotesAllowed);
 
     const events = useMemo<ActivityEvent[]>(() => {
         const saleEvents: ActivityEvent[] = (salesQuery.data ?? []).map((sale) => ({
@@ -54,36 +58,48 @@ export function RecentActivity({ canViewSales, salesEnabled, canViewStock, inven
             icon: movement.movement_type === 'IN' ? '⬆️' : movement.movement_type === 'OUT' ? '⬇️' : '🛠️',
         }));
 
-        return [...saleEvents, ...movementEvents]
+        const quoteEvents: ActivityEvent[] = (quotesQuery.data ?? []).map((quote) => ({
+            id: quote.id,
+            kind: 'quote',
+            title: `Presupuesto #${quote.number}`,
+            description: quote.customer_name ?? quote.customer_email ?? 'Sin cliente',
+            timestamp: quote.created_at,
+            href: `/app/gestion/ventas/presupuestos/${quote.id}`,
+            icon: '📄',
+            amountLabel: formatCurrency(quote.total),
+        }));
+
+        return [...saleEvents, ...movementEvents, ...quoteEvents]
             .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
             .slice(0, 10);
-    }, [movementsQuery.data, salesQuery.data]);
+    }, [movementsQuery.data, salesQuery.data, quotesQuery.data]);
 
-    const enabled = salesAllowed || stockAllowed;
+    const enabled = salesAllowed || stockAllowed || quotesAllowed;
 
     return (
         <section className="space-y-4 rounded-3xl border border-slate-100 bg-white p-5 shadow-sm">
             <header className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
                 <div>
                     <h2 className="text-lg font-semibold text-slate-900">Actividad reciente</h2>
-                    <p className="text-sm text-slate-500">Últimas ventas y movimientos sincronizados.</p>
+                    <p className="text-sm text-slate-500">Últimas ventas, movimientos y presupuestos.</p>
                 </div>
                 <div className="flex flex-wrap gap-3 text-sm font-semibold text-slate-600">
                     {salesAllowed ? <Link href="/app/gestion/ventas">Ventas →</Link> : null}
                     {stockAllowed ? <Link href="/app/gestion/stock">Movimientos →</Link> : null}
+                    {quotesAllowed ? <Link href="/app/gestion/ventas/presupuestos">Presupuestos →</Link> : null}
                 </div>
             </header>
 
             {!enabled ? (
                 <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
-                    No tenés permisos para ver actividad. Pedí acceso a inventario o ventas.
+                    No tenés permisos para ver actividad. Pedí acceso a inventario, ventas o presupuestos.
                 </div>
             ) : (
                 <div className="space-y-4">
-                    {salesQuery.isLoading || movementsQuery.isLoading ? (
+                    {salesQuery.isLoading || movementsQuery.isLoading || quotesQuery.isLoading ? (
                         <TimelineSkeleton />
                     ) : null}
-                    {!salesQuery.isLoading && !movementsQuery.isLoading && events.length === 0 ? (
+                    {!salesQuery.isLoading && !movementsQuery.isLoading && !quotesQuery.isLoading && events.length === 0 ? (
                         <p className="text-sm text-slate-500">Aún no hay actividad registrada.</p>
                     ) : null}
                     {events.map((event) => (

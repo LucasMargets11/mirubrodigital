@@ -12,6 +12,10 @@ from .views import (
     MenuLogoUploadView,
     MenuItemDetailView,
     MenuItemListCreateView,
+    MenuLayoutBlockListCreateView,
+    MenuLayoutBlockDetailView,
+    MenuLayoutBlockReorderView,
+    MenuLayoutBlockApplyPresetView,
     MenuStructureView,
     MercadoPagoConnectionStatusView,
     MercadoPagoDisconnectView,
@@ -37,6 +41,11 @@ urlpatterns = [
     path('structure/', MenuStructureView.as_view(), name='structure'),
     path('import/', MenuImportView.as_view(), name='import'),
     path('export/', MenuExportView.as_view(), name='export'),
+    # ── Admin: layout blocks (template-driven carta) ──────────────────────
+    path('layout/blocks/', MenuLayoutBlockListCreateView.as_view(), name='layout-block-list'),
+    path('layout/blocks/reorder/', MenuLayoutBlockReorderView.as_view(), name='layout-block-reorder'),
+    path('layout/blocks/apply-preset/', MenuLayoutBlockApplyPresetView.as_view(), name='layout-block-preset'),
+    path('layout/blocks/<uuid:pk>/', MenuLayoutBlockDetailView.as_view(), name='layout-block-detail'),
     # ── Admin: config & branding ───────────────────────────────────────────
     path('public/config/', PublicMenuConfigView.as_view(), name='public-config'),
     path('branding/', MenuBrandingSettingsView.as_view(), name='branding-settings'),

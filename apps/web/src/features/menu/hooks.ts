@@ -174,8 +174,21 @@ export function useUploadMenuItemImage() {
     return useMutation({
         mutationFn: ({ id, file }: { id: string; file: File }) =>
             uploadMenuItemImage(id, file),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: menuItemsRootKey });
+        onSuccess: (data, variables) => {
+            // Optimistically update the image_url for this item in every
+            // active items cache entry so the UI refreshes immediately.
+            queryClient.setQueriesData<import('./types').MenuItem[]>(
+                { queryKey: menuItemsRootKey },
+                (old) => {
+                    if (!old) return old;
+                    return old.map((item) =>
+                        item.id === variables.id
+                            ? { ...item, image_url: data.image_url }
+                            : item,
+                    );
+                },
+            );
+            // Also refetch structure (used in kitchen preview).
             queryClient.invalidateQueries({ queryKey: menuStructureKey });
         },
     });
@@ -185,8 +198,17 @@ export function useDeleteMenuItemImage() {
     const queryClient = useQueryClient();
     return useMutation({
         mutationFn: (id: string) => deleteMenuItemImage(id),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: menuItemsRootKey });
+        onSuccess: (_data, id) => {
+            // Instantly clear image_url from every active items cache entry.
+            queryClient.setQueriesData<import('./types').MenuItem[]>(
+                { queryKey: menuItemsRootKey },
+                (old) => {
+                    if (!old) return old;
+                    return old.map((item) =>
+                        item.id === id ? { ...item, image_url: null } : item,
+                    );
+                },
+            );
             queryClient.invalidateQueries({ queryKey: menuStructureKey });
         },
     });

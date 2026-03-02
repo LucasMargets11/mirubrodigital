@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useMemo } from 'react';
 
 import { useCashSummary } from '@/features/cash/hooks';
-import { useInventorySummary, useSalesTodaySummary } from '@/features/gestion/hooks';
+import { useInventorySummary, usePendingQuotesSummary, useSalesTodaySummary } from '@/features/gestion/hooks';
 import type { InventorySummaryStats } from '@/features/gestion/types';
 import { formatCurrency, formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -17,6 +17,8 @@ type HealthCardsProps = {
     salesEnabled: boolean;
     canViewCash: boolean;
     cashEnabled: boolean;
+    canViewQuotes: boolean;
+    quotesEnabled: boolean;
 };
 
 type CardConfig = {
@@ -40,6 +42,8 @@ export function HealthCards({
     salesEnabled,
     canViewCash,
     cashEnabled,
+    canViewQuotes,
+    quotesEnabled,
 }: HealthCardsProps) {
     const inventoryQuery = useInventorySummary({
         initialData: canViewStock && inventoryEnabled ? initialSummary : null,
@@ -49,6 +53,8 @@ export function HealthCards({
     const cashAccess = canViewCash && cashEnabled;
     const cashSummaryQuery = useCashSummary(undefined, cashAccess);
     const cashSession = cashSummaryQuery.data?.session ?? null;
+    const quotesAccess = canViewQuotes && quotesEnabled;
+    const quotesQuery = usePendingQuotesSummary(quotesAccess);
 
     const summary = useMemo(() => {
         if (!canViewStock || !inventoryEnabled) {
@@ -146,6 +152,43 @@ export function HealthCards({
             barValue: progressValue,
             state: 'info',
         });
+    } else if (cashAccess && !cashSummaryQuery.isLoading && !cashSession) {
+        cards.push({
+            key: 'cash-closed',
+            title: 'Caja',
+            value: 'Cerrada',
+            description: 'No hay sesión activa · Abrí una caja para operar',
+            href: '/app/operacion/caja',
+            badgeLabel: 'Caja cerrada',
+            badgeTone: 'bg-rose-100 text-rose-700',
+            accent: 'from-rose-500/20 via-rose-500/10 to-rose-500/5',
+            barValue: 0,
+            state: 'alert',
+        });
+    }
+
+    if (quotesAccess) {
+        const pendingCount = quotesQuery.data?.count ?? null;
+        cards.push({
+            key: 'pending-quotes',
+            title: 'Presupuestos',
+            value: pendingCount !== null ? formatNumber(pendingCount) : '—',
+            description:
+                pendingCount === null
+                    ? 'Cargando...'
+                    : pendingCount > 0
+                      ? `${pendingCount} pendiente${pendingCount > 1 ? 's' : ''} de respuesta`
+                      : 'Sin presupuestos pendientes',
+            href: '/app/gestion/presupuestos',
+            badgeLabel: pendingCount !== null && pendingCount > 0 ? 'Atención' : 'Al día',
+            badgeTone:
+                pendingCount !== null && pendingCount > 0
+                    ? 'bg-amber-100 text-amber-800'
+                    : 'bg-emerald-100 text-emerald-700',
+            accent: 'from-indigo-500/20 via-indigo-500/10 to-indigo-500/5',
+            barValue: null,
+            state: pendingCount !== null && pendingCount > 0 ? 'warn' : 'ok',
+        });
     }
 
     const averageCard: CardConfig | null = salesSnapshot
@@ -194,7 +237,7 @@ function Card({ config }: { config: CardConfig }) {
     const content = (
         <div
             className={cn(
-                'group relative flex flex-col gap-4 rounded-3xl border border-slate-100 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/20',
+                'group relative flex flex-col gap-4 rounded-3xl border border-slate-100 bg-white p-5 shadow-sm transition hover:border-slate-200 hover:bg-slate-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/20',
                 disabled && 'cursor-not-allowed opacity-70'
             )}
             aria-disabled={disabled}

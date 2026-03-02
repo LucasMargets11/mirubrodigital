@@ -1,6 +1,6 @@
 "use client";
 
-import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 
 import { Modal } from '@/components/ui/modal';
@@ -23,6 +23,7 @@ type CustomersClientProps = {
 };
 
 export function CustomersClient({ canCreate, canManage }: CustomersClientProps) {
+    const router = useRouter();
     const [search, setSearch] = useState('');
     const [includeInactive, setIncludeInactive] = useState(false);
     const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -178,7 +179,11 @@ export function CustomersClient({ canCreate, canManage }: CustomersClientProps) 
                                 </tr>
                             ) : (
                                 customers.map((customer) => (
-                                    <tr key={customer.id}>
+                                    <tr
+                                        key={customer.id}
+                                        onClick={() => router.push(`/app/gestion/clientes/${customer.id}` as any)}
+                                        className="cursor-pointer hover:bg-slate-50"
+                                    >
                                         <td className="px-3 py-3">
                                             <p className="font-semibold text-slate-900">{customer.name}</p>
                                             {customer.doc_number ? (
@@ -202,16 +207,10 @@ export function CustomersClient({ canCreate, canManage }: CustomersClientProps) 
                                         </td>
                                         <td className="px-3 py-3 text-right text-sm font-semibold text-slate-600">
                                             <div className="flex flex-col gap-2 md:flex-row md:justify-end">
-                                                <Link
-                                                    href={`/app/gestion/clientes/${customer.id}` as any}
-                                                    className="text-slate-600 hover:text-slate-900"
-                                                >
-                                                    Ver ficha
-                                                </Link>
                                                 {canManage ? (
                                                     <button
                                                         type="button"
-                                                        onClick={() => openEditModal(customer)}
+                                                        onClick={(e) => { e.stopPropagation(); openEditModal(customer); }}
                                                         className="text-slate-600 hover:text-slate-900"
                                                     >
                                                         Editar
@@ -220,7 +219,7 @@ export function CustomersClient({ canCreate, canManage }: CustomersClientProps) 
                                                 {canManage ? (
                                                     <button
                                                         type="button"
-                                                        onClick={() => handleToggleActive(customer)}
+                                                        onClick={(e) => { e.stopPropagation(); void handleToggleActive(customer); }}
                                                         className="text-slate-600 hover:text-slate-900"
                                                     >
                                                         {customer.is_active ? 'Desactivar' : 'Activar'}

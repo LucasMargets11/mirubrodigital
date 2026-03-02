@@ -5,13 +5,15 @@ import { MenuCategory, MenuConfig } from "./types";
 import { MenuCategorySection } from "./category-section";
 import { MenuBrandHeader } from "./brand-header";
 import { getMenuFontFamily } from "@/lib/fonts";
-import type { PublicMenuEngagement } from "@/features/menu/types";
+import { buildMediaUrl } from "@/lib/api-url";
+import type { PublicMenuEngagement, PublicMenuLayoutBlock } from "@/features/menu/types";
 import { createPublicTipPreference } from "@/features/menu/api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface PublicMenuLayoutProps {
     config: MenuConfig;
     categories: MenuCategory[];
+    layoutBlocks?: PublicMenuLayoutBlock[];
     engagement?: PublicMenuEngagement | null;
     slug?: string;
 }
@@ -250,8 +252,81 @@ function StickyCTABar({
     );
 }
 
+// ─── Block Navigation (mobile chips) ─────────────────────────────────────────
+function BlockNavChips({ blocks, accentColor }: { blocks: PublicMenuLayoutBlock[]; accentColor: string }) {
+    if (blocks.length <= 1) return null;
+    return (
+        <nav
+            aria-label="Secciones de la carta"
+            className="sticky top-0 z-30 flex gap-2 overflow-x-auto py-2 -mx-6 px-6 lg:-mx-12 lg:px-12 2xl:-mx-16 2xl:px-16 bg-[var(--menu-bg)] border-b border-[var(--menu-divider)] mb-8"
+            style={{ scrollbarWidth: 'none' }}
+        >
+            {blocks.map((block) => (
+                <a
+                    key={block.id}
+                    href={`#block-${block.id}`}
+                    className="whitespace-nowrap flex-shrink-0 rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors hover:opacity-80"
+                    style={{ borderColor: accentColor, color: accentColor }}
+                >
+                    {block.badge_text ? `${block.title} · ${block.badge_text}` : block.title}
+                </a>
+            ))}
+        </nav>
+    );
+}
+
+// ─── Block Section Renderer ───────────────────────────────────────────────────
+function menuBlockColumnsClass(colsDesktop: number, colsTablet: number, layout: string): string {
+    const desktopMap: Record<number, string> = { 1: 'lg:columns-1', 2: 'lg:columns-2', 3: 'lg:columns-3', 4: 'lg:columns-4' };
+    const tabletMap: Record<number, string> = { 1: 'md:columns-1', 2: 'md:columns-2', 3: 'md:columns-3' };
+    const d = desktopMap[colsDesktop] || 'lg:columns-2';
+    const t = tabletMap[colsTablet] || 'md:columns-2';
+    return `columns-1 gap-12 [column-fill:balance] text-sm ${t} ${d}`;
+}
+
+function BlockSection({ block }: { block: PublicMenuLayoutBlock }) {
+    // Filter: only categories that have items (backend already does is_active, but double-check)
+    const visibleCategories = block.categories.filter((c) => c.items && c.items.length > 0);
+    if (visibleCategories.length === 0) return null;
+
+    return (
+        <section id={`block-${block.id}`} className="mb-16 scroll-mt-20">
+            {/* Block Header */}
+            <div className="mb-8 flex items-center gap-4">
+                <div className="flex flex-col gap-1">
+                    <h2
+                        className="font-bold uppercase tracking-widest text-[var(--menu-text)] font-[family-name:var(--menu-font-heading)] opacity-40"
+                        style={{ fontSize: 'calc(var(--menu-size-body) * 0.75)' }}
+                    >
+                        {block.title}
+                    </h2>
+                    {block.badge_text && (
+                        <span
+                            className="inline-block rounded-full border px-2.5 py-0.5 text-[11px] font-semibold"
+                            style={{ borderColor: 'var(--menu-accent)', color: 'var(--menu-accent)' }}
+                        >
+                            {block.badge_text}
+                        </span>
+                    )}
+                </div>
+                <div className="h-px flex-1 bg-[var(--menu-divider)] opacity-30" />
+            </div>
+
+            {/* Categories in columns */}
+            <div className={menuBlockColumnsClass(block.columns_desktop, block.columns_tablet, block.layout)}>
+                {visibleCategories.map((cat) => (
+                    <MenuCategorySection
+                        key={cat.id}
+                        category={cat as any}          /* shape is compatible */
+                    />
+                ))}
+            </div>
+        </section>
+    );
+}
+
 // ─── Main Layout ──────────────────────────────────────────────────────────────
-export function PublicMenuLayout({ config, categories, engagement, slug }: PublicMenuLayoutProps) {
+export function PublicMenuLayout({ config, categories, layoutBlocks, engagement, slug }: PublicMenuLayoutProps) {
     const theme = config.theme_json || {};
     const accentColor = (theme as any).accent || '#8b5cf6';
 
@@ -338,7 +413,7 @@ export function PublicMenuLayout({ config, categories, engagement, slug }: Publi
                         style={{ opacity: (theme as any).menuLogoWatermarkOpacity || 0.08 }}
                     >
                         <img
-                            src={(theme as any).menuLogoUrl}
+                            src={buildMediaUrl((theme as any).menuLogoUrl) ?? undefined}
                             alt=""
                             className="w-full max-w-3xl object-contain opacity-100 grayscale transition-all duration-300"
                             style={{ filter: 'grayscale(100%)' }}
@@ -356,12 +431,24 @@ export function PublicMenuLayout({ config, categories, engagement, slug }: Publi
                         theme={theme as any}
                     />
 
-                    {/* Columns Container */}
-                    <div className="columns-1 gap-12 text-sm [column-fill:balance] lg:columns-2 2xl:columns-3">
-                        {categories.map((category) => (
-                            <MenuCategorySection key={category.id} category={category} />
-                        ))}
-                    </div>
+                    {/* ── Block navigation chips (when layout blocks configured) ── */}
+                    {layoutBlocks && layoutBlocks.length > 0 && (
+                        <BlockNavChips blocks={layoutBlocks} accentColor={accentColor} />
+                    )}
+
+                    {/* ── Render by blocks OR fallback to flat categories ─────── */}
+                    {layoutBlocks && layoutBlocks.length > 0 ? (
+                        layoutBlocks.map((block) => (
+                            <BlockSection key={block.id} block={block} />
+                        ))
+                    ) : (
+                        /* Fallback: no layout configured → original flat columns */
+                        <div className="columns-1 gap-12 text-sm [column-fill:balance] lg:columns-2 2xl:columns-3">
+                            {categories.map((category) => (
+                                <MenuCategorySection key={category.id} category={category} />
+                            ))}
+                        </div>
+                    )}
 
                     {/* Footer */}
                     <div className="mt-20 border-t border-[var(--menu-divider)] pt-8 text-center text-xs text-[var(--menu-muted)] opacity-60">

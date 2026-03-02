@@ -27,10 +27,13 @@ from apps.accounts.permissions import HasBusinessMembership, HasPermission
 from apps.billing.permissions import CheckFeatureAccess
 from apps.business.service_policy import require_service
 from .importer import MenuImportError, apply_menu_import, export_menu_to_workbook
+from .qr_entitlements import resolve_menu_qr_flags, get_subscription_for_business
 from .models import (
     MenuBrandingSettings,
     MenuCategory,
     MenuEngagementSettings,
+    MenuLayoutBlock,
+    MenuLayoutBlockCategory,
     MercadoPagoConnection,
     MenuItem,
     PublicMenuConfig,
@@ -47,10 +50,13 @@ from .serializers import (
     MenuItemSerializer,
     MenuItemWriteSerializer,
     MenuItemImageUploadSerializer,
+    MenuLayoutBlockSerializer,
+    MenuLayoutBlockReorderSerializer,
     MenuStructureCategorySerializer,
     MercadoPagoConnectionStatusSerializer,
     PublicMenuConfigSerializer,
     PublicMenuCategorySerializer,
+    PublicMenuLayoutBlockSerializer,
     MenuBrandingSettingsSerializer,
     TipCreatePreferenceSerializer,
     TipTransactionSerializer,
@@ -181,6 +187,104 @@ class MenuStructureView(APIView):
         )
         serializer = MenuStructureCategorySerializer(categories, many=True)
         return Response(serializer.data)
+
+
+# ---------------------------------------------------------------------------
+# MenuLayoutBlock — admin CRUD + preset apply
+# ---------------------------------------------------------------------------
+
+class MenuLayoutBlockListCreateView(APIView):
+    permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+    required_permission = 'manage_menu'
+
+    def get(self, request):
+        business = getattr(request, 'business')
+        blocks = (
+            MenuLayoutBlock.objects.filter(business=business)
+            .prefetch_related(
+                Prefetch(
+                    'block_categories',
+                    queryset=MenuLayoutBlockCategory.objects.select_related('category')
+                    .order_by('position', 'category__name'),
+                )
+            )
+            .order_by('position', 'title')
+        )
+        serializer = MenuLayoutBlockSerializer(blocks, many=True)
+        return Response(serializer.data)
+
+    def post(self, request):
+        business = getattr(request, 'business')
+        serializer = MenuLayoutBlockSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(business=business)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class MenuLayoutBlockDetailView(APIView):
+    permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+    required_permission = 'manage_menu'
+
+    def _get_block(self, request, pk):
+        business = getattr(request, 'business')
+        return get_object_or_404(MenuLayoutBlock, pk=pk, business=business)
+
+    def get(self, request, pk):
+        block = self._get_block(request, pk)
+        return Response(MenuLayoutBlockSerializer(block).data)
+
+    def patch(self, request, pk):
+        block = self._get_block(request, pk)
+        serializer = MenuLayoutBlockSerializer(block, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    def delete(self, request, pk):
+        block = self._get_block(request, pk)
+        block.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class MenuLayoutBlockReorderView(APIView):
+    """PATCH /layout/blocks/reorder/ — bulk-update positions."""
+    permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+    required_permission = 'manage_menu'
+
+    def patch(self, request):
+        business = getattr(request, 'business')
+        serializer = MenuLayoutBlockReorderSerializer(data=request.data, many=True)
+        serializer.is_valid(raise_exception=True)
+        for item in serializer.validated_data:
+            MenuLayoutBlock.objects.filter(pk=item['id'], business=business).update(
+                position=item['position']
+            )
+        return Response({'detail': 'Reordenado correctamente.'})
+
+
+class MenuLayoutBlockApplyPresetView(APIView):
+    """POST /layout/blocks/apply-preset/ — destroy & rebuild from template."""
+    permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+    required_permission = 'manage_menu'
+
+    def post(self, request):
+        template = (request.data.get('template') or '').strip()
+        if template not in ('drinks_first', 'food_first'):
+            return Response(
+                {'detail': 'template debe ser "drinks_first" o "food_first".'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        business = getattr(request, 'business')
+        from .layout_presets import apply_preset
+        apply_preset(business, template)
+        blocks = MenuLayoutBlock.objects.filter(business=business).prefetch_related(
+            Prefetch(
+                'block_categories',
+                queryset=MenuLayoutBlockCategory.objects.select_related('category')
+                .order_by('position', 'category__name'),
+            )
+        ).order_by('position', 'title')
+        return Response(MenuLayoutBlockSerializer(blocks, many=True).data)
 
 
 class MenuImportView(APIView):
@@ -314,6 +418,28 @@ class PublicMenuBySlugView(APIView):
         branding_data = MenuBrandingSettingsSerializer(branding, context={'request': request}).data
         config_data = PublicMenuConfigSerializer(config).data
 
+        # Layout blocks (template-driven)
+        layout_blocks_qs = (
+            MenuLayoutBlock.objects.filter(business=config.business)
+            .prefetch_related(
+                Prefetch(
+                    'block_categories',
+                    queryset=MenuLayoutBlockCategory.objects.select_related('category')
+                    .prefetch_related(
+                        Prefetch(
+                            'category__items',
+                            queryset=items_qs,
+                        )
+                    )
+                    .order_by('position', 'category__name'),
+                )
+            )
+            .order_by('position', 'title')
+        )
+        layout_blocks_data = PublicMenuLayoutBlockSerializer(
+            layout_blocks_qs, many=True, context={'request': request}
+        ).data
+
         # Build safe public engagement data
         engagement = _build_public_engagement(config.business, request)
 
@@ -327,6 +453,7 @@ class PublicMenuBySlugView(APIView):
             'config': config_data,
             'branding': branding_data,
             'categories': menu_data,
+            'layout_blocks': layout_blocks_data,
             'engagement': engagement,
         })
 
@@ -454,7 +581,12 @@ def _build_public_engagement(business, request) -> dict:
     except MenuEngagementSettings.DoesNotExist:
         return _empty_engagement()
 
-    tips_enabled = eng.tips_enabled
+    # ── Plan-level entitlement gate ───────────────────────────────────────
+    # Resolve what the plan allows; override DB toggles if plan restricts.
+    subscription = get_subscription_for_business(business)
+    qr_flags = resolve_menu_qr_flags(subscription)
+
+    tips_enabled = eng.tips_enabled and qr_flags['tips_allowed']
     tips_mode = eng.tips_mode
     mp_tip_url = None
     mp_qr_image_url = None
@@ -474,8 +606,9 @@ def _build_public_engagement(business, request) -> dict:
     # Always compute the review URL from model property (place_id or fallback URL).
     # Effective enabled: explicit toggle OR presence of a valid URL (fixes existing records
     # where place_id was saved before the toggle UX was introduced).
+    # Also apply plan-level gate.
     write_review_url = eng.google_write_review_url
-    reviews_enabled_effective = eng.reviews_enabled or bool(write_review_url)
+    reviews_enabled_effective = (eng.reviews_enabled or bool(write_review_url)) and qr_flags['reviews_allowed']
 
     return {
         'tips_enabled': tips_enabled,
@@ -731,6 +864,12 @@ class PublicTipCreatePreferenceView(APIView):
             eng = business.menu_engagement_settings
         except MenuEngagementSettings.DoesNotExist:
             return Response({'detail': 'Propinas no disponibles.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Plan-level gate: check if tips are allowed for this business's subscription
+        subscription = get_subscription_for_business(business)
+        qr_flags = resolve_menu_qr_flags(subscription)
+        if not qr_flags['tips_allowed']:
+            return Response({'detail': 'Propinas no disponibles en el plan actual.'}, status=status.HTTP_403_FORBIDDEN)
 
         if not eng.tips_enabled or eng.tips_mode != 'mp_oauth_checkout':
             return Response({'detail': 'Propinas dinámicas no habilitadas para este menú.'}, status=status.HTTP_400_BAD_REQUEST)

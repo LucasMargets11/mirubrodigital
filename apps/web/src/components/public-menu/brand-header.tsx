@@ -1,5 +1,6 @@
 
 import { LayoutTheme } from "@/features/menu/types";
+import { buildMediaUrl } from "@/lib/api-url";
 import { cn } from "@/lib/utils";
 
 interface MenuBrandHeaderProps {
@@ -11,7 +12,7 @@ interface MenuBrandHeaderProps {
 }
 
 export function MenuBrandHeader({ brandDetails, theme }: MenuBrandHeaderProps) {
-  const logoUrl = theme.menuLogoUrl;
+  const logoUrl = buildMediaUrl(theme.menuLogoUrl) ?? undefined;
   const position = theme.menuLogoPosition || 'top_center';
   const size = theme.menuLogoSize || 'md';
 

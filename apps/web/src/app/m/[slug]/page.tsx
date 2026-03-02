@@ -1,8 +1,8 @@
 import { notFound } from 'next/navigation'
 import { getServerApiBaseUrl } from '@/lib/api-url'
-import { PublicMenuLayout } from '@/components/public-menu/menu-layout' // Adjust path if needed
+import { PublicMenuLayout } from '@/components/public-menu/menu-layout'
 import { MenuCategory, MenuConfig } from '@/components/public-menu/types'
-import type { PublicMenuEngagement } from '@/features/menu/types'
+import type { PublicMenuEngagement, PublicMenuLayoutBlock } from '@/features/menu/types'
 
 // Do not cache this route at the Next.js level — engagement/settings must reflect
 // the latest values on every request (no stale CTA visibility issues).
@@ -31,8 +31,10 @@ type MenuData = {
       price: number | string;
       is_available: boolean;
       is_featured?: boolean;
+      image_url?: string | null;
     }>;
   }>;
+  layout_blocks?: PublicMenuLayoutBlock[];
   engagement?: PublicMenuEngagement;
 };
 
@@ -96,7 +98,7 @@ export default async function PublicMenuPage({ params }: { params: Promise<{ slu
       )
   }
 
-  const { config, categories, engagement } = result.data;
+  const { config, categories, layout_blocks, engagement } = result.data;
   
   // Cast/Map to expected types
   const mappedConfig: MenuConfig = {
@@ -111,7 +113,8 @@ export default async function PublicMenuPage({ params }: { params: Promise<{ slu
       description: c.description,
       items: c.items.map(i => ({
           ...i,
-          is_featured: i.is_featured ?? false
+          is_featured: i.is_featured ?? false,
+          image_url: i.image_url ?? null,
       }))
   }));
 
@@ -119,6 +122,7 @@ export default async function PublicMenuPage({ params }: { params: Promise<{ slu
     <PublicMenuLayout
       config={mappedConfig}
       categories={mappedCategories}
+      layoutBlocks={layout_blocks ?? []}
       engagement={engagement ?? null}
       slug={slug}
     />

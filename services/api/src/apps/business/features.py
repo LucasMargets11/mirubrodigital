@@ -110,6 +110,36 @@ PLAN_FEATURES: Dict[str, Iterable[str]] = {
     'menu_qr_tips',
     'menu_qr_tips_pro',
   ),
+  # ── Nuevos planes Menú QR ────────────────────────────────────────────────
+  # Lite: carta digital básica, sin imágenes, sin engagement (reviews/tips)
+  'menu_qr_lite': (
+    'menu_builder',
+    'menu_branding',
+    'public_menu',
+    'menu_qr_tools',
+  ),
+  # Pro: con imágenes — reviews/tips se agregan dinámicamente según el módulo
+  # incluido (pro_included_module) y/o add-ons activos (ver feature_flags_for_subscription)
+  'menu_qr_pro': (
+    'menu_builder',
+    'menu_branding',
+    'public_menu',
+    'menu_qr_tools',
+    'menu_item_images',
+  ),
+  # Premium: todo incluido — imágenes, dominio, reviews, tips, analytics avanzado
+  'menu_qr_premium': (
+    'menu_builder',
+    'menu_branding',
+    'public_menu',
+    'menu_qr_tools',
+    'menu_item_images',
+    'menu_custom_domain',
+    'menu_qr_reviews',
+    'menu_qr_tips',
+    'menu_qr_tips_pro',
+    'multi_branch',
+  ),
 }
 
 
@@ -126,7 +156,7 @@ def feature_flags_for_plan(plan: str) -> Dict[str, bool]:
 def feature_flags_for_subscription(subscription) -> Dict[str, bool]:
   """
   Calcula feature flags basados en la subscription completa,
-  incluyendo addons activos.
+  incluyendo addons activos y la elección de módulo pro en Menú QR Pro.
   """
   if subscription is None:
     return feature_flags_for_plan('starter')
@@ -134,8 +164,16 @@ def feature_flags_for_subscription(subscription) -> Dict[str, bool]:
   plan = subscription.plan
   flags = feature_flags_for_plan(plan)
   
-  # PRO: habilitar multi_branch si tiene addon de sucursales extras
+  # Gestión Comercial PRO: habilitar multi_branch si tiene addon de sucursales extras
   if plan == 'pro' and subscription.effective_max_branches > 1:
     flags['multi_branch'] = True
-  
+
+  # Menú QR Pro: reviews y tips se habilitan según módulo incluido + add-ons
+  if plan == 'menu_qr_pro':
+    pro_module = getattr(subscription, 'pro_included_module', None)
+    has_addon_reviews = subscription.has_addon('menu_qr_addon_reviews')
+    has_addon_tips = subscription.has_addon('menu_qr_addon_tips')
+    flags['menu_qr_reviews'] = (pro_module == 'reviews') or has_addon_reviews
+    flags['menu_qr_tips'] = (pro_module == 'tips') or has_addon_tips
+
   return flags
