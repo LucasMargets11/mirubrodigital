@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 
 import { Sidebar } from '@/components/navigation/sidebar';
 import { AccessMessage } from '@/components/app/access-message';
+import { SubscriptionBanner } from '@/components/app/subscription-banner';
 import { MobileMenuProvider, useMobileMenu } from '@/components/app/mobile-menu-context';
 import { MobileMenuButton } from '@/components/app/mobile-menu-button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetCloseButton } from '@/components/ui/sheet';
@@ -94,6 +95,13 @@ function AppShellContent({ session, children }: { session: Session; children: Re
                     </h1>
                     <MobileMenuButton />
                 </div>
+
+                {/* Subscription enforcement banner (grace period, etc.) */}
+                <SubscriptionBanner
+                    reasonCode={session.subscription.reason_code}
+                    graceUntil={session.subscription.grace_until}
+                    showRenewalPrompt={session.subscription.show_renewal_prompt}
+                />
 
                 <main className="flex-1 space-y-6 overflow-y-auto p-6">
                     {isRestricted ? (

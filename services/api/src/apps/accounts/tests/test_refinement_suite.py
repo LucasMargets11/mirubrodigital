@@ -32,8 +32,8 @@ class TestScopeValidation(TestCase):
         # Create a manager in HQ (admin role)
         Membership.objects.create(user=self.manager, business=self.hq, role='admin')
 
-        # Create an employee in Branch A (waiter role)
-        Membership.objects.create(user=self.employee, business=self.branch_a, role='waiter')
+        # Create an employee in Branch A (staff role)
+        Membership.objects.create(user=self.employee, business=self.branch_a, role='staff')
 
     def test_scope_current_always_allowed(self):
         """Scope 'current' should always return just the current business ID."""
@@ -55,8 +55,8 @@ class TestScopeValidation(TestCase):
 
     def test_scope_children_denied_for_non_admin(self):
         """Regular employee cannot see aggregated scope."""
-        # Employee is in Branch A. Even if we added them to HQ as waiter:
-        Membership.objects.create(user=self.employee, business=self.hq, role='waiter')
+        # Employee is in Branch A. Even if we added them to HQ as staff:
+        Membership.objects.create(user=self.employee, business=self.hq, role='staff')
         with self.assertRaises(PermissionDenied):
             get_allowed_business_ids(self.employee, self.hq, scope='children')
 

@@ -77,33 +77,69 @@ class PasswordResetResponseSerializer(serializers.Serializer):
 
 
 class AuditLogSerializer(serializers.ModelSerializer):
-    """Serializer for audit logs."""
-    actor_email = serializers.EmailField(source='actor.email', allow_null=True)
+    """Serializer for audit logs.
+
+    Handles all three actor types:
+      - USER     → actor FK set, actor_employee NULL
+      - EMPLOYEE → actor NULL, actor_employee FK set
+      - SYSTEM   → both NULL
+
+    target_user can also be NULL for employee-only audit actions (e.g. cash flows).
+    """
+    actor_email = serializers.SerializerMethodField()
     actor_name = serializers.SerializerMethodField()
-    target_email = serializers.EmailField(source='target_user.email')
+    actor_type = serializers.CharField(read_only=True)
+    actor_employee_code = serializers.SerializerMethodField()
+    target_email = serializers.SerializerMethodField()
     target_name = serializers.SerializerMethodField()
-    
+    entity_type = serializers.CharField(read_only=True)
+    entity_id = serializers.CharField(read_only=True)
+
     class Meta:
         model = AccessAuditLog
         fields = [
             'id',
             'action',
+            'actor_type',
             'actor_email',
             'actor_name',
+            'actor_employee_code',
             'target_email',
             'target_name',
+            'entity_type',
+            'entity_id',
             'details',
             'ip_address',
             'created_at',
         ]
-    
+
+    def get_actor_email(self, obj):
+        if obj.actor:
+            return obj.actor.email
+        return None
+
     def get_actor_name(self, obj):
         if obj.actor:
             return obj.actor.get_full_name() or obj.actor.username
+        if obj.actor_employee:
+            emp = obj.actor_employee
+            return emp.alias or f'{emp.first_name} {emp.last_name}'.strip()
         return 'Sistema'
-    
+
+    def get_actor_employee_code(self, obj):
+        if obj.actor_employee:
+            return obj.actor_employee.employee_code
+        return None
+
+    def get_target_email(self, obj):
+        if obj.target_user:
+            return obj.target_user.email
+        return None
+
     def get_target_name(self, obj):
-        return obj.target_user.get_full_name() or obj.target_user.username
+        if obj.target_user:
+            return obj.target_user.get_full_name() or obj.target_user.username
+        return None
 
 
 def get_role_description(role: str, service: str) -> str:

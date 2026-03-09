@@ -10,13 +10,18 @@ from django.conf import settings
 import hashlib
 import hmac as hmac_lib
 import logging
+import uuid
 
 from apps.accounts.access import resolve_request_membership
 from apps.accounts.permissions import HasBusinessMembership
 from apps.business.models import Business
 from apps.accounts.models import Membership
 
-from .models import Module, Bundle, Promotion, Subscription, Plan, SubscriptionIntent, PaymentEvent
+from .models import (
+    Module, Bundle, Promotion, Subscription, Plan, SubscriptionIntent,
+    PaymentEvent, BillingEvent, SubscriptionV2, PaymentAttempt,
+    MpCheckoutSession, WebhookDelivery,
+)
 from .serializers import (
     ModuleSerializer, BundleSerializer, PromotionSerializer, 
     QuoteRequestSerializer, SubscribeRequestSerializer, SubscriptionSerializer
@@ -27,9 +32,138 @@ from .mp_service import MercadoPagoService
 logger = logging.getLogger(__name__)
 User = get_user_model()
 
+
+# ── Phase 2B helpers ──────────────────────────────────────────────────────────
+
+def _resolve_subscriptionv2(business, service_type, preapproval_id=None):
+    """
+    Resolve the active SubscriptionV2 for a business using the most stable key available.
+    Lookup order:
+      1. provider_sub_id (most stable — direct MP preapproval ID)
+      2. (business, service_type) non-canceled fallback
+    Returns the SubscriptionV2 or None.
+    """
+    if preapproval_id:
+        v2 = SubscriptionV2.objects.filter(provider_sub_id=preapproval_id).first()
+        if v2:
+            return v2
+    # Secondary fallback: by (business, service_type)
+    v2 = (
+        SubscriptionV2.objects
+        .filter(business=business, service_type=service_type)
+        .exclude(status=SubscriptionV2.Status.CANCELED)
+        .order_by('-created_at')
+        .first()
+    )
+    if v2 is None:
+        logger.warning(
+            "[_resolve_subscriptionv2] No SubscriptionV2 found for business=%s service_type=%s preapproval_id=%s",
+            business.pk, service_type, preapproval_id,
+        )
+    return v2
+
+
+def _update_billing_event(billing_event, *, sub_v2=None, new_status, error_message=''):
+    """Non-blocking helper to update a BillingEvent's status and optional V2 link."""
+    if billing_event is None:
+        return
+    try:
+        update_fields = ['status', 'updated_at'] if hasattr(BillingEvent, 'updated_at') else ['status']
+        billing_event.status = new_status
+        if new_status == BillingEvent.ProcessingStatus.PROCESSED:
+            billing_event.processed_at = timezone.now()
+            update_fields.append('processed_at')
+        if sub_v2 is not None and billing_event.subscription_id is None:
+            billing_event.subscription = sub_v2
+            update_fields.append('subscription')
+        if error_message:
+            billing_event.error_message = error_message
+            update_fields.append('error_message')
+        billing_event.save(update_fields=update_fields)
+    except Exception as exc:
+        logger.warning("[_update_billing_event] Failed to update BillingEvent: %s", exc)
+
+
+def _create_payment_attempt(subscription_v2, billing_event, payment_data, payment_id):
+    """
+    Idempotently create a PaymentAttempt for an approved/rejected MP payment.
+    Safe to call multiple times for the same external_payment_id.
+    Returns the PaymentAttempt or None if V2 is not available.
+    """
+    if subscription_v2 is None:
+        logger.warning(
+            "[_create_payment_attempt] Skipping — no SubscriptionV2 found (payment_id=%s)", payment_id,
+        )
+        return None
+    if not payment_id:
+        return None
+
+    payment_id_str = str(payment_id)
+
+    # Idempotency: if already recorded, update and return
+    existing = PaymentAttempt.objects.filter(external_payment_id=payment_id_str).first()
+    if existing:
+        return existing
+
+    payment_status = payment_data.get('status', 'pending')
+    status_map = {
+        'approved':   PaymentAttempt.Status.APPROVED,
+        'authorized': PaymentAttempt.Status.APPROVED,
+        'rejected':   PaymentAttempt.Status.REJECTED,
+        'cancelled':  PaymentAttempt.Status.REJECTED,
+        'pending':    PaymentAttempt.Status.PENDING,
+        'in_process': PaymentAttempt.Status.PROCESSING,
+        'refunded':   PaymentAttempt.Status.REFUNDED,
+    }
+    pa_status = status_map.get(payment_status, PaymentAttempt.Status.PENDING)
+    is_terminal = pa_status in (
+        PaymentAttempt.Status.APPROVED, PaymentAttempt.Status.REJECTED, PaymentAttempt.Status.REFUNDED,
+    )
+
+    raw_amount = payment_data.get('transaction_amount') or payment_data.get('total_paid_amount') or 0
+    currency = (
+        payment_data.get('currency_id')
+        or (payment_data.get('transaction_details') or {}).get('currency_id')
+        or 'ARS'
+    )
+
+    metadata = {
+        k: payment_data.get(k)
+        for k in ('status_detail', 'payment_method_id', 'payment_type_id', 'installments',
+                  'transaction_details', 'external_reference')
+        if payment_data.get(k) is not None
+    }
+
+    try:
+        pa = PaymentAttempt.objects.create(
+            subscription=subscription_v2,
+            billing_event=billing_event,
+            provider=PaymentAttempt.Provider.MERCADOPAGO,
+            external_payment_id=payment_id_str,
+            external_reference=f"PAY-{uuid.uuid4()}",
+            amount=raw_amount,
+            currency=currency,
+            status=pa_status,
+            failure_reason=payment_data.get('status_detail', '') if pa_status == PaymentAttempt.Status.REJECTED else '',
+            attempt_at=timezone.now(),
+            resolved_at=timezone.now() if is_terminal else None,
+            metadata=metadata or None,
+        )
+        logger.info(
+            "[_create_payment_attempt] Created PaymentAttempt %s for SubV2=%s payment_id=%s status=%s",
+            pa.pk, subscription_v2.pk, payment_id, pa_status,
+        )
+        return pa
+    except Exception as exc:
+        logger.warning("[_create_payment_attempt] Failed (non-fatal): %s", exc)
+        return None
+
+
 class BillingViewSet(viewsets.ViewSet):
     # Default permission is strict, we override per action if needed
     permission_classes = [IsAuthenticated, HasBusinessMembership]
+    # Billing views must stay accessible so users can regularize their subscription.
+    billing_enforcement_bypass = True
 
     def get_permissions(self):
         if self.action in ['modules', 'bundles', 'promotions', 'quote']:
@@ -128,7 +262,53 @@ class BillingViewSet(viewsets.ViewSet):
             sub.selected_modules.set(modules)
             
         sub.save()
-        
+
+        # ── Phase 3: ensure SubscriptionV2 is created/linked ─────────────────────
+        # Close the residual birth-path gap: every subscribe call must leave a
+        # traceable SubscriptionV2 record so the runtime resolver and webhooks can
+        # operate without falling back to legacy heuristics.
+        # Idempotent: existing non-canceled V2 is reused (no duplication).
+        try:
+            service_type = business.default_service or 'gestion'
+            v2_plan_code = data.get('bundle_code') or data.get('plan_type') or 'start'
+            v2_qs = (
+                SubscriptionV2.objects
+                .filter(business=business, service_type=service_type)
+                .exclude(status=SubscriptionV2.Status.CANCELED)
+                .order_by('-created_at')
+            )
+            v2 = v2_qs.first()
+            if v2 is None:
+                price_snap = sub.price_snapshot if hasattr(sub, 'price_snapshot') else {}
+                # BIRTH PATH: SubscriptionV2 MUST start as CHECKOUT_PENDING, never
+                # ACTIVE.  The runtime resolver excludes CHECKOUT_PENDING intentionally;
+                # activation happens only via subscription_activator after a real payment.
+                v2 = SubscriptionV2.objects.create(
+                    business=business,
+                    service_type=service_type,
+                    plan_code=v2_plan_code,
+                    provider=SubscriptionV2.Provider.MERCADOPAGO,
+                    external_reference=f"SUB-{uuid.uuid4()}",
+                    status=SubscriptionV2.Status.CHECKOUT_PENDING,
+                    price_snapshot=price_snap if isinstance(price_snap, dict) else {},
+                )
+                logger.info(
+                    "[BillingViewSet.subscribe] Created SubscriptionV2 %s for "
+                    "business=%s service=%s plan=%s sub_created=%s",
+                    v2.pk, business.pk, service_type, v2_plan_code, created,
+                )
+            else:
+                logger.info(
+                    "[BillingViewSet.subscribe] SubscriptionV2 already exists: %s "
+                    "for business=%s service=%s status=%s (no duplicate created)",
+                    v2.pk, business.pk, service_type, v2.status,
+                )
+        except Exception as _exc:
+            logger.warning(
+                "[BillingViewSet.subscribe] SubscriptionV2 ensure failed (non-fatal): %s",
+                _exc,
+            )
+
         return Response(SubscriptionSerializer(sub).data)
 
     @action(detail=False, methods=['get'])
@@ -144,28 +324,91 @@ class BillingViewSet(viewsets.ViewSet):
              return Response({})
 
 class StartSubscriptionView(APIView):
+    """
+    POST /billing/start-subscription
+
+    Idempotent signup + subscription checkout.
+
+    Idempotency contract
+    --------------------
+    If the same user+plan already has an open MpCheckoutSession (not expired),
+    the same init_point is returned and NO new MP plan is created.
+    This handles double-click, browser refresh, and frontend retries safely.
+
+    Signup path (new users)
+    -----------------------
+    Creates user + business + legacy Subscription records for backward compat,
+    then delegates to checkout_session_service for the MP plan creation.
+
+    Returning user path
+    -------------------
+    If the email is already registered, we look up the user's open checkout
+    session for the requested plan and return it.  No new user/business created.
+
+    Response
+    --------
+    {
+        "checkout_session_id": "<uuid>",
+        "init_point": "<url>",
+        "status": "checkout_created",
+        "reused": false
+    }
+
+    The frontend MUST poll GET /billing/checkout-sessions/<checkout_session_id>
+    to determine if the subscription was activated.  The back_url redirect from
+    MP is NOT sufficient confirmation.
+    """
     permission_classes = [AllowAny]
-    
+
     def post(self, request):
-        email = request.data.get('email')
-        password = request.data.get('password')
-        business_name = request.data.get('business_name')
-        plan_code = request.data.get('plan_code')
-        raw_service = (request.data.get('service') or '').strip()
-        service = raw_service or None
+        from .checkout_session_service import start_checkout
+
+        email         = (request.data.get('email') or '').strip()
+        password      = request.data.get('password')
+        business_name = (request.data.get('business_name') or '').strip()
+        plan_code     = (request.data.get('plan_code') or '').strip()
+        raw_service   = (request.data.get('service') or '').strip()
 
         if not all([email, password, business_name, plan_code]):
             return Response({'error': 'Missing required fields'}, status=400)
 
-        if User.objects.filter(email=email).exists():
-            return Response({'error': 'Email already registered'}, status=400)
-            
+        frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')
+
+        # ── Case 1: returning user with an existing open session ──────────────
+        existing_user = User.objects.filter(email=email).first()
+        if existing_user:
+            try:
+                plan = Plan.objects.get(code=plan_code, plan_status='active')
+            except Plan.DoesNotExist:
+                return Response({'error': 'Invalid plan code'}, status=400)
+
+            # Try to find or create a checkout session for this user+plan.
+            try:
+                result = start_checkout(
+                    user=existing_user,
+                    tenant=_get_first_tenant(existing_user),
+                    plan_code=plan_code,
+                    frontend_url=frontend_url,
+                )
+                logger.info(
+                    "[StartSubscriptionView] Returning user path user=%s plan=%s reused=%s session=%s",
+                    existing_user.pk, plan_code, result.get('reused'), result.get('checkout_session_id'),
+                )
+                return Response(result, status=200)
+            except ValueError as e:
+                return Response({'error': str(e)}, status=400)
+            except Exception as e:
+                logger.exception("[StartSubscriptionView] start_checkout failed for existing user: %s", e)
+                return Response({'error': str(e)}, status=500)
+
+        # ── Case 2: new user signup ────────────────────────────────────────────
         try:
-            plan = Plan.objects.get(code=plan_code)
+            plan = Plan.objects.get(code=plan_code, plan_status='active')
         except Plan.DoesNotExist:
             return Response({'error': 'Invalid plan code'}, status=400)
 
         allowed_services = {choice[0] for choice in Business.SERVICE_CHOICES}
+        service = raw_service or None
         if service is None:
             plan_service = (plan.features_json or {}).get('service') if isinstance(plan.features_json, dict) else None
             if plan_service in allowed_services:
@@ -174,81 +417,154 @@ class StartSubscriptionView(APIView):
             service = 'gestion'
         if service not in allowed_services:
             return Response({'error': 'Invalid service'}, status=400)
-            
+
         try:
             with transaction.atomic():
-                user = User.objects.create_user(email=email, password=password, username=email)
+                user = User.objects.create_user(
+                    email=email, password=password, username=email,
+                )
                 business = Business.objects.create(
                     name=business_name,
-                    status='pending_activation',
+                    # BIRTH PATH: use canonical 'onboarding' status, not 'active' or
+                    # deprecated 'pending_activation'.  Business becomes 'active' only
+                    # after subscription_activator confirms a real payment.
+                    status='onboarding',
                     default_service=service,
                 )
-                
-                # Subscription
-                subscription = Subscription.objects.create(
-                    business=business,
-                    plan=plan,
-                    plan_type='bundle', # Setting default for compatibility
-                    billing_period='monthly', # default
-                    status='active',
-                    service=service,
-                )
-                
-                mp_service = MercadoPagoService()
-                
-                # Ensure Plan has preapproval_plan_id
-                if not plan.mp_preapproval_plan_id:
-                    frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')
-                    back_url = f"{frontend_url}/subscribe/return"
-                    
-                    auto_recurring = {
-                        "frequency": 1,
-                        "frequency_type": "months",
-                        "transaction_amount": float(plan.price),
-                        "currency_id": "ARS"
-                    }
-                    if plan.interval == 'yearly':
-                        auto_recurring['frequency'] = 12
-                    
-                    mp_plan = mp_service.create_preapproval_plan(
-                        reason=f"Subscription to {plan.name}",
-                        auto_recurring=auto_recurring,
-                        back_url=back_url
-                    )
-                    plan.mp_preapproval_plan_id = mp_plan['id']
-                    plan.save()
-
-                # Create Intent
+                # BIRTH PATH: NO legacy Subscription is created here.
+                # A Subscription with status='active' before checkout completes is a
+                # phantom subscription that grants free access without real billing.
+                # The canonical path: MpCheckoutSession → SubscriptionV2 → activation.
+                #
+                # TODO (legacy-compat): If downstream systems require a legacy
+                # Subscription row before activation, create it with status='canceled'
+                # here and promote it in subscription_activator.  For now, omit it
+                # entirely — the runtime resolver handles the source='none' case.
+                #
+                # Legacy SubscriptionIntent kept for backward compatibility with
+                # any external system that polls intent status.
                 intent = SubscriptionIntent.objects.create(
                     tenant=business,
                     user=user,
                     plan_code=plan_code,
-                    status='created'
+                    status='created',
                 )
-                
-                frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')
-                back_url = f"{frontend_url}/subscribe/return?intent_id={intent.id}"
-                
-                mp_response = mp_service.create_preapproval(
-                    email=email,
-                    plan_id=plan.mp_preapproval_plan_id,
-                    external_reference=str(intent.id),
-                    back_url=back_url
-                )
-                
-                intent.mp_init_point = mp_response['init_point']
-                intent.mp_preapproval_id = mp_response['id']
-                intent.save()
-                
-                subscription.mp_preapproval_id = mp_response['id']
-                subscription.save()
 
-                return Response({
-                    'init_point': intent.mp_init_point,
-                    'intent_id': intent.pk
-                })
+            # ── Create idempotent checkout session (outside the inner txn for clarity)
+            result = start_checkout(
+                user=user,
+                tenant=business,
+                plan_code=plan_code,
+                frontend_url=frontend_url,
+            )
+
+            # Back-fill the legacy intent with the init_point for API compat.
+            try:
+                intent.mp_init_point = result.get('init_point')
+                intent.save(update_fields=['mp_init_point'])
+            except Exception:
+                pass  # Non-fatal; legacy field only.
+
+            logger.info(
+                "[StartSubscriptionView] New user signup user=%s business=%s plan=%s session=%s",
+                user.pk, business.pk, plan_code, result.get('checkout_session_id'),
+            )
+            return Response(result, status=201)
+
         except Exception as e:
+            logger.exception("[StartSubscriptionView] Signup failed: %s", e)
             return Response({'error': str(e)}, status=500)
+
+
+def _get_first_tenant(user):
+    """Return the first business the user belongs to, or None."""
+    from apps.accounts.models import Membership
+    membership = Membership.objects.filter(user=user).select_related('business').first()
+    return membership.business if membership else None
+
+
+class CheckoutSessionStatusView(APIView):
+    """
+    GET /billing/checkout-sessions/<session_id>
+
+    Frontend polling endpoint.  Returns the current state of a checkout session
+    so the return page can show the right message WITHOUT trusting the MP redirect.
+
+    Response shape::
+
+        {
+            "checkout_session_id": "...",
+            "status": "created|checkout_created|awaiting_webhook|linked|activated|failed|expired",
+            "catalog_plan": {"code": "...", "name": "...", "amount": ...},
+            "subscription": {
+                "provider_subscription_id": "...",
+                "provider_status": "...",
+                "is_active": true/false
+            } | null,
+            "last_payment": {
+                "provider_authorized_payment_id": "...",
+                "provider_status": "...",
+                "amount": ...
+            } | null
+        }
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request, session_id):
+        from .models import BillingInvoiceEvent, MpCheckoutSession
+
+        try:
+            session = (
+                MpCheckoutSession.objects
+                .select_related('plan', 'tenant')
+                .prefetch_related('subscriptions')
+                .get(id=session_id)
+            )
+        except MpCheckoutSession.DoesNotExist:
+            return Response({'error': 'Not found'}, status=404)
+
+        # Subscription (latest non-canceled).
+        sub = session.subscriptions.exclude(
+            status=SubscriptionV2.Status.CANCELED
+        ).order_by('-created_at').first()
+
+        sub_data = None
+        if sub:
+            sub_data = {
+                'provider_subscription_id': sub.provider_sub_id or '',
+                'provider_status': sub.status,
+                'is_active': sub.is_active,
+            }
+
+        # Last authorized payment.
+        last_payment = None
+        if sub:
+            invoice = (
+                BillingInvoiceEvent.objects
+                .filter(subscription=sub)
+                .order_by('-paid_at', '-created_at')
+                .first()
+            )
+            if invoice:
+                last_payment = {
+                    'provider_authorized_payment_id': invoice.provider_authorized_payment_id,
+                    'provider_status': invoice.provider_status,
+                    'amount': str(invoice.amount),
+                }
+
+        return Response({
+            'checkout_session_id': str(session.id),
+            'status': session.status,
+            'catalog_plan': {
+                'code': session.plan.code,
+                'name': session.plan.name,
+                'amount': str(session.plan.price),
+            },
+            'subscription': sub_data,
+            'last_payment': last_payment,
+        })
+
+
 
 class IntentStatusView(APIView):
     permission_classes = [AllowAny]
@@ -271,176 +587,211 @@ class IntentStatusView(APIView):
              return Response({'error': 'Not found'}, status=404)
 
 class MercadoPagoWebhookView(APIView):
+    """
+    POST /billing/mercadopago/webhook
+
+    Phase 3 robust webhook handler.
+
+    Every inbound call is persisted as a WebhookDelivery BEFORE any business
+    logic runs.  Duplicate detection uses x-request-id + payload hash.
+    Signature is verified via HMAC-SHA256 (MP_WEBHOOK_SECRET env var).
+
+    Routing by topic:
+      - subscription_preapproval      → webhook_processor handles (Phase 3)
+      - subscription_authorized_payment → webhook_processor handles (Phase 3)
+      - payment                        → legacy process_payment_event (plan changes, addons, tips)
+
+    Activation rule (STRICT):
+      Tenants are NEVER activated from:
+        - the MP redirect / back_url
+        - the subscription_preapproval webhook alone
+      Activation happens ONLY when subscription_authorized_payment is received
+      AND the server-to-server fetch from MP confirms status='authorized'.
+    """
     permission_classes = [AllowAny]
 
-    def _verify_mp_signature(self, request) -> bool:
-        """
-        Verify the Mercado Pago webhook signature.
-        Header format: x-signature: ts=<timestamp>,v1=<hmac_hex>
-        Message: "id:<data.id>;request-id:<x-request-id>;ts:<timestamp>"
-        Returns True if valid OR if MP_WEBHOOK_SECRET is not configured (DEV bypass).
-        """
-        secret = getattr(settings, 'MP_WEBHOOK_SECRET', None)
-        if not secret:
-            logger.warning("[MPWebhook] MP_WEBHOOK_SECRET not set — skipping signature verification (DEV mode)")
-            return True
-
-        x_signature = request.headers.get('x-signature', '')
-        x_request_id = request.headers.get('x-request-id', '')
-
-        # Parse ts and v1 from header
-        ts = ''
-        v1 = ''
-        for part in x_signature.split(','):
-            if part.startswith('ts='):
-                ts = part[3:]
-            elif part.startswith('v1='):
-                v1 = part[3:]
-
-        if not ts or not v1:
-            logger.warning("[MPWebhook] x-signature header missing or malformed")
-            return False
-
-        data_id = request.data.get('data', {}).get('id', '')
-        manifest = f"id:{data_id};request-id:{x_request_id};ts:{ts}"
-
-        try:
-            expected = hmac_lib.new(
-                secret.encode('utf-8'),
-                manifest.encode('utf-8'),
-                hashlib.sha256,
-            ).hexdigest()
-        except Exception as exc:
-            logger.error(f"[MPWebhook] HMAC computation error: {exc}")
-            return False
-
-        if not hmac_lib.compare_digest(expected, v1):
-            logger.warning(f"[MPWebhook] Signature mismatch. manifest={manifest!r}")
-            return False
-
-        return True
-
     def post(self, request):
-        # Verify MP signature (skipped in DEV when MP_WEBHOOK_SECRET is not set)
-        if not self._verify_mp_signature(request):
-            return Response({'detail': 'Invalid signature'}, status=status.HTTP_400_BAD_REQUEST)
+        from .webhook_processor import receive_webhook, dispatch_webhook
+        from .models import WebhookDelivery
 
-        topic = request.data.get('type')
-        data_id = request.data.get('data', {}).get('id')
-        
-        event_id = request.headers.get('x-request-id') or data_id
-        if event_id and PaymentEvent.objects.filter(event_id=str(event_id)).exists():
-             return Response(status=200)
+        topic     = request.data.get('type', '')
+        data_id   = str(request.data.get('data', {}).get('id', ''))
 
-        if event_id:
-             PaymentEvent.objects.create(
-                 provider='mercadopago',
-                 event_id=str(event_id),
-                 resource_id=str(data_id) if data_id else '',
-                 payload_json=request.data
-             )
-        
-        if topic == 'subscription_preapproval':
-             self.process_subscription_event(data_id)
-        elif topic == 'payment':
-             self.process_payment_event(data_id)
-        
+        # ── Step 1: Persist delivery and verify signature ─────────────────────
+        delivery, sig_valid = receive_webhook(request)
+
+        # Respond 200 immediately for duplicates (idempotent).
+        if delivery.processing_status == WebhookDelivery.ProcessingStatus.DUPLICATED:
+            return Response(status=200)
+
+        # Reject bad signatures only when MP_WEBHOOK_SECRET is configured.
+        if not sig_valid:
+            return Response({'detail': 'Invalid signature'}, status=400)
+
+        logger.info(
+            "[MPWebhook] delivery=%s topic=%s resource_id=%s x_request_id=%s",
+            delivery.id, topic, delivery.resource_id, delivery.x_request_id,
+        )
+
+        # ── Step 2: Phase 3 topics (subscription_preapproval / authorized_payment)
+        if topic in ('subscription_preapproval', 'subscription_authorized_payment'):
+            dispatch_webhook(delivery)
+            # Also write legacy BillingEvent for backward compat.
+            self._write_legacy_billing_event(request, data_id, topic)
+            return Response(status=200)
+
+        # ── Step 3: Legacy topics (payment / tips / addon payments) ───────────
+        # These still go through the legacy handlers, which also create BillingEvent.
+        _be = self._write_legacy_billing_event(request, data_id, topic)
+
+        if topic == 'payment':
+            self.process_payment_event(data_id, billing_event=_be)
+        else:
+            delivery.processing_status = WebhookDelivery.ProcessingStatus.IGNORED
+            delivery.processed_at = timezone.now()
+            delivery.save(update_fields=['processing_status', 'processed_at'])
+            logger.info("[MPWebhook] Unhandled topic=%s delivery=%s", topic, delivery.id)
+
         return Response(status=200)
 
-    def process_payment_event(self, payment_id):
+    # ── Legacy helpers (kept for payment / tip / addon flows) ─────────────────
+
+    def _write_legacy_billing_event(self, request, data_id, topic):
+        """Write the legacy BillingEvent + PaymentEvent for backward compat."""
+        event_id = request.headers.get('x-request-id') or data_id
+        if not event_id:
+            return None
+
+        # Legacy PaymentEvent.
+        if not PaymentEvent.objects.filter(event_id=str(event_id)).exists():
+            try:
+                PaymentEvent.objects.create(
+                    provider='mercadopago',
+                    event_id=str(event_id),
+                    resource_id=str(data_id) if data_id else '',
+                    payload_json=request.data,
+                )
+            except Exception:
+                pass
+
+        # Phase 2A BillingEvent.
+        _event_type = (
+            BillingEvent.EventType.PREAPPROVAL_UPDATED
+            if topic == 'subscription_preapproval'
+            else BillingEvent.EventType.UNKNOWN
+        )
+        try:
+            _be, _ = BillingEvent.objects.get_or_create(
+                provider_event_id=str(event_id),
+                defaults={
+                    'provider': BillingEvent.Provider.MERCADOPAGO,
+                    'event_type': _event_type,
+                    'payload': request.data,
+                    'status': BillingEvent.ProcessingStatus.RECEIVED,
+                    'received_at': timezone.now(),
+                },
+            )
+            return _be
+        except Exception as exc:
+            logger.warning("[MPWebhook] BillingEvent persist failed: %s", exc)
+            return None
+
+    def process_payment_event(self, payment_id, billing_event=None):
         """Process one-time payments (for subscription changes and addon purchases)."""
         if not payment_id:
             return
-        
+
         from apps.billing.models import PendingSubscriptionChange
         from apps.billing.services.commercial.apply import apply_subscription_change, apply_addon_activation
-        
+
         mp_service = MercadoPagoService()
-        
+
         try:
-            # Get payment details from MercadoPago
-            payment = mp_service.sdk.payment().get(payment_id)
-            if payment["status"] != 200:
+            payment_data = mp_service.get_payment(payment_id)
+            if not payment_data:
                 return
-            
-            payment_data = payment["response"]
+
             external_reference = payment_data.get('external_reference')
             payment_status = payment_data.get('status')
-            
+
             if not external_reference:
                 return
-            
-            # ── Route by external_reference prefix ──────────────────────
+
             is_subscription_change = external_reference.startswith('subscription_change_')
-            is_addon_purchase = external_reference.startswith('addon_purchase_')
-            is_tip = external_reference.startswith('TIP-')
-            
+            is_addon_purchase       = external_reference.startswith('addon_purchase_')
+            is_tip                  = external_reference.startswith('TIP-')
+
             if is_tip:
                 self.process_tip_payment(external_reference, payment_status, payment_id)
                 return
-            
+
             if not (is_subscription_change or is_addon_purchase):
                 return
-            
-            # Extract pending_change_id
+
             pending_change_id = external_reference.split('_')[-1]
-            
             try:
                 pending_change = PendingSubscriptionChange.objects.get(id=pending_change_id)
             except PendingSubscriptionChange.DoesNotExist:
-                logger.warning(f"PendingSubscriptionChange {pending_change_id} not found")
+                logger.warning("[MPWebhook] PendingSubscriptionChange %s not found", pending_change_id)
                 return
-            
-            # Update pending change with payment info
+
             pending_change.mp_payment_id = str(payment_id)
-            
-            # If payment approved, apply the change
+
             if payment_status == 'approved':
                 pending_change.status = 'processing'
                 pending_change.save()
-                
                 try:
                     if is_addon_purchase:
-                        # Extract addon code from config_snapshot
-                        addon_codes = [key for key, value in pending_change.config_snapshot.items() if value is True]
-                        
+                        addon_codes = [k for k, v in pending_change.config_snapshot.items() if v is True]
                         if addon_codes:
-                            # Activate the addon
-                            addon_code = addon_codes[0]  # Should only be one for addon purchases
                             apply_addon_activation(
                                 business=pending_change.business,
-                                addon_code=addon_code,
+                                addon_code=addon_codes[0],
                             )
                         else:
                             raise ValueError("No addon code found in config_snapshot")
                     else:
-                        # Standard subscription change
                         apply_subscription_change(
                             business=pending_change.business,
                             target_plan_code=pending_change.target_plan_code,
                             billing_cycle=pending_change.billing_cycle,
                             config=pending_change.config_snapshot,
                         )
-                    
                     pending_change.status = 'completed'
                     pending_change.applied_at = timezone.now()
                     pending_change.save()
-                    
+                    try:
+                        biz = pending_change.business
+                        v2 = _resolve_subscriptionv2(biz, biz.default_service)
+                        _create_payment_attempt(v2, billing_event, payment_data, payment_id)
+                        if v2:
+                            _update_billing_event(billing_event, sub_v2=v2,
+                                                  new_status=BillingEvent.ProcessingStatus.PROCESSED)
+                    except Exception as exc:
+                        logger.warning("[process_payment_event] PaymentAttempt update failed: %s", exc)
                 except Exception as e:
                     pending_change.status = 'failed'
                     pending_change.save()
-                    logger.error(f"Error applying change {pending_change_id}: {e}")
-            
+                    _update_billing_event(billing_event, new_status=BillingEvent.ProcessingStatus.ERROR,
+                                          error_message=str(e))
+                    logger.error("[MPWebhook] Error applying change %s: %s", pending_change_id, e)
+
             elif payment_status in ['rejected', 'cancelled']:
                 pending_change.status = 'failed'
                 pending_change.save()
-            
+                try:
+                    biz = pending_change.business
+                    v2 = _resolve_subscriptionv2(biz, biz.default_service)
+                    _create_payment_attempt(v2, billing_event, payment_data, payment_id)
+                    _update_billing_event(billing_event, sub_v2=v2,
+                                          new_status=BillingEvent.ProcessingStatus.PROCESSED)
+                except Exception as exc:
+                    logger.warning("[process_payment_event] PaymentAttempt (rejected) failed: %s", exc)
             else:
-                # pending, in_process, etc.
                 pending_change.save()
-        
+
         except Exception as e:
-            logger.error(f"Error processing payment event {payment_id}: {e}")
+            logger.error("[MPWebhook] Error processing payment event %s: %s", payment_id, e)
 
     def process_tip_payment(self, external_reference: str, payment_status: str, payment_id):
         """Idempotently update a TipTransaction from an MP payment webhook."""
@@ -448,20 +799,15 @@ class MercadoPagoWebhookView(APIView):
         try:
             tip = TipTransaction.objects.get(external_reference=external_reference)
         except TipTransaction.DoesNotExist:
-            logger.warning(f"[TipWebhook] TipTransaction not found for ref {external_reference}")
+            logger.warning("[TipWebhook] TipTransaction not found for ref %s", external_reference)
             return
 
-        # Map MP statuses → TipTransaction statuses
         status_map = {
-            'approved': 'approved',
-            'authorized': 'approved',
-            'rejected': 'rejected',
-            'cancelled': 'cancelled',
-            'pending': 'pending',
-            'in_process': 'pending',
+            'approved': 'approved', 'authorized': 'approved',
+            'rejected': 'rejected', 'cancelled': 'cancelled',
+            'pending': 'pending',   'in_process': 'pending',
         }
         new_status = status_map.get(payment_status, tip.status)
-
         update_fields = ['updated_at']
         if tip.status != new_status:
             tip.status = new_status
@@ -469,56 +815,8 @@ class MercadoPagoWebhookView(APIView):
         if payment_id and not tip.mp_payment_id:
             tip.mp_payment_id = str(payment_id)
             update_fields.append('mp_payment_id')
-
         tip.save(update_fields=update_fields)
-        logger.info(f"[TipWebhook] {external_reference} → {new_status} (mp_payment_id={payment_id})")
-
-    def process_subscription_event(self, preapproval_id):
-        if not preapproval_id:
-            return
-
-        mp_service = MercadoPagoService()
-        preapproval = mp_service.get_preapproval(preapproval_id)
-        
-        if not preapproval:
-            return
-
-        external_reference = preapproval.get('external_reference')
-        if not external_reference:
-            return
-
-        try:
-            intent = SubscriptionIntent.objects.get(id=external_reference)
-        except (SubscriptionIntent.DoesNotExist, ValueError):
-            return
-
-        status_val = preapproval.get('status')
-        
-        if status_val == 'authorized':
-             self.activate_tenant(intent, preapproval_id)
-
-    def activate_tenant(self, intent, preapproval_id):
-        with transaction.atomic():
-            ticket = intent.tenant
-            if ticket.status != 'active':
-                ticket.status = 'active'
-                ticket.save()
-            
-            if intent.status != 'confirmed':
-                intent.status = 'confirmed'
-                intent.confirmed_at = timezone.now()
-                intent.save()
-            
-            sub = Subscription.objects.filter(mp_preapproval_id=preapproval_id).first()
-            if sub:
-                sub.status = 'active'
-                sub.save()
-            
-            Membership.objects.get_or_create(
-                user=intent.user,
-                business=intent.tenant,
-                defaults={'role': 'owner'}
-            )
+        logger.info("[TipWebhook] %s → %s (mp_payment_id=%s)", external_reference, new_status, payment_id)
 
 
 # ---------------------------------------------------------------------------
@@ -526,6 +824,7 @@ class MercadoPagoWebhookView(APIView):
 # ---------------------------------------------------------------------------
 
 _MP_PLACEHOLDER_PATTERNS = ('xxxx', 'placeholder', 'your_token', 'changeme', 'APP_USR-0000', 'TEST-0000')
+
 
 
 def _is_placeholder(value: str | None) -> bool:

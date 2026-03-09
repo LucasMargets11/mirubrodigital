@@ -131,7 +131,7 @@ if _BASE_PUBLIC_URL and 'xxxx' not in _BASE_PUBLIC_URL.lower():
     if _cors_origin not in CORS_ALLOWED_ORIGINS:
         CORS_ALLOWED_ORIGINS.append(_cors_origin)
 CORS_ALLOW_CREDENTIALS = True
-CORS_ALLOW_HEADERS = ['authorization', 'content-type', 'x-requested-with']
+CORS_ALLOW_HEADERS = ['authorization', 'content-type', 'x-requested-with', 'x-employee-token', 'x-business-id']
 
 REST_FRAMEWORK = {
   'DEFAULT_AUTHENTICATION_CLASSES': [
@@ -142,6 +142,12 @@ REST_FRAMEWORK = {
     'rest_framework.permissions.IsAuthenticatedOrReadOnly',
   ],
   'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+  # Throttle rates for sensitive operative endpoints.
+  # Throttle classes are applied per-view (not globally).
+  'DEFAULT_THROTTLE_RATES': {
+    'employee_login':      '10/minute',
+    'employee_change_pin': '5/minute',
+  },
 }
 
 ACCESS_TOKEN_MINUTES = int(os.getenv('ACCESS_TOKEN_LIFETIME_MINUTES', '15'))
@@ -178,6 +184,18 @@ SPECTACULAR_SETTINGS = {
 CELERY_BROKER_URL = os.getenv('REDIS_URL', 'redis://redis:6379/0')
 CELERY_RESULT_BACKEND = CELERY_BROKER_URL
 
+# Periodic task schedule (requires celery-beat or django-celery-beat).
+# expire_subscriptions runs every hour to enforce subscription lifecycle
+# transitions (ACTIVE→PAST_DUE, PAST_DUE→SUSPENDED, TRIALING→SUSPENDED).
+from celery.schedules import crontab  # noqa: E402
+CELERY_BEAT_SCHEDULE = {
+    'billing-expire-subscriptions': {
+        'task': 'billing.expire_subscriptions',
+        # Every hour at minute 0. Adjust frequency in high-churn environments.
+        'schedule': crontab(minute='0'),
+    },
+}
+
 REPORTS_LOW_STOCK_THRESHOLD_DEFAULT = Decimal(os.getenv('REPORTS_LOW_STOCK_THRESHOLD_DEFAULT', '5'))
 
 MP_ACCESS_TOKEN = os.getenv('MP_ACCESS_TOKEN')
@@ -199,4 +217,71 @@ PUBLIC_MENU_BASE_URL = os.getenv('PUBLIC_MENU_BASE_URL', FRONTEND_URL)
 # In prod: set to your real domain (e.g. https://api.example.com).
 # If not set, falls back to PUBLIC_MENU_BASE_URL then FRONTEND_URL.
 BASE_PUBLIC_URL = os.getenv('BASE_PUBLIC_URL', '') or None
+
+# ── Logging ──────────────────────────────────────────────────────────────────
+# Structured staging-friendly logging.  All billing / runtime / webhook events
+# are emitted at INFO level.  Set DJANGO_LOG_LEVEL=DEBUG in .env for verbose output.
+_LOG_LEVEL = os.getenv('DJANGO_LOG_LEVEL', 'INFO').upper()
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '[{asctime}] [{levelname}] [{name}] {message}',
+            'style': '{',
+            'datefmt': '%Y-%m-%d %H:%M:%S',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': _LOG_LEVEL,
+    },
+    'loggers': {
+        # Billing subsystems — always INFO in staging so key events are visible
+        'apps.billing': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'apps.billing.tasks': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'apps.billing.runtime': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'apps.billing.enforcement': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        # Celery internals
+        'celery': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'celery.task': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        # Django request log (access log equivalent)
+        'django.request': {
+            'handlers': ['console'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+    },
+}
 

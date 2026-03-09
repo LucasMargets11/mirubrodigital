@@ -24,6 +24,20 @@ export type ServicesSnapshot = {
   default: string | null;
 };
 
+/**
+ * Subscription enforcement reason codes (mirrors billing.enforcement.ReasonCode).
+ * Used by frontend to render appropriate UI for each billing state.
+ */
+export type SubscriptionReasonCode =
+  | 'access_granted'
+  | 'grace_period_active'
+  | 'grace_period_expired'
+  | 'trial_expired'
+  | 'suspended'
+  | 'canceled'
+  | 'checkout_pending'
+  | 'no_subscription';
+
 export type Session = {
   user: {
     id: number;
@@ -42,6 +56,18 @@ export type Session = {
   subscription: {
     plan: string;
     status: string;
+    /** Mirrors billing.enforcement.get_enforcement_decision().access_allowed */
+    access_allowed: boolean;
+    /** Machine-readable reason code for the enforcement decision */
+    reason_code: SubscriptionReasonCode;
+    /** ISO datetime string when grace period expires (PAST_DUE only) */
+    grace_until: string | null;
+    /** ISO datetime string until access is guaranteed (best-effort) */
+    access_until: string | null;
+    /** True when frontend should show a renewal/regularization prompt */
+    show_renewal_prompt: boolean;
+    /** Subscription source: 'v2' | 'legacy' | 'none' */
+    source: string;
   };
   services: ServicesSnapshot;
   features: FeatureFlags;

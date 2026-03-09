@@ -26,6 +26,8 @@ from apps.business.service_catalog import serialize_catalog
 from .models import Membership
 from .serializers import LoginSerializer, RegisterSerializer
 
+logger = __import__('logging').getLogger(__name__)
+
 User = get_user_model()
 
 def _set_auth_cookies(response: Response, refresh_token: RefreshToken) -> None:
@@ -81,28 +83,40 @@ def _clear_session_cookies(response: Response) -> None:
 
 @transaction.atomic
 def _ensure_membership(user: User) -> Membership:
+	"""
+	Ensure the user has at least one Business + Membership.
+
+	BIRTH PATH CLOSURE (Phase 3):
+	  - No legacy Subscription is created here — access is gated by billing.
+	  - A newly created Business starts with status='onboarding'; it will be
+	    set to 'active' only by subscription_activator after a confirmed payment.
+	  - Existing memberships are returned as-is regardless of subscription state.
+
+	TODO (legacy cleanup): The branch that auto-created Subscription for an
+	existing business without one has been removed.  Any existing business rows
+	without a Subscription will surface as source='none' via runtime resolver,
+	which correctly sets access_allowed=False until billing completes.
+	"""
 	membership = (
-		Membership.objects.select_related('business', 'business__subscription')
+		Membership.objects.select_related('business')
 		.filter(user=user)
 		.first()
 	)
 	if membership:
-		if not hasattr(membership.business, 'subscription'):
-			Subscription.objects.create(
-				business=membership.business,
-				service=membership.business.default_service or 'gestion',
-			)
 		return membership
 
+	# Brand-new user — create business in onboarding state.  No Subscription.
 	business_name = user.get_full_name() or user.email or user.get_username()
-	business = Business.objects.create(name=f"{business_name} HQ")
-	Subscription.objects.create(
-		business=business,
-		plan=BusinessPlan.STARTER,
-		status='active',
-		service=business.default_service,
+	business = Business.objects.create(
+		name=f"{business_name} HQ",
+		status='onboarding',
 	)
 	membership = Membership.objects.create(user=user, business=business, role='owner')
+	logger.info(
+		"[_ensure_membership] Created business=%s status=onboarding user=%s — "
+		"no subscription created; billing required before access is granted.",
+		business.pk, user.pk,
+	)
 	return membership
 
 
@@ -138,6 +152,15 @@ def _session_payload(user: User, membership: Membership, memberships: List[Membe
 		'subscription': {
 			'plan': context['plan'],
 			'status': context['status'],
+			# source field: 'v2' | 'legacy' | 'none' — for debugging and
+			# gradual-migration observability.  Non-breaking addition.
+			'source': context.get('_subscription_source', 'unknown'),
+			# Enforcement fields: allow frontend to act on subscription state.
+			'access_allowed': context.get('access_allowed', False),
+			'reason_code': context.get('reason_code', 'no_subscription'),
+			'grace_until': context.get('grace_until'),
+			'access_until': context.get('access_until'),
+			'show_renewal_prompt': context.get('show_renewal_prompt', False),
 		},
 		'services': {
 			'available': service_catalog,
@@ -173,7 +196,7 @@ class LoginView(APIView):
 
 		membership = _ensure_membership(authenticated_user)
 		refresh = RefreshToken.for_user(authenticated_user)
-		response = Response({'status': 'ok'})
+		response = Response({'status': 'ok', 'onboarding': membership.business.status == 'onboarding'})
 		_set_auth_cookies(response, refresh)
 		_set_business_cookie(response, membership.business_id)
 		return response

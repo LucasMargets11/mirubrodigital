@@ -4,6 +4,7 @@ from django.dispatch import receiver
 
 
 class Business(models.Model):
+  # ── Backward-compat choices (kept for existing code) ─────────────────────
   SERVICE_CHOICES = [
     ('gestion', 'Gestion Comercial'),
     ('restaurante', 'Restaurantes'),
@@ -12,18 +13,67 @@ class Business(models.Model):
     ('menu_qr_marca', 'Menú QR Marca'),
   ]
 
-  name = models.CharField(max_length=255)
-  parent = models.ForeignKey('self', null=True, blank=True, related_name='branches', on_delete=models.PROTECT)
-  default_service = models.CharField(max_length=32, choices=SERVICE_CHOICES, default='gestion')
-  
+  # ── Phase 2A: canonical service enum ─────────────────────────────────────
+  class ServiceType(models.TextChoices):
+    """Canonical service type. Coexists with deprecated `default_service`."""
+    GESTION      = 'gestion',       'Gestión Comercial'
+    RESTAURANTE  = 'restaurante',   'Restaurantes'
+    MENU_QR      = 'menu_qr',       'Menú QR'
+    MENU_QR_VISUAL = 'menu_qr_visual', 'Menú QR Visual'
+    MENU_QR_MARCA  = 'menu_qr_marca',  'Menú QR Marca'
+
+  # ── Status choices (Phase 2A extends legacy 3-value set) ─────────────────
   STATUS_CHOICES = [
-        ('pending_activation', 'Pending Activation'),
-        ('active', 'Active'),
-        ('suspended', 'Suspended'),
+    # ── Canonical (Phase 1 v2.0) ─────────────────────────────────────
+    ('onboarding', 'Onboarding'),         # Creado, sin activar
+    ('active',     'Active'),             # Operativo
+    ('suspended',  'Suspended'),          # Bloqueado por billing o admin
+    ('canceled',   'Canceled'),           # Cerrado definitivamente
+    # ── DEPRECATED legacy values (preserved for existing rows) ───────
+    ('pending_activation', 'Pending Activation'),  # → migrate to onboarding
   ]
-  status = models.CharField(max_length=32, choices=STATUS_CHOICES, default='active') 
-  
-  created_at = models.DateTimeField(auto_now_add=True)
+
+  # ── Core fields (existing) ────────────────────────────────────────────────
+  name           = models.CharField(max_length=255)
+  parent         = models.ForeignKey(
+    'self', null=True, blank=True, related_name='branches', on_delete=models.PROTECT,
+  )
+  # DEPRECATED: use service_type. Kept for backward compat.
+  default_service = models.CharField(max_length=32, choices=SERVICE_CHOICES, default='gestion')
+  status          = models.CharField(max_length=32, choices=STATUS_CHOICES, default='active')
+  created_at      = models.DateTimeField(auto_now_add=True)
+
+  # ── Phase 2A: new fields ──────────────────────────────────────────────────
+  slug         = models.SlugField(
+    max_length=80, null=True, blank=True,
+    help_text='URL-friendly identifier. Populated by data migration 0016.',
+  )
+  service_type = models.CharField(
+    max_length=32, choices=ServiceType.choices, null=True, blank=True,
+    help_text='Canonical service type. Populated from default_service via data migration 0016.',
+  )
+  country      = models.CharField(max_length=2,  default='AR')
+  currency     = models.CharField(max_length=3,  default='ARS')
+  timezone     = models.CharField(max_length=64, default='America/Argentina/Buenos_Aires')
+  trial_starts_at = models.DateTimeField(null=True, blank=True)
+  trial_ends_at   = models.DateTimeField(null=True, blank=True)
+  activated_at    = models.DateTimeField(null=True, blank=True)
+  suspended_at    = models.DateTimeField(null=True, blank=True)
+  updated_at      = models.DateTimeField(auto_now=True)
+
+  class Meta:
+    indexes = [
+      models.Index(fields=['status'],  name='business_status_idx'),
+      models.Index(fields=['parent'],  name='business_parent_idx'),
+    ]
+    constraints = [
+      # Sparse unique: allows multiple NULLs, prevents duplicate non-null slugs
+      models.UniqueConstraint(
+        fields=['slug'],
+        condition=models.Q(slug__isnull=False),
+        name='uq_business_slug',
+      ),
+    ]
 
   def __str__(self) -> str:
     return self.name

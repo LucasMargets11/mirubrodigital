@@ -7,17 +7,22 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ownerAccessApi } from '@/lib/api/owner-access';
+import { employeesApi } from '@/lib/api/employees';
 import type { AccessSummary, RoleSummary, UserAccount } from '@/types/owner-access';
+import type { EmployeeProfile } from '@/types/employees';
 import { PermissionList, EmptyState } from '@/components/app/owner-access/shared-components';
 import { AccountsTable } from '@/components/app/owner-access/accounts-table';
+import { EmployeesTable } from '@/components/app/owner-access/employees-table';
+import { EmployeeFormModal } from '@/components/app/owner-access/employee-form-modal';
 
-type Tab = 'my-roles' | 'business-roles' | 'accounts';
+type Tab = 'my-roles' | 'business-roles' | 'accounts' | 'employees';
 
 export default function OwnerAccessPage() {
     const [activeTab, setActiveTab] = useState<Tab>('my-roles');
     const [accessSummary, setAccessSummary] = useState<AccessSummary | null>(null);
     const [roles, setRoles] = useState<RoleSummary[]>([]);
     const [accounts, setAccounts] = useState<UserAccount[]>([]);
+    const [employees, setEmployees] = useState<EmployeeProfile[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [isOwner, setIsOwner] = useState(false);
@@ -32,21 +37,32 @@ export default function OwnerAccessPage() {
             setError(null);
             const summary = await ownerAccessApi.getAccessSummary();
             setAccessSummary(summary);
-            setIsOwner(summary.role === 'owner');
+            const canManage = summary.role === 'owner' || summary.role === 'admin';
+            setIsOwner(canManage);
 
-            if (summary.role === 'owner') {
-                // Load additional data for owner
-                const [rolesData, accountsData] = await Promise.all([
+            if (canManage) {
+                const [rolesData, accountsData, employeesData] = await Promise.all([
                     ownerAccessApi.getRoles(),
                     ownerAccessApi.getAccounts(),
+                    employeesApi.list(),
                 ]);
                 setRoles(rolesData);
                 setAccounts(accountsData);
+                setEmployees(employeesData);
             }
         } catch (err: any) {
             setError(err.message || 'Error al cargar información de accesos');
         } finally {
             setIsLoading(false);
+        }
+    };
+
+    const reloadEmployees = async () => {
+        try {
+            const data = await employeesApi.list();
+            setEmployees(data);
+        } catch {
+            // ignore transient errors
         }
     };
 
@@ -135,6 +151,15 @@ export default function OwnerAccessPage() {
                             >
                                 Accesos (Cuentas)
                             </button>
+                            <button
+                                onClick={() => setActiveTab('employees')}
+                                className={`border-b-2 pb-3 text-sm font-medium transition-colors ${activeTab === 'employees'
+                                    ? 'border-blue-600 text-blue-600'
+                                    : 'border-transparent text-slate-600 hover:text-slate-900'
+                                    }`}
+                            >
+                                Personal Operativo
+                            </button>
                         </>
                     )}
                 </nav>
@@ -145,6 +170,9 @@ export default function OwnerAccessPage() {
                 {activeTab === 'my-roles' && <MyRolesTab summary={accessSummary} />}
                 {activeTab === 'business-roles' && isOwner && <BusinessRolesTab roles={roles} />}
                 {activeTab === 'accounts' && isOwner && <AccountsTab accounts={accounts} onRefresh={loadAccessSummary} />}
+                {activeTab === 'employees' && isOwner && (
+                    <EmployeesTab employees={employees} onRefresh={reloadEmployees} />
+                )}
             </div>
         </div>
     );
@@ -235,6 +263,49 @@ function AccountsTab({ accounts, onRefresh }: { accounts: UserAccount[]; onRefre
                 </button>
             </div>
             <AccountsTable accounts={accounts} onRefresh={onRefresh} />
+        </div>
+    );
+}
+
+function EmployeesTab({
+    employees,
+    onRefresh,
+}: {
+    employees: EmployeeProfile[];
+    onRefresh: () => void;
+}) {
+    const [showCreate, setShowCreate] = useState(false);
+
+    return (
+        <div className="space-y-4">
+            <div className="flex items-center justify-between">
+                <div>
+                    <h2 className="text-lg font-semibold text-slate-900">Personal Operativo</h2>
+                    <p className="mt-0.5 text-sm text-slate-600">
+                        Empleados que usan el POS o las pantallas operativas.
+                        Autentican con código + PIN, sin acceso al panel de administración.
+                    </p>
+                </div>
+                <button
+                    onClick={() => setShowCreate(true)}
+                    className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
+                >
+                    + Nuevo empleado
+                </button>
+            </div>
+
+            <EmployeesTable employees={employees} onRefresh={onRefresh} />
+
+            {showCreate && (
+                <EmployeeFormModal
+                    isOpen
+                    mode="create"
+                    onClose={() => {
+                        setShowCreate(false);
+                        onRefresh();
+                    }}
+                />
+            )}
         </div>
     );
 }

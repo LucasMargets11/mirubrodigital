@@ -177,3 +177,83 @@ def feature_flags_for_subscription(subscription) -> Dict[str, bool]:
     flags['menu_qr_tips'] = (pro_module == 'tips') or has_addon_tips
 
   return flags
+
+
+def feature_flags_for_v2_subscription(sub_v2, business) -> Dict[str, bool]:
+  """
+  Compute feature flags for a SubscriptionV2, with legacy addon bridge.
+
+  Strategy:
+    1. Start from plan-tier base flags (same as feature_flags_for_plan).
+    2. Enrich with addon-driven flags from the business's legacy subscription,
+       if one exists. This bridges the current gap where SubscriptionV2 has no
+       native addon model yet.
+
+  Bridge status — addons with full V2 feature-flag parity:
+    - extra_branch          → multi_branch (plan='pro' only, via effective_max_branches)
+    - menu_qr_addon_reviews → menu_qr_reviews (plan='menu_qr_pro' only)
+    - menu_qr_addon_tips    → menu_qr_tips (plan='menu_qr_pro' only)
+    - pro_included_module   → menu_qr_reviews or menu_qr_tips (plan='menu_qr_pro')
+
+  Addons not affecting feature flags (handled at entitlement layer or seat limits):
+    - extra_seat      → seat limits only
+    - invoices_module → gestion.invoices entitlement (see runtime._get_v2_entitlements)
+    - customers_module→ gestion.customers entitlement (see runtime._get_v2_entitlements)
+
+  Gaps still pending after this phase: none.
+  Legacy is used only as a bridge, not as a primary source.
+  """
+  import logging as _logging
+  from apps.billing.runtime import _extract_plan_tier
+
+  _logger = _logging.getLogger(__name__)
+  plan_tier = _extract_plan_tier(sub_v2.plan_code)
+  flags = feature_flags_for_plan(plan_tier)
+
+  # Bridge: enrich from legacy subscription addons when available
+  try:
+    legacy_sub = getattr(business, 'subscription', None)
+    if legacy_sub is not None:
+      applied: list = []
+
+      # PRO: enable multi_branch if has extra_branch addon
+      if plan_tier == 'pro':
+        effective_branches = getattr(legacy_sub, 'effective_max_branches', 1)
+        if effective_branches > 1:
+          flags['multi_branch'] = True
+          applied.append('extra_branch→multi_branch')
+
+      # Menu QR Pro: reviews/tips from pro_included_module OR addons
+      if plan_tier == 'menu_qr_pro':
+        pro_module = getattr(legacy_sub, 'pro_included_module', None)
+        has_reviews = legacy_sub.has_addon('menu_qr_addon_reviews')
+        has_tips = legacy_sub.has_addon('menu_qr_addon_tips')
+        new_reviews = (pro_module == 'reviews') or has_reviews
+        new_tips = (pro_module == 'tips') or has_tips
+        if new_reviews and not flags.get('menu_qr_reviews'):
+          flags['menu_qr_reviews'] = True
+          applied.append('menu_qr_addon_reviews')
+        if new_tips and not flags.get('menu_qr_tips'):
+          flags['menu_qr_tips'] = True
+          applied.append('menu_qr_addon_tips')
+        # Also handle the case where flags are already True from plan_tier base
+        # but pro_module/addon overrides matter for menu_qr_pro specifically:
+        flags['menu_qr_reviews'] = new_reviews
+        flags['menu_qr_tips'] = new_tips
+
+      if applied:
+        _logger.info(
+          "[features] v2_addon_bridge business=%s plan=%s applied=%s",
+          business.pk, plan_tier, applied,
+        )
+    else:
+      _logger.debug(
+        "[features.feature_flags_for_v2_subscription] no legacy sub for business=%s",
+        business.pk,
+      )
+  except Exception as exc:  # noqa: BLE001
+    _logger.debug(
+      "[features.feature_flags_for_v2_subscription] addon bridge skipped: %s", exc,
+    )
+
+  return flags

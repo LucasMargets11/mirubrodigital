@@ -29,7 +29,18 @@ export async function login(email: string, password: string): Promise<AuthResult
       const errorPayload = await response.json().catch(() => ({}));
       return { success: false, message: errorPayload?.detail ?? 'No pudimos iniciar sesión' };
     }
-    window.location.assign('/app/dashboard');
+
+    const data = await response.json().catch(() => ({}));
+
+    // If the business is in onboarding state, send the user to complete their
+    // subscription before entering the app.  The backend signals this via the
+    // 'onboarding' flag on the login response.
+    if (data?.onboarding) {
+      window.location.assign('/app/planes');
+    } else {
+      window.location.assign('/app/dashboard');
+    }
+
     return { success: true };
   } catch (error) {
     return { success: false, message: 'Error de red al iniciar sesión' };

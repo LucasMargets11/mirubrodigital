@@ -52,6 +52,24 @@ class Sale(models.Model):
     blank=True,
     on_delete=models.PROTECT,
   )
+  # ── Operative (POS) identity fields ─────────────────────────────────────────
+  # created_by (auth.User FK above) remains for admin/backoffice flows.
+  # created_by_employee is exclusively set by POS operative endpoints.
+  created_by_employee = models.ForeignKey(
+    'accounts.EmployeeProfile',
+    related_name='sales_created',
+    null=True,
+    blank=True,
+    on_delete=models.SET_NULL,
+  )
+  # cancelled_by_employee mirrors cancelled_by for future POS cancellation flows.
+  cancelled_by_employee = models.ForeignKey(
+    'accounts.EmployeeProfile',
+    related_name='sales_cancelled',
+    null=True,
+    blank=True,
+    on_delete=models.SET_NULL,
+  )
   created_at = models.DateTimeField(auto_now_add=True)
   updated_at = models.DateTimeField(auto_now=True)
   cancelled_at = models.DateTimeField(null=True, blank=True)

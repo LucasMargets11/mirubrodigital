@@ -1,0 +1,431 @@
+"""
+billing/runtime.py — Runtime subscription resolution layer.
+
+V2-first with controlled fallback to legacy business.Subscription.
+This is the single authoritative source for subscription state at request time.
+
+Priority:
+  1. SubscriptionV2  — active / trialing / past_due-within-grace
+  2. legacy business.Subscription — only if no usable V2 exists
+  3. 'none' — if neither is usable
+
+Security rules (§F):
+  - No access is granted by default when no valid subscription exists.
+  - A V2 in suspended/expired state is NOT downgraded to a legacy-active path
+    (§F.2).  A degraded V2 beats a healthy legacy.
+  - checkout_pending V2 is treated as absent (checkout redirect not completed).
+"""
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Optional, Set
+
+from django.utils import timezone
+
+logger = logging.getLogger(__name__)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Plan tier extraction
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Ordered by specificity — longer / more-specific names first to prevent
+# 'menu_qr' from masking 'menu_qr_visual'.
+_KNOWN_TIERS = [
+    'menu_qr_premium', 'menu_qr_visual', 'menu_qr_marca',
+    'menu_qr_lite', 'menu_qr_pro', 'menu_qr',
+    'enterprise', 'business', 'starter', 'start', 'plus', 'pro',
+]
+
+
+def _extract_plan_tier(plan_code: str) -> str:
+    """
+    Extract the canonical plan tier from a SubscriptionV2.plan_code.
+
+    plan_code may be the tier name directly (e.g. 'pro'), or compound
+    (e.g. 'gestion_pro_monthly').  Returns the best-matching tier, or
+    plan_code unchanged if no known tier is detected (entitlement lookup
+    will gracefully produce an empty set for unknown codes).
+    """
+    if not plan_code:
+        return 'start'
+    lc = plan_code.lower().strip()
+    # Exact match
+    if lc in _KNOWN_TIERS:
+        return lc
+    # Substring match with word-boundary underscores
+    for tier in _KNOWN_TIERS:
+        if (
+            f'_{tier}_' in lc
+            or lc.startswith(f'{tier}_')
+            or lc.endswith(f'_{tier}')
+        ):
+            return tier
+    return plan_code  # unknown — fallback; produces empty entitlement set
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# V2 access predicates
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _v2_grants_access(sub_v2: Any) -> bool:
+    """
+    Return True if sub_v2 is in a status that currently grants feature access.
+
+    active     → always granted
+    trialing   → granted while within trial_ends_at
+    past_due   → granted while within grace_until (soft retry window)
+    others     → denied (suspended, canceled, checkout_pending)
+    """
+    from apps.billing.models import SubscriptionV2
+    now = timezone.now()
+    s = sub_v2.status
+    if s == SubscriptionV2.Status.ACTIVE:
+        return True
+    if s == SubscriptionV2.Status.TRIALING:
+        return sub_v2.trial_ends_at is None or sub_v2.trial_ends_at >= now
+    if s == SubscriptionV2.Status.PAST_DUE:
+        return sub_v2.grace_until is not None and sub_v2.grace_until >= now
+    return False
+
+
+def _v2_access_until(sub_v2: Any) -> Optional[datetime]:
+    """Best-effort access_until datetime from a SubscriptionV2."""
+    from apps.billing.models import SubscriptionV2
+    s = sub_v2.status
+    if s == SubscriptionV2.Status.TRIALING:
+        return sub_v2.trial_ends_at
+    if s == SubscriptionV2.Status.PAST_DUE:
+        return sub_v2.grace_until
+    if s == SubscriptionV2.Status.ACTIVE:
+        return sub_v2.current_period_end
+    return None
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Result dataclass
+# ──────────────────────────────────────────────────────────────────────────────
+
+@dataclass
+class ResolvedSubscription:
+    """
+    Resolved runtime subscription for a business.
+
+    Attributes:
+        source:          'v2' | 'legacy' | 'none'
+        plan:            effective plan tier (e.g. 'pro', 'start', 'menu_qr'),
+                         or None if no subscription exists.
+        status:          raw status from the winning source, or None.
+        access_granted:  whether current state allows access to plan features.
+        access_until:    point-in-time until access is granted (best effort).
+        entitlements:    frozenset of enabled entitlement codes.
+        service_type:    resolved service type string.
+        fallback_reason: why fallback was used; None when source='v2' and valid.
+        subscription_v2: the SubscriptionV2 instance, or None.
+        legacy_sub:      the business.Subscription instance, or None.
+    """
+    source: str
+    plan: Optional[str]
+    status: Optional[str]
+    access_granted: bool
+    access_until: Optional[datetime]
+    entitlements: frozenset
+    service_type: Optional[str]
+    fallback_reason: Optional[str]
+    subscription_v2: Optional[Any]
+    legacy_sub: Optional[Any]
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Public API
+# ──────────────────────────────────────────────────────────────────────────────
+
+def resolve_subscription(
+    business,
+    service_type: Optional[str] = None,
+) -> ResolvedSubscription:
+    """
+    Resolve the effective subscription for *business* at runtime.
+
+    Resolution order:
+      1. SubscriptionV2 (non-canceled, non-checkout_pending) for the resolved
+         service_type.  If found, V2 is authoritative regardless of legacy
+         state — a degraded V2 does NOT fall back to legacy-active (§F.2).
+      2. Legacy business.Subscription, if no usable V2 exists.
+      3. 'none' if neither exists.
+
+    Args:
+        business:     Business instance.
+        service_type: Optional override for service type lookup.  Defaults to
+                      business.service_type → business.default_service → 'gestion'.
+    """
+    biz_id = business.pk
+
+    # ── Determine effective service_type ────────────────────────────────────
+    effective_svc = (
+        service_type
+        or getattr(business, 'service_type', None)
+        or getattr(business, 'default_service', None)
+        or 'gestion'
+    )
+
+    # ── Look up SubscriptionV2 ───────────────────────────────────────────────
+    sub_v2 = _find_best_v2(business, effective_svc)
+
+    if sub_v2 is not None:
+        grants = _v2_grants_access(sub_v2)
+        plan_tier = _extract_plan_tier(sub_v2.plan_code)
+        access_until = _v2_access_until(sub_v2)
+
+        if grants:
+            entitlements = frozenset(_get_v2_entitlements(plan_tier, business=business))
+            logger.debug(
+                "[runtime] source=v2 business=%s service=%s plan=%s status=%s",
+                biz_id, sub_v2.service_type, plan_tier, sub_v2.status,
+            )
+        else:
+            # V2 exists but is degraded (suspended, past_due-expired, ...).
+            # Do NOT fall back to legacy per §F.2.
+            logger.info(
+                "[runtime] source=v2(no_access) business=%s service=%s plan=%s "
+                "status=%s — not falling back to legacy (§F.2)",
+                biz_id, sub_v2.service_type, plan_tier, sub_v2.status,
+            )
+            entitlements = frozenset()
+
+        # Observability: log plan/status/date drift between V2 and legacy
+        _log_v2_legacy_mismatch(business, sub_v2, plan_tier)
+
+        return ResolvedSubscription(
+            source='v2',
+            plan=plan_tier,
+            status=sub_v2.status,
+            access_granted=grants,
+            access_until=access_until,
+            entitlements=entitlements,
+            service_type=sub_v2.service_type,
+            fallback_reason=None if grants else f'v2_status={sub_v2.status}',
+            subscription_v2=sub_v2,
+            legacy_sub=None,
+        )
+
+    # ── No usable V2 — fall back to legacy ──────────────────────────────────
+    legacy_sub = getattr(business, 'subscription', None)
+
+    if legacy_sub is not None:
+        leg_status = getattr(legacy_sub, 'status', None) or 'canceled'
+        leg_plan = getattr(legacy_sub, 'plan', None) or 'start'
+        leg_service = getattr(legacy_sub, 'service', None) or effective_svc
+
+        if leg_status == 'active':
+            entitlements = frozenset(_get_legacy_entitlements(legacy_sub))
+            access_until = getattr(legacy_sub, 'renews_at', None)
+            logger.info(
+                "[runtime] source=legacy business=%s service=%s plan=%s — no usable V2",
+                biz_id, leg_service, leg_plan,
+            )
+            return ResolvedSubscription(
+                source='legacy',
+                plan=leg_plan,
+                status='active',
+                access_granted=True,
+                access_until=access_until,
+                entitlements=entitlements,
+                service_type=leg_service,
+                fallback_reason='no_v2_found',
+                subscription_v2=None,
+                legacy_sub=legacy_sub,
+            )
+
+        # Legacy exists but is not active (past_due, canceled)
+        logger.info(
+            "[runtime] source=legacy(no_access) business=%s plan=%s status=%s",
+            biz_id, leg_plan, leg_status,
+        )
+        return ResolvedSubscription(
+            source='legacy',
+            plan=leg_plan,
+            status=leg_status,
+            access_granted=False,
+            access_until=None,
+            entitlements=frozenset(),
+            service_type=leg_service,
+            fallback_reason='legacy_not_active',
+            subscription_v2=None,
+            legacy_sub=legacy_sub,
+        )
+
+    # ── No subscription at all ───────────────────────────────────────────────
+    logger.warning(
+        "[runtime] source=none business=%s service=%s — no subscription found",
+        biz_id, effective_svc,
+    )
+    return ResolvedSubscription(
+        source='none',
+        plan=None,
+        status=None,
+        access_granted=False,
+        access_until=None,
+        entitlements=frozenset(),
+        service_type=effective_svc,
+        fallback_reason='no_subscription',
+        subscription_v2=None,
+        legacy_sub=None,
+    )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Internal helpers
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _find_best_v2(business, service_type: str) -> Optional[Any]:
+    """
+    Find the most relevant SubscriptionV2 for *business*.
+
+    Excludes CANCELED and CHECKOUT_PENDING (checkout redirect not completed).
+    Prefers the one matching *service_type*; falls back to the most
+    recently-created non-excluded V2 if no match for the given service.
+    """
+    from apps.billing.models import SubscriptionV2
+
+    qs = (
+        SubscriptionV2.objects
+        .filter(business=business)
+        .exclude(status__in=[
+            SubscriptionV2.Status.CANCELED,
+            SubscriptionV2.Status.CHECKOUT_PENDING,
+        ])
+        .order_by('-created_at')
+    )
+
+    # Service-type-specific lookup first
+    v2 = qs.filter(service_type=service_type).first()
+    if v2 is not None:
+        return v2
+
+    # Any non-excluded V2 for the business (handles stale service_type hints)
+    v2 = qs.first()
+    if v2 is not None:
+        logger.debug(
+            "[runtime._find_best_v2] no V2 for service_type=%s; "
+            "using service_type=%s for business=%s",
+            service_type, v2.service_type, business.pk,
+        )
+    return v2
+
+
+def _get_v2_entitlements(plan_tier: str, business=None) -> Set[str]:
+    """
+    Entitlements derived from a V2 plan tier.
+
+    Bridge: when *business* is provided and it has an active legacy subscription
+    with addons, applies ADDON_ENTITLEMENTS from those addons to fill the gap
+    until SubscriptionV2 has a native addon model.
+
+    Addons with full V2 parity via bridge:
+      - invoices_module  → gestion.invoices
+      - customers_module → gestion.customers
+
+    Addons not in ADDON_ENTITLEMENTS (affect feature flags only, not entitlements):
+      - extra_branch / extra_seat / menu_qr_addon_reviews / menu_qr_addon_tips
+        (handled separately in feature_flags_for_v2_subscription)
+
+    Gaps still pending after this phase: none — all relevant entitlement-bearing
+    addons are bridged above.
+    """
+    from apps.business.entitlements import get_plan_entitlements, ADDON_ENTITLEMENTS
+    entitlements = get_plan_entitlements(plan_tier)
+
+    if business is None:
+        return entitlements
+
+    try:
+        legacy_sub = getattr(business, 'subscription', None)
+        if legacy_sub is None:
+            logger.debug(
+                "[runtime._get_v2_entitlements] no legacy sub to bridge for business=%s",
+                business.pk,
+            )
+            return entitlements
+
+        addons_applied: list = []
+        for addon in legacy_sub.addons.filter(is_active=True):
+            extra = ADDON_ENTITLEMENTS.get(addon.code, set())
+            if extra:
+                entitlements |= extra
+                addons_applied.append(addon.code)
+
+        if addons_applied:
+            logger.info(
+                "[runtime] v2_addon_bridge business=%s plan=%s entitlements_bridged=%s",
+                business.pk, plan_tier, addons_applied,
+            )
+        else:
+            logger.debug(
+                "[runtime] v2_addon_bridge business=%s plan=%s no ADDON_ENTITLEMENTS addons found",
+                business.pk, plan_tier,
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(
+            "[runtime._get_v2_entitlements] addon bridge skipped (non-fatal): %s", exc,
+        )
+
+    return entitlements
+
+
+def _get_legacy_entitlements(legacy_sub: Any) -> Set[str]:
+    """Effective entitlements from a legacy business.Subscription (plan + addons)."""
+    from apps.business.entitlements import get_effective_entitlements
+    return get_effective_entitlements(legacy_sub)
+
+
+def _log_v2_legacy_mismatch(business: Any, sub_v2: Any, v2_plan_tier: str) -> None:
+    """
+    Emit an INFO log when V2 and legacy subscription data diverge meaningfully.
+
+    Checks:
+      - plan mismatch
+      - status mismatch (trialing↔active is expected during migration)
+      - access_until drift > 3 days
+
+    Non-blocking — all exceptions are swallowed.
+    """
+    try:
+        legacy_sub = getattr(business, 'subscription', None)
+        if legacy_sub is None:
+            return
+
+        mismatches: list = []
+
+        # Plan mismatch
+        leg_plan = getattr(legacy_sub, 'plan', None)
+        if leg_plan and leg_plan != v2_plan_tier:
+            mismatches.append(f'plan v2={v2_plan_tier} legacy={leg_plan}')
+
+        # Status mismatch — trialing↔active is expected, skip that pair
+        leg_status = getattr(legacy_sub, 'status', None)
+        v2_status = sub_v2.status
+        if leg_status and v2_status != leg_status:
+            if not (v2_status == 'trialing' and leg_status == 'active'):
+                mismatches.append(f'status v2={v2_status} legacy={leg_status}')
+
+        # Period-end / renews_at drift > 3 days
+        v2_end = sub_v2.current_period_end
+        leg_renew = getattr(legacy_sub, 'renews_at', None)
+        if v2_end and leg_renew:
+            delta = abs((v2_end - leg_renew).days)
+            if delta > 3:
+                mismatches.append(
+                    f'access_until delta={delta}d '
+                    f'v2={v2_end.date()} legacy={leg_renew.date()}'
+                )
+
+        if mismatches:
+            logger.info(
+                "[runtime] v2_legacy_mismatch business=%s: %s",
+                business.pk, "; ".join(mismatches),
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("[runtime._log_v2_legacy_mismatch] ignored: %s", exc)

@@ -13,12 +13,13 @@ const statusStyles: Record<string, string> = {
 };
 
 type PageProps = {
-    params: {
+    params: Promise<{
         id: string;
-    };
+    }>;
 };
 
 export default async function ReportSaleDetailPage({ params }: PageProps) {
+    const { id } = await params;
     const session = await getSession();
 
     if (!session) {
@@ -38,7 +39,7 @@ export default async function ReportSaleDetailPage({ params }: PageProps) {
 
     let sale: ReportSale | null = null;
     try {
-        sale = await serverApiFetch<ReportSale>(`/api/v1/reports/sales/${params.id}/`);
+        sale = await serverApiFetch<ReportSale>(`/api/v1/reports/sales/${id}/`);
     } catch (error) {
         notFound();
     }

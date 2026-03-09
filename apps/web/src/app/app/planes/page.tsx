@@ -45,11 +45,13 @@ export default async function PlansPage() {
 
     const plan = session.subscription?.plan ?? '';
     const status = session.subscription?.status ?? '';
+    const accessAllowed = session.subscription?.access_allowed ?? false;
+    const reasonCode = session.subscription?.reason_code ?? 'no_subscription';
     // For QR tiers, derive service label from the plan code so Visual/Marca show their own name
     const serviceLabel = SERVICE_LABELS[plan] ?? SERVICE_LABELS[service] ?? service;
     const planLabel = PLAN_LABELS[plan] ?? plan;
     const pricingHref = SERVICE_PRICING_HREF[service] ?? '/pricing';
-    const isActive = status === 'active' || status === 'trial';
+    const isActive = accessAllowed;
 
     return (
         <section className="mx-auto max-w-2xl space-y-6 rounded-2xl border border-slate-200 bg-white p-8">

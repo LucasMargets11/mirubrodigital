@@ -4,6 +4,7 @@ from django.contrib import admin
 from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
+from apps.accounts.employee_views import EmployeeLoginView, EmployeeChangePinView
 from apps.menu.views import MenuQRCodeView, PublicMenuBySlugView
 from apps.resto.views import RestaurantTablesMapStateView, RestaurantTablesSnapshotView
 from common.health import health_check
@@ -14,6 +15,9 @@ urlpatterns = [
   path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='docs'),
   path('api/v1/health/', health_check, name='health-check'),
   path('api/v1/auth/', include('apps.accounts.urls')),
+  path('api/v1/auth/employee-login/', EmployeeLoginView.as_view(), name='employee-login'),
+  path('api/v1/auth/employee-change-pin/', EmployeeChangePinView.as_view(), name='employee-change-pin'),
+  path('api/v1/pos/', include('apps.accounts.pos_urls')),
   path('api/v1/owner/access/', include('apps.accounts.owner_urls')),
   path('api/v1/', include('apps.business.urls')),
   path('api/v1/catalog/', include('apps.catalog.urls')),

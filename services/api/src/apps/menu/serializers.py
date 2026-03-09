@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any, Iterable, List
 
 from rest_framework import serializers
@@ -403,7 +404,7 @@ class MercadoPagoConnectionStatusSerializer(serializers.Serializer):
 
 class TipCreatePreferenceSerializer(serializers.Serializer):
     """Validates a tip preference creation request from the public menu."""
-    amount = serializers.DecimalField(max_digits=8, decimal_places=2, min_value=10)
+    amount = serializers.DecimalField(max_digits=8, decimal_places=2, min_value=Decimal('10'))
     table_ref = serializers.CharField(max_length=64, required=False, allow_blank=True, default='')
 
     def validate_amount(self, value):

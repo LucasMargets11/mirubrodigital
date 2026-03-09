@@ -30,6 +30,9 @@ class CommercialSubscriptionView(APIView):
     GET /api/billing/commercial/subscription/
     """
     permission_classes = [IsAuthenticated, HasBusinessMembership]
+    # Billing management must remain accessible regardless of subscription state,
+    # so users can view their current plan and initiate regularization.
+    billing_enforcement_bypass = True
     
     def get(self, request):
         business: Business = getattr(request, 'business', None)
@@ -193,6 +196,7 @@ class CommercialPreviewChangeView(APIView):
     }
     """
     permission_classes = [IsAuthenticated, HasBusinessMembership]
+    billing_enforcement_bypass = True
     
     def post(self, request):
         from apps.billing.services.commercial.preview import preview_subscription_change
@@ -272,6 +276,7 @@ class CommercialCheckoutView(APIView):
         }
     """
     permission_classes = [IsAuthenticated, HasBusinessMembership]
+    billing_enforcement_bypass = True
     
     def post(self, request):
         from django.conf import settings
@@ -406,6 +411,38 @@ class CommercialCheckoutView(APIView):
         try:
             mp_service = MercadoPagoService()
             
+            # ── Phase 2B: ensure SubscriptionV2 exists before redirecting to MP ──
+            # apply_subscription_change (free path) already handles this; here we handle
+            # the paid path where the change won't be applied until the webhook fires.
+            try:
+                import uuid as _uuid
+                from apps.billing.models import SubscriptionV2
+                service_type = business.default_service
+                v2 = (
+                    SubscriptionV2.objects
+                    .filter(business=business, service_type=service_type)
+                    .exclude(status=SubscriptionV2.Status.CANCELED)
+                    .first()
+                )
+                if v2 is None:
+                    v2 = SubscriptionV2.objects.create(
+                        business=business,
+                        service_type=service_type,
+                        plan_code=plan_code,
+                        provider=SubscriptionV2.Provider.MERCADOPAGO,
+                        external_reference=f"SUB-{_uuid.uuid4()}",
+                        status=SubscriptionV2.Status.CHECKOUT_PENDING,
+                        price_snapshot={'plan_code': plan_code, 'billing_cycle': billing_cycle},
+                    )
+                    logger.info(
+                        "[CommercialCheckoutView] Created SubscriptionV2 %s for business=%s plan=%s",
+                        v2.pk, business.id, plan_code,
+                    )
+            except Exception as _exc:
+                logger.warning(
+                    "[CommercialCheckoutView] SubscriptionV2 ensure failed (non-fatal): %s", _exc,
+                )
+
             # Preparar items para MercadoPago
             mp_items = []
             for item in preview['line_items']:
@@ -468,6 +505,7 @@ class AddonCheckoutView(APIView):
     }
     """
     permission_classes = [IsAuthenticated, HasBusinessMembership]
+    billing_enforcement_bypass = True
     
     def post(self, request):
         from apps.billing.models import PendingSubscriptionChange
@@ -581,6 +619,54 @@ class AddonCheckoutView(APIView):
                 status='pending_payment',
             )
         
+        # ── Phase 3: ensure SubscriptionV2 exists (V2 birth-path for addon checkout) ──
+        # Every addon checkout must be traceable in V2, even when the addon model itself
+        # still lives on the legacy business.Subscription.  We get-or-create the V2 record
+        # so the webhook can correlate `addon_purchase_<id>` back to a V2 subscription.
+        # Idempotent: if V2 already exists, we just log and reuse it.
+        v2_id = None
+        try:
+            import uuid as _uuid
+            from apps.billing.models import SubscriptionV2
+            service_type = business.default_service or 'gestion'
+            v2 = (
+                SubscriptionV2.objects
+                .filter(business=business, service_type=service_type)
+                .exclude(status=SubscriptionV2.Status.CANCELED)
+                .order_by('-created_at')
+                .first()
+            )
+            if v2 is None:
+                v2 = SubscriptionV2.objects.create(
+                    business=business,
+                    service_type=service_type,
+                    plan_code=plan_code,
+                    provider=SubscriptionV2.Provider.MERCADOPAGO,
+                    external_reference=f"SUB-{_uuid.uuid4()}",
+                    status=SubscriptionV2.Status.CHECKOUT_PENDING,
+                    price_snapshot={
+                        'plan_code': plan_code,
+                        'addon_code': addon_code,
+                        'billing_cycle': billing_cycle,
+                    },
+                )
+                logger.info(
+                    "[AddonCheckoutView] Created SubscriptionV2 %s for business=%s "
+                    "plan=%s addon=%s",
+                    v2.pk, business.id, plan_code, addon_code,
+                )
+            else:
+                logger.info(
+                    "[AddonCheckoutView] Linked existing SubscriptionV2 %s for business=%s "
+                    "plan=%s addon=%s status=%s",
+                    v2.pk, business.id, plan_code, addon_code, v2.status,
+                )
+            v2_id = str(v2.pk)
+        except Exception as _exc:
+            logger.warning(
+                "[AddonCheckoutView] SubscriptionV2 ensure failed (non-fatal): %s", _exc,
+            )
+
         # Crear preferencia de MercadoPago
         try:
             mp_service = MercadoPagoService()
@@ -608,6 +694,7 @@ class AddonCheckoutView(APIView):
                     'pending_change_id': pending_change.id,
                     'addon_code': addon_code,
                     'type': 'addon_purchase',
+                    'subscription_v2_id': v2_id,
                 }
             )
             

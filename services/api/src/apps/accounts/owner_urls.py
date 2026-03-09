@@ -4,7 +4,7 @@ All routes are prefixed with /api/v1/owner/access/
 """
 from django.urls import path
 
-from . import owner_views
+from . import owner_views, employee_views
 
 urlpatterns = [
     # Summary and lists
@@ -20,4 +20,11 @@ urlpatterns = [
     
     # Audit logs
     path('audit-logs/', owner_views.audit_logs, name='owner-audit-logs'),
+
+    # Operative employees
+    path('employees/', employee_views.employees_list, name='owner-employees-list'),
+    path('employees/<uuid:employee_id>/', employee_views.employee_detail, name='owner-employee-detail'),
+    path('employees/<uuid:employee_id>/reset-pin/', employee_views.employee_reset_pin, name='owner-employee-reset-pin'),
+    path('employees/<uuid:employee_id>/suspend/', employee_views.employee_suspend, name='owner-employee-suspend'),
+    path('employees/<uuid:employee_id>/reactivate/', employee_views.employee_reactivate, name='owner-employee-reactivate'),
 ]

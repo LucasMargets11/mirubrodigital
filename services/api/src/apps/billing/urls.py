@@ -1,9 +1,16 @@
 from django.urls import path
 from rest_framework.routers import DefaultRouter
-from .views import BillingViewSet, StartSubscriptionView, IntentStatusView, MercadoPagoWebhookView, DevMercadoPagoPingView
+from .views import (
+    BillingViewSet,
+    StartSubscriptionView,
+    IntentStatusView,
+    MercadoPagoWebhookView,
+    DevMercadoPagoPingView,
+    CheckoutSessionStatusView,
+)
 from .commercial_views import (
-    CommercialSubscriptionView, 
-    CommercialPreviewChangeView, 
+    CommercialSubscriptionView,
+    CommercialPreviewChangeView,
     CommercialCheckoutView,
     AddonCheckoutView,
 )
@@ -15,6 +22,8 @@ urlpatterns = [
     path('start-subscription', StartSubscriptionView.as_view(), name='start-subscription'),
     path('intent-status', IntentStatusView.as_view(), name='intent-status'),
     path('mercadopago/webhook', MercadoPagoWebhookView.as_view(), name='mp-webhook'),
+    # Phase 3: checkout session status polling endpoint
+    path('checkout-sessions/<uuid:session_id>', CheckoutSessionStatusView.as_view(), name='checkout-session-status'),
     # DEV diagnostics — two paths for convenience
     path('dev/mercadopago/ping', DevMercadoPagoPingView.as_view(), name='mp-dev-ping'),
     path('dev/mp/status', DevMercadoPagoPingView.as_view(), name='mp-dev-status'),

@@ -6,7 +6,10 @@ Trabajan en conjunto con RBAC: el business necesita el entitlement Y el usuario
 necesita el permiso correspondiente.
 """
 
+import logging
 from typing import Set
+
+logger = logging.getLogger(__name__)
 
 
 # Entitlements por plan
@@ -181,23 +184,51 @@ def get_effective_entitlements(subscription) -> Set[str]:
 def has_entitlement(business, entitlement_code: str) -> bool:
     """
     Verifica si un business tiene un entitlement específico.
-    
+
+    V2-first: consulta primero SubscriptionV2 a través de la capa de resolución
+    runtime (billing.runtime.resolve_subscription). Cae a legacy solo si no
+    existe V2 usable. No otorga acceso si no hay suscripción válida.
+
+    El acceso es validado primero por la capa de enforcement global
+    (billing.enforcement.get_enforcement_decision) antes de verificar
+    pertenencia al plan.
+
     Args:
         business: Instancia de Business
         entitlement_code: Código del entitlement (ej: 'gestion.customers')
-    
+
     Returns:
-        True si el business tiene el entitlement, False en caso contrario
+        True si el business tiene el entitlement activo, False en caso contrario
     """
     try:
-        subscription = business.subscription
-        if not subscription or subscription.status != 'active':
+        from apps.billing.runtime import resolve_subscription
+        from apps.billing.enforcement import get_enforcement_decision
+
+        resolved = resolve_subscription(business)
+        decision = get_enforcement_decision(resolved)
+
+        if not decision.access_allowed:
+            logger.info(
+                "[has_entitlement] denied — enforcement: business=%s "
+                "entitlement=%s reason=%s source=%s status=%s",
+                business.pk, entitlement_code,
+                decision.reason_code, resolved.source, resolved.status,
+            )
             return False
-        
-        entitlements = get_effective_entitlements(subscription)
-        return entitlement_code in entitlements
+
+        result = entitlement_code in resolved.entitlements
+        if not result:
+            logger.debug(
+                "[has_entitlement] denied — not in entitlements: business=%s "
+                "entitlement=%s source=%s plan=%s",
+                business.pk, entitlement_code, resolved.source, resolved.plan,
+            )
+        return result
     except Exception:
-        # Si no hay subscription, no tiene entitlements
+        logger.exception(
+            "[has_entitlement] unexpected error for business=%s entitlement=%s",
+            business.pk, entitlement_code,
+        )
         return False
 
 

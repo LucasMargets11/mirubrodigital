@@ -63,6 +63,40 @@ services:
       api:
         condition: service_started
 
+  # ── Celery worker (processes async tasks) ────────────────────────────────────
+  celery-worker:
+    build:
+      context: ../services/api
+    container_name: mirubro-celery-worker
+    command: celery -A config worker -l info -Q celery --concurrency=2
+    env_file:
+      - ../services/api/.env
+    volumes:
+      - ../services/api:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Celery beat scheduler (enqueues periodic tasks) ───────────────────────
+  celery-beat:
+    build:
+      context: ../services/api
+    container_name: mirubro-celery-beat
+    command: celery -A config beat -l info --pidfile=/tmp/celerybeat.pid
+    env_file:
+      - ../services/api/.env
+    volumes:
+      - ../services/api:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
   # ── Optional: ngrok tunnel (expose API to internet for MP webhooks/back_urls) ──
   # Usage: docker compose --profile tunnel up
   # The NGROK_AUTHTOKEN must be set as an environment variable or in a .env file
