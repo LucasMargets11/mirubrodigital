@@ -343,11 +343,22 @@ class Command(BaseCommand):
         )
 
     def _derive_plan_code_billing(self, sub) -> str:
-        """Best-effort derivation of plan_code from a billing.Subscription row."""
+        """Best-effort derivation of plan_code from a billing.Subscription row.
+
+        Priority:
+          1. billing.Subscription.plan.code  (e.g. 'gestion_pro' from billing.Plan FK)
+          2. billing.Subscription.bundle.code (e.g. 'gestion_pro', 'menu_qr_visual')
+             Stored as the raw bundle code — NOT wrapped as 'bundle-{code}-{period}'
+             so that billing.runtime._extract_plan_tier() can parse it directly.
+          3. 'legacy-{plan_type}-{billing_period}' as last-resort fallback.
+        """
         if sub.plan_id and sub.plan:
             return sub.plan.code
         if sub.bundle_id and sub.bundle:
-            return f"bundle-{sub.bundle.code}-{sub.billing_period}"
+            # Store bundle.code directly (e.g. 'gestion_pro', 'menu_qr_visual').
+            # The old format 'bundle-{code}-{period}' was not parseable by
+            # _extract_plan_tier and caused feature flags to fall back to 'starter'.
+            return sub.bundle.code
         return f"legacy-{sub.plan_type}-{sub.billing_period}"
 
     # ── Summary ────────────────────────────────────────────────────────────────

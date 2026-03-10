@@ -17,6 +17,11 @@ urlpatterns = [
     # Account management actions
     path('accounts/<int:user_id>/reset-password/', owner_views.reset_password, name='owner-reset-password'),
     path('accounts/<int:user_id>/disable/', owner_views.disable_account, name='owner-disable-account'),
+
+    # Wave 2 — extended owner management (B.1.a)
+    path('accounts/<int:user_id>/role/', owner_views.change_role, name='owner-change-role'),
+    path('accounts/<int:user_id>/suspend/', owner_views.suspend_member, name='owner-suspend-member'),
+    path('accounts/<int:user_id>/', owner_views.remove_member, name='owner-remove-member'),
     
     # Audit logs
     path('audit-logs/', owner_views.audit_logs, name='owner-audit-logs'),

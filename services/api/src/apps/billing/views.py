@@ -13,7 +13,7 @@ import logging
 import uuid
 
 from apps.accounts.access import resolve_request_membership
-from apps.accounts.permissions import HasBusinessMembership
+from apps.accounts.permissions import HasBusinessMembership, RequiresEmailVerified
 from apps.business.models import Business
 from apps.accounts.models import Membership
 
@@ -168,6 +168,10 @@ class BillingViewSet(viewsets.ViewSet):
     def get_permissions(self):
         if self.action in ['modules', 'bundles', 'promotions', 'quote']:
             return [AllowAny()]
+        if self.action == 'subscribe':
+            # subscribe() initiates commercial activation — requires verified email
+            # (RequiresEmailVerified is a no-op when EMAIL_VERIFICATION_ENFORCEMENT flag is off)
+            return [IsAuthenticated(), HasBusinessMembership(), RequiresEmailVerified()]
         return [IsAuthenticated(), HasBusinessMembership()]
 
     @action(detail=False, methods=['get'])
@@ -226,7 +230,9 @@ class BillingViewSet(viewsets.ViewSet):
         data = serializer.validated_data
         
         vertical_map = {'gestion': 'commercial', 'restaurante': 'restaurant', 'menu_qr': 'menu_qr'}
-        vertical = vertical_map.get(business.default_service, 'commercial')
+        # Prefer canonical service_type (set via onboarding) over legacy default_service.
+        resolved_service = business.service_type or business.default_service or 'gestion'
+        vertical = vertical_map.get(resolved_service, 'commercial')
         
         try:
             quote = PricingService.calculate_quote(

@@ -173,7 +173,8 @@ def record_failed_payment(
 ) -> None:
     """
     Handle a payment failure: update subscription status but do NOT activate.
-    If the subscription was already active (renewal failure), transition to PAST_DUE.
+    If the subscription was already active (renewal failure), transition to PAST_DUE
+    and mirror the state on Business.status.
     """
     logger.info(
         "[activator] Payment failure recorded. "
@@ -191,7 +192,10 @@ def record_failed_payment(
         subscription.status     = SubscriptionV2.Status.PAST_DUE
         subscription.retry_count = (subscription.retry_count or 0) + 1
         subscription.save(update_fields=['status', 'retry_count', 'updated_at'])
-    # else: still checkout_pending — just leave it as is.
+
+        # Mirror on Business so frontend routing stays consistent.
+        _set_tenant_past_due(subscription)
+    # else: still checkout_pending or trialing — leave as is.
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -199,7 +203,16 @@ def record_failed_payment(
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _activate_tenant(subscription: SubscriptionV2) -> None:
-    """Set Business.status = 'active' atomically."""
+    """
+    Set Business.status based on the SubscriptionV2 status being activated.
+
+    Mapping (Wave 3):
+      SubscriptionV2.ACTIVE   → Business.status = 'active'
+      SubscriptionV2.TRIALING → Business.status = 'trialing'
+
+    Only transitions away from 'onboarding', 'trialing', or 'past_due'; already-
+    active businesses are left untouched to preserve idempotency.
+    """
     tenant = subscription.tenant if hasattr(subscription, 'tenant') else \
              getattr(subscription, 'business', None)
 
@@ -216,18 +229,35 @@ def _activate_tenant(subscription: SubscriptionV2) -> None:
         )
         return
 
-    if tenant.status != 'active':
+    # Map SubscriptionV2 status → Business status
+    sub_status = subscription.status
+    if sub_status == SubscriptionV2.Status.TRIALING:
+        target_status = 'trialing'
+    else:
+        target_status = 'active'
+
+    if tenant.status != target_status:
         old_status = tenant.status
-        tenant.status = 'active'
-        tenant.save(update_fields=['status'])
+        tenant.status = target_status
+        if target_status == 'active':
+            tenant.activated_at = timezone.now()
+            tenant.save(update_fields=['status', 'activated_at'])
+        else:
+            tenant.save(update_fields=['status'])
         logger.info(
-            "[activator] Business %s status %s → active",
-            tenant.pk, old_status,
+            "[activator] Business %s status %s → %s",
+            tenant.pk, old_status, target_status,
         )
+
+        # Wave 5: record onboarding completion in the audit log so we have a
+        # reliable, queryable signal for when a business leaves the onboarding
+        # funnel for the first time.
+        if old_status == 'onboarding':
+            _log_onboarding_completed(tenant, subscription)
     else:
         logger.info(
-            "[activator] Business %s already active — no status change.",
-            tenant.pk,
+            "[activator] Business %s already %s — no status change.",
+            tenant.pk, target_status,
         )
 
 
@@ -284,4 +314,88 @@ def _ensure_owner_membership(subscription: SubscriptionV2) -> None:
         logger.info(
             "[activator] Created owner Membership user=%s business=%s",
             user.pk, tenant.pk,
+        )
+
+
+def _set_tenant_past_due(subscription: SubscriptionV2) -> None:
+    """
+    Mirror SubscriptionV2.PAST_DUE on Business.status.
+
+    Called by record_failed_payment() when an active subscription's renewal
+    fails.  Sets Business.status = 'past_due' so the frontend can keep the
+    business accessible (grace period is still active) while surfacing a
+    renewal banner.
+
+    No-op if the business is already 'past_due' or not found.
+    """
+    tenant = getattr(subscription, 'business', None)
+    if tenant is None:
+        session = subscription.checkout_session
+        if session:
+            tenant = session.tenant
+    if tenant is None:
+        logger.warning(
+            "[activator] No tenant found for subscription=%s — cannot set past_due.",
+            subscription.pk,
+        )
+        return
+
+    if tenant.status not in ('active', 'trialing'):
+        # Only transition from operational states.  If already past_due or
+        # suspended, don't overwrite.
+        logger.info(
+            "[activator] Business %s status=%s — skipping past_due transition.",
+            tenant.pk, tenant.status,
+        )
+        return
+
+    old_status = tenant.status
+    tenant.status = 'past_due'
+    tenant.save(update_fields=['status'])
+    logger.info(
+        "[activator] Business %s status %s → past_due (renewal failure)",
+        tenant.pk, old_status,
+    )
+
+
+def _log_onboarding_completed(tenant, subscription: SubscriptionV2) -> None:
+    """
+    Write an ONBOARDING_COMPLETED AccessAuditLog entry when a business
+    transitions out of 'onboarding' status for the first time.
+
+    This gives us a queryable, time-stamped signal for pilot analytics and
+    debugging without any behavioral side-effects.  The write is fire-and-
+    forget: failures are logged but never raise so the activation path is
+    never disrupted.
+    """
+    try:
+        from apps.accounts.models import AccessAuditLog
+
+        user = None
+        session = subscription.checkout_session
+        if session:
+            user = session.user
+
+        AccessAuditLog.objects.create(
+            action='ONBOARDING_COMPLETED',
+            actor=user,
+            target_user=user,
+            business=tenant,
+            actor_type='SYSTEM',
+            entity_type='Business',
+            entity_id=str(tenant.pk),
+            after_json={
+                'new_status': tenant.status,
+                'subscription_id': str(subscription.pk),
+                'plan_code': subscription.plan_code or '',
+            },
+        )
+        logger.info(
+            "[activator] ONBOARDING_COMPLETED logged for business=%s user=%s",
+            tenant.pk, user.pk if user else None,
+        )
+    except Exception as exc:
+        logger.warning(
+            "[activator] Failed to log ONBOARDING_COMPLETED for business=%s: %s",
+            tenant.pk, exc,
         )

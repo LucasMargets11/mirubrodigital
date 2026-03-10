@@ -39,6 +39,14 @@ class HasBusinessMembership(BasePermission):
     blocked from all operational endpoints without duplicating enforcement logic
     across every ViewSet.
 
+    Account-status gate (B.1.b, Wave 2)
+    ------------------------------------
+    When the rollout flag ``subscription_status_enforcement_enabled`` is True,
+    accounts whose AccountProfile.account_status == 'suspended' are blocked
+    with HTTP 403, regardless of billing state.  This flag is False by default
+    so existing users are never unexpectedly blocked; enable it once migration
+    0013 has been applied to all environments.
+
     Bypass mechanism
     ----------------
     Views that must remain accessible regardless of billing state (e.g. billing
@@ -63,6 +71,20 @@ class HasBusinessMembership(BasePermission):
         if membership is None:
             return False
 
+        # ── Account-status gate (B.1.b) ─────────────────────────────────────
+        # Blocks platform-suspended accounts before billing enforcement runs.
+        # Guarded by rollout flag so existing deployments are unaffected until
+        # migration 0013 has been applied and the flag is enabled.
+        from apps.accounts.rollout import rollout
+        if rollout.is_enabled(rollout.SUBSCRIPTION_STATUS_ENFORCEMENT):
+            profile = getattr(request.user, 'account_profile', None)
+            if profile is not None and profile.account_status == 'suspended':
+                self.message = {
+                    'code': 'account_suspended',
+                    'message': 'Tu cuenta ha sido suspendida. Contactá a soporte para más información.',
+                }
+                return False
+
         # ── Global billing enforcement ──────────────────────────────────────
         # Skip for views that explicitly opt out (billing, checkout, support).
         if getattr(view, 'billing_enforcement_bypass', False):
@@ -82,6 +104,98 @@ class HasBusinessMembership(BasePermission):
                     'access_allowed': False,
                 }
                 return False
+
+        return True
+
+
+class RequiresEmailVerified(BasePermission):
+    """
+    Blocks access when the authenticated user has not verified their email address.
+
+    Applies only to commercial-activation endpoints (billing checkout / subscribe).
+    It is deliberately NOT applied to login, registration, email-verify, or
+    session-read endpoints so that unverified users can always reach the
+    verification flow.
+
+    Rollout gate
+    -----------
+    When ``EMAIL_VERIFICATION_ENFORCEMENT`` rollout flag is False (default), this
+    class is a no-op — every request passes through.  Enable the flag in an
+    environment-specific .env once migration 0013 has been applied and the
+    new-user email-send path is confirmed working.
+
+    Bypass
+    ------
+    Views that must remain accessible regardless of verification state (e.g.
+    onboarding status / service-select, resend-verification) can set::
+
+        email_verification_bypass = True
+
+    This attribute is checked before verification runs.
+
+    Error response
+    --------------
+    HTTP 403 with structured body:
+        {
+          "code": "email_not_verified",
+          "message": "Verificá tu email antes de continuar.",
+          "resend_url": "/api/v1/auth/resend-verification/"
+        }
+
+    The ``resend_url`` hint lets the frontend surface a one-click "Reenviar
+    verificación" button without hard-coding the URL.
+    """
+    message = {
+        'code': 'email_not_verified',
+        'message': 'Verificá tu email antes de continuar.',
+        'resend_url': '/api/v1/auth/resend-verification/',
+    }
+
+    def has_permission(self, request: Request, view) -> bool:
+        # Always passes when the rollout flag is off.
+        from apps.accounts.rollout import rollout
+        if not rollout.is_enabled(rollout.EMAIL_VERIFICATION_ENFORCEMENT):
+            return True
+
+        # Allow views with explicit bypass (e.g. resend-verification itself).
+        if getattr(view, 'email_verification_bypass', False):
+            return True
+
+        profile = getattr(request.user, 'account_profile', None)
+        if profile is None:
+            # No profile — treat as unverified.  This should not happen for active
+            # users (migration 0013 created profiles for all existing users), but
+            # if somehow a user exists without a profile, deny commercial activation
+            # rather than allowing it silently.
+            self.message = {
+                'code': 'email_not_verified',
+                'message': 'Verificá tu email antes de continuar.',
+                'resend_url': '/api/v1/auth/resend-verification/',
+            }
+            return False
+
+        if not profile.email_verified:
+            # Log the block so support can diagnose failed onboarding attempts.
+            # request.business is set by HasBusinessMembership which runs before
+            # RequiresEmailVerified in the permission chain.
+            business = getattr(request, 'business', None)
+            if business is not None:
+                from apps.accounts.models import AccessAuditLog
+                try:
+                    AccessAuditLog.objects.create(
+                        action='EMAIL_VERIFICATION_BLOCKED',
+                        actor=request.user,
+                        target_user=request.user,
+                        business=business,
+                        actor_type='USER',
+                        entity_type='AccountProfile',
+                        entity_id=str(profile.pk),
+                        before_json={'email_verified': False},
+                        after_json={},
+                    )
+                except Exception:
+                    pass  # Audit failure must never block the permission check itself
+            return False
 
         return True
 

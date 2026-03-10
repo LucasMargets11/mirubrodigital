@@ -1,12 +1,42 @@
 from django.urls import path
 
-from .views import LoginView, LogoutView, MeView, RefreshView, RegisterView, SwitchBusinessView
+from .views import (
+    LoginView,
+    LogoutView,
+    MeView,
+    RefreshView,
+    RegisterView,
+    SwitchBusinessView,
+    VerifyEmailView,
+    ResendVerificationView,
+    ForgotPasswordView,
+    ResetPasswordView,
+)
+from .onboarding_views import (
+    OnboardingStatusView,
+    OnboardingSetServiceView,
+    OnboardingStartCheckoutView,
+)
 
 urlpatterns = [
-	path('login/', LoginView.as_view(), name='auth-login'),
-	path('register/', RegisterView.as_view(), name='auth-register'),
-	path('logout/', LogoutView.as_view(), name='auth-logout'),
-	path('refresh/', RefreshView.as_view(), name='auth-refresh'),
-	path('me/', MeView.as_view(), name='auth-me'),
-	path('switch-business/', SwitchBusinessView.as_view(), name='auth-switch-business'),
+    path('login/', LoginView.as_view(), name='auth-login'),
+    path('register/', RegisterView.as_view(), name='auth-register'),
+    path('logout/', LogoutView.as_view(), name='auth-logout'),
+    path('refresh/', RefreshView.as_view(), name='auth-refresh'),
+    path('me/', MeView.as_view(), name='auth-me'),
+    path('switch-business/', SwitchBusinessView.as_view(), name='auth-switch-business'),
+    # Email verification
+    path('verify-email/', VerifyEmailView.as_view(), name='auth-verify-email'),
+    path('resend-verification/', ResendVerificationView.as_view(), name='auth-resend-verification'),
+    # Self-service password recovery
+    path('forgot-password/', ForgotPasswordView.as_view(), name='auth-forgot-password'),
+    path('reset-password/', ResetPasswordView.as_view(), name='auth-reset-password'),
+    # Wave 3: Authenticated onboarding funnel
+    # Gated by rollout.NEW_ONBOARDING on the frontend; backend always accepts
+    # requests so unauthenticated-path users aren't broken if flag is off.
+    path('onboarding/', OnboardingStatusView.as_view(), name='auth-onboarding-status'),
+    path('onboarding/set-service/', OnboardingSetServiceView.as_view(), name='auth-onboarding-set-service'),
+    # Wave 4: Checkout initiation from onboarding funnel
+    path('onboarding/start-checkout/', OnboardingStartCheckoutView.as_view(), name='auth-onboarding-start-checkout'),
 ]
+

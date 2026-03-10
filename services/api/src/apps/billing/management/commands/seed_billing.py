@@ -329,30 +329,38 @@ class Command(BaseCommand):
         )
 
         # Plans for checkout flow
-        Plan.objects.update_or_create(
-            code='menu_qr_monthly',
-            defaults={
-                'name': 'Menú QR Online Mensual',
-                'price': Decimal('4900.00'),
-                'interval': 'monthly',
-                'features_json': {
-                    'service': 'menu_qr',
-                    'limits': {'max_items': 150, 'max_categories': 25, 'allow_custom_domain': False},
-                },
-            }
-        )
-
-        Plan.objects.update_or_create(
-            code='menu_qr_yearly',
-            defaults={
-                'name': 'Menú QR Online Anual',
-                'price': Decimal('52900.00'),
-                'interval': 'yearly',
-                'features_json': {
-                    'service': 'menu_qr',
-                    'limits': {'max_items': 150, 'max_categories': 25, 'allow_custom_domain': False},
-                },
-            }
-        )
+        # These codes MUST match Bundle.code values — checkout_session_service.start_checkout()
+        # looks up Plan by code, and plan/page.tsx sends Bundle.code as plan_code.
+        # Price is the full ARS amount sent to MP as auto_recurring.transaction_amount.
+        # (Bundle.fixed_price_monthly stores the same value in centavos: divide by 100 for pesos)
+        PLAN_SEEDS = [
+            # Gestión Comercial
+            ('gestion_start',           'Start — Gestión Comercial',         Decimal('99.00'),   'commercial'),
+            ('gestion_pro',             'Pro — Gestión Comercial',           Decimal('299.00'),  'commercial'),
+            ('gestion_business',        'Business — Gestión Comercial',      Decimal('499.00'),  'commercial'),
+            # Restaurante
+            ('resto_basic',             'Startup — Restaurante',             Decimal('25.00'),   'restaurant'),
+            ('restaurante_inteligente', 'Inteligente — Restaurante',         Decimal('149.00'),  'restaurant'),
+            # Menú QR
+            ('menu_qr_basico',          'QR Básico — Menú QR',               Decimal('29.00'),   'menu_qr'),
+            ('menu_qr_visual',          'QR Visual — Menú QR',               Decimal('59.00'),   'menu_qr'),
+            ('menu_qr_marca',           'QR Marca — Menú QR',                Decimal('99.00'),   'menu_qr'),
+            # Legacy (kept for backward compat with existing checkout sessions)
+            ('menu_qr_monthly',         'Menú QR Online Mensual',            Decimal('49.00'),   'menu_qr'),
+            ('menu_qr_yearly',          'Menú QR Online Anual',              Decimal('529.00'),  'menu_qr'),
+        ]
+        for code, name, price, _vertical in PLAN_SEEDS:
+            Plan.objects.update_or_create(
+                code=code,
+                defaults={
+                    'name': name,
+                    'price': price,
+                    'interval': 'monthly',
+                    'currency': 'ARS',
+                    'frequency': 1,
+                    'frequency_type': 'months',
+                    'plan_status': 'active',
+                }
+            )
 
         self.stdout.write(self.style.SUCCESS('Successfully seeded billing data'))

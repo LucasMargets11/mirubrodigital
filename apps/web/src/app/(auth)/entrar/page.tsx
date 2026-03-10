@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import { AuthForm } from '@/components/auth/auth-form';
 
 /**
@@ -28,7 +29,9 @@ export default function EntrarPage() {
                         <div className="w-full">
                             <div className="w-full max-w-[520px] mx-auto lg:ml-auto lg:mr-0">
                                 <div className="rounded-3xl border border-slate-200 bg-white/80 p-8 shadow-xl shadow-brand-500/5">
-                                    <AuthForm />
+                                    <Suspense>
+                                        <AuthForm />
+                                    </Suspense>
                                 </div>
                             </div>
                         </div>

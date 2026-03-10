@@ -10,7 +10,7 @@ from rest_framework import status
 
 logger = logging.getLogger(__name__)
 
-from apps.accounts.permissions import HasBusinessMembership
+from apps.accounts.permissions import HasBusinessMembership, RequiresEmailVerified
 from apps.business.models import Business, Subscription as BusinessSubscription, SubscriptionAddon
 from apps.billing.commercial_plans import (
     get_plan_config,
@@ -275,7 +275,8 @@ class CommercialCheckoutView(APIView):
             "requires_payment": true
         }
     """
-    permission_classes = [IsAuthenticated, HasBusinessMembership]
+    # RequiresEmailVerified is a no-op when EMAIL_VERIFICATION_ENFORCEMENT flag is off.
+    permission_classes = [IsAuthenticated, HasBusinessMembership, RequiresEmailVerified]
     billing_enforcement_bypass = True
     
     def post(self, request):
@@ -504,7 +505,8 @@ class AddonCheckoutView(APIView):
         "billing_cycle": "monthly"
     }
     """
-    permission_classes = [IsAuthenticated, HasBusinessMembership]
+    # RequiresEmailVerified is a no-op when EMAIL_VERIFICATION_ENFORCEMENT flag is off.
+    permission_classes = [IsAuthenticated, HasBusinessMembership, RequiresEmailVerified]
     billing_enforcement_bypass = True
     
     def post(self, request):

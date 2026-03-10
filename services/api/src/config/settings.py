@@ -211,12 +211,47 @@ MP_REDIRECT_URI = os.getenv('MP_REDIRECT_URI', '')
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:3000')
 PUBLIC_MENU_BASE_URL = os.getenv('PUBLIC_MENU_BASE_URL', FRONTEND_URL)
 
+# ── Email ─────────────────────────────────────────────────────────────────────
+# In development: EMAIL_BACKEND defaults to console so no SMTP is needed.
+# In production: set EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
+# and populate the EMAIL_HOST_* vars.
+EMAIL_BACKEND = os.getenv(
+    'EMAIL_BACKEND',
+    'django.core.mail.backends.console.EmailBackend',
+)
+EMAIL_HOST        = os.getenv('EMAIL_HOST', 'smtp.sendgrid.net')
+EMAIL_PORT        = int(os.getenv('EMAIL_PORT', '587'))
+EMAIL_USE_TLS     = os.getenv('EMAIL_USE_TLS', 'True').lower() == 'true'
+EMAIL_HOST_USER   = os.getenv('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'Mirubro <no-reply@mirubro.com>')
+
+# How long email-verification and password-reset tokens remain valid.
+EMAIL_VERIFICATION_TOKEN_HOURS = int(os.getenv('EMAIL_VERIFICATION_TOKEN_HOURS', '48'))
+PASSWORD_RESET_TOKEN_HOURS = int(os.getenv('PASSWORD_RESET_TOKEN_HOURS', '2'))
+
 # BASE_PUBLIC_URL: externally reachable URL of the *API* server.
 # Used to build the MP notification_url (webhook callback).
 # In DEV: set to your ngrok/cloudflared HTTPS URL.
 # In prod: set to your real domain (e.g. https://api.example.com).
 # If not set, falls back to PUBLIC_MENU_BASE_URL then FRONTEND_URL.
 BASE_PUBLIC_URL = os.getenv('BASE_PUBLIC_URL', '') or None
+
+# ── Rollout feature flags ─────────────────────────────────────────────────────
+# Platform-level switches for incremental feature rollout.
+# Default: all False — new behaviours are opt-in at deploy time.
+# Consumed by apps.accounts.rollout._RolloutFlags.is_enabled().
+ROLLOUT_FLAGS = {
+    # Steer new registrations through the 7-step onboarding funnel.
+    'new_onboarding_enabled': os.getenv('ROLLOUT_NEW_ONBOARDING', 'false').lower() == 'true',
+    # Enable v2 owner management endpoints (change_role, suspend_member, remove_member).
+    'owner_user_management_v2_enabled': os.getenv('ROLLOUT_OWNER_MGMT_V2', 'false').lower() == 'true',
+    # Block suspended AccountProfiles at the HasBusinessMembership permission gate.
+    'subscription_status_enforcement_enabled': os.getenv('ROLLOUT_SUBSCRIPTION_ENFORCEMENT', 'false').lower() == 'true',
+    # Require email_verified=True before commercial activation (billing checkout/subscribe).
+    # Safe to enable for new envs; existing users were backfilled as email_verified=True.
+    'email_verification_enforcement_enabled': os.getenv('ROLLOUT_EMAIL_VERIFICATION', 'false').lower() == 'true',
+}
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 # Structured staging-friendly logging.  All billing / runtime / webhook events

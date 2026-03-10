@@ -1,85 +1,40 @@
-'use client';
+/**
+ * /subscribe — Punto de entrada público para selección de plan por usuarios no autenticados.
+ *
+ * Este era un formulario legacy de registro+suscripción en un solo paso que quedó
+ * huérfano (importaba `@/components/ui/input` y `@/components/ui/label` que no existen).
+ *
+ * Flujo correcto:
+ *   /pricing → selecciona plan → /subscribe?plan_code=X&billing_period=Y&vertical=Z
+ *   → (este redirect) → /entrar?next=/app/onboarding?plan_code=X&billing_period=Y&vertical=Z
+ *   → login/register → /app/onboarding (smart router) → checkout
+ *
+ * Los parámetros del plan quedan preservados en el param `next` para que después
+ * del login el usuario sea enviado al onboarding con el contexto correcto.
+ */
+import { redirect } from 'next/navigation';
 
-import { Suspense, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { getClientApiBaseUrl } from '@/lib/api-url';
+type Props = {
+    searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+};
 
-function SubscribeForm() {
-    const searchParams = useSearchParams();
-    const planCode = searchParams.get('plan_code') || searchParams.get('bundle_code');
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState('');
+export default async function SubscribePage({ searchParams }: Props) {
+    const params = await searchParams;
 
-    async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
-        e.preventDefault();
-        setLoading(true);
-        setError('');
-        
-        const formData = new FormData(e.currentTarget);
-        const data = Object.fromEntries(formData);
-        
-        try {
-            const baseUrl = getClientApiBaseUrl();
-            const res = await fetch(`${baseUrl}/api/v1/billing/start-subscription`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ...data, plan_code: planCode }),
-            });
-            
-            const json = await res.json();
-            
-            if (!res.ok) {
-                throw new Error(json.error || 'Something went wrong');
-            }
-            
-            window.location.href = json.init_point;
-            
-        } catch (err: any) {
-             setError(err.message);
-             setLoading(false);
-        }
-    }
+    // Construir la URL de destino post-login con los parámetros del plan preservados
+    const onboardingParams = new URLSearchParams();
+    if (params.plan_code)      onboardingParams.set('plan_code',      String(params.plan_code));
+    if (params.billing_period) onboardingParams.set('billing_period', String(params.billing_period));
+    if (params.vertical)       onboardingParams.set('vertical',       String(params.vertical));
+    if (params.branches)       onboardingParams.set('branches',       String(params.branches));
+    if (params.add_invoicing)  onboardingParams.set('add_invoicing',  String(params.add_invoicing));
+    if (params.pro_included_module) onboardingParams.set('pro_included_module', String(params.pro_included_module));
+    if (params.addons)         onboardingParams.set('addons',         String(params.addons));
 
-    if (!planCode) return <div className="p-10 text-center">No plan selected</div>;
+    const nextPath = onboardingParams.toString()
+        ? `/app/onboarding?${onboardingParams.toString()}`
+        : '/app/onboarding';
 
-    return (
-        <div className="max-w-md mx-auto py-10 px-4">
-            <h1 className="text-2xl font-bold mb-6">Suscribirse</h1>
-            <form onSubmit={onSubmit} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="business_name">Nombre del Negocio</Label>
-                  <Input id="business_name" name="business_name" required placeholder="Mi Negocio S.A." />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input id="email" name="email" type="email" required placeholder="tu@email.com" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="password">Contraseña</Label>
-                  <Input id="password" name="password" type="password" required />
-                </div>
-                
-                {error && (
-                    <div className="p-3 text-sm text-red-500 bg-red-50 rounded-md">
-                        {error}
-                    </div>
-                )}
-                
-                <Button type="submit" className="w-full" disabled={loading}>
-                     {loading ? 'Procesando...' : 'Ir a Pagar con MercadoPago'}
-                </Button>
-            </form>
-        </div>
-    )
-}
-
-export default function SubscribePage() {
-    return (
-        <Suspense fallback={<div>Loading...</div>}>
-            <SubscribeForm />
-        </Suspense>
-    )
+    const entrarParams = new URLSearchParams({ next: nextPath });
+    redirect(`/entrar?${entrarParams.toString()}`);
 }

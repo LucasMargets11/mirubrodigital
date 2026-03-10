@@ -52,4 +52,8 @@ const BANNER_CONFIG: Partial<Record<SubscriptionReasonCode, { message: string; c
     message: 'Tu pago está vencido. Tenés un período de gracia activo; regularizá tu suscripción para evitar la suspensión.',
     className: 'bg-amber-500 text-amber-950',
   },
+  trial_expired: {
+    message: 'Tu período de prueba venció. Regularizá tu suscripción para mantener el acceso.',
+    className: 'bg-orange-500 text-orange-950',
+  },
 };

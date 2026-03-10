@@ -26,6 +26,7 @@ from apps.accounts.models import RolePermissionOverride
 from apps.accounts.permissions import HasBusinessMembership
 from apps.accounts.rbac import permissions_for_service, SERVICE_ROLE_PERMISSIONS
 from apps.accounts.rbac_registry import get_registry
+from apps.accounts.services import LastOwnerProtectionError, OwnerGuardService
 from apps.accounts.owner_serializers import (
     AccessSummarySerializer,
     CapabilitySerializer,
@@ -603,11 +604,40 @@ def disable_account(request: Request, user_id: int) -> Response:
             {'error': 'No puedes desactivar tu propia cuenta'},
             status=status.HTTP_400_BAD_REQUEST
         )
-    
+
+    # Last-owner guard: prevent disabling the only active owner in the business.
+    if target_membership.role == 'owner':
+        try:
+            with transaction.atomic():
+                OwnerGuardService.assert_not_last_owner(membership.business, target_user)
+        except LastOwnerProtectionError as exc:
+            _log_audit(
+                action='ACCESS_DENIED',
+                actor=request.user,
+                target_user=target_user,
+                business=membership.business,
+                request=request,
+                details={
+                    'reason': 'last_owner_protection',
+                    'attempted_action': 'disable_account',
+                    'target_email': target_user.email,
+                },
+            )
+            return Response({'error': str(exc)}, status=status.HTTP_409_CONFLICT)
+
     # Toggle active status
     new_status = not target_user.is_active
     target_user.is_active = new_status
     target_user.save()
+
+    # B.3: Sync AccountProfile.account_status to match Django's is_active flag.
+    # 'suspended' ↔ 'active' keeps the two state stores consistent so that
+    # HasBusinessMembership (subscription_status_enforcement gate) reflects the
+    # same intent as the operator's action here.
+    from apps.accounts.models import AccountProfile as _AccountProfile
+    _AccountProfile.objects.filter(user=target_user).update(
+        account_status=_AccountProfile.AccountStatus.ACTIVE if new_status else _AccountProfile.AccountStatus.SUSPENDED,
+    )
     
     action = 'ACCOUNT_ENABLED' if new_status else 'ACCOUNT_DISABLED'
     
@@ -667,3 +697,290 @@ def audit_logs(request: Request) -> Response:
     
     serializer = AuditLogSerializer(logs, many=True)
     return Response(serializer.data)
+
+
+# ── Wave 2: B.1.a — Extended owner guard endpoints ────────────────────────────
+
+@api_view(['PATCH'])
+@permission_classes([IsAuthenticated, HasBusinessMembership])
+@transaction.atomic
+def change_role(request: Request, user_id: int) -> Response:
+    """
+    PATCH /api/v1/owner/access/accounts/:user_id/role/
+
+    Changes a member's role within the business family.
+
+    Last-owner guard: if the target user is the sole active owner and the new
+    role is not 'owner', the request is rejected with HTTP 409.
+
+    Owner-only endpoint with audit logging.
+
+    Request body::
+
+        { "role": "manager" }
+    """
+    membership = resolve_request_membership(request)
+    if not membership or not _is_owner(membership):
+        return Response(
+            {'error': 'Solo el propietario puede cambiar roles'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    new_role = request.data.get('role')
+    valid_roles = [r for r, _ in Membership.ROLE_CHOICES]
+    if not new_role or new_role not in valid_roles:
+        return Response(
+            {'error': f'Rol inválido. Opciones: {", ".join(valid_roles)}'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        target_user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        return Response({'error': 'Usuario no encontrado'}, status=status.HTTP_404_NOT_FOUND)
+
+    hq = membership.business.parent if membership.business.parent else membership.business
+    family_ids = [hq.id] + list(hq.branches.values_list('id', flat=True))
+
+    target_membership = Membership.objects.filter(
+        user=target_user, business__id__in=family_ids,
+    ).first()
+
+    if not target_membership:
+        return Response({'error': 'El usuario no pertenece a tu negocio'}, status=status.HTTP_403_FORBIDDEN)
+
+    if target_user.id == request.user.id:
+        return Response(
+            {'error': 'No puedes cambiar tu propio rol'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    previous_role = target_membership.role
+
+    # Last-owner guard: only fires when demoting an owner to a non-owner role.
+    if previous_role == 'owner' and new_role != 'owner':
+        try:
+            OwnerGuardService.assert_not_last_owner(membership.business, target_user)
+        except LastOwnerProtectionError as exc:
+            _log_audit(
+                action='ACCESS_DENIED',
+                actor=request.user,
+                target_user=target_user,
+                business=membership.business,
+                request=request,
+                details={
+                    'reason': 'last_owner_protection',
+                    'attempted_action': 'change_role',
+                    'attempted_new_role': new_role,
+                    'target_email': target_user.email,
+                },
+            )
+            return Response({'error': str(exc)}, status=status.HTTP_409_CONFLICT)
+
+    target_membership.role = new_role
+    target_membership.updated_by_user = request.user
+    target_membership.save(update_fields=['role', 'updated_by_user', 'updated_at'])
+
+    _log_audit(
+        action='ROLE_CHANGED',
+        actor=request.user,
+        target_user=target_user,
+        business=membership.business,
+        request=request,
+        details={
+            'previous_role': previous_role,
+            'new_role': new_role,
+            'target_email': target_user.email,
+        },
+    )
+
+    role_display = dict(Membership.ROLE_CHOICES).get(new_role, new_role)
+    return Response({
+        'success': True,
+        'message': f'Rol actualizado a {role_display}',
+        'user_id': target_user.id,
+        'role': new_role,
+        'role_display': role_display,
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, HasBusinessMembership])
+@transaction.atomic
+def suspend_member(request: Request, user_id: int) -> Response:
+    """
+    POST /api/v1/owner/access/accounts/:user_id/suspend/
+
+    Toggles a Membership.status between ACTIVE ↔ SUSPENDED.
+    Does not affect the underlying Django User (use disable_account for that).
+
+    Last-owner guard: prevents suspending the sole active owner.
+
+    Owner-only endpoint with audit logging.
+    """
+    membership = resolve_request_membership(request)
+    if not membership or not _is_owner(membership):
+        return Response(
+            {'error': 'Solo el propietario puede suspender membresías'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    try:
+        target_user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        return Response({'error': 'Usuario no encontrado'}, status=status.HTTP_404_NOT_FOUND)
+
+    hq = membership.business.parent if membership.business.parent else membership.business
+    family_ids = [hq.id] + list(hq.branches.values_list('id', flat=True))
+
+    target_membership = Membership.objects.filter(
+        user=target_user, business__id__in=family_ids,
+    ).first()
+
+    if not target_membership:
+        return Response({'error': 'El usuario no pertenece a tu negocio'}, status=status.HTTP_403_FORBIDDEN)
+
+    if target_user.id == request.user.id:
+        return Response(
+            {'error': 'No puedes suspender tu propia membresía'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Last-owner guard (only when suspending, not re-activating).
+    if (target_membership.status == Membership.Status.ACTIVE
+            and target_membership.role == 'owner'):
+        try:
+            OwnerGuardService.assert_not_last_owner(membership.business, target_user)
+        except LastOwnerProtectionError as exc:
+            _log_audit(
+                action='ACCESS_DENIED',
+                actor=request.user,
+                target_user=target_user,
+                business=membership.business,
+                request=request,
+                details={
+                    'reason': 'last_owner_protection',
+                    'attempted_action': 'suspend_member',
+                    'target_email': target_user.email,
+                },
+            )
+            return Response({'error': str(exc)}, status=status.HTTP_409_CONFLICT)
+
+    # Toggle membership status.
+    if target_membership.status == Membership.Status.SUSPENDED:
+        new_status = Membership.Status.ACTIVE
+        action = 'MEMBER_REACTIVATED'
+        message = 'Membresía reactivada'
+    else:
+        new_status = Membership.Status.SUSPENDED
+        action = 'MEMBER_SUSPENDED'
+        message = 'Membresía suspendida'
+
+    previous_status = target_membership.status
+    target_membership.status = new_status
+    target_membership.updated_by_user = request.user
+    target_membership.save(update_fields=['status', 'updated_by_user', 'updated_at'])
+
+    _log_audit(
+        action=action,
+        actor=request.user,
+        target_user=target_user,
+        business=membership.business,
+        request=request,
+        details={
+            'previous_status': previous_status,
+            'new_status': new_status,
+            'target_email': target_user.email,
+        },
+    )
+
+    return Response({
+        'success': True,
+        'message': message,
+        'membership_status': new_status,
+    })
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated, HasBusinessMembership])
+@transaction.atomic
+def remove_member(request: Request, user_id: int) -> Response:
+    """
+    DELETE /api/v1/owner/access/accounts/:user_id/
+
+    Permanently removes a Membership from the business family.
+    The underlying User account is NOT deleted — only the access link.
+
+    Last-owner guard: prevents removing the sole active owner.
+
+    Owner-only endpoint with audit logging.
+    """
+    membership = resolve_request_membership(request)
+    if not membership or not _is_owner(membership):
+        return Response(
+            {'error': 'Solo el propietario puede remover miembros'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    try:
+        target_user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        return Response({'error': 'Usuario no encontrado'}, status=status.HTTP_404_NOT_FOUND)
+
+    hq = membership.business.parent if membership.business.parent else membership.business
+    family_ids = [hq.id] + list(hq.branches.values_list('id', flat=True))
+
+    target_membership = Membership.objects.filter(
+        user=target_user, business__id__in=family_ids,
+    ).first()
+
+    if not target_membership:
+        return Response({'error': 'El usuario no pertenece a tu negocio'}, status=status.HTTP_403_FORBIDDEN)
+
+    if target_user.id == request.user.id:
+        return Response(
+            {'error': 'No puedes remover tu propio acceso al negocio'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Last-owner guard: prevent removing the last active owner.
+    if target_membership.role == 'owner' and target_membership.status == Membership.Status.ACTIVE:
+        try:
+            OwnerGuardService.assert_not_last_owner(membership.business, target_user)
+        except LastOwnerProtectionError as exc:
+            _log_audit(
+                action='ACCESS_DENIED',
+                actor=request.user,
+                target_user=target_user,
+                business=membership.business,
+                request=request,
+                details={
+                    'reason': 'last_owner_protection',
+                    'attempted_action': 'remove_member',
+                    'target_email': target_user.email,
+                },
+            )
+            return Response({'error': str(exc)}, status=status.HTTP_409_CONFLICT)
+
+    removed_role = target_membership.role
+    removed_email = target_user.email
+    target_membership.delete()
+
+    _log_audit(
+        action='MEMBER_REMOVED',
+        actor=request.user,
+        target_user=target_user,
+        business=membership.business,
+        request=request,
+        details={
+            'removed_role': removed_role,
+            'target_email': removed_email,
+        },
+    )
+
+    return Response({
+        'success': True,
+        'message': 'Miembro removido del negocio',
+        'user_id': target_user.id,
+        'email': removed_email,
+    })

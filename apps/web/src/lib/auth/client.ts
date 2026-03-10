@@ -22,7 +22,7 @@ async function request<T>(path: string, body?: T): Promise<Response> {
   });
 }
 
-export async function login(email: string, password: string): Promise<AuthResult> {
+export async function login(email: string, password: string, nextUrl?: string): Promise<AuthResult> {
   try {
     const response = await request('/api/v1/auth/login/', { email, password });
     if (!response.ok) {
@@ -32,11 +32,14 @@ export async function login(email: string, password: string): Promise<AuthResult
 
     const data = await response.json().catch(() => ({}));
 
-    // If the business is in onboarding state, send the user to complete their
-    // subscription before entering the app.  The backend signals this via the
-    // 'onboarding' flag on the login response.
+    // If the business is in onboarding state, send the user to the smart
+    // onboarding index (/app/onboarding) which determines the correct step
+    // server-side and redirects accordingly.  This provides resume semantics
+    // for users who partially completed onboarding in a previous session.
+    // When `nextUrl` is provided (e.g. coming from /subscribe with plan params),
+    // use it as the onboarding destination so the plan context is preserved.
     if (data?.onboarding) {
-      window.location.assign('/app/planes');
+      window.location.assign(nextUrl ?? '/app/onboarding');
     } else {
       window.location.assign('/app/dashboard');
     }
@@ -65,5 +68,62 @@ export async function logout(): Promise<void> {
     await request('/api/v1/auth/logout/');
   } finally {
     window.location.assign('/entrar');
+  }
+}
+
+export async function forgotPassword(email: string): Promise<AuthResult> {
+  try {
+    const response = await request('/api/v1/auth/forgot-password/', { email });
+    if (!response.ok) {
+      return { success: false, message: 'No pudimos procesar tu solicitud' };
+    }
+    return { success: true };
+  } catch {
+    return { success: false, message: 'Error de red' };
+  }
+}
+
+export async function resetPassword(
+  token: string,
+  newPassword: string,
+): Promise<AuthResult> {
+  try {
+    const response = await request('/api/v1/auth/reset-password/', {
+      token,
+      new_password: newPassword,
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      return { success: false, message: payload?.detail ?? 'No pudimos restablecer tu contraseña' };
+    }
+    return { success: true };
+  } catch {
+    return { success: false, message: 'Error de red' };
+  }
+}
+
+export async function verifyEmail(token: string): Promise<AuthResult> {
+  try {
+    const response = await request('/api/v1/auth/verify-email/', { token });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      return { success: false, message: payload?.detail ?? 'Token inválido o expirado' };
+    }
+    return { success: true };
+  } catch {
+    return { success: false, message: 'Error de red' };
+  }
+}
+
+export async function resendVerification(): Promise<AuthResult> {
+  try {
+    const response = await request('/api/v1/auth/resend-verification/');
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      return { success: false, message: payload?.detail ?? 'No pudimos enviar el email' };
+    }
+    return { success: true };
+  } catch {
+    return { success: false, message: 'Error de red' };
   }
 }

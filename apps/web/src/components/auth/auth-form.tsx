@@ -1,12 +1,17 @@
 'use client';
 
 import { FormEvent, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { login, register } from '@/lib/auth/client';
 import { cn } from '@/lib/utils';
 
 type AuthMode = 'login' | 'signup';
 
 export function AuthForm() {
+    const searchParams = useSearchParams();
+    // `next` preserves destination after auth (e.g. /app/onboarding?plan_code=...)
+    const next = searchParams.get('next') ?? undefined;
+
     const [mode, setMode] = useState<AuthMode>('login');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -33,7 +38,7 @@ export function AuthForm() {
         setIsSubmitting(true);
 
         if (mode === 'login') {
-            const result = await login(email, password);
+            const result = await login(email, password, next);
             if (!result.success) {
                 setError(result.message ?? 'Credenciales inválidas');
                 setIsSubmitting(false);
@@ -48,7 +53,7 @@ export function AuthForm() {
             }
 
             // Auto-login después de registro exitoso
-            const loginResult = await login(email, password);
+            const loginResult = await login(email, password, next);
             if (!loginResult.success) {
                 // Si falla el auto-login, cambiar a modo login
                 setMode('login');
@@ -165,6 +170,18 @@ export function AuthForm() {
                         ? 'Ingresar'
                         : 'Crear cuenta'}
                 </button>
+
+                {/* Forgot password — login tab only */}
+                {mode === 'login' && (
+                    <div className="text-center">
+                        <a
+                            href="/olvidar-contrasena"
+                            className="text-sm text-slate-500 hover:text-brand-600 hover:underline"
+                        >
+                            ¿Olvidaste tu contraseña?
+                        </a>
+                    </div>
+                )}
 
                 {/* Toggle link */}
                 <p className="text-center text-sm text-slate-600">

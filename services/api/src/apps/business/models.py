@@ -25,8 +25,10 @@ class Business(models.Model):
   # ── Status choices (Phase 2A extends legacy 3-value set) ─────────────────
   STATUS_CHOICES = [
     # ── Canonical (Phase 1 v2.0) ─────────────────────────────────────
-    ('onboarding', 'Onboarding'),         # Creado, sin activar
-    ('active',     'Active'),             # Operativo
+    ('onboarding', 'Onboarding'),         # Creado, sin suscripción activa
+    ('trialing',   'Trialing'),           # Período de prueba activo (Wave 3)
+    ('active',     'Active'),             # Operativo, suscripción al día
+    ('past_due',   'Past Due'),           # Pago vencido, en período de gracia (Wave 3)
     ('suspended',  'Suspended'),          # Bloqueado por billing o admin
     ('canceled',   'Canceled'),           # Cerrado definitivamente
     # ── DEPRECATED legacy values (preserved for existing rows) ───────

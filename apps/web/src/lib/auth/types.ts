@@ -43,12 +43,24 @@ export type Session = {
     id: number;
     email: string;
     name: string;
+    /** Whether the user has verified their email address. */
+    email_verified: boolean;
   };
   memberships: MembershipSummary[];
   current: {
     business: {
       id: number;
       name: string;
+      /**
+       * Business lifecycle status (mirrors Business.status on the backend).
+       * 'onboarding' — business created, no active subscription yet.
+       * 'trialing'   — trial period active, access allowed (Wave 3).
+       * 'active'     — subscription confirmed, normal operations.
+       * 'past_due'   — renewal failed, grace period active (Wave 3).
+       * 'suspended'  — billing hard-block.
+       * 'canceled'   — subscription terminated.
+       */
+      status: 'onboarding' | 'trialing' | 'active' | 'past_due' | 'suspended' | 'canceled';
     };
     role: string;
     service: string;

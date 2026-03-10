@@ -1,7 +1,124 @@
+import hashlib
+import secrets
 import uuid
+from datetime import timedelta
 
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
+
+
+# ── Platform Account Profile ───────────────────────────────────────────────────
+# Extends the stock Django User without replacing it.
+# Auto-created on User post_save (see signal at the bottom of this file).
+# Carries state the stock model lacks: email verification, password-reset tokens.
+
+class AccountProfile(models.Model):
+    """
+    One-to-one extension of the platform User.
+    Holds email-verification state and transient token fields.
+    Tokens are stored as SHA-256 hashes — plaintext is sent once in the email URL.
+    """
+
+    class AccountStatus(models.TextChoices):
+        ACTIVE                   = 'active',                    'Activo'
+        PENDING_EMAIL_VERIFICATION = 'pending_email_verification', 'Pendiente de verificación'
+        SUSPENDED                = 'suspended',                 'Suspendido'
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='account_profile',
+        primary_key=True,
+    )
+    account_status = models.CharField(
+        max_length=32,
+        choices=AccountStatus.choices,
+        default=AccountStatus.PENDING_EMAIL_VERIFICATION,
+    )
+    email_verified = models.BooleanField(default=False)
+
+    # Verification token (SHA-256 hash; plaintext sent once in email link)
+    email_verification_token_hash   = models.CharField(max_length=64, null=True, blank=True, db_index=True)
+    email_verification_token_created_at = models.DateTimeField(null=True, blank=True)
+
+    # Password-reset token (SHA-256 hash; plaintext sent once in email link)
+    password_reset_token_hash       = models.CharField(max_length=64, null=True, blank=True, db_index=True)
+    password_reset_token_created_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    # ── Token helpers ──────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _hash(token: str) -> str:
+        return hashlib.sha256(token.encode()).hexdigest()
+
+    def generate_verification_token(self) -> str:
+        """
+        Generate a new email-verification token.
+        Returns the plaintext token (send this in the email URL — NOT stored).
+        """
+        token = secrets.token_urlsafe(32)
+        self.email_verification_token_hash = self._hash(token)
+        self.email_verification_token_created_at = timezone.now()
+        self.save(update_fields=['email_verification_token_hash', 'email_verification_token_created_at', 'updated_at'])
+        return token
+
+    def verify_email_token(self, token: str) -> bool:
+        """
+        Validate a verification token.  Returns True and marks email verified if valid.
+        """
+        if not self.email_verification_token_hash or not self.email_verification_token_created_at:
+            return False
+        hours = getattr(settings, 'EMAIL_VERIFICATION_TOKEN_HOURS', 48)
+        if timezone.now() > self.email_verification_token_created_at + timedelta(hours=hours):
+            return False
+        # Constant-time comparison to prevent timing attacks
+        if not secrets.compare_digest(self._hash(token), self.email_verification_token_hash):
+            return False
+        self.email_verified = True
+        self.account_status = self.AccountStatus.ACTIVE
+        self.email_verification_token_hash = None
+        self.email_verification_token_created_at = None
+        self.save(update_fields=[
+            'email_verified', 'account_status',
+            'email_verification_token_hash', 'email_verification_token_created_at',
+            'updated_at',
+        ])
+        return True
+
+    def generate_password_reset_token(self) -> str:
+        """
+        Generate a password-reset token.
+        Returns the plaintext token (send this in the email URL — NOT stored).
+        """
+        token = secrets.token_urlsafe(32)
+        self.password_reset_token_hash = self._hash(token)
+        self.password_reset_token_created_at = timezone.now()
+        self.save(update_fields=['password_reset_token_hash', 'password_reset_token_created_at', 'updated_at'])
+        return token
+
+    def verify_password_reset_token(self, token: str) -> bool:
+        """
+        Validate a password-reset token.  Single-use: clears the token on success.
+        """
+        if not self.password_reset_token_hash or not self.password_reset_token_created_at:
+            return False
+        hours = getattr(settings, 'PASSWORD_RESET_TOKEN_HOURS', 2)
+        if timezone.now() > self.password_reset_token_created_at + timedelta(hours=hours):
+            return False
+        if not secrets.compare_digest(self._hash(token), self.password_reset_token_hash):
+            return False
+        # Single-use: clear immediately
+        self.password_reset_token_hash = None
+        self.password_reset_token_created_at = None
+        self.save(update_fields=['password_reset_token_hash', 'password_reset_token_created_at', 'updated_at'])
+        return True
+
+    def __str__(self) -> str:
+        return f"AccountProfile({self.user_id}, verified={self.email_verified})"
 
 
 class Membership(models.Model):
@@ -172,6 +289,11 @@ class AccessAuditLog(models.Model):
         ('SESSIONS_REVOKED',  'Sessions Revoked'),  # legacy compat
         ('LOGIN_FAILED',      'Login Failed'),
         ('ACCESS_DENIED',     'Access Denied'),
+        # ── Onboarding (Wave 3 / Wave 4) ─────────────────────────────────────────
+        ('EMAIL_VERIFICATION_BLOCKED',   'Email Verification Blocked'),
+        ('ONBOARDING_SERVICE_SELECTED',  'Onboarding Service Selected'),
+        ('ONBOARDING_CHECKOUT_STARTED',  'Onboarding Checkout Started'),   # Wave 4
+        ('ONBOARDING_COMPLETED',         'Onboarding Completed'),
         # ── Legacy ────────────────────────────────────────────────────────
         ('ACCOUNT_DISABLED', 'Account Disabled'),  # legacy → EMPLOYEE_SUSPENDED
         ('ACCOUNT_ENABLED',  'Account Enabled'),   # legacy
@@ -400,4 +522,18 @@ class EmployeeProfile(models.Model):
 
     def __str__(self) -> str:  # pragma: no cover
         return f"{self.first_name} {self.last_name} [{self.employee_code}] · {self.business_id}"
+
+
+# ── Auto-create AccountProfile on User creation ───────────────────────────────
+# This keeps existing users working: the migration backfills existing rows,
+# and new users get a profile created automatically.
+
+from django.db.models.signals import post_save  # noqa: E402
+from django.dispatch import receiver as _receiver  # noqa: E402
+
+
+@_receiver(post_save, sender=settings.AUTH_USER_MODEL)
+def _create_account_profile(sender, instance, created: bool, **kwargs):
+    if created:
+        AccountProfile.objects.get_or_create(user=instance)
 

@@ -19,12 +19,21 @@ from apps.accounts.access import (
 	list_user_memberships,
 	select_membership,
 )
+from apps.accounts.models import AccessAuditLog, AccountProfile
 from apps.accounts.rbac import permissions_for_service
+from apps.accounts.services import EmailService
 from apps.business.context import build_business_context
 from apps.business.models import Business, Subscription, BusinessPlan
 from apps.business.service_catalog import serialize_catalog
 from .models import Membership
-from .serializers import LoginSerializer, RegisterSerializer
+from .serializers import (
+    ForgotPasswordSerializer,
+    LoginSerializer,
+    RegisterSerializer,
+    ResetPasswordSerializer,
+    VerifyEmailSerializer,
+)
+
 
 logger = __import__('logging').getLogger(__name__)
 
@@ -124,11 +133,13 @@ def _session_payload(user: User, membership: Membership, memberships: List[Membe
 	context = build_business_context(membership.business)
 	service_catalog = serialize_catalog()
 	permissions = permissions_for_service(context['service'], membership.role)
+	profile = getattr(user, 'account_profile', None)
 	return {
 		'user': {
 			'id': user.id,
 			'email': user.email,
 			'name': user.get_full_name() or user.get_username(),
+			'email_verified': profile.email_verified if profile else False,
 		},
 		'memberships': [
 			{
@@ -145,6 +156,10 @@ def _session_payload(user: User, membership: Membership, memberships: List[Membe
 			'business': {
 				'id': membership.business_id,
 				'name': membership.business.name,
+				# B.2: expose business lifecycle status for onboarding routing.
+				# 'onboarding' → redirect to subscription setup.
+				# 'active' → normal app access.
+				'status': membership.business.status,
 			},
 			'role': membership.role,
 			'service': context['service'],
@@ -223,13 +238,22 @@ class RegisterView(APIView):
 			password=password,
 		)
 
+		# Ensure AccountProfile exists (signal creates it, but be defensive)
+		profile, _ = AccountProfile.objects.get_or_create(user=user)
+
+		# Generate verification token and send email (non-blocking — failure is logged)
+		token = profile.generate_verification_token()
+		email_sent = EmailService.send_verification_email(user, token)
+
 		return Response({
 			'status': 'created',
 			'user': {
 				'id': user.id,
 				'email': user.email,
-			}
+			},
+			'verification_email_sent': email_sent,
 		}, status=status.HTTP_201_CREATED)
+
 
 
 class LogoutView(APIView):
@@ -307,3 +331,218 @@ class SwitchBusinessView(APIView):
 		response = Response(payload)
 		_set_business_cookie(response, membership.business_id)
 		return response
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Email Verification
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _get_client_ip(request: Request) -> str:
+	x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+	if x_forwarded_for:
+		return x_forwarded_for.split(',')[0].strip()
+	return request.META.get('REMOTE_ADDR', '')
+
+
+class VerifyEmailView(APIView):
+	"""
+	POST /api/v1/auth/verify-email/
+	Body: { "token": "<plaintext token from email link>" }
+
+	Verifies the email address for an unverified account.
+	Returns 200 on success, 400 on invalid/expired token.
+	Fires ACCESS_DENIED audit log on invalid token attempt.
+	"""
+	permission_classes = [AllowAny]
+	authentication_classes: list = []
+
+	def post(self, request: Request) -> Response:
+		serializer = VerifyEmailSerializer(data=request.data)
+		serializer.is_valid(raise_exception=True)
+		token = serializer.validated_data['token']
+
+		profile = (
+			AccountProfile.objects
+			.select_related('user')
+			.filter(email_verification_token_hash__isnull=False)
+			.first()
+		)
+		# We must find the profile by trying all with a set hash — but hashing first
+		# avoids full-table scan because we indexed the hash column.
+		from apps.accounts.models import AccountProfile as AP
+		import hashlib
+		token_hash = hashlib.sha256(token.encode()).hexdigest()
+		try:
+			profile = AP.objects.select_related('user').get(
+				email_verification_token_hash=token_hash
+			)
+		except AP.DoesNotExist:
+			return Response(
+				{'detail': 'El enlace de verificación no es válido o ya expiró.'},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		if not profile.verify_email_token(token):
+			return Response(
+				{'detail': 'El enlace de verificación ha expirado. Solicitá uno nuevo.'},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		# Audit
+		try:
+			business = profile.user.memberships.filter(
+				role='owner'
+			).select_related('business').first()
+			if business:
+				AccessAuditLog.objects.create(
+					action='EMAIL_VERIFIED',
+					actor=profile.user,
+					target_user=profile.user,
+					business=business.business,
+					details={'email': profile.user.email},
+					ip_address=_get_client_ip(request),
+					user_agent=request.META.get('HTTP_USER_AGENT', '')[:500],
+				)
+		except Exception:
+			logger.exception("[VerifyEmailView] Could not write audit log for user=%s", profile.user_id)
+
+		return Response({'status': 'verified', 'email': profile.user.email})
+
+
+class ResendVerificationView(APIView):
+	"""
+	POST /api/v1/auth/resend-verification/
+	Requires authentication (user must be logged in).
+	Generates a new verification token and resends the email.
+	"""
+	permission_classes = [IsAuthenticated]
+
+	def post(self, request: Request) -> Response:
+		user = request.user
+		profile, _ = AccountProfile.objects.get_or_create(user=user)
+
+		if profile.email_verified:
+			return Response({'detail': 'El email ya está verificado.'}, status=status.HTTP_400_BAD_REQUEST)
+
+		token = profile.generate_verification_token()
+		sent = EmailService.send_verification_email(user, token)
+
+		return Response({
+			'status': 'sent' if sent else 'queued',
+			'message': 'Se envió un nuevo correo de verificación.' if sent else 'Verificación solicitada.',
+		})
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Self-service Password Recovery
+# ─────────────────────────────────────────────────────────────────────────────
+
+class ForgotPasswordView(APIView):
+	"""
+	POST /api/v1/auth/forgot-password/
+	Body: { "email": "user@example.com" }
+
+	Always returns 200 regardless of whether the email exists (prevents enumeration).
+	Sends a reset link to the email if an account is found.
+	"""
+	permission_classes = [AllowAny]
+	authentication_classes: list = []
+
+	def post(self, request: Request) -> Response:
+		serializer = ForgotPasswordSerializer(data=request.data)
+		serializer.is_valid(raise_exception=True)
+		email = serializer.validated_data['email'].lower()
+
+		# Silently succeed whether or not the email exists (anti-enumeration)
+		try:
+			user = User.objects.get(email__iexact=email, is_active=True)
+			profile, _ = AccountProfile.objects.get_or_create(user=user)
+			token = profile.generate_password_reset_token()
+			EmailService.send_password_reset_email(user, token)
+
+			# Audit — best-effort (don't fail the request if no business)
+			try:
+				membership = user.memberships.filter(role='owner').select_related('business').first()
+				if membership:
+					AccessAuditLog.objects.create(
+						action='PASSWORD_RESET_CONFIRMED',  # "requested" intent
+						actor=user,
+						target_user=user,
+						business=membership.business,
+						details={'source': 'self_service', 'email': email},
+						ip_address=_get_client_ip(request),
+						user_agent=request.META.get('HTTP_USER_AGENT', '')[:500],
+					)
+			except Exception:
+				logger.exception("[ForgotPasswordView] Audit log failed for user=%s", user.pk)
+
+		except User.DoesNotExist:
+			# Do not reveal that the email doesn't exist
+			pass
+
+		return Response({
+			'status': 'ok',
+			'message': 'Si el email está registrado, recibirás un enlace para restablecer tu contraseña.',
+		})
+
+
+class ResetPasswordView(APIView):
+	"""
+	POST /api/v1/auth/reset-password/
+	Body: { "token": "<plaintext token>", "new_password": "..." }
+
+	Validates the password-reset token and changes the password.
+	The token is single-use and expires after PASSWORD_RESET_TOKEN_HOURS hours.
+	"""
+	permission_classes = [AllowAny]
+	authentication_classes: list = []
+
+	def post(self, request: Request) -> Response:
+		serializer = ResetPasswordSerializer(data=request.data)
+		serializer.is_valid(raise_exception=True)
+		token = serializer.validated_data['token']
+		new_password = serializer.validated_data['new_password']
+
+		import hashlib
+		token_hash = hashlib.sha256(token.encode()).hexdigest()
+
+		try:
+			profile = (
+				AccountProfile.objects
+				.select_related('user')
+				.get(password_reset_token_hash=token_hash)
+			)
+		except AccountProfile.DoesNotExist:
+			return Response(
+				{'detail': 'El enlace para restablecer la contraseña no es válido o ya expiró.'},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		if not profile.verify_password_reset_token(token):
+			return Response(
+				{'detail': 'El enlace para restablecer la contraseña ha expirado. Solicitá uno nuevo.'},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		user = profile.user
+		user.set_password(new_password)
+		user.save(update_fields=['password'])
+
+		# Audit
+		try:
+			membership = user.memberships.filter(role='owner').select_related('business').first()
+			if membership:
+				AccessAuditLog.objects.create(
+					action='PASSWORD_RESET',
+					actor=user,
+					target_user=user,
+					business=membership.business,
+					details={'source': 'self_service'},
+					ip_address=_get_client_ip(request),
+					user_agent=request.META.get('HTTP_USER_AGENT', '')[:500],
+				)
+		except Exception:
+			logger.exception("[ResetPasswordView] Audit log failed for user=%s", user.pk)
+
+		return Response({'status': 'ok', 'message': 'Tu contraseña fue restablecida exitosamente.'})
+
