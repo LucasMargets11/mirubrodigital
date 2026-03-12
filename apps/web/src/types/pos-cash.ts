@@ -98,6 +98,12 @@ export interface PosCashMovementResponse {
   movement: PosCashMovement;
 }
 
+/** Wrapper returned by GET /pos/cash/current/movements/ */
+export interface PosCashCurrentMovementsResponse {
+  movements: PosCashMovement[];
+  session_id: string | null;
+}
+
 // ── POS Catalog — product search ──────────────────────────────────────────────
 
 /** Minimal product record returned by GET /api/v1/pos/catalog/products/ */

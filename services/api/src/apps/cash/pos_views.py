@@ -34,6 +34,7 @@ from .models import CashSession
 from .pos_serializers import (
     PosCashCloseSerializer,
     PosCashMovementCreateSerializer,
+    PosCashMovementSerializer,
     PosCashOpenSerializer,
     PosCashSessionSerializer,
 )
@@ -266,14 +267,18 @@ class PosCashCurrentCloseView(APIView):
 
 class PosCashMovementView(APIView):
     """
-    POST /api/v1/pos/cash/current/movements/
-
-    Registers a cash movement (in/out) in the employee's current open session.
+    GET  /api/v1/pos/cash/current/movements/  → list movements in current session
+    POST /api/v1/pos/cash/current/movements/  → register a cash movement
 
     Required capability: can_register_cash_movement
 
-    Request (JSON)
-    --------------
+    GET Response 200
+    ----------------
+    { "movements": [<PosCashMovementSerializer>], "session_id": "<uuid>" | null }
+    Returns empty list (not 404) when no session is open.
+
+    POST Request (JSON)
+    -------------------
     {
         "movement_type": "in" | "out",
         "category": "expense" | "withdraw" | "deposit" | "other",
@@ -282,17 +287,37 @@ class PosCashMovementView(APIView):
         "note": "Cambio de turno"
     }
 
-    Response 201
-    ------------
+    POST Response 201
+    -----------------
     { "movement": { id, movement_type, category, method, amount, note, created_at, session_id } }
 
     Errors
     ------
     403 → capability missing / must_change_pin
-    400 → no open session / invalid data
+    400 → no open session / invalid data (POST only)
     """
     authentication_classes = [EmployeeTokenAuthentication]
     permission_classes = [EmployeeIsAuthenticated, PinChangeNotRequired]
+
+    def get(self, request) -> Response:
+        employee = request.employee
+        business = request.business
+
+        if not _check_capability(employee, 'can_register_cash_movement'):
+            return Response(
+                {'detail': 'No tenés permiso para ver movimientos de caja.', 'code': 'capability_required'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        session = _get_open_session(employee, business)
+        if session is None:
+            return Response({'movements': [], 'session_id': None})
+
+        movements_qs = session.movements.order_by('-created_at')
+        return Response({
+            'movements': PosCashMovementSerializer(movements_qs, many=True).data,
+            'session_id': str(session.pk),
+        })
 
     def post(self, request) -> Response:
         employee = request.employee

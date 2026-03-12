@@ -31,6 +31,7 @@ import type {
 } from '@/types/employees';
 import type {
   PosCashCloseRequest,
+  PosCashCurrentMovementsResponse,
   PosCashMovement,
   PosCashMovementRequest,
   PosCashOpenRequest,
@@ -242,6 +243,22 @@ export function posCreateCashMovement(
       method: 'POST',
       body: JSON.stringify(payload),
     },
+  );
+}
+
+/**
+ * GET /api/v1/pos/cash/current/movements/
+ * Lists movements in the employee's current open session, newest first.
+ * Returns { movements: [], session_id: null } when no session is open.
+ * Throws ApiError 403 if capability 'can_register_cash_movement' is missing.
+ */
+export function posGetCurrentCashMovements(
+  token: string,
+): Promise<PosCashCurrentMovementsResponse> {
+  return posFetch<PosCashCurrentMovementsResponse>(
+    '/api/v1/pos/cash/current/movements/',
+    token,
+    { method: 'GET' },
   );
 }
 

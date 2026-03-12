@@ -32,36 +32,36 @@ const SERVICES: ServiceConfig[] = [
     {
         id: 'commercial',
         title: 'Gestión Comercial',
-        description: 'Inventario, ventas y caja en un solo lugar — desde el primer producto hasta la multi-sucursal.',
+        description: 'Plataforma integral para el control de inventario, ventas, caja y facturación. Diseñada para crecer desde un emprendimiento hasta una red de sucursales.',
         features: [
             {
-                title: 'Stock & Inventario',
-                description: 'Control en tiempo real de productos, costos y alertas.',
-                bullets: ['Tiempo real', 'Alertas de stock bajo', 'Valuación de inventario'],
+                title: 'Inventario & Stock',
+                description: 'Gestión eficiente de productos con traza total de movimientos.',
+                bullets: ['Alertas automáticas de stock mínimo', 'Valuación de inventario y costos', 'Registro de mermas y ajustes', 'Reposición de compras a proveedores'],
                 icon: Boxes
             },
             {
-                title: 'Ventas / POS',
-                description: 'Cobrá en mostrador o móvil con historial completo de clientes.',
-                bullets: ['Ventas rápidas', 'CRM de clientes (historial)', 'Cancelaciones'],
+                title: 'Ventas & POS',
+                description: 'Punto de venta mostrador ágil y flexible para tu equipo.',
+                bullets: ['Ventas rápidas con múltiples pagos', 'Emisión de Presupuestos (Quotes)', 'Cuentas Corrientes de clientes', 'Descuentos y promociones'],
                 icon: ShoppingBag
             },
             {
-                title: 'Caja',
-                description: 'Aperturas y cierres guiados con arqueos por turno.',
-                bullets: ['Apertura/Cierre', 'Arqueos', 'Turnos'],
+                title: 'Caja & Turnos',
+                description: 'Control estricto del efectivo con arqueos y auditoría.',
+                bullets: ['Apertura y Cierre de caja guiados', 'Detalle de egresos y gastos de caja', 'Múltiples cajas por sucursal', 'Control de diferencias por turno'],
                 icon: Wallet
             },
             {
-                title: 'Facturación & Reportes',
-                description: 'Facturación electrónica, finanzas y reportes exportables.',
-                bullets: ['Fact. electrónica + PDF', 'Gastos y movimientos (Pro+)', 'Exportación Excel/CSV'],
-                icon: BarChart3
+                title: 'Facturación & Finanzas',
+                description: 'Cumplí con AFIP y ordená las cuentas del negocio.',
+                bullets: ['Facturación Electrónica integrada', 'Notas de Crédito y Débito', 'Gestión de Gastos fijos y variables', 'Reportes de IVA y Ventas (Excel/CSV)'],
+                icon: FileText
             },
             {
-                title: 'Roles & Permisos',
-                description: 'Define accesos por perfil, módulo y sucursal.',
-                bullets: ['Owner/Manager/Cashier/Staff', 'Multi-sucursal (Business+)', 'Control de acceso'],
+                title: 'Multi-sucursal & Seguridad',
+                description: 'Escalabilidad real para dueños y gerentes.',
+                bullets: ['Gestión centralizada de sucursales', 'Roles de usuario (Dueño, Vendedor)', 'Auditoría de operaciones sensibles', 'Métricas consolidadas (Business+)'],
                 icon: ShieldCheck,
                 className: 'lg:col-span-2'
             }

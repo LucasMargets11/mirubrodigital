@@ -23,6 +23,7 @@ import {
   posCreateCustomer,
   posCreateSale,
   posGetCategories,
+  posGetCurrentCashMovements,
   posGetCurrentCashSession,
   posGetProducts,
   posOpenCashSession,
@@ -30,6 +31,7 @@ import {
 } from '@/lib/api/pos';
 import type {
   PosCashCloseRequest,
+  PosCashCurrentMovementsResponse,
   PosCashMovementRequest,
   PosCashOpenRequest,
   PosCashSession,
@@ -49,6 +51,10 @@ import { useEmployeeSession } from './context';
 export const posCashKeys = {
   /** Scoped to the employee token so different employees get different cache entries. */
   current: (token: string | null) => ['pos', 'cash', 'current', token] as const,
+};
+
+export const posCashMovementsKeys = {
+  current: (token: string | null) => ['pos', 'cash', 'movements', token] as const,
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -89,6 +95,31 @@ export function usePosCashCurrentSession() {
     ...query,
     session: (query.data?.session ?? null) as PosCashSession | null,
   };
+}
+
+// ── Current session movements query ──────────────────────────────────────────
+
+/**
+ * GET /api/v1/pos/cash/current/movements/
+ *
+ * Returns movements for the employee's current open session, newest first.
+ * Returns an empty array when no session is open (backend returns 200 + []).
+ * Refetches every 30 seconds while mounted.
+ */
+export function usePosCashCurrentMovements() {
+  const { token, enabled } = useTokenGuard();
+
+  return useQuery<PosCashCurrentMovementsResponse, ApiError>({
+    queryKey: posCashMovementsKeys.current(token),
+    queryFn: () => {
+      if (!token) throw new Error('No hay token de sesión operativa');
+      return posGetCurrentCashMovements(token);
+    },
+    enabled,
+    staleTime: 15_000,
+    refetchInterval: 30_000,
+    retry: false,
+  });
 }
 
 // ── Open session mutation ─────────────────────────────────────────────────────

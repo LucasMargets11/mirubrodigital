@@ -47,7 +47,26 @@ class PosCashSessionSerializer(serializers.Serializer):
         return None
 
     def get_totals(self, obj):
-        return compute_session_totals(obj)
+        raw = compute_session_totals(obj)
+        return {
+            'total_sales': raw['payments_total'],
+            'cash_in_from_sales': raw['cash_payments_total'],
+            'total_in': raw['movements_in_total'],
+            'total_out': raw['movements_out_total'],
+            'cash_expected_total': raw['cash_expected_total'],
+        }
+
+
+class PosCashMovementSerializer(serializers.Serializer):
+    """Read-only representation of a single CashMovement for POS consumers."""
+    id = serializers.UUIDField()
+    movement_type = serializers.CharField()
+    category = serializers.CharField()
+    method = serializers.CharField()
+    amount = serializers.DecimalField(max_digits=12, decimal_places=2)
+    note = serializers.CharField()
+    created_at = serializers.DateTimeField()
+    session_id = serializers.UUIDField()
 
 
 class PosCashOpenSerializer(serializers.Serializer):
@@ -213,13 +232,4 @@ class PosCashMovementCreateSerializer(serializers.Serializer):
         return movement
 
     def to_representation(self, instance):
-        return {
-            'id': str(instance.id),
-            'movement_type': instance.movement_type,
-            'category': instance.category,
-            'method': instance.method,
-            'amount': str(instance.amount),
-            'note': instance.note,
-            'created_at': instance.created_at.isoformat(),
-            'session_id': str(instance.session_id),
-        }
+        return PosCashMovementSerializer(instance).data

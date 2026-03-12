@@ -17,12 +17,14 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { usePosCapabilities } from '@/features/pos/hooks';
 import {
+  usePosCashCurrentMovements,
   usePosCashCurrentSession,
 } from '@/features/pos/cash-hooks';
 import { PosOpenCashModal } from './PosOpenCashModal';
 import { PosMovementModal } from './PosMovementModal';
 import { PosCloseCashModal } from './PosCloseCashModal';
 import { formatCurrency, formatDateTime } from '@/features/cash/utils';
+import type { PosCashMovement } from '@/types/pos-cash';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -36,11 +38,47 @@ function StatCard({ label, value, sub }: { label: string; value: string; sub?: s
   );
 }
 
+const MOVEMENT_CATEGORY_LABELS: Record<string, string> = {
+  expense: 'Gasto',
+  withdraw: 'Retiro',
+  deposit: 'Depósito',
+  other: 'Otro',
+};
+
+function MovementRow({ mv }: { mv: PosCashMovement }) {
+  const isIn = mv.movement_type === 'in';
+  return (
+    <div className="flex items-center justify-between px-4 py-2.5">
+      <div className="flex items-center gap-3 min-w-0">
+        <span
+          className={`h-2 w-2 shrink-0 rounded-full ${isIn ? 'bg-emerald-500' : 'bg-rose-500'}`}
+          aria-hidden
+        />
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-slate-900">
+            {MOVEMENT_CATEGORY_LABELS[mv.category] ?? mv.category}
+          </p>
+          {mv.note && (
+            <p className="truncate text-xs text-slate-500">{mv.note}</p>
+          )}
+        </div>
+      </div>
+      <div className="ml-3 shrink-0 text-right">
+        <p className={`text-sm font-semibold ${isIn ? 'text-emerald-700' : 'text-rose-700'}`}>
+          {isIn ? '+' : '−'}{formatCurrency(mv.amount)}
+        </p>
+        <p className="text-xs text-slate-400">{formatDateTime(mv.created_at)}</p>
+      </div>
+    </div>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function PosCashSection() {
   const { capabilities, isLoading: capsLoading } = usePosCapabilities();
   const { session, isLoading: sessionLoading, refetch } = usePosCashCurrentSession();
+  const { data: movementsData, isLoading: movementsLoading, isError: movementsError } = usePosCashCurrentMovements();
   const router = useRouter();
 
   const [openModalOpen, setOpenModalOpen] = useState(false);
@@ -178,6 +216,28 @@ export function PosCashSection() {
               label="Egresos"
               value={formatCurrency(totals.total_out)}
             />
+          </div>
+        )}
+
+        {/* Movements list */}
+        {canMovement && (
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+              Movimientos de la sesión
+            </p>
+            {movementsLoading ? (
+              <p className="text-xs text-slate-400">Cargando movimientos…</p>
+            ) : movementsError ? (
+              <p className="text-xs text-rose-500">No se pudieron cargar los movimientos. Intentá de nuevo.</p>
+            ) : movementsData && movementsData.movements.length > 0 ? (
+              <div className="divide-y divide-slate-100 rounded-xl border border-slate-100 bg-white">
+                {movementsData.movements.map((mv) => (
+                  <MovementRow key={mv.id} mv={mv} />
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400">Sin movimientos en esta sesión.</p>
+            )}
           </div>
         )}
 
