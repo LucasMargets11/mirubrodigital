@@ -1,0 +1,187 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 506" fill="none">
+  <defs>
+    <linearGradient id="bg4" x1="0" y1="0" x2="900" y2="506" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#f0fdf4"/>
+      <stop offset="100%" stop-color="#dcfce7"/>
+    </linearGradient>
+    <linearGradient id="excelGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#16a34a"/>
+      <stop offset="100%" stop-color="#15803d"/>
+    </linearGradient>
+    <linearGradient id="dashGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#f0fdf4"/>
+    </linearGradient>
+    <filter id="shadow4" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="14" flood-color="#16a34a" flood-opacity="0.14"/>
+    </filter>
+    <filter id="card4" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#16a34a" flood-opacity="0.09"/>
+    </filter>
+    <filter id="dashshadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="6" stdDeviation="12" flood-color="#4f46e5" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="900" height="506" fill="url(#bg4)"/>
+  <circle cx="800" cy="80" r="130" fill="#16a34a" opacity="0.05"/>
+  <circle cx="100" cy="440" r="110" fill="#4f46e5" opacity="0.05"/>
+
+  <!-- ===== EXCEL FILE CARD (left) ===== -->
+  <g filter="url(#shadow4)">
+    <rect x="55" y="110" width="240" height="290" rx="20" fill="white"/>
+  </g>
+  <!-- Excel header -->
+  <rect x="55" y="110" width="240" height="56" rx="20" fill="url(#excelGrad)"/>
+  <rect x="55" y="148" width="240" height="18" fill="url(#excelGrad)"/>
+  <!-- Excel X icon -->
+  <rect x="76" y="124" width="32" height="32" rx="6" fill="white" opacity="0.2"/>
+  <text x="92" y="146" font-family="system-ui, sans-serif" font-size="18" font-weight="800" fill="white" text-anchor="middle">X</text>
+  <!-- Excel file label -->
+  <text x="120" y="135" font-family="system-ui, sans-serif" font-size="11" font-weight="700" fill="white">productos_inventario</text>
+  <text x="120" y="151" font-family="system-ui, sans-serif" font-size="9" fill="white" opacity="0.75">.xlsx · 2.4 KB</text>
+
+  <!-- Spreadsheet rows (header) -->
+  <rect x="65" y="176" width="220" height="22" rx="4" fill="#f0fdf4"/>
+  <line x1="65" y1="176" x2="285" y2="176" stroke="#dcfce7" stroke-width="1"/>
+  <text x="75" y="191" font-family="system-ui, sans-serif" font-size="8" font-weight="700" fill="#15803d">SKU</text>
+  <text x="108" y="191" font-family="system-ui, sans-serif" font-size="8" font-weight="700" fill="#15803d">PRODUCTO</text>
+  <text x="190" y="191" font-family="system-ui, sans-serif" font-size="8" font-weight="700" fill="#15803d">PRECIO</text>
+  <text x="234" y="191" font-family="system-ui, sans-serif" font-size="8" font-weight="700" fill="#15803d">STOCK</text>
+
+  <!-- Rows data -->
+  <line x1="65" y1="198" x2="285" y2="198" stroke="#f0fdf4" stroke-width="1"/>
+  <text x="75" y="212" font-family="system-ui, sans-serif" font-size="8" fill="#374151">P001</text>
+  <text x="108" y="212" font-family="system-ui, sans-serif" font-size="8" fill="#374151">Coca Cola 250ml</text>
+  <text x="190" y="212" font-family="system-ui, sans-serif" font-size="8" fill="#374151">$350</text>
+  <text x="240" y="212" font-family="system-ui, sans-serif" font-size="8" fill="#374151">48</text>
+
+  <line x1="65" y1="218" x2="285" y2="218" stroke="#f0fdf4" stroke-width="1"/>
+  <text x="75" y="232" font-family="system-ui, sans-serif" font-size="8" fill="#374151">P002</text>
+  <text x="108" y="232" font-family="system-ui, sans-serif" font-size="8" fill="#374151">Café Expreso</text>
+  <text x="190" y="232" font-family="system-ui, sans-serif" font-size="8" fill="#374151">$620</text>
+  <text x="240" y="232" font-family="system-ui, sans-serif" font-size="8" fill="#374151">120</text>
+
+  <line x1="65" y1="238" x2="285" y2="238" stroke="#f0fdf4" stroke-width="1"/>
+  <text x="75" y="252" font-family="system-ui, sans-serif" font-size="8" fill="#374151">P003</text>
+  <text x="108" y="252" font-family="system-ui, sans-serif" font-size="8" fill="#374151">Medialuna x4</text>
+  <text x="190" y="252" font-family="system-ui, sans-serif" font-size="8" fill="#374151">$480</text>
+  <text x="240" y="252" font-family="system-ui, sans-serif" font-size="8" fill="#374151">35</text>
+
+  <line x1="65" y1="258" x2="285" y2="258" stroke="#f0fdf4" stroke-width="1"/>
+  <text x="75" y="272" font-family="system-ui, sans-serif" font-size="8" fill="#9ca3af">P004</text>
+  <text x="108" y="272" font-family="system-ui, sans-serif" font-size="8" fill="#9ca3af">Jugo Natural</text>
+  <text x="190" y="272" font-family="system-ui, sans-serif" font-size="8" fill="#9ca3af">$750</text>
+  <text x="240" y="272" font-family="system-ui, sans-serif" font-size="8" fill="#9ca3af">22</text>
+
+  <line x1="65" y1="278" x2="285" y2="278" stroke="#f0fdf4" stroke-width="1"/>
+  <text x="75" y="292" font-family="system-ui, sans-serif" font-size="8" fill="#9ca3af">P005</text>
+  <text x="108" y="292" font-family="system-ui, sans-serif" font-size="8" fill="#9ca3af">Sandwich Lomo</text>
+  <text x="190" y="292" font-family="system-ui, sans-serif" font-size="8" fill="#9ca3af">$1.800</text>
+  <text x="240" y="292" font-family="system-ui, sans-serif" font-size="8" fill="#9ca3af">18</text>
+
+  <!-- Rows indicator "..." -->
+  <text x="175" y="316" font-family="system-ui, sans-serif" font-size="12" fill="#9ca3af" text-anchor="middle">· · ·</text>
+
+  <!-- Total row -->
+  <rect x="65" y="322" width="220" height="22" rx="4" fill="#dcfce7"/>
+  <text x="75" y="337" font-family="system-ui, sans-serif" font-size="8" font-weight="700" fill="#15803d">TOTAL</text>
+  <text x="190" y="337" font-family="system-ui, sans-serif" font-size="8" font-weight="700" fill="#15803d">186 prod.</text>
+
+  <!-- Download button inside excel card -->
+  <rect x="75" y="354" width="200" height="32" rx="8" fill="#16a34a"/>
+  <text x="175" y="374" font-family="system-ui, sans-serif" font-size="10" font-weight="700" fill="white" text-anchor="middle">↓ Descargar plantilla</text>
+
+  <!-- ===== ARROW (center) ===== -->
+  <g>
+    <path d="M 310 253 Q 390 240 450 253" stroke="#4f46e5" stroke-width="3" fill="none" stroke-linecap="round"/>
+    <polygon points="447,245 460,254 447,263" fill="#4f46e5"/>
+  </g>
+  <!-- Import label on arrow -->
+  <rect x="328" y="226" width="112" height="22" rx="11" fill="#eef2ff"/>
+  <text x="384" y="241" font-family="system-ui, sans-serif" font-size="9" fill="#4f46e5" text-anchor="middle" font-weight="700">Importar →</text>
+
+  <!-- ===== DASHBOARD PANEL (right) ===== -->
+  <g filter="url(#dashshadow)">
+    <rect x="472" y="80" width="388" height="350" rx="20" fill="url(#dashGrad)"/>
+  </g>
+  <!-- Dashboard header bar -->
+  <rect x="472" y="80" width="388" height="48" rx="20" fill="#4f46e5"/>
+  <rect x="472" y="110" width="388" height="18" fill="#4f46e5"/>
+  <text x="576" y="108" font-family="system-ui, sans-serif" font-size="12" font-weight="700" fill="white">Gestión Comercial · Inventario</text>
+  <!-- Import success badge -->
+  <rect x="720" y="92" width="130" height="24" rx="12" fill="white" opacity="0.15"/>
+  <text x="785" y="108" font-family="system-ui, sans-serif" font-size="9" font-weight="600" fill="white" text-anchor="middle">✓ 186 productos importados</text>
+
+  <!-- Stats row -->
+  <g filter="url(#card4)">
+    <rect x="482" y="140" width="110" height="68" rx="12" fill="white"/>
+  </g>
+  <text x="537" y="162" font-family="system-ui, sans-serif" font-size="9" fill="#6b7280" text-anchor="middle">Productos</text>
+  <text x="537" y="186" font-family="system-ui, sans-serif" font-size="22" font-weight="800" fill="#4f46e5" text-anchor="middle">186</text>
+  <text x="537" y="200" font-family="system-ui, sans-serif" font-size="8" fill="#9ca3af" text-anchor="middle">activos</text>
+
+  <g filter="url(#card4)">
+    <rect x="602" y="140" width="110" height="68" rx="12" fill="white"/>
+  </g>
+  <text x="657" y="162" font-family="system-ui, sans-serif" font-size="9" fill="#6b7280" text-anchor="middle">Categorías</text>
+  <text x="657" y="186" font-family="system-ui, sans-serif" font-size="22" font-weight="800" fill="#16a34a" text-anchor="middle">12</text>
+  <text x="657" y="200" font-family="system-ui, sans-serif" font-size="8" fill="#9ca3af" text-anchor="middle">creadas</text>
+
+  <g filter="url(#card4)">
+    <rect x="722" y="140" width="128" height="68" rx="12" fill="white"/>
+  </g>
+  <text x="786" y="162" font-family="system-ui, sans-serif" font-size="9" fill="#6b7280" text-anchor="middle">Valor de stock</text>
+  <text x="786" y="182" font-family="system-ui, sans-serif" font-size="15" font-weight="800" fill="#4f46e5" text-anchor="middle">$48.600</text>
+  <text x="786" y="198" font-family="system-ui, sans-serif" font-size="8" fill="#9ca3af" text-anchor="middle">inventario inicial</text>
+
+  <!-- Product list -->
+  <rect x="482" y="220" width="368" height="28" rx="6" fill="#f0fdf4"/>
+  <text x="492" y="238" font-family="system-ui, sans-serif" font-size="8" font-weight="700" fill="#15803d">PRODUCTO</text>
+  <text x="672" y="238" font-family="system-ui, sans-serif" font-size="8" font-weight="700" fill="#15803d">CATEGORÍA</text>
+  <text x="752" y="238" font-family="system-ui, sans-serif" font-size="8" font-weight="700" fill="#15803d">PRECIO</text>
+  <text x="808" y="238" font-family="system-ui, sans-serif" font-size="8" font-weight="700" fill="#15803d">STOCK</text>
+
+  <!-- Product rows -->
+  <line x1="482" y1="248" x2="850" y2="248" stroke="#dcfce7" stroke-width="1"/>
+  <text x="492" y="261" font-family="system-ui, sans-serif" font-size="8.5" fill="#374151">Coca Cola 250ml</text>
+  <rect x="672" y="251" width="68" height="14" rx="7" fill="#f0fdf4"/>
+  <text x="706" y="261" font-family="system-ui, sans-serif" font-size="7.5" fill="#15803d" text-anchor="middle">Bebidas</text>
+  <text x="756" y="261" font-family="system-ui, sans-serif" font-size="8.5" fill="#374151">$350</text>
+  <text x="820" y="261" font-family="system-ui, sans-serif" font-size="8.5" fill="#374151">48</text>
+
+  <line x1="482" y1="268" x2="850" y2="268" stroke="#dcfce7" stroke-width="1"/>
+  <text x="492" y="281" font-family="system-ui, sans-serif" font-size="8.5" fill="#374151">Café Expreso</text>
+  <rect x="672" y="271" width="68" height="14" rx="7" fill="#fff7ed"/>
+  <text x="706" y="281" font-family="system-ui, sans-serif" font-size="7.5" fill="#c2410c" text-anchor="middle">Cafetería</text>
+  <text x="756" y="281" font-family="system-ui, sans-serif" font-size="8.5" fill="#374151">$620</text>
+  <text x="820" y="281" font-family="system-ui, sans-serif" font-size="8.5" fill="#374151">120</text>
+
+  <line x1="482" y1="288" x2="850" y2="288" stroke="#dcfce7" stroke-width="1"/>
+  <text x="492" y="301" font-family="system-ui, sans-serif" font-size="8.5" fill="#374151">Medialuna x4</text>
+  <rect x="672" y="291" width="68" height="14" rx="7" fill="#fef2f2"/>
+  <text x="706" y="301" font-family="system-ui, sans-serif" font-size="7.5" fill="#dc2626" text-anchor="middle">Panadería</text>
+  <text x="756" y="301" font-family="system-ui, sans-serif" font-size="8.5" fill="#374151">$480</text>
+  <text x="820" y="301" font-family="system-ui, sans-serif" font-size="8.5" fill="#374151">35</text>
+
+  <line x1="482" y1="308" x2="850" y2="308" stroke="#dcfce7" stroke-width="1"/>
+  <text x="492" y="321" font-family="system-ui, sans-serif" font-size="8.5" fill="#9ca3af">Jugo Natural</text>
+  <text x="756" y="321" font-family="system-ui, sans-serif" font-size="8.5" fill="#9ca3af">$750</text>
+  <text x="820" y="321" font-family="system-ui, sans-serif" font-size="8.5" fill="#9ca3af">22</text>
+
+  <!-- Dots -->
+  <text x="665" y="340" font-family="system-ui" font-size="12" fill="#9ca3af" text-anchor="middle">· · ·</text>
+
+  <!-- Import success green banner -->
+  <rect x="482" y="352" width="368" height="36" rx="10" fill="#dcfce7" stroke="#bbf7d0" stroke-width="1"/>
+  <text x="666" y="375" font-family="system-ui, sans-serif" font-size="10" font-weight="700" fill="#15803d" text-anchor="middle">✓ Importación completada · 186 productos cargados</text>
+
+  <!-- Bottom page labels -->
+  <text x="55" y="440" font-family="system-ui, sans-serif" font-size="20" font-weight="800" fill="#166534">Importar inventario</text>
+  <text x="55" y="464" font-family="system-ui, sans-serif" font-size="20" font-weight="800" fill="#16a34a">desde Excel</text>
+
+  <!-- Mirubro tag -->
+  <rect x="57" y="478" width="120" height="20" rx="10" fill="#16a34a" opacity="0.12"/>
+  <text x="117" y="492" font-family="system-ui, sans-serif" font-size="9" font-weight="700" fill="#16a34a" text-anchor="middle" letter-spacing="2">MIRUBRO</text>
+</svg>

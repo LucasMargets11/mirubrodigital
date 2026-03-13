@@ -1,0 +1,123 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 506" fill="none">
+  <defs>
+    <linearGradient id="bg2" x1="0" y1="0" x2="900" y2="506" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#f5f3ff"/>
+      <stop offset="100%" stop-color="#ede9fe"/>
+    </linearGradient>
+    <linearGradient id="phone2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#faf9ff"/>
+    </linearGradient>
+    <filter id="shadow2" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#7c3aed" flood-opacity="0.18"/>
+    </filter>
+    <filter id="card2" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#7c3aed" flood-opacity="0.09"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="900" height="506" fill="url(#bg2)"/>
+
+  <!-- Decorative blobs -->
+  <circle cx="800" cy="100" r="140" fill="#7c3aed" opacity="0.06"/>
+  <circle cx="100" cy="400" r="100" fill="#4f46e5" opacity="0.06"/>
+  <circle cx="500" cy="500" r="80" fill="#8b5cf6" opacity="0.05"/>
+
+  <!-- Phone shadow + frame -->
+  <g filter="url(#shadow2)">
+    <rect x="320" y="55" width="250" height="400" rx="30" fill="#1e1b4b"/>
+  </g>
+  <rect x="328" y="63" width="234" height="384" rx="24" fill="url(#phone2)"/>
+
+  <!-- Notch -->
+  <rect x="398" y="63" width="104" height="16" rx="8" fill="#1e1b4b"/>
+
+  <!-- App header -->
+  <rect x="328" y="79" width="234" height="48" rx="0" fill="#7c3aed"/>
+  <text x="445" y="108" font-family="system-ui, sans-serif" font-size="13" font-weight="700" fill="white" text-anchor="middle">Propina Digital</text>
+
+  <!-- Success checkmark circle -->
+  <circle cx="445" cy="175" r="38" fill="#ecfdf5"/>
+  <circle cx="445" cy="175" r="30" fill="#bbf7d0"/>
+  <text x="445" y="181" font-family="system-ui" font-size="22" fill="#059669" text-anchor="middle" font-weight="700">✓</text>
+
+  <!-- Amount label -->
+  <text x="445" y="232" font-family="system-ui, sans-serif" font-size="11" fill="#6b7280" text-anchor="middle">Pedido #2847</text>
+  <text x="445" y="256" font-family="system-ui, sans-serif" font-size="26" font-weight="800" fill="#1e1b4b" text-anchor="middle">$3.200</text>
+
+  <!-- Tip section label -->
+  <text x="445" y="284" font-family="system-ui, sans-serif" font-size="11" fill="#6b7280" text-anchor="middle">¿Querés dejar propina?</text>
+
+  <!-- Tip options -->
+  <rect x="338" y="294" width="68" height="36" rx="10" fill="#ede9fe" stroke="#7c3aed" stroke-width="2"/>
+  <text x="372" y="316" font-family="system-ui, sans-serif" font-size="11" font-weight="700" fill="#7c3aed" text-anchor="middle">10%</text>
+
+  <rect x="412" y="294" width="68" height="36" rx="10" fill="#7c3aed"/>
+  <text x="446" y="316" font-family="system-ui, sans-serif" font-size="11" font-weight="700" fill="white" text-anchor="middle">15%</text>
+
+  <rect x="486" y="294" width="68" height="36" rx="10" fill="#ede9fe"/>
+  <text x="520" y="316" font-family="system-ui, sans-serif" font-size="11" font-weight="700" fill="#7c3aed" text-anchor="middle">20%</text>
+
+  <!-- Custom amount -->
+  <rect x="338" y="340" width="216" height="32" rx="8" fill="#f5f3ff" stroke="#c4b5fd" stroke-width="1"/>
+  <text x="446" y="361" font-family="system-ui, sans-serif" font-size="10" fill="#9ca3af" text-anchor="middle">Otro monto</text>
+
+  <!-- Confirm button -->
+  <rect x="338" y="384" width="216" height="40" rx="12" fill="#7c3aed"/>
+  <text x="446" y="408" font-family="system-ui, sans-serif" font-size="12" font-weight="700" fill="white" text-anchor="middle">Confirmar propina</text>
+
+  <!-- Skip link -->
+  <text x="446" y="432" font-family="system-ui, sans-serif" font-size="9" fill="#9ca3af" text-anchor="middle">Omitir →</text>
+
+  <!-- Left floating stat card -->
+  <g filter="url(#card2)">
+    <rect x="50" y="130" width="212" height="90" rx="16" fill="white"/>
+  </g>
+  <text x="70" y="158" font-family="system-ui, sans-serif" font-size="11" font-weight="700" fill="#1e1b4b">Propinas del mes</text>
+  <text x="70" y="182" font-family="system-ui, sans-serif" font-size="26" font-weight="800" fill="#7c3aed">+$42.800</text>
+  <text x="70" y="202" font-family="system-ui, sans-serif" font-size="9" fill="#9ca3af">↑ 23% vs. mes anterior</text>
+
+  <!-- Left floating info card -->
+  <g filter="url(#card2)">
+    <rect x="50" y="240" width="212" height="100" rx="16" fill="white"/>
+  </g>
+  <text x="70" y="268" font-family="system-ui, sans-serif" font-size="11" font-weight="700" fill="#1e1b4b">Experiencia moderna</text>
+  <text x="70" y="285" font-family="system-ui, sans-serif" font-size="9" fill="#6b7280">Sin efectivo, sin fricción.</text>
+  <text x="70" y="298" font-family="system-ui, sans-serif" font-size="9" fill="#6b7280">El cliente decide cuánto</text>
+  <text x="70" y="311" font-family="system-ui, sans-serif" font-size="9" fill="#6b7280">y cómo valorar el servicio.</text>
+  <rect x="70" y="320" width="80" height="14" rx="7" fill="#ede9fe"/>
+  <text x="110" y="330" font-family="system-ui, sans-serif" font-size="8" fill="#7c3aed" text-anchor="middle" font-weight="600">Propinas QR</text>
+
+  <!-- Right stat card -->
+  <g filter="url(#card2)">
+    <rect x="638" y="140" width="200" height="100" rx="16" fill="white"/>
+  </g>
+  <text x="658" y="168" font-family="system-ui, sans-serif" font-size="11" font-weight="700" fill="#1e1b4b">Promedio de propina</text>
+  <text x="658" y="198" font-family="system-ui, sans-serif" font-size="28" font-weight="800" fill="#7c3aed">14.5%</text>
+  <text x="658" y="220" font-family="system-ui, sans-serif" font-size="9" fill="#9ca3af">por transacción digital</text>
+
+  <!-- Right lower card -->
+  <g filter="url(#card2)">
+    <rect x="638" y="258" width="200" height="80" rx="16" fill="white"/>
+  </g>
+  <text x="658" y="284" font-family="system-ui, sans-serif" font-size="11" font-weight="700" fill="#1e1b4b">Satisfacción del equipo</text>
+  <text x="658" y="304" font-family="system-ui" font-size="16" fill="#f59e0b">★★★★★</text>
+  <text x="658" y="322" font-family="system-ui, sans-serif" font-size="9" fill="#9ca3af">el equipo valora el sistema</text>
+
+  <!-- Wallet icon top-right decoration -->
+  <g opacity="0.15" transform="translate(650, 50)">
+    <rect x="0" y="8" width="60" height="42" rx="8" stroke="#7c3aed" stroke-width="3" fill="none"/>
+    <rect x="36" y="20" width="24" height="18" rx="4" fill="#7c3aed"/>
+    <circle cx="48" cy="29" r="4" fill="white"/>
+  </g>
+
+  <!-- Title text bottom-left area -->
+  <text x="70" y="360" font-family="system-ui, sans-serif" font-size="22" font-weight="800" fill="#1e1b4b">Propinas</text>
+  <text x="70" y="386" font-family="system-ui, sans-serif" font-size="22" font-weight="800" fill="#7c3aed">Digitales</text>
+  <text x="70" y="408" font-family="system-ui, sans-serif" font-size="11" fill="#6b7280">Modernizá tu atención</text>
+
+  <!-- Mirubro tag -->
+  <rect x="52" y="430" width="120" height="22" rx="11" fill="#7c3aed" opacity="0.1"/>
+  <text x="112" y="445" font-family="system-ui, sans-serif" font-size="9" font-weight="700" fill="#7c3aed" text-anchor="middle" letter-spacing="2">MIRUBRO</text>
+</svg>

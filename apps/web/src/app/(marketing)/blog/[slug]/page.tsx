@@ -25,14 +25,20 @@ export async function generateMetadata({ params }: BlogPostPageProps): Promise<M
     }
 
     const url = `${SITE_URL}/blog/${post.slug}`;
+    const title = post.metaTitle ?? post.title;
+    const description = post.metaDescription ?? post.excerpt;
+    // SVG covers are local paths — prepend site URL for OG
+    const ogImage = post.coverImageUrl.startsWith('/')
+        ? `${SITE_URL}${post.coverImageUrl}`
+        : post.coverImageUrl;
 
     return {
-        title: `${post.title} | Mirubro`,
-        description: post.excerpt,
+        title: `${title} | Mirubro`,
+        description,
         alternates: { canonical: url },
         openGraph: {
-            title: post.title,
-            description: post.excerpt,
+            title,
+            description,
             url,
             siteName: 'Mirubro',
             type: 'article',
@@ -40,7 +46,7 @@ export async function generateMetadata({ params }: BlogPostPageProps): Promise<M
             authors: ['Mirubro'],
             images: [
                 {
-                    url: post.coverImageUrl,
+                    url: ogImage,
                     width: 900,
                     alt: post.title,
                 },
@@ -49,21 +55,24 @@ export async function generateMetadata({ params }: BlogPostPageProps): Promise<M
         },
         twitter: {
             card: 'summary_large_image',
-            title: post.title,
-            description: post.excerpt,
-            images: [post.coverImageUrl],
+            title,
+            description,
+            images: [ogImage],
         },
     };
 }
 
 /** JSON-LD: BlogPosting */
 function BlogPostingJsonLd({ post }: { post: NonNullable<ReturnType<typeof getPostBySlug>> }) {
+    const ogImage = post.coverImageUrl.startsWith('/')
+        ? `${SITE_URL}${post.coverImageUrl}`
+        : post.coverImageUrl;
     const schema = {
         '@context': 'https://schema.org',
         '@type': 'BlogPosting',
         headline: post.title,
-        description: post.excerpt,
-        image: post.coverImageUrl,
+        description: post.metaDescription ?? post.excerpt,
+        image: ogImage,
         url: `${SITE_URL}/blog/${post.slug}`,
         datePublished: post.date,
         dateModified: post.date,
@@ -128,7 +137,8 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
                             {/* Editorial content */}
                             <BlogPostContent
                                 excerpt={post.excerpt}
-                                paragraphs={mockBodyParagraphs}
+                                paragraphs={post.bodyContent ? undefined : mockBodyParagraphs}
+                                bodyContent={post.bodyContent}
                             />
                         </div>
                     </div>

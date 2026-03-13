@@ -1,0 +1,124 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 506" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="900" y2="506" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#eef2ff"/>
+      <stop offset="100%" stop-color="#c7d2fe"/>
+    </linearGradient>
+    <linearGradient id="phone" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#f8f9ff"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#4f46e5" flood-opacity="0.18"/>
+    </filter>
+    <filter id="cardshadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#4f46e5" flood-opacity="0.10"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="900" height="506" fill="url(#bg)"/>
+
+  <!-- Decorative circles -->
+  <circle cx="780" cy="80" r="120" fill="#6366f1" opacity="0.07"/>
+  <circle cx="120" cy="420" r="90" fill="#4f46e5" opacity="0.06"/>
+  <circle cx="850" cy="440" r="60" fill="#818cf8" opacity="0.08"/>
+
+  <!-- Phone frame -->
+  <g filter="url(#shadow)">
+    <rect x="330" y="60" width="240" height="390" rx="28" fill="#1e1b4b"/>
+  </g>
+  <rect x="338" y="68" width="224" height="374" rx="22" fill="url(#phone)"/>
+
+  <!-- Phone notch -->
+  <rect x="398" y="68" width="104" height="16" rx="8" fill="#1e1b4b"/>
+
+  <!-- App header bar -->
+  <rect x="338" y="84" width="224" height="44" rx="0" fill="#4f46e5"/>
+  <text x="450" y="112" font-family="system-ui, sans-serif" font-size="13" font-weight="700" fill="white" text-anchor="middle">Mi Menú</text>
+
+  <!-- QR mini icon in header -->
+  <rect x="352" y="94" width="22" height="22" rx="4" fill="white" opacity="0.2"/>
+  <rect x="356" y="98" width="6" height="6" fill="white" opacity="0.7"/>
+  <rect x="364" y="98" width="6" height="6" fill="white" opacity="0.7"/>
+  <rect x="356" y="106" width="6" height="6" fill="white" opacity="0.7"/>
+  <rect x="364" y="106" width="6" height="6" fill="white" opacity="0.7"/>
+
+  <!-- Review card 1 -->
+  <g filter="url(#cardshadow)">
+    <rect x="348" y="140" width="204" height="78" rx="12" fill="white"/>
+  </g>
+  <!-- Stars row 1 -->
+  <text x="358" y="160" font-family="system-ui" font-size="13" fill="#f59e0b">★★★★★</text>
+  <text x="358" y="176" font-family="system-ui, sans-serif" font-size="9" fill="#6b7280">Excelente calidad y atención</text>
+  <text x="358" y="188" font-family="system-ui, sans-serif" font-size="9" fill="#9ca3af">Facundo G. · hace 2 días</text>
+  <!-- Avatar circle -->
+  <circle cx="532" cy="166" r="14" fill="#e0e7ff"/>
+  <text x="532" y="171" font-family="system-ui" font-size="11" font-weight="700" fill="#4f46e5" text-anchor="middle">F</text>
+  <!-- Verified badge -->
+  <rect x="358" y="196" width="60" height="14" rx="7" fill="#ecfdf5"/>
+  <text x="388" y="206" font-family="system-ui, sans-serif" font-size="8" fill="#059669" text-anchor="middle" font-weight="600">✓ Verificada</text>
+
+  <!-- Review card 2 -->
+  <g filter="url(#cardshadow)">
+    <rect x="348" y="230" width="204" height="70" rx="12" fill="white"/>
+  </g>
+  <text x="358" y="250" font-family="system-ui" font-size="13" fill="#f59e0b">★★★★</text>
+  <text x="358" y="266" font-family="system-ui, sans-serif" font-size="9" fill="#6b7280">Muy buen ambiente, volvería</text>
+  <text x="358" y="278" font-family="system-ui, sans-serif" font-size="9" fill="#9ca3af">María P. · 1 semana</text>
+  <circle cx="532" cy="258" r="14" fill="#fef3c7"/>
+  <text x="532" y="263" font-family="system-ui" font-size="11" font-weight="700" fill="#d97706" text-anchor="middle">M</text>
+
+  <!-- Review card 3 -->
+  <g filter="url(#cardshadow)">
+    <rect x="348" y="313" width="204" height="64" rx="12" fill="white"/>
+  </g>
+  <text x="358" y="332" font-family="system-ui" font-size="13" fill="#f59e0b">★★★★★</text>
+  <text x="358" y="348" font-family="system-ui, sans-serif" font-size="9" fill="#6b7280">Recomiendo 100%</text>
+  <text x="358" y="360" font-family="system-ui, sans-serif" font-size="9" fill="#9ca3af">Roberto L. · 3 semanas</text>
+  <circle cx="532" cy="341" r="14" fill="#ede9fe"/>
+  <text x="532" y="346" font-family="system-ui" font-size="11" font-weight="700" fill="#7c3aed" text-anchor="middle">R</text>
+
+  <!-- Write review CTA -->
+  <rect x="358" y="390" width="184" height="36" rx="10" fill="#4f46e5"/>
+  <text x="450" y="413" font-family="system-ui, sans-serif" font-size="11" font-weight="700" fill="white" text-anchor="middle">Dejar una reseña +</text>
+
+  <!-- Left side floating card -->
+  <g filter="url(#cardshadow)">
+    <rect x="60" y="140" width="200" height="96" rx="16" fill="white"/>
+  </g>
+  <text x="80" y="168" font-family="system-ui, sans-serif" font-size="11" font-weight="700" fill="#1e1b4b">Confianza digital</text>
+  <text x="80" y="184" font-family="system-ui, sans-serif" font-size="9" fill="#6b7280">El 87% de los clientes revisa</text>
+  <text x="80" y="196" font-family="system-ui, sans-serif" font-size="9" fill="#6b7280">reseñas antes de pedir.</text>
+  <rect x="80" y="210" width="84" height="18" rx="9" fill="#eef2ff"/>
+  <text x="122" y="223" font-family="system-ui, sans-serif" font-size="9" fill="#4f46e5" text-anchor="middle" font-weight="600">Menú QR Online</text>
+
+  <!-- Right side floating card -->
+  <g filter="url(#cardshadow)">
+    <rect x="640" y="160" width="196" height="100" rx="16" fill="white"/>
+  </g>
+  <text x="660" y="186" font-family="system-ui, sans-serif" font-size="11" font-weight="700" fill="#1e1b4b">Promedio de reseñas</text>
+  <text x="660" y="218" font-family="system-ui" font-size="28" font-weight="700" fill="#4f46e5">4.8</text>
+  <text x="697" y="216" font-family="system-ui" font-size="14" fill="#f59e0b">★</text>
+  <text x="660" y="235" font-family="system-ui, sans-serif" font-size="9" fill="#9ca3af">basado en 128 opiniones</text>
+
+  <!-- Star burst decoration top-right -->
+  <g opacity="0.9">
+    <text x="670" y="80" font-family="system-ui" font-size="28" fill="#f59e0b">★</text>
+    <text x="710" y="55" font-family="system-ui" font-size="18" fill="#fbbf24" opacity="0.6">★</text>
+    <text x="730" y="88" font-family="system-ui" font-size="14" fill="#fcd34d" opacity="0.5">★</text>
+  </g>
+
+  <!-- Bottom label -->
+  <rect x="338" y="415" width="224" height="27" rx="0" fill="#f8f9ff"/>
+  <rect x="338" y="430" width="224" height="12" rx="12" fill="none"/>
+
+  <!-- Mirubro bottom tag -->
+  <rect x="340" y="455" width="120" height="22" rx="11" fill="#4f46e5" opacity="0.1"/>
+  <text x="400" y="470" font-family="system-ui, sans-serif" font-size="9" font-weight="700" fill="#4f46e5" text-anchor="middle" letter-spacing="2">MIRUBRO</text>
+
+  <!-- Title text left -->
+  <text x="80" y="310" font-family="system-ui, sans-serif" font-size="22" font-weight="800" fill="#1e1b4b" letter-spacing="-0.5">Reseñas en</text>
+  <text x="80" y="338" font-family="system-ui, sans-serif" font-size="22" font-weight="800" fill="#4f46e5">Menú QR</text>
+  <text x="80" y="366" font-family="system-ui, sans-serif" font-size="12" fill="#6b7280">Confianza que convierte</text>
+</svg>

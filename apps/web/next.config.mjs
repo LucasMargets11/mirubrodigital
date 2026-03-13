@@ -3,6 +3,9 @@ const isDev = process.env.NODE_ENV === 'development';
 const nextConfig = {
   reactStrictMode: true,
   images: {
+    // Allow SVG images from the public directory (used for blog covers).
+    dangerouslyAllowSVG: true,
+    contentDispositionType: 'attachment',
     // Allow local dev API and the internal Docker service name for SSR image optimisation.
     // In production the browser always gets the public domain; api:8000 is never exposed.
     remotePatterns: [

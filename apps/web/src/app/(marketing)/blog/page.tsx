@@ -56,7 +56,7 @@ function BlogJsonLd() {
             description: post.excerpt,
             url: `${BLOG_URL}/${post.slug}`,
             datePublished: post.date,
-            image: post.coverImageUrl,
+            image: post.coverImageUrl.startsWith('/') ? `${SITE_URL}${post.coverImageUrl}` : post.coverImageUrl,
             author: { '@type': 'Organization', name: 'Mirubro' },
         })),
     };
