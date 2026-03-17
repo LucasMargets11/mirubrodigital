@@ -385,3 +385,38 @@ export function updateBudget(id: number, data: { limit_amount: number }) {
 export function deleteBudget(id: number) {
   return apiDelete(`/api/v1/treasury/budgets/${id}/`);
 }
+
+// ─── DASHBOARD FINANCE SUMMARY ────────────────────────────────────────────────
+export interface DashboardFinanceSummaryItem {
+  id: number;
+  name: string;
+  due_date: string | null;
+  amount: number;
+  is_overdue?: boolean;
+}
+
+export interface DashboardFinanceSummary {
+  expenses_summary: {
+    total_amount: number;
+    total_count: number;
+    fixed_amount: number;
+    fixed_count: number;
+    onetime_amount: number;
+    onetime_count: number;
+    month: string;
+  };
+  fixed_pending: {
+    total_amount: number;
+    total_count: number;
+    items: DashboardFinanceSummaryItem[];
+  };
+  onetime_pending: {
+    total_amount: number;
+    total_count: number;
+    items: DashboardFinanceSummaryItem[];
+  };
+}
+
+export function getDashboardFinanceSummary() {
+  return apiGet<DashboardFinanceSummary>('/api/v1/treasury/dashboard/finance-summary/');
+}

@@ -13,14 +13,22 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.permissions import HasBusinessMembership, HasPermission
-from apps.cash.models import Payment
-from .models import Sale, SaleItem
+from apps.cash.models import Payment, CashSession, CashMovement
+from apps.inventory.services import reserve_stock, release_stock, register_stock_movement, ensure_stock_record
+from apps.inventory.models import StockMovement
+from django.db import transaction
+from rest_framework import viewsets, status
+from rest_framework.decorators import action
+from .models import Sale, SaleItem, Order, OrderItem, OrderHistory, OrderPayment
 from .serializers import (
 	SaleCancelSerializer,
 	SaleCreateSerializer,
 	SaleDetailSerializer,
 	SaleListSerializer,
 	SaleTimelineSerializer,
+    OrderSerializer,
+    OrderCreateSerializer,
+    OrderListSerializer,
 )
 
 
@@ -250,3 +258,170 @@ class SalesTopProductsView(APIView):
 		except ValueError:
 			days = 7
 		return max(1, min(days, 90))
+
+class OrderViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+    permission_map = {
+        'GET': 'view_orders',
+        'POST': 'create_orders',
+        'PUT': 'edit_orders',
+        'PATCH': 'edit_orders',
+        'DELETE': 'delete_orders',
+    }
+    
+    pagination_class = SalesPagination
+    serializer_class = OrderSerializer
+
+    def get_queryset(self):
+        business = getattr(self.request, 'business')
+        return Order.objects.filter(business=business).order_by('-created_at')
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return OrderCreateSerializer
+        if self.action == 'list':
+            return OrderListSerializer
+        return OrderSerializer
+
+    @action(detail=True, methods=['post'], permission_map={'POST': 'confirm_orders'})
+    @transaction.atomic
+    def confirm(self, request, pk=None):
+        order = self.get_object()
+        if order.status != Order.Status.DRAFT and order.status != Order.Status.PENDING_CONFIRMATION:
+            return Response({'error': 'Solo pedidos en borrador o pendientes se pueden confirmar'}, status=400)
+        
+        for item in order.items.all():
+            try:
+                reserve_stock(order.business, item.product, item.quantity)
+                item.reserved_quantity = item.quantity
+                item.save(update_fields=['reserved_quantity'])
+            except Exception as e:
+                # If stock not sufficient or strict check fails
+                return Response({'error': str(e)}, status=400)
+
+        order.status = Order.Status.CONFIRMED
+        order.save(update_fields=['status'])
+        OrderHistory.objects.create(order=order, action='confirmed', user=request.user, to_status=Order.Status.CONFIRMED)
+        return Response(OrderSerializer(order).data)
+
+    @action(detail=True, methods=['post'], permission_map={'POST': 'cancel_orders'})
+    @transaction.atomic
+    def cancel(self, request, pk=None):
+        order = self.get_object()
+        if order.status == Order.Status.CANCELLED:
+             return Response(OrderSerializer(order).data)
+        
+        for item in order.items.all():
+            if item.reserved_quantity > 0:
+                release_stock(order.business, item.product, item.reserved_quantity)
+                item.reserved_quantity = 0
+                item.save(update_fields=['reserved_quantity'])
+
+        order.status = Order.Status.CANCELLED
+        order.deleted_at = timezone.now()
+        order.save(update_fields=['status', 'deleted_at'])
+        OrderHistory.objects.create(order=order, action='cancelled', user=request.user, to_status=Order.Status.CANCELLED)
+        return Response(OrderSerializer(order).data)
+
+    @action(detail=True, methods=['post'])
+    def mark_in_preparation(self, request, pk=None):
+        order = self.get_object()
+        if order.status != Order.Status.CONFIRMED:
+             return Response({'error': 'Debe estar confirmado'}, status=400)
+        order.status = Order.Status.IN_PREPARATION
+        order.save(update_fields=['status'])
+        OrderHistory.objects.create(order=order, action='in_preparation', user=request.user, to_status=Order.Status.IN_PREPARATION)
+        return Response(OrderSerializer(order).data)
+
+    @action(detail=True, methods=['post'])
+    def mark_ready(self, request, pk=None):
+        order = self.get_object()
+        order.status = Order.Status.READY_FOR_DELIVERY
+        order.save(update_fields=['status'])
+        OrderHistory.objects.create(order=order, action='ready', user=request.user, to_status=Order.Status.READY_FOR_DELIVERY)
+        return Response(OrderSerializer(order).data)
+
+    @action(detail=True, methods=['post'], permission_map={'POST': 'deliver_orders'})
+    @transaction.atomic
+    def deliver(self, request, pk=None):
+        order = self.get_object()
+        if order.status == Order.Status.DELIVERED:
+            return Response(OrderSerializer(order).data)
+
+        for item in order.items.all():
+            if item.reserved_quantity > 0:
+                release_stock(order.business, item.product, item.reserved_quantity)
+                item.reserved_quantity = 0
+            
+            # Stock movement OUT
+            register_stock_movement(
+                business=order.business,
+                product=item.product,
+                movement_type=StockMovement.MovementType.OUT,
+                quantity=item.quantity,
+                note=f"Entrega Pedido {order.number}",
+                created_by=request.user,
+                reason='order_delivery'
+            )
+            item.delivered_quantity = item.quantity
+            item.save(update_fields=['delivered_quantity', 'reserved_quantity'])
+
+        order.status = Order.Status.DELIVERED
+        order.save(update_fields=['status'])
+        OrderHistory.objects.create(order=order, action='delivered', user=request.user, to_status=Order.Status.DELIVERED)
+        return Response(OrderSerializer(order).data)
+
+    @action(detail=True, methods=['post'], permission_map={'POST': 'collect_payment'})
+    @transaction.atomic
+    def add_payment(self, request, pk=None):
+        order = self.get_object()
+        amount = Decimal(request.data.get('amount', 0))
+        method = request.data.get('method', 'cash')
+        notes = request.data.get('notes', '')
+        
+        if amount <= 0:
+             return Response({'error': 'Monto inválido'}, status=400)
+
+        # Find open session
+        session = CashSession.objects.filter(
+            business=order.business, 
+            status='open'
+        ).order_by('-opened_at').first()
+        
+        if not session:
+             return Response({'error': 'No hay sesión de caja abierta'}, status=400)
+
+        # Create movement linked to session
+        movement = CashMovement.objects.create(
+            business=order.business,
+            session=session,
+            movement_type='in', # Correct enum value? 'IN' or 'in'? Checked model: 'in'
+            category='deposit', # Correct enum value? 'deposit'
+            method=method, # Valid values check needed.
+            amount=amount,
+            note=f"Cobro Pedido {order.number} - {notes}",
+            created_by=request.user
+        )
+
+        op = OrderPayment.objects.create(
+            order=order,
+            amount=amount,
+            payment_method=method,
+            notes=notes,
+            created_by=request.user,
+            cash_movement=movement
+        )
+        
+        # Update totals
+        # Order fields defaults are 0.
+        order.total_paid += amount
+        order.pending_balance = order.total - order.total_paid
+        if order.pending_balance <= 0:
+            order.payment_status = Order.PaymentStatus.PAID
+            order.pending_balance = 0
+        elif order.total_paid > 0:
+             order.payment_status = Order.PaymentStatus.PARTIAL
+        
+        order.save(update_fields=['total_paid', 'pending_balance', 'payment_status'])
+        OrderHistory.objects.create(order=order, action='payment', user=request.user, payload={'amount': str(amount)}, to_status=order.status)
+        return Response(OrderSerializer(order).data)

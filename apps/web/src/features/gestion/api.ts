@@ -27,6 +27,9 @@ import type {
     BusinessBrandingPayload,
     DocumentSeries,
     DocumentSeriesPayload,
+    Order,
+    CreateOrderPayload,
+    OrdersFilters,
 } from './types';
 
 function buildQuery(params: Record<string, string | undefined>) {
@@ -198,6 +201,50 @@ export function fetchQuote(quoteId: string) {
 
 export function createQuote(payload: QuotePayload) {
     return apiPost<Quote>('/api/v1/sales/quotes/', payload);
+}
+
+// Orders
+export function fetchOrders(params: OrdersFilters = {}) {
+    const query = buildQuery({
+        search: params.search,
+        status: params.status,
+        date_from: params.date_from,
+        date_to: params.date_to,
+        limit: params.limit ? String(params.limit) : undefined,
+    });
+    return apiGet<PaginatedResponse<Order>>(`/api/v1/sales/orders/${query}`);
+}
+
+export function fetchOrder(id: string) {
+    return apiGet<Order>(`/api/v1/sales/orders/${id}/`);
+}
+
+export function createOrder(payload: CreateOrderPayload) {
+    return apiPost<Order>('/api/v1/sales/orders/', payload);
+}
+
+export function confirmOrder(id: string) {
+    return apiPost<Order>(`/api/v1/sales/orders/${id}/confirm/`, {});
+}
+
+export function cancelOrder(id: string) {
+    return apiPost<Order>(`/api/v1/sales/orders/${id}/cancel/`, {});
+}
+
+export function markOrderInPreparation(id: string) {
+    return apiPost<Order>(`/api/v1/sales/orders/${id}/mark_in_preparation/`, {});
+}
+
+export function markOrderReady(id: string) {
+    return apiPost<Order>(`/api/v1/sales/orders/${id}/mark_ready/`, {});
+}
+
+export function deliverOrder(id: string) {
+    return apiPost<Order>(`/api/v1/sales/orders/${id}/deliver/`, {});
+}
+
+export function registerOrderPayment(id: string, payload: { amount: string; method: string; notes?: string }) {
+    return apiPost<Order>(`/api/v1/sales/orders/${id}/collect_payment/`, payload);
 }
 
 export function updateQuote(quoteId: string, payload: Partial<QuotePayload>) {

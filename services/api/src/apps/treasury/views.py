@@ -10,8 +10,8 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.pagination import LimitOffsetPagination
-from django.db import transaction
-from django.db.models import Sum, Q
+from django.db import models, transaction
+from django.db.models import Sum, Count, Q
 from django.http import StreamingHttpResponse
 from django.utils import timezone
 
@@ -741,6 +741,149 @@ class TreasurySettingsViewSet(BaseTreasuryViewSet):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
+
+
+class DashboardFinanceSummaryView(BaseTreasuryViewSet):
+    """
+    Endpoint optimizado para el bloque de Finanzas en Inicio / Resumen.
+    Retorna en una sola llamada: resumen de gastos del mes, gastos fijos
+    pendientes del mes y gastos puntuales no pagados.
+
+    Requiere entitlement gestion.treasury (PRO+).
+    """
+    required_entitlement = 'gestion.treasury'
+    required_permission = 'view_finance'
+
+    # We don't use a real queryset but ModelViewSet requires one
+    queryset = Transaction.objects.none()
+
+    @action(detail=False, methods=['get'], url_path='finance-summary')
+    def finance_summary(self, request):
+        business = getattr(request, 'business', None)
+        today = date.today()
+        month_start = today.replace(day=1)
+        last_day = monthrange(today.year, today.month)[1]
+        month_end = date(today.year, today.month, last_day)
+
+        # ── A. Resumen de gastos del mes (transacciones OUT posted) ──
+        month_txns = Transaction.objects.filter(
+            business=business,
+            status=Transaction.Status.POSTED,
+            direction=Transaction.Direction.OUT,
+            occurred_at__date__gte=month_start,
+            occurred_at__date__lte=month_end,
+        )
+        expense_agg = month_txns.aggregate(
+            total=Sum('amount'),
+            count=Count('id'),
+        )
+        # Split by transaction_type: fixed_expense vs others
+        fixed_expense_txn_agg = month_txns.filter(
+            reference_type='fixed_expense_period'
+        ).aggregate(total=Sum('amount'), count=Count('id'))
+        onetime_expense_txn_agg = month_txns.filter(
+            reference_type='expense'
+        ).aggregate(total=Sum('amount'), count=Count('id'))
+
+        expenses_summary = {
+            'total_amount': float(expense_agg['total'] or 0),
+            'total_count': expense_agg['count'] or 0,
+            'fixed_amount': float(fixed_expense_txn_agg['total'] or 0),
+            'fixed_count': fixed_expense_txn_agg['count'] or 0,
+            'onetime_amount': float(onetime_expense_txn_agg['total'] or 0),
+            'onetime_count': onetime_expense_txn_agg['count'] or 0,
+            'month': today.strftime('%Y-%m'),
+        }
+
+        # ── B. Gastos fijos pendientes del mes actual ──
+        # Ensure all current periods exist first (bulk, efficient)
+        active_fixed = FixedExpense.objects.filter(business=business, is_active=True)
+        current_period_date = month_start
+        existing_period_fes = set(
+            FixedExpensePeriod.objects.filter(
+                fixed_expense__business=business,
+                fixed_expense__is_active=True,
+                period=current_period_date,
+            ).values_list('fixed_expense_id', flat=True)
+        )
+        periods_to_create = []
+        for fe in active_fixed:
+            if fe.id not in existing_period_fes:
+                p = FixedExpensePeriod(
+                    fixed_expense=fe,
+                    period=current_period_date,
+                    amount=fe.default_amount or Decimal('0'),
+                    status=FixedExpensePeriod.Status.PENDING,
+                )
+                # Calculate due_date
+                if fe.due_day:
+                    day = min(fe.due_day, last_day)
+                    p.due_date = date(today.year, today.month, day)
+                periods_to_create.append(p)
+        if periods_to_create:
+            FixedExpensePeriod.objects.bulk_create(periods_to_create, ignore_conflicts=True)
+
+        pending_fixed_periods = FixedExpensePeriod.objects.filter(
+            fixed_expense__business=business,
+            fixed_expense__is_active=True,
+            period=current_period_date,
+            status=FixedExpensePeriod.Status.PENDING,
+        ).select_related('fixed_expense').order_by('due_date')
+
+        pending_fixed_agg = pending_fixed_periods.aggregate(
+            total=Sum('amount'),
+            count=Count('id'),
+        )
+
+        fixed_pending_items = [
+            {
+                'id': p.id,
+                'name': p.fixed_expense.name,
+                'due_date': p.due_date.isoformat() if p.due_date else None,
+                'amount': float(p.amount),
+            }
+            for p in pending_fixed_periods[:10]
+        ]
+
+        fixed_pending = {
+            'total_amount': float(pending_fixed_agg['total'] or 0),
+            'total_count': pending_fixed_agg['count'] or 0,
+            'items': fixed_pending_items,
+        }
+
+        # ── C. Gastos puntuales no pagados ──
+        pending_expenses = Expense.objects.filter(
+            business=business,
+            status=Expense.Status.PENDING,
+        ).select_related('category').order_by('due_date')
+
+        pending_expenses_agg = pending_expenses.aggregate(
+            total=Sum('amount'),
+            count=Count('id'),
+        )
+
+        onetime_pending_items = [
+            {
+                'id': e.id,
+                'name': e.name,
+                'due_date': e.due_date.isoformat() if e.due_date else None,
+                'amount': float(e.amount),
+                'is_overdue': e.due_date < today if e.due_date else False,
+            }
+            for e in pending_expenses[:10]
+        ]
+
+        onetime_pending = {
+            'total_amount': float(pending_expenses_agg['total'] or 0),
+            'total_count': pending_expenses_agg['count'] or 0,
+            'items': onetime_pending_items,
+        }
+
+        return Response({
+            'expenses_summary': expenses_summary,
+            'fixed_pending': fixed_pending,
+            'onetime_pending': onetime_pending,
+        })
 
 
 class BudgetViewSet(BaseTreasuryViewSet):

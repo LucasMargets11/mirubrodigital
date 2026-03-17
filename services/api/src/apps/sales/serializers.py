@@ -18,7 +18,7 @@ from apps.customers.serializers import CustomerSummarySerializer
 from apps.inventory.models import StockMovement
 from apps.inventory.services import ensure_stock_record, register_stock_movement
 from apps.invoices.models import Invoice
-from .models import Sale, SaleItem
+from .models import Sale, SaleItem, Order, OrderItem, OrderPayment, OrderHistory
 
 
 class SaleItemSerializer(serializers.ModelSerializer):
@@ -389,3 +389,128 @@ class SaleCancelSerializer(serializers.Serializer):
       update_fields.append('notes')
     sale.save(update_fields=update_fields)
     return sale
+
+
+class OrderItemSerializer(serializers.ModelSerializer):
+    product_name = serializers.CharField(source='name_snapshot', read_only=True)
+    product_sku = serializers.CharField(source='sku_snapshot', read_only=True)
+
+    class Meta:
+        model = OrderItem
+        fields = ['id', 'product', 'product_sku', 'product_name', 'quantity', 'unit_price', 'discount', 'subtotal', 'reserved_quantity', 'delivered_quantity']
+        read_only_fields = ['subtotal', 'product_sku', 'product_name', 'reserved_quantity', 'delivered_quantity']
+
+class OrderPaymentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = OrderPayment
+        fields = ['id', 'amount', 'payment_date', 'payment_method', 'notes']
+
+class OrderHistorySerializer(serializers.ModelSerializer):
+    user_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = OrderHistory
+        fields = ['id', 'action', 'from_status', 'to_status', 'payload', 'user_name', 'created_at']
+
+    def get_user_name(self, obj):
+        return obj.user.get_full_name() if obj.user else 'Sistema'
+
+class OrderSerializer(serializers.ModelSerializer):
+    items = OrderItemSerializer(many=True, read_only=True)
+    payments = OrderPaymentSerializer(many=True, read_only=True)
+    history = OrderHistorySerializer(many=True, read_only=True)
+    customer_name = serializers.CharField(source='customer.name', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    payment_status_display = serializers.CharField(source='get_payment_status_display', read_only=True)
+
+    class Meta:
+        model = Order
+        fields = '__all__'
+        read_only_fields = ['number', 'created_by', 'business', 'total', 'subtotal', 'discount_total', 'surcharge_total', 'total_paid', 'pending_balance', 'created_at', 'updated_at']
+
+class OrderListSerializer(serializers.ModelSerializer):
+    customer_name = serializers.CharField(source='customer.name', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    payment_status_display = serializers.CharField(source='get_payment_status_display', read_only=True)
+    items_count = serializers.IntegerField(source='items.count', read_only=True)
+
+    class Meta:
+        model = Order
+        fields = ['id', 'number', 'customer', 'customer_name', 'status', 'status_display', 'payment_status', 'payment_status_display', 'total', 'total_paid', 'pending_balance', 'order_date', 'estimated_delivery_date', 'items_count']
+
+class OrderCreateSerializer(serializers.ModelSerializer):
+    items = serializers.ListField(child=serializers.DictField(), write_only=True)
+    customer = serializers.PrimaryKeyRelatedField(queryset=Customer.objects.all())
+
+    class Meta:
+        model = Order
+        fields = ['customer', 'items', 'notes', 'estimated_delivery_date', 'quote']
+
+    def create(self, validated_data):
+        items_data = validated_data.pop('items')
+        business = self.context['request'].business
+        user = self.context['request'].user
+
+        # Numeracion
+        from .models import OrderSequence
+        try:
+            sequence, _ = OrderSequence.objects.get_or_create(business=business)
+            sequence.last_number += 1
+            sequence.save()
+            order_number = f"O-{sequence.last_number:06d}"
+        except Exception:
+             # Fallback simple
+            last = Order.objects.filter(business=business).order_by('created_at').last()
+            num = 1
+            if last:
+                 try: num = int(last.number.split('-')[1]) + 1
+                 except: pass
+            order_number = f"O-{num:06d}"
+
+        order = Order.objects.create(
+            business=business,
+            created_by=user,
+            number=order_number,
+            status=Order.Status.DRAFT,
+            **validated_data
+        )
+
+        subtotal = Decimal('0')
+        bulk_items = []
+        
+        for item_data in items_data:
+            product_id = item_data['product_id']
+            try:
+                product = Product.objects.get(pk=product_id, business=business)
+            except Product.DoesNotExist:
+                 raise serializers.ValidationError(f"Producto {product_id} no encontrado")
+            
+            quantity = Decimal(str(item_data['quantity']))
+            price = Decimal(str(item_data.get('unit_price', product.price)))
+            discount = Decimal(str(item_data.get('discount', '0')))
+            
+            line_subtotal = (price * quantity) - discount
+            subtotal += line_subtotal
+            
+            bulk_items.append(OrderItem(
+                order=order,
+                product=product,
+                name_snapshot=product.name,
+                sku_snapshot=product.sku,
+                unit_price=price,
+                quantity=quantity,
+                discount=discount,
+                subtotal=line_subtotal
+            ))
+            
+        OrderItem.objects.bulk_create(bulk_items)
+        
+        order.subtotal = subtotal
+        order.total = subtotal
+        order.pending_balance = order.total
+        order.save()
+        
+        OrderHistory.objects.create(order=order, action='created', user=user, to_status=Order.Status.DRAFT)
+        
+        return order
+

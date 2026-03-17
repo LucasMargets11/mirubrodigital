@@ -2,7 +2,7 @@
  * Hook para manejo de ordenamiento de tablas
  * Soporta persistencia en URL y ordenamiento client-side/server-side
  */
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 
 export type SortDirection = 'asc' | 'desc';
@@ -54,14 +54,18 @@ export function useTableSort(options: UseTableSortOptions = {}): UseTableSortRet
     const pathname = usePathname();
     const searchParams = useSearchParams();
 
-    // Leer desde URL si está habilitado
+    // Local state for non-URL mode
+    const [localSortKey, setLocalSortKey] = useState<string | null>(defaultSortKey);
+    const [localSortDir, setLocalSortDir] = useState<SortDirection>(defaultSortDir);
+
+    // Leer desde URL si está habilitado, sino desde estado local
     const currentSortKey = persistInUrl
         ? (searchParams.get('ordering')?.replace(/^-/, '') ?? defaultSortKey)
-        : defaultSortKey;
+        : localSortKey;
 
     const currentSortDir: SortDirection = persistInUrl
         ? (searchParams.get('ordering')?.startsWith('-') ? 'desc' : 'asc')
-        : defaultSortDir;
+        : localSortDir;
 
     const onToggleSort = useCallback(
         (key: string) => {
@@ -77,6 +81,9 @@ export function useTableSort(options: UseTableSortOptions = {}): UseTableSortRet
                 const ordering = newDir === 'desc' ? `-${key}` : key;
                 params.set('ordering', ordering);
                 router.push(`${pathname}?${params.toString()}`, { scroll: false });
+            } else {
+                setLocalSortKey(key);
+                setLocalSortDir(newDir);
             }
 
             onSortChange?.(key, newDir);

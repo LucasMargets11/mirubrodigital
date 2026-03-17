@@ -123,6 +123,7 @@ PLANS: List[PlanConfig] = [
             'Cotizaciones con PDF',
             'Reportes avanzados + Exportación',
             'Tesorería / Finanzas',
+            'Dashboard con módulo de Finanzas',
             'Inventario avanzado',
             'RBAC completo + Auditoría',
         ],

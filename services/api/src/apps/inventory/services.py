@@ -324,15 +324,21 @@ def void_stock_replenishment(
   return replenishment
 
 
+@transaction.atomic
+def reserve_stock(business: Business, product: Product, quantity: Decimal) -> ProductStock:
+  stock = ensure_stock_record(business, product)
+  stock.reserved_quantity += Decimal(quantity)
+  stock.save(update_fields=['reserved_quantity', 'updated_at'])
+  return stock
 
-def ensure_stock_record(business: Business, product: Product) -> ProductStock:
-  stock, _ = ProductStock.objects.get_or_create(
-    business=business,
-    product=product,
-    defaults={'quantity': Decimal('0')},
-  )
-  if transaction.get_connection().in_atomic_block:
-    stock = ProductStock.objects.select_for_update().get(pk=stock.pk)
+
+@transaction.atomic
+def release_stock(business: Business, product: Product, quantity: Decimal) -> ProductStock:
+  stock = ensure_stock_record(business, product)
+  stock.reserved_quantity -= Decimal(quantity)
+  if stock.reserved_quantity < 0:
+    stock.reserved_quantity = Decimal(0)
+  stock.save(update_fields=['reserved_quantity', 'updated_at'])
   return stock
 
 

@@ -1,14 +1,14 @@
 "use client";
 
 import { useInventorySummary } from '@/features/gestion/hooks';
-import type { DashboardFeatures, DashboardPermissions } from '../dashboard-client';
+import type { DashboardFeatures, DashboardPermissions } from '../../dashboard-client';
 import type { InventorySummaryStats } from '@/features/gestion/types';
 
 import { AlertsBlock } from './alerts-block';
 import { ExecutiveHeader } from './executive-header';
 import { FinanceAccountsBlock } from './finance-accounts-block';
+import { FinanceExpensesBlock } from './finance-expenses-block';
 import { KpiStrip } from './kpi-strip';
-import { OpportunitiesBlock } from './opportunities-block';
 import { PipelineBlock } from './pipeline-block';
 import { PrioritiesList } from './priorities-list';
 import { RecentActivityFeed } from './recent-activity-feed';
@@ -54,7 +54,7 @@ export function OwnerDashboard({
                 canViewCash={permissions.canViewCash && features.cash}
                 canViewQuotes={permissions.canViewQuotes && features.quotes}
                 canViewStock={permissions.canViewStock && features.inventory}
-                canViewFinance={permissions.canViewFinance && features.treasury}
+                canViewOrders={permissions.canViewOrders && features.orders}
             />
 
             <div className="grid grid-cols-1 gap-8 xl:grid-cols-3">
@@ -66,6 +66,7 @@ export function OwnerDashboard({
                         canViewStock={permissions.canViewStock && features.inventory}
                         canViewQuotes={permissions.canViewQuotes && features.quotes}
                         canViewCash={permissions.canViewCash && features.cash}
+                        canViewFinance={permissions.canViewFinance && features.treasury}
                     />
                     
                     {/* 4. Acciones Rápidas */}
@@ -83,27 +84,8 @@ export function OwnerDashboard({
                             />
                         </div>
                     </div>
-                </div>
 
-                {/* Right Column: Pipeline, Finance, Activity, Alerts */}
-                <div className="space-y-8 xl:col-span-1">
-                    {/* 6. Finanzas y Cuentas (Nuevo Módulo Real) */}
-                    <FinanceAccountsBlock 
-                        canViewFinance={permissions.canViewFinance && features.treasury}
-                    />
-
-                    {/* 7. Pipeline */}
-                    <PipelineBlock 
-                        quotesEnabled={permissions.canViewQuotes && features.quotes}
-                    />
-
-                    {/* 8. Alertas */}
-                    <AlertsBlock 
-                        inventorySummary={inventorySummary}
-                        canViewStock={permissions.canViewStock && features.inventory}
-                    />
-
-                    {/* 9. Actividad Reciente */}
+                    {/* 6. Actividad Reciente */}
                     <RecentActivityFeed 
                         canViewStock={permissions.canViewStock}
                         inventoryEnabled={features.inventory}
@@ -111,6 +93,33 @@ export function OwnerDashboard({
                         salesEnabled={features.sales}
                         canViewQuotes={permissions.canViewQuotes}
                         quotesEnabled={features.quotes}
+                    />
+                </div>
+
+                {/* Right Column: Pipeline, Finance, Alerts */}
+                <div className="space-y-8 xl:col-span-1">
+                    {/* 7. Finanzas y Cuentas (Nuevo Módulo Real) */}
+                    <FinanceAccountsBlock 
+                        canViewFinance={permissions.canViewFinance && features.treasury}
+                    />
+
+                    {/* 7b. Gastos Finanzas — PRO (resumen gastos del mes, fijos pendientes, puntuales sin pagar) */}
+                    <FinanceExpensesBlock
+                        canViewFinance={permissions.canViewFinance && features.treasury}
+                    />
+
+                    {/* 8. Pipeline */}
+                    <PipelineBlock 
+                        quotesEnabled={permissions.canViewQuotes && features.quotes}
+                    />
+
+                    {/* 9. Alertas */}
+                    <AlertsBlock 
+                        inventorySummary={inventorySummary}
+                        canViewStock={permissions.canViewStock && features.inventory}
+                        canViewCash={permissions.canViewCash && features.cash}
+                        canViewQuotes={permissions.canViewQuotes && features.quotes}
+                        canViewOrders={permissions.canViewOrders && features.orders}
                     />
                 </div>
             </div>

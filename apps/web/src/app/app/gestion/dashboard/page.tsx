@@ -21,6 +21,7 @@ export default async function GestionDashboardPage() {
     const canViewCustomers = session.permissions?.view_customers ?? false;
     const canViewInvoices = session.permissions?.view_invoices ?? false;
     const canViewFinance = session.permissions?.view_finance ?? false;
+    const canViewOrders = session.permissions?.view_orders ?? false;
 
     const inventoryEnabled = session.features?.inventory !== false;
     const salesEnabled = session.features?.sales !== false;
@@ -29,6 +30,7 @@ export default async function GestionDashboardPage() {
     const customersEnabled = session.features?.customers !== false;
     const invoicesEnabled = session.features?.invoices !== false;
     const treasuryEnabled = session.features?.treasury !== false;
+    const ordersEnabled = session.features?.orders !== false;
 
     let summary: InventorySummaryStats | null = null;
     if (canViewStock && inventoryEnabled) {
@@ -54,6 +56,7 @@ export default async function GestionDashboardPage() {
                 canViewCustomers,
                 canViewInvoices,
                 canViewFinance,
+                canViewOrders,
             }}
             features={{
                 products: session.features?.products !== false,
@@ -64,6 +67,7 @@ export default async function GestionDashboardPage() {
                 customers: customersEnabled,
                 invoices: invoicesEnabled,
                 treasury: treasuryEnabled,
+                orders: ordersEnabled,
             }}
             planName={session.subscription.plan}
         />

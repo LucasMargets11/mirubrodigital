@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from 'react';
+import type { Route } from 'next';
 import Link from 'next/link';
 import { formatDistanceToNow } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -40,9 +41,9 @@ export function RecentActivityFeed({
     canViewQuotes, 
     quotesEnabled 
 }: RecentActivityFeedProps) {
-    const inventoryQuery = useRecentInventoryMovements(canViewStock && inventoryEnabled);
-    const salesQuery = useRecentSales(canViewSales && salesEnabled);
-    const quotesQuery = useRecentQuotes(canViewQuotes && quotesEnabled);
+    const inventoryQuery = useRecentInventoryMovements(5, canViewStock && inventoryEnabled);
+    const salesQuery = useRecentSales(5, canViewSales && salesEnabled);
+    const quotesQuery = useRecentQuotes(5, canViewQuotes && quotesEnabled);
 
     const isLoading = inventoryQuery.isLoading || salesQuery.isLoading || quotesQuery.isLoading;
 
@@ -74,7 +75,6 @@ export function RecentActivityFeed({
                     title: isOut ? 'Salida de stock' : 'Entrada de stock',
                     description: `${formatNumber(movement.quantity)} x ${movement.product.name}`,
                     timestamp: new Date(movement.created_at),
-                    // href: `/app/gestion/stock/movements/${movement.id}`,
                     icon: ArrowLeftRight,
                     tone: isOut ? 'warning' : 'info',
                 });
@@ -166,7 +166,7 @@ export function RecentActivityFeed({
                                 </div>
                             </div>
                             {item.href && (
-                                <Link href={item.href} className="absolute inset-0" aria-label={`Ver detalle de ${item.title}`} />
+                                <Link href={item.href as Route} className="absolute inset-0" aria-label={`Ver detalle de ${item.title}`} />
                             )}
                         </div>
                     ))}

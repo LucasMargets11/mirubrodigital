@@ -243,6 +243,13 @@ export const FEATURE_CATALOG: FeatureEntry[] = [
     category: 'Tesorería',
     availability: { start: 'not_included', pro: 'included', business: 'included', enterprise: 'custom' },
   },
+  {
+    key: 'gestion.dashboard_finance',
+    title: 'Dashboard con módulo de Finanzas',
+    description: 'Visualización de gastos, gastos fijos pendientes del mes y gastos puntuales no pagados en Inicio / Resumen.',
+    category: 'Tesorería',
+    availability: { start: 'not_included', pro: 'included', business: 'included', enterprise: 'custom' },
+  },
 
   // ── Seguridad ────────────────────────────────────────────────────────────
   {

@@ -76,9 +76,9 @@ PLAN_FEATURES: Dict[str, Iterable[str]] = {
   ),
   # New plans (Gestión Comercial)
   'start': ('products', 'inventory', 'stock', 'sales'),
-  'pro': ('products', 'inventory', 'stock', 'sales', 'customers', 'invoices', 'cash', 'quotes', 'treasury', 'reports'),
-  'business': ('products', 'inventory', 'stock', 'sales', 'customers', 'invoices', 'cash', 'quotes', 'treasury', 'reports', 'multi_branch'),
-  'enterprise': ('products', 'inventory', 'stock', 'sales', 'customers', 'invoices', 'cash', 'quotes', 'treasury', 'reports', 'multi_branch'),
+  'pro': ('products', 'inventory', 'stock', 'sales', 'customers', 'invoices', 'cash', 'quotes', 'treasury', 'reports', 'orders'),
+  'business': ('products', 'inventory', 'stock', 'sales', 'customers', 'invoices', 'cash', 'quotes', 'treasury', 'reports', 'multi_branch', 'orders'),
+  'enterprise': ('products', 'inventory', 'stock', 'sales', 'customers', 'invoices', 'cash', 'quotes', 'treasury', 'reports', 'multi_branch', 'orders'),
   # Menu QR Básico (standalone — sin imágenes)
   'menu_qr': (
     'menu_builder',

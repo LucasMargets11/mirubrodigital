@@ -2,6 +2,7 @@ import uuid
 
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 
 class Sale(models.Model):
@@ -208,4 +209,189 @@ class QuoteItem(models.Model):
     ]
 
   def __str__(self) -> str:
-    return f"Presupuesto {self.quote.number} · {self.name_snapshot}"
+    return f"QuoteItem {self.name_snapshot} ({self.quantity}) - {self.quote.number}"
+
+
+class OrderSequence(models.Model):
+  """Tabla para manejar la numeración correlativa de pedidos por negocio."""
+  business = models.OneToOneField('business.Business', related_name='order_sequence', on_delete=models.CASCADE, primary_key=True)
+  last_number = models.PositiveIntegerField(default=0)
+
+  class Meta:
+    db_table = 'sales_order_sequence'
+
+  def __str__(self) -> str:
+    return f"Order Sequence · {self.business_id} · {self.last_number}"
+
+
+class Order(models.Model):
+  """Pedido comercial: encargo confirmado o en gestión."""
+  class Status(models.TextChoices):
+    # Borrador
+    DRAFT = 'draft', 'Borrador'
+    # Pendiente de confirmación (ej: stock insuficiente, revisión)
+    PENDING_CONFIRMATION = 'pending_confirmation', 'Pendiente de Confirmación'
+    # Confirmado (stock reservado)
+    CONFIRMED = 'confirmed', 'Confirmado'
+    # En preparación
+    IN_PREPARATION = 'in_preparation', 'En Preparación'
+    # Listo para entregar
+    READY_FOR_DELIVERY = 'ready_for_delivery', 'Listo para Entregar'
+    # Entregado (stock descontado)
+    DELIVERED = 'delivered', 'Entregado'
+    # Cancelado (libera reserva)
+    CANCELLED = 'cancelled', 'Cancelado'
+
+  class PaymentStatus(models.TextChoices):
+    PENDING = 'pending', 'Pendiente'
+    PARTIAL = 'partial', 'Parcial'
+    PAID = 'paid', 'Pagado'
+
+  id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+  business = models.ForeignKey('business.Business', related_name='commercial_orders', on_delete=models.CASCADE)
+  # Nummeración secuencial (separada de Presupuestos y Ventas)
+  number = models.CharField(max_length=20)  # Formato: O-000001
+  
+  customer = models.ForeignKey(
+    'customers.Customer',
+    related_name='commercial_orders',
+    on_delete=models.PROTECT,
+  )
+  quote = models.ForeignKey(
+    'sales.Quote',
+    related_name='resulting_orders',
+    null=True,
+    blank=True,
+    on_delete=models.SET_NULL,
+  )
+  sale = models.OneToOneField(
+    'sales.Sale',
+    related_name='source_order',
+    null=True,
+    blank=True,
+    on_delete=models.SET_NULL,
+  )
+
+  status = models.CharField(max_length=24, choices=Status.choices, default=Status.DRAFT)
+  payment_status = models.CharField(max_length=16, choices=PaymentStatus.choices, default=PaymentStatus.PENDING)
+
+  order_date = models.DateField(default=timezone.now)
+  estimated_delivery_date = models.DateField(null=True, blank=True)
+
+  # Totales
+  subtotal = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+  discount_total = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+  surcharge_total = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+  total = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+  
+  # Pagos
+  total_paid = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+  pending_balance = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+
+  notes = models.TextField(blank=True)
+  metadata = models.JSONField(default=dict, blank=True)
+
+  created_by = models.ForeignKey(
+    settings.AUTH_USER_MODEL,
+    related_name='commercial_orders_created',
+    null=True,
+    blank=True,
+    on_delete=models.SET_NULL,
+  )
+  created_at = models.DateTimeField(auto_now_add=True)
+  updated_at = models.DateTimeField(auto_now=True)
+  deleted_at = models.DateTimeField(null=True, blank=True)
+
+  class Meta:
+    ordering = ['-created_at']
+    constraints = [
+      models.UniqueConstraint(fields=['business', 'number'], name='orders_business_number_unique'),
+    ]
+    indexes = [
+      models.Index(fields=['business', 'status']),
+      models.Index(fields=['business', 'payment_status']),
+      models.Index(fields=['business', 'customer']),
+    ]
+
+  def __str__(self) -> str:
+    return f"Pedido {self.number} · {self.business_id}"
+
+
+class OrderItem(models.Model):
+  id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+  order = models.ForeignKey('sales.Order', related_name='items', on_delete=models.CASCADE)
+  product = models.ForeignKey('catalog.Product', related_name='sales_order_items', null=True, blank=True, on_delete=models.SET_NULL)
+  
+  # Snapshots
+  sku_snapshot = models.CharField(max_length=64, blank=True)
+  name_snapshot = models.CharField(max_length=255)
+  description_snapshot = models.TextField(blank=True)
+  
+  unit_price = models.DecimalField(max_digits=12, decimal_places=2)
+  quantity = models.DecimalField(max_digits=10, decimal_places=2)
+  discount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+  subtotal = models.DecimalField(max_digits=12, decimal_places=2)
+  
+  # Trazabilidad de stock
+  reserved_quantity = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+  delivered_quantity = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+  
+  created_at = models.DateTimeField(auto_now_add=True)
+  updated_at = models.DateTimeField(auto_now=True)
+
+  def __str__(self) -> str:
+    return f"Item {self.name_snapshot} ({self.quantity}) - {self.order.number}"
+
+
+class OrderPayment(models.Model):
+  id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+  order = models.ForeignKey('sales.Order', related_name='payments', on_delete=models.CASCADE)
+  amount = models.DecimalField(max_digits=12, decimal_places=2)
+  payment_date = models.DateTimeField(default=timezone.now)
+  payment_method = models.CharField(max_length=50)  # O FK a PaymentMethod si existe
+  notes = models.TextField(blank=True)
+  
+  # Link opcional a movimiento de caja real si se implementa integración full
+  cash_movement = models.ForeignKey(
+    'cash.CashMovement',
+    related_name='order_payments',
+    null=True,
+    blank=True,
+    on_delete=models.SET_NULL,
+  )
+
+  created_by = models.ForeignKey(
+    settings.AUTH_USER_MODEL,
+    related_name='order_payments_registered',
+    null=True,
+    blank=True,
+    on_delete=models.SET_NULL,
+  )
+  created_at = models.DateTimeField(auto_now_add=True)
+
+  def __str__(self) -> str:
+    return f"Pago {self.amount} - {self.order.number}"
+
+
+class OrderHistory(models.Model):
+  id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+  order = models.ForeignKey('sales.Order', related_name='history', on_delete=models.CASCADE)
+  action = models.CharField(max_length=50)
+  from_status = models.CharField(max_length=50, blank=True, null=True)
+  to_status = models.CharField(max_length=50, blank=True, null=True)
+  payload = models.JSONField(default=dict, blank=True)
+  
+  user = models.ForeignKey(
+    settings.AUTH_USER_MODEL,
+    related_name='order_history_entries',
+    null=True,
+    blank=True,
+    on_delete=models.SET_NULL,
+  )
+  created_at = models.DateTimeField(auto_now_add=True)
+
+  class Meta:
+    ordering = ['-created_at']
+
+  def __str__(self) -> str:
+    return f"{self.action} - {self.order.number}"

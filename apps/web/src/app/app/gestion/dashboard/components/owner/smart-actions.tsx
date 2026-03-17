@@ -1,6 +1,7 @@
 "use client";
 
-import { CreditCard, FileText, PackagePlus, PlusCircle, ShoppingCart, Store, Receipt, AlertTriangle } from 'lucide-react';
+import { CreditCard, FileText, PackagePlus, ShoppingCart, Store, AlertTriangle } from 'lucide-react';
+import type { Route } from 'next';
 import Link from 'next/link';
 
 import { Button } from '@/components/ui/button';
@@ -21,7 +22,6 @@ export function SmartActions({ permissions, features }: SmartActionsProps) {
     const inventoryQuery = useInventorySummary({ enabled: permissions.canViewStock && features.inventory });
 
     const isCashOpen = Boolean(cashQuery.data?.session);
-    // const pendingQuotes = quotesQuery.data?.total_pending ?? 0;
     const pendingQuotes = quotesQuery.data?.count ?? 0;
     const lowStock = inventoryQuery.data?.low_stock ?? 0;
 
@@ -120,7 +120,7 @@ export function SmartActions({ permissions, features }: SmartActionsProps) {
                         )}
                         asChild
                     >
-                        <Link href={action.href}>
+                        <Link href={action.href as Route}>
                             <action.icon className="h-5 w-5" />
                             <span className="text-xs font-semibold">{action.title}</span>
                         </Link>

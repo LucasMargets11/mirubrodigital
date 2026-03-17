@@ -110,6 +110,7 @@ class ProductStock(models.Model):
   business = models.ForeignKey('business.Business', related_name='inventory_levels', on_delete=models.CASCADE)
   product = models.OneToOneField('catalog.Product', related_name='stock_level', on_delete=models.CASCADE)
   quantity = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+  reserved_quantity = models.DecimalField(max_digits=12, decimal_places=2, default=0)
   updated_at = models.DateTimeField(auto_now=True)
 
   class Meta:

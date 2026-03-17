@@ -36,7 +36,7 @@ export function SortableHeader({
             aria-sort={isActive ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
             {...props}
         >
-            <div className="flex items-center gap-2">
+            <div className={`flex items-center gap-2 ${className?.includes('text-center') ? 'justify-center' : ''}`}>
                 <span>{label}</span>
                 {isSortable && (
                     <span className="inline-flex flex-col">

@@ -1,20 +1,30 @@
 "use client";
 
-import { AlertTriangle, ArrowRight, Box, CheckCircle, Clock } from 'lucide-react';
+import { ArrowRight, CheckCircle, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 
-import { useCashSummary } from '@/features/cash/hooks';
 import type { InventorySummaryStats } from '@/features/gestion/types';
-import { usePendingQuotesSummary } from '@/features/gestion/hooks';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { formatCurrency } from '@/lib/format';
+
+import { useDailyPriorities } from '../../priorities/use-daily-priorities';
+import type { DailyPriority, PrioritySeverity } from '../../priorities/types';
 
 type PrioritiesListProps = {
     inventorySummary: InventorySummaryStats | null;
     canViewStock: boolean;
     canViewQuotes: boolean;
     canViewCash: boolean;
+    canViewFinance: boolean;
+};
+
+const SEVERITY_STYLES: Record<PrioritySeverity, { bg: string; text: string; dot: string }> = {
+    critical: { bg: 'bg-red-100', text: 'text-red-600', dot: 'bg-red-500' },
+    urgent: { bg: 'bg-orange-100', text: 'text-orange-600', dot: 'bg-orange-500' },
+    important: { bg: 'bg-amber-100', text: 'text-amber-600', dot: 'bg-amber-500' },
+    informative: { bg: 'bg-blue-100', text: 'text-blue-600', dot: 'bg-blue-500' },
 };
 
 export function PrioritiesList({
@@ -22,52 +32,27 @@ export function PrioritiesList({
     canViewStock,
     canViewQuotes,
     canViewCash,
+    canViewFinance,
 }: PrioritiesListProps) {
-    const quotesQuery = usePendingQuotesSummary(canViewQuotes);
-    const cashQuery = useCashSummary(undefined, canViewCash);
-    
-    // const pendingQuotes = quotesQuery.data?.total_pending ?? 0;
-    const pendingQuotes = quotesQuery.data?.count ?? 0;
-    const isCashClosed = canViewCash && !cashQuery.data?.session;
-    const lowStock = inventorySummary?.low_stock ?? 0;
-    // const pendingInvoices = 3; // Mocked for now until hook exists
+    const { priorities, isLoading } = useDailyPriorities({
+        inventorySummary,
+        canViewStock,
+        canViewQuotes,
+        canViewCash,
+        canViewFinance,
+    });
 
-    const priorities = [];
-
-    if (isCashClosed) {
-        priorities.push({
-            id: 'cash',
-            title: 'Abrir caja para comenzar a operar',
-            href: '/app/cash',
-            priority: 'high',
-            icon: AlertTriangle,
-            actionLabel: 'Abrir ahora'
-        });
+    if (isLoading) {
+        return (
+            <Card className="border-slate-100">
+                <CardContent className="flex items-center justify-center gap-3 py-8">
+                    <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+                    <p className="text-sm text-slate-500">Cargando prioridades…</p>
+                </CardContent>
+            </Card>
+        );
     }
 
-    if (canViewQuotes && pendingQuotes > 0) {
-        priorities.push({
-            id: 'quotes',
-            title: `Responder ${pendingQuotes} presupuestos pendientes`,
-            href: '/app/gestion/ventas/presupuestos',
-            priority: 'medium',
-            icon: Clock,
-            actionLabel: 'Ver todos'
-        });
-    }
-
-    if (canViewStock && lowStock > 0) {
-        priorities.push({
-            id: 'stock',
-            title: `Reponer ${lowStock} productos en stock crítico`,
-            href: '/app/gestion/stock?status=low',
-            priority: 'medium',
-            icon: Box,
-            actionLabel: 'Revisar stock'
-        });
-    }
-
-    // Add a default positive state if empty
     if (priorities.length === 0) {
         return (
             <Card className="border-emerald-100 bg-emerald-50/50">
@@ -84,39 +69,61 @@ export function PrioritiesList({
         );
     }
 
+    // Use the highest severity to color the header dot
+    const headerDotColor = SEVERITY_STYLES[priorities[0].severity].dot;
+
     return (
         <Card>
             <CardHeader className="pb-3 border-b border-slate-100">
                 <CardTitle className="text-base font-semibold text-slate-800 flex items-center gap-2">
-                    <span className="h-2 w-2 rounded-full bg-amber-500" />
+                    <span className={cn("h-2 w-2 rounded-full", headerDotColor)} />
                     Prioridades del día
+                    <span className="ml-auto text-xs font-normal text-slate-400">
+                        {priorities.length}
+                    </span>
                 </CardTitle>
             </CardHeader>
             <CardContent className="p-0">
                 <div className="divide-y divide-slate-100">
                     {priorities.map((item) => (
-                        <div key={item.id} className="flex items-center justify-between p-4 hover:bg-slate-50 transition-colors">
-                            <div className="flex items-center gap-3">
-                                <div className={cn(
-                                    "flex h-9 w-9 items-center justify-center rounded-full",
-                                    item.priority === 'high' ? "bg-red-100 text-red-600" : "bg-amber-100 text-amber-600"
-                                )}>
-                                    <item.icon className="h-5 w-5" />
-                                </div>
-                                <span className="text-sm font-medium text-slate-700">
-                                    {item.title}
-                                </span>
-                            </div>
-                            <Button variant="ghost" size="sm" asChild className="text-slate-500 hover:text-slate-900">
-                                <Link href={item.href}>
-                                    {item.actionLabel}
-                                    <ArrowRight className="ml-1 h-3 w-3" />
-                                </Link>
-                            </Button>
-                        </div>
+                        <PriorityRow key={item.id} item={item} />
                     ))}
                 </div>
             </CardContent>
         </Card>
+    );
+}
+
+function PriorityRow({ item }: { item: DailyPriority }) {
+    const style = SEVERITY_STYLES[item.severity];
+
+    return (
+        <div className="flex items-center justify-between p-4 hover:bg-slate-50 transition-colors">
+            <div className="flex items-center gap-3 min-w-0 flex-1">
+                <div className={cn(
+                    "flex h-9 w-9 shrink-0 items-center justify-center rounded-full",
+                    style.bg,
+                    style.text,
+                )}>
+                    <item.icon className="h-5 w-5" />
+                </div>
+                <div className="min-w-0">
+                    <span className="text-sm font-medium text-slate-700 line-clamp-1">
+                        {item.title}
+                    </span>
+                    {item.amount != null && item.amount > 0 && (
+                        <span className="text-xs text-slate-500">
+                            {formatCurrency(item.amount)}
+                        </span>
+                    )}
+                </div>
+            </div>
+            <Button variant="ghost" size="sm" asChild className="shrink-0 text-slate-500 hover:text-slate-900">
+                <Link href={item.href as any}>
+                    {item.actionLabel}
+                    <ArrowRight className="ml-1 h-3 w-3" />
+                </Link>
+            </Button>
+        </div>
     );
 }

@@ -341,6 +341,7 @@ export function StockClient({ canManage, canManagePurchases = false, initialStat
                                     activeSortKey={stockSort.sortKey}
                                     sortDir={stockSort.sortDir}
                                     onToggleSort={stockSort.onToggleSort}
+                                    className="text-center"
                                 />
                                 <SortableHeader
                                     label="Stock mínimo"
@@ -348,6 +349,7 @@ export function StockClient({ canManage, canManagePurchases = false, initialStat
                                     activeSortKey={stockSort.sortKey}
                                     sortDir={stockSort.sortDir}
                                     onToggleSort={stockSort.onToggleSort}
+                                    className="text-center"
                                 />
                                 <SortableHeader
                                     label="Estado"
@@ -382,8 +384,8 @@ export function StockClient({ canManage, canManagePurchases = false, initialStat
                                         <p className="font-medium text-slate-900">{row.product.name}</p>
                                         <p className="text-xs text-slate-400">SKU {row.product.sku || '—'}</p>
                                     </td>
-                                    <td className="px-3 py-3 font-semibold text-slate-900">{Number(row.quantity).toLocaleString('es-AR')}</td>
-                                    <td className="px-3 py-3 text-slate-500">{Number(row.product.stock_min).toLocaleString('es-AR')}</td>
+                                    <td className="px-3 py-3 text-center font-semibold text-slate-900">{Number(row.quantity).toLocaleString('es-AR')}</td>
+                                    <td className="px-3 py-3 text-center text-slate-500">{Number(row.product.stock_min).toLocaleString('es-AR')}</td>
                                     <td className="px-3 py-3">
                                         <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusBadges[row.status]}`}>
                                             {row.status === 'ok' && 'En orden'}

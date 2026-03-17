@@ -4,8 +4,8 @@ import { usePendingQuotesSummary } from '@/features/gestion/hooks';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
-import { ArrowRight, CheckCircle2, CircleDollarSign, Clock, AlertCircle } from 'lucide-react';
-import { formatCurrency, formatNumber } from '@/lib/format';
+import { ArrowRight, CircleDollarSign } from 'lucide-react';
+import { formatNumber } from '@/lib/format';
 
 type PipelineBlockProps = {
     quotesEnabled: boolean;

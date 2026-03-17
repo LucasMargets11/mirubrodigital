@@ -6,7 +6,7 @@ import { useMemo } from 'react';
 import { usePendingQuotesSummary, useSalesTodaySummary } from '@/features/gestion/hooks';
 import { useCashSummary } from '@/features/cash/hooks';
 import type { InventorySummaryStats } from '@/features/gestion/types';
-import { formatCurrency, formatNumber } from '@/lib/format';
+
 
 type ExecutiveHeaderProps = {
     inventorySummary: InventorySummaryStats | null;
@@ -29,7 +29,6 @@ export function ExecutiveHeader({
 
     // Adapting to actual hook return type { count: number }
     const pendingQuotes = quotesQuery.data?.count ?? 0;
-    // const pendingAmount = 0; // Not available in current hook
     const cashStatus = cashQuery.data?.session ? 'abierta' : 'cerrada';
     const lowStock = inventorySummary?.low_stock ?? 0;
 

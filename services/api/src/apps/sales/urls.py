@@ -1,5 +1,7 @@
 from django.urls import path
 
+from rest_framework.routers import DefaultRouter
+from django.urls import include
 from .views import (
 	SaleCancelView,
 	SaleDetailView,
@@ -7,6 +9,7 @@ from .views import (
 	SalesRecentView,
 	SalesTodaySummaryView,
 	SalesTopProductsView,
+    OrderViewSet,
 )
 from .quote_views import (
 	QuoteListCreateView,
@@ -34,4 +37,11 @@ urlpatterns = [
 	path('quotes/<uuid:pk>/mark-accepted/', QuoteMarkAcceptedView.as_view(), name='quote-mark-accepted'),
 	path('quotes/<uuid:pk>/mark-rejected/', QuoteMarkRejectedView.as_view(), name='quote-mark-rejected'),
 	path('quotes/<uuid:pk>/pdf/', QuotePDFView.as_view(), name='quote-pdf'),
+]
+
+router = DefaultRouter()
+router.register('orders', OrderViewSet, basename='order')
+
+urlpatterns += [
+    path('', include(router.urls)),
 ]

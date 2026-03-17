@@ -16,6 +16,7 @@ export type DashboardPermissions = {
     canViewCustomers: boolean;
     canViewInvoices: boolean;
     canViewFinance: boolean;
+    canViewOrders: boolean;
 };
 
 export type DashboardFeatures = {
@@ -27,6 +28,7 @@ export type DashboardFeatures = {
     customers: boolean;
     invoices: boolean;
     treasury: boolean;
+    orders: boolean;
 };
 
 type DashboardClientProps = {

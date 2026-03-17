@@ -43,11 +43,21 @@ import {
     deleteDocumentSeries,
     setDocumentSeriesDefault,
     fetchBusinessEntitlements,
+    fetchOrders,
+    fetchOrder,
+    createOrder,
+    confirmOrder,
+    cancelOrder,
+    markOrderInPreparation,
+    markOrderReady,
+    deliverOrder,
+    registerOrderPayment,
 } from './api';
 import type {
     CommercialSettings,
     InventoryValuationFilters,
     ProductPayload,
+    OrdersFilters,
     SalePayload,
     SalesFilters,
     StockMovementPayload,
@@ -547,4 +557,108 @@ export function useEntitlements() {
         isLoading,
         error,
     };
+}
+
+// Orders Hooks
+
+export function usePendingOrdersSummary(enabled = true) {
+    return useQuery({
+        queryKey: [...dashboardBaseKey, 'pending-orders-summary'],
+        queryFn: async () => {
+            const data = await fetchOrders({ status: 'pending_confirmation,confirmed,in_preparation' });
+            return { count: data.count };
+        },
+        enabled,
+        staleTime: 60_000,
+    });
+}
+
+export function useOrders(filters: OrdersFilters = {}, options: { enabled?: boolean } = {}) {
+    return useQuery({
+        queryKey: ['orders', filters],
+        queryFn: () => fetchOrders(filters),
+        enabled: options.enabled,
+    });
+}
+
+export function useOrder(id: string) {
+    return useQuery({
+        queryKey: ['order', id],
+        queryFn: () => fetchOrder(id),
+        enabled: !!id,
+    });
+}
+
+export function useCreateOrder() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: createOrder,
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['orders'] });
+        },
+    });
+}
+
+export function useConfirmOrder() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: confirmOrder,
+        onSuccess: (data: any) => {
+            queryClient.invalidateQueries({ queryKey: ['orders'] });
+            queryClient.invalidateQueries({ queryKey: ['order', data.id] });
+        },
+    });
+}
+
+export function useCancelOrder() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: cancelOrder,
+        onSuccess: (data: any) => {
+             queryClient.invalidateQueries({ queryKey: ['orders'] });
+             queryClient.invalidateQueries({ queryKey: ['order', data.id] });
+        },
+    });
+}
+
+export function useMarkOrderPreparation() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: markOrderInPreparation,
+        onSuccess: (data: any) => {
+            queryClient.invalidateQueries({ queryKey: ['order', data.id] });
+        },
+    });
+}
+
+export function useMarkOrderReady() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: markOrderReady,
+        onSuccess: (data: any) => {
+            queryClient.invalidateQueries({ queryKey: ['order', data.id] });
+        },
+    });
+}
+
+export function useDeliverOrder() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: deliverOrder,
+        onSuccess: (data: any) => {
+            queryClient.invalidateQueries({ queryKey: ['order', data.id] });
+            queryClient.invalidateQueries({ queryKey: ['orders'] });
+        },
+    });
+}
+
+export function useRegisterOrderPayment() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ id, payload }: { id: string; payload: any }) => registerOrderPayment(id, payload),
+        onSuccess: (data: any) => {
+            queryClient.invalidateQueries({ queryKey: ['order', data.id] });
+            queryClient.invalidateQueries({ queryKey: ['orders'] });
+        },
+    });
 }

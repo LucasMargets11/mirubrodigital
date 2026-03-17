@@ -298,6 +298,84 @@ export type QuotePayload = {
     items: QuoteItemPayload[];
 };
 
+export type OrderStatus = 'draft' | 'pending_confirmation' | 'confirmed' | 'in_preparation' | 'ready_for_delivery' | 'delivered' | 'cancelled';
+export type OrderPaymentStatus = 'pending' | 'partial' | 'paid';
+
+export type OrderItem = {
+    id: string;
+    product: string; // product id
+    product_sku?: string;
+    product_name: string;
+    description: string;
+    unit_price: string;
+    quantity: string;
+    discount: string;
+    subtotal: string;
+    reserved_quantity: string;
+    delivered_quantity: string;
+};
+
+export type OrderPayment = {
+    id: string;
+    amount: string;
+    payment_date: string;
+    payment_method: string;
+    notes?: string;
+};
+
+export type OrderHistory = {
+    id: string;
+    action: string;
+    from_status?: string;
+    to_status?: string;
+    user_name: string;
+    created_at: string;
+};
+
+export type Order = {
+    id: string;
+    number: string;
+    customer: string; // ID
+    customer_name: string;
+    status: OrderStatus;
+    status_display?: string;
+    payment_status: OrderPaymentStatus;
+    payment_status_display?: string;
+    total: string;
+    total_paid: string;
+    pending_balance: string;
+    order_date: string;
+    estimated_delivery_date?: string;
+    items_count?: number;
+    created_at: string;
+    
+    // Detailed
+    items?: OrderItem[];
+    payments?: OrderPayment[];
+    history?: OrderHistory[];
+    notes?: string;
+    quote?: string | null;
+    sale?: string | null;
+};
+
+export type CreateOrderPayload = {
+    customer: string;
+    items: { product_id: string; quantity: number | string; unit_price?: number | string; discount?: number | string }[];
+    notes?: string;
+    estimated_delivery_date?: string;
+    quote?: string;
+};
+
+export type OrdersFilters = {
+    search?: string;
+    status?: string;
+    payment_status?: string;
+    date_from?: string;
+    date_to?: string;
+    page?: number;
+    limit?: number;
+};
+
 // Business Configuration Models
 
 export type TaxIdType = 'cuit' | 'cuil' | 'dni' | 'other';

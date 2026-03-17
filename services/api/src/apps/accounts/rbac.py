@@ -34,6 +34,16 @@ GESTION_PERMISSIONS: Set[str] = {
   'manage_commercial_settings',
   'view_finance',
   'manage_finance',
+
+  # Orders (Gestión Comercial)
+  'view_orders',
+  'create_orders',
+  'edit_orders',
+  'delete_orders',
+  'confirm_orders',
+  'cancel_orders',
+  'change_order_status',
+  'close_orders',
 }
 
 RESTAURANT_PERMISSIONS: Set[str] = {
@@ -96,6 +106,10 @@ SERVICE_ROLE_PERMISSIONS: Dict[str, Dict[str, Set[str]]] = {
       'manage_cash',
       'view_reports_cash',
       'view_finance',
+      'view_orders',
+      'create_orders',
+      'edit_orders',
+      'change_order_status',
     },
     'staff': {
       'view_dashboard',
@@ -106,6 +120,10 @@ SERVICE_ROLE_PERMISSIONS: Dict[str, Dict[str, Set[str]]] = {
       'create_sales',
       'view_quotes',
       'create_quotes',
+      'view_orders',
+      'create_orders',
+      'edit_orders',
+      'change_order_status',
       'view_invoices',
       'view_customers',
       'manage_customers',
@@ -120,6 +138,7 @@ SERVICE_ROLE_PERMISSIONS: Dict[str, Dict[str, Set[str]]] = {
       'view_purchases',
       'view_sales',
       'view_quotes',
+      'view_orders',
       'view_invoices',
       'view_customers',
       'view_cash',
@@ -135,6 +154,7 @@ SERVICE_ROLE_PERMISSIONS: Dict[str, Dict[str, Set[str]]] = {
       'view_purchases',
       'view_sales',
       'view_quotes',
+      'view_orders',
       'view_invoices',
       'view_customers',
       'view_cash',
