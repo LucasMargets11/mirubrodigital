@@ -26,7 +26,7 @@ from apps.accounts.models import RolePermissionOverride
 from apps.accounts.permissions import HasBusinessMembership
 from apps.accounts.rbac import permissions_for_service, SERVICE_ROLE_PERMISSIONS
 from apps.accounts.rbac_registry import get_registry
-from apps.accounts.services import LastOwnerProtectionError, OwnerGuardService
+from apps.accounts.services import LastOwnerProtectionError, OwnerGuardService, InternalUserService
 from apps.accounts.owner_serializers import (
     AccessSummarySerializer,
     CapabilitySerializer,
@@ -38,6 +38,9 @@ from apps.accounts.owner_serializers import (
     get_role_description,
     BulkPermissionUpdateSerializer,
     PermissionUpdateResponseSerializer,
+    CreateMemberSerializer,
+    CreateMemberResponseSerializer,
+    SetPasswordSerializer,
 )
 from apps.business.context import build_business_context
 
@@ -461,19 +464,99 @@ def accounts_list(request: Request) -> Response:
         role_display = dict(Membership.ROLE_CHOICES).get(m.role, m.role)
         accounts_data.append({
             'id': user.id,
-            'email': user.email,
+            'email': user.email or '',
             'username': user.username,
             'full_name': user.get_full_name() or user.username,
             'role': m.role,
             'role_display': role_display,
             'is_active': user.is_active,
             'has_usable_password': user.has_usable_password(),
+            'membership_status': m.status,
             'date_joined': user.date_joined,
             'last_login': user.last_login,
         })
     
     serializer = UserAccountSerializer(accounts_data, many=True)
     return Response(serializer.data)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, HasBusinessMembership])
+@transaction.atomic
+def create_member(request: Request) -> Response:
+    """
+    POST /api/v1/owner/access/accounts/create/
+
+    Creates an internal user directly (no registration, no email verification,
+    no onboarding, no business creation).
+
+    The new user gets:
+      - A Django User with username + hashed password
+      - An active AccountProfile (email_verified=True)
+      - A Membership in the owner's current business
+
+    Owner-only endpoint with audit logging.
+
+    Request body::
+
+        {
+            "first_name": "Juan",
+            "last_name": "Pérez",
+            "username": "juan.perez",
+            "password": "securePass99",
+            "role": "cashier",
+            "email": ""  // optional
+        }
+    """
+    from django.core.exceptions import ValidationError as DjangoValidationError
+
+    membership = resolve_request_membership(request)
+    if not membership or not _is_owner(membership):
+        return Response(
+            {'error': 'Solo el propietario puede crear usuarios internos'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    serializer = CreateMemberSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    data = serializer.validated_data
+
+    try:
+        result = InternalUserService.create_internal_user(
+            business=membership.business,
+            first_name=data['first_name'],
+            last_name=data['last_name'],
+            username=data['username'],
+            password=data['password'],
+            role=data['role'],
+            email=data.get('email', ''),
+            created_by_user=request.user,
+            request=request,
+        )
+    except DjangoValidationError as exc:
+        # Extract message(s) from ValidationError
+        messages = exc.messages if hasattr(exc, 'messages') else [str(exc)]
+        return Response(
+            {'error': messages[0] if len(messages) == 1 else messages},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    new_user = result['user']
+    new_membership = result['membership']
+    role_display = dict(Membership.ROLE_CHOICES).get(new_membership.role, new_membership.role)
+
+    resp = CreateMemberResponseSerializer({
+        'success': True,
+        'message': f'Usuario "{new_user.username}" creado exitosamente con rol {role_display}.',
+        'user_id': new_user.pk,
+        'username': new_user.username,
+        'full_name': new_user.get_full_name(),
+        'role': new_membership.role,
+        'role_display': role_display,
+    })
+    return Response(resp.data, status=status.HTTP_201_CREATED)
 
 
 @api_view(['POST'])
@@ -527,11 +610,22 @@ def reset_password(request: Request, user_id: int) -> Response:
             status=status.HTTP_400_BAD_REQUEST
         )
     
-    # Generate temporary password
-    temp_password = _generate_temporary_password()
+    # Allow owner to provide an explicit new password, or generate a temporary one.
+    explicit_password = None
+    if request.data:
+        pw_serializer = SetPasswordSerializer(data=request.data)
+        if pw_serializer.is_valid():
+            explicit_password = pw_serializer.validated_data['new_password']
+
+    if explicit_password:
+        new_password = explicit_password
+        password_type = 'explicit'
+    else:
+        new_password = _generate_temporary_password()
+        password_type = 'temporary'
     
     # Set the password
-    target_user.set_password(temp_password)
+    target_user.set_password(new_password)
     target_user.save()
     
     # Log the audit
@@ -543,16 +637,19 @@ def reset_password(request: Request, user_id: int) -> Response:
         request=request,
         details={
             'reset_by_owner': True,
-            'target_email': target_user.email,
+            'target_email': target_user.email or target_user.username,
+            'password_type': password_type,
         }
     )
     
     data = {
         'success': True,
-        'message': 'Contraseña reseteada exitosamente. Comparte esta contraseña temporal con el usuario.',
-        'temporary_password': temp_password,
+        'message': 'Contraseña reseteada exitosamente.' + (
+            ' Comparte esta contraseña temporal con el usuario.' if password_type == 'temporary' else ''
+        ),
+        'temporary_password': new_password if password_type == 'temporary' else '',
         'username': target_user.username,
-        'email': target_user.email,
+        'email': target_user.email or '',
     }
     
     serializer = PasswordResetResponseSerializer(data)
@@ -963,7 +1060,7 @@ def remove_member(request: Request, user_id: int) -> Response:
             return Response({'error': str(exc)}, status=status.HTTP_409_CONFLICT)
 
     removed_role = target_membership.role
-    removed_email = target_user.email
+    removed_email = target_user.email or target_user.username
     target_membership.delete()
 
     _log_audit(

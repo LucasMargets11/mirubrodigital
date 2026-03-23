@@ -15,6 +15,7 @@ class Command(BaseCommand):
             ('gestion_sales_basic', 'Ventas Básicas', 'Registro de ventas y recibos', 'operation', 0, True),
             ('gestion_dashboard_basic', 'Dashboard Básico', 'Vista general de ventas y stock', 'insights', 0, True),
             ('gestion_settings_basic', 'Configuración Básica', 'Ajustes generales del negocio', 'admin', 0, True),
+            ('gestion_orders', 'Pedidos', 'Creación, seguimiento y gestión de pedidos de clientes', 'operation', 0, True),
             
             # PRO modules (not in START)
             ('gestion_customers', 'Clientes', 'CRM y listado de clientes', 'operation', 0, False),
@@ -54,7 +55,7 @@ class Command(BaseCommand):
         # Plan START - Core básico
         start_modules = [
             'gestion_products', 'gestion_inventory_basic', 'gestion_sales_basic',
-            'gestion_dashboard_basic', 'gestion_settings_basic'
+            'gestion_orders', 'gestion_dashboard_basic', 'gestion_settings_basic'
         ]
         
         b_start, _ = Bundle.objects.update_or_create(

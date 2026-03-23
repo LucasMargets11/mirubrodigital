@@ -320,6 +320,14 @@ class SubscriptionV2(models.Model):
         default=False,
         help_text='If True, subscription will not renew at period end.',
     )
+    cancel_requested_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text='When the OWNER requested cancellation.',
+    )
+    cancel_reason = models.CharField(
+        max_length=255, null=True, blank=True,
+        help_text='Optional reason provided by the user when cancelling.',
+    )
     canceled_at   = models.DateTimeField(null=True, blank=True)
     # Snapshot of pricing at subscription time (guards against catalog price changes)
     price_snapshot = models.JSONField(default=dict)

@@ -14,6 +14,11 @@ from .commercial_views import (
     CommercialCheckoutView,
     AddonCheckoutView,
 )
+from .cancellation_views import (
+    SubscriptionStatusView,
+    CancelSubscriptionView,
+    UndoCancelSubscriptionView,
+)
 
 router = DefaultRouter()
 router.register(r'', BillingViewSet, basename='billing')
@@ -31,5 +36,8 @@ urlpatterns = [
     path('commercial/preview-change/', CommercialPreviewChangeView.as_view(), name='commercial-preview-change'),
     path('commercial/checkout/', CommercialCheckoutView.as_view(), name='commercial-checkout'),
     path('commercial/addon-checkout/', AddonCheckoutView.as_view(), name='addon-checkout'),
+    path('subscription-status/', SubscriptionStatusView.as_view(), name='subscription-status'),
+    path('cancel-subscription/', CancelSubscriptionView.as_view(), name='cancel-subscription'),
+    path('undo-cancel/', UndoCancelSubscriptionView.as_view(), name='undo-cancel'),
 ] + router.urls
 

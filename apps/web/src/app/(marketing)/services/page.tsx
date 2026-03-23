@@ -67,44 +67,19 @@ const SERVICES: ServiceConfig[] = [
             }
         ]
     },
-    {
-        id: 'restaurant',
-        title: 'Restaurante Inteligente',
-        description: 'Orquesten salón, cocina y carta desde un solo sistema — en tiempo real, en cualquier dispositivo.',
-        features: [
-            {
-                title: 'Órdenes & Pedidos',
-                description: 'Flujo completo desde la toma hasta el cobro.',
-                bullets: ['Crear/cobrar', 'Estados de orden', 'Control salón'],
-                icon: ListChecks
-            },
-            {
-                title: 'Cocina en vivo',
-                description: 'Pantalla KDS con prioridades y tiempos visibles.',
-                bullets: ['Pantalla cocina', 'Prioridades', 'Tiempos'],
-                icon: ChefHat
-            },
-            {
-                title: 'Mapa de mesas',
-                description: 'Visualizá ocupación y rotación por turno en tiempo real.',
-                bullets: ['Posición real', 'Ocupación en tiempo real', 'Asignación'],
-                icon: Map
-            },
-            {
-                title: 'Carta online QR',
-                description: 'Carta pública por QR incluida, editable desde el admin.',
-                bullets: ['Admin + carta pública', 'Colores/Tipografía/Logo', 'Siempre actualizada'],
-                icon: QrCode
-            },
-            {
-                title: 'Factura/Comprobante',
-                description: 'Generá y reenviá comprobantes desde cualquier dispositivo.',
-                bullets: ['PDF por orden', 'Descarga', 'Historial'],
-                icon: FileText,
-                className: 'lg:col-span-2'
-            }
-        ]
-    },
+    // TODO: Restaurante Inteligente oculto temporalmente
+    // {
+    //     id: 'restaurant',
+    //     title: 'Restaurante Inteligente',
+    //     description: 'Orquesten salón, cocina y carta desde un solo sistema — en tiempo real, en cualquier dispositivo.',
+    //     features: [
+    //         { title: 'Órdenes & Pedidos', ... },
+    //         { title: 'Cocina en vivo', ... },
+    //         { title: 'Mapa de mesas', ... },
+    //         { title: 'Carta online QR', ... },
+    //         { title: 'Factura/Comprobante', ... }
+    //     ]
+    // },
     {
         id: 'menu_qr',
         title: 'Menú QR Online',

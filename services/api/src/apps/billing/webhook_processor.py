@@ -267,12 +267,24 @@ def _handle_subscription_preapproval(preapproval_id: str, delivery: WebhookDeliv
 
     # Step 3: upsert SubscriptionV2 via the authoritative data.
     with transaction.atomic():
-        _upsert_subscription_v2(
+        sub_v2 = _upsert_subscription_v2(
             preapproval_id=preapproval_id,
             plan_id=plan_id,
             session=session,
             preapproval_data=preapproval,
         )
+
+        # Handle cancellation sync from MercadoPago.
+        # If MP reports the preapproval as cancelled, synchronize local state.
+        if mp_status == 'cancelled' and sub_v2.status != SubscriptionV2.Status.CANCELED:
+            sub_v2.status = SubscriptionV2.Status.CANCELED
+            sub_v2.canceled_at = sub_v2.canceled_at or timezone.now()
+            sub_v2.is_active = False
+            sub_v2.save(update_fields=['status', 'canceled_at', 'is_active', 'updated_at'])
+            logger.info(
+                "[webhook/preapproval] Synced cancellation from MP sub=%s business=%s",
+                sub_v2.pk, sub_v2.business_id,
+            )
 
         # Transition checkout session to LINKED via the state machine.
         # This guard prevents late webhooks from reopening terminal sessions

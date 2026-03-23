@@ -102,6 +102,35 @@ class MercadoPagoService:
             logger.error("[MPService] get_preapproval error id=%s: %s", preapproval_id, exc)
             return None
 
+    def update_preapproval(self, preapproval_id: str, update_data: dict) -> dict:
+        """
+        Updates a preapproval (user subscription) in MercadoPago.
+
+        Typical usage: cancel a subscription by setting status='cancelled'.
+
+        Args:
+            preapproval_id: The MP preapproval ID.
+            update_data: Dict with fields to update, e.g. {"status": "cancelled"}.
+
+        Returns:
+            The MP response dict.
+
+        Raises:
+            Exception: If the MP API returns an error.
+        """
+        result = self.sdk.preapproval().update(preapproval_id, update_data)
+        if result["status"] == 200:
+            logger.info(
+                "[MPService] preapproval updated id=%s data=%s",
+                preapproval_id, {k: v for k, v in update_data.items() if k != 'reason'},
+            )
+            return result["response"]
+        else:
+            logger.error(
+                "[MPService] Error updating preapproval %s: %s", preapproval_id, result,
+            )
+            raise Exception(f"MP preapproval update failed: status={result['status']}")
+
     # ── Authorized payments (recurring charges) ───────────────────────────────
 
     def get_authorized_payment(self, authorized_payment_id: str) -> dict | None:

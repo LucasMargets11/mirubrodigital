@@ -5,6 +5,9 @@ import { useState } from 'react';
 import type { UserAccount } from '@/types/owner-access';
 import { RoleBadge, StatusBadge } from './shared-components';
 import { ResetPasswordModal } from './reset-password-modal';
+import { ChangeRoleModal, ConfirmActionModal } from './member-actions-modals';
+
+type ModalAction = 'reset' | 'role' | 'suspend' | 'remove';
 
 interface AccountsTableProps {
     accounts: UserAccount[];
@@ -13,15 +16,15 @@ interface AccountsTableProps {
 
 export function AccountsTable({ accounts, onRefresh }: AccountsTableProps) {
     const [selectedUser, setSelectedUser] = useState<UserAccount | null>(null);
-    const [showResetModal, setShowResetModal] = useState(false);
+    const [activeModal, setActiveModal] = useState<ModalAction | null>(null);
 
-    const handleResetPassword = (user: UserAccount) => {
+    const openModal = (user: UserAccount, action: ModalAction) => {
         setSelectedUser(user);
-        setShowResetModal(true);
+        setActiveModal(action);
     };
 
     const handleModalClose = () => {
-        setShowResetModal(false);
+        setActiveModal(null);
         setSelectedUser(null);
         onRefresh?.();
     };
@@ -62,17 +65,32 @@ export function AccountsTable({ accounts, onRefresh }: AccountsTableProps) {
                     </thead>
                     <tbody className="divide-y divide-slate-200 bg-white">
                         {accounts.map((account) => (
-                            <AccountRow key={account.id} account={account} onResetPassword={handleResetPassword} />
+                            <AccountRow key={account.id} account={account} onAction={openModal} />
                         ))}
                     </tbody>
                 </table>
             </div>
 
-            {selectedUser && (
+            {selectedUser && activeModal === 'reset' && (
                 <ResetPasswordModal
-                    isOpen={showResetModal}
+                    isOpen
                     onClose={handleModalClose}
                     user={selectedUser}
+                />
+            )}
+            {selectedUser && activeModal === 'role' && (
+                <ChangeRoleModal
+                    isOpen
+                    onClose={handleModalClose}
+                    user={selectedUser}
+                />
+            )}
+            {selectedUser && (activeModal === 'suspend' || activeModal === 'remove') && (
+                <ConfirmActionModal
+                    isOpen
+                    onClose={handleModalClose}
+                    user={selectedUser}
+                    action={activeModal}
                 />
             )}
         </>
@@ -81,10 +99,10 @@ export function AccountsTable({ accounts, onRefresh }: AccountsTableProps) {
 
 interface AccountRowProps {
     account: UserAccount;
-    onResetPassword: (user: UserAccount) => void;
+    onAction: (user: UserAccount, action: ModalAction) => void;
 }
 
-function AccountRow({ account, onResetPassword }: AccountRowProps) {
+function AccountRow({ account, onAction }: AccountRowProps) {
     const lastLogin = account.last_login
         ? new Date(account.last_login).toLocaleDateString('es-AR', {
             day: '2-digit',
@@ -93,19 +111,34 @@ function AccountRow({ account, onResetPassword }: AccountRowProps) {
         })
         : 'Nunca';
 
+    const isOwner = account.role === 'owner';
+    const isSuspended = account.membership_status === 'suspended';
+
     return (
-        <tr className="hover:bg-slate-50">
+        <tr className={`hover:bg-slate-50 ${isSuspended ? 'opacity-60' : ''}`}>
             <td className="px-6 py-4">
                 <div className="flex flex-col">
                     <div className="text-sm font-medium text-slate-900">{account.full_name}</div>
-                    <div className="text-xs text-slate-500">{account.email}</div>
+                    <div className="text-xs text-slate-500">
+                        {account.email || account.username}
+                    </div>
+                    {account.email && account.username !== account.email && (
+                        <div className="text-xs text-slate-400">@{account.username}</div>
+                    )}
                 </div>
             </td>
             <td className="px-6 py-4">
                 <RoleBadge role={account.role} roleDisplay={account.role_display} size="sm" />
             </td>
             <td className="px-6 py-4">
-                <StatusBadge isActive={account.is_active} size="sm" />
+                {isSuspended ? (
+                    <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
+                        <span className="mr-1.5 h-1.5 w-1.5 rounded-full bg-amber-500"></span>
+                        Suspendido
+                    </span>
+                ) : (
+                    <StatusBadge isActive={account.is_active} size="sm" />
+                )}
             </td>
             <td className="px-6 py-4">
                 {account.has_usable_password ? (
@@ -136,14 +169,45 @@ function AccountRow({ account, onResetPassword }: AccountRowProps) {
             </td>
             <td className="px-6 py-4 text-sm text-slate-600">{lastLogin}</td>
             <td className="px-6 py-4">
-                <div className="flex items-center justify-end gap-2">
+                <div className="flex items-center justify-end gap-1">
+                    {!isOwner && (
+                        <button
+                            onClick={() => onAction(account, 'role')}
+                            className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 transition-colors"
+                            title="Cambiar rol"
+                        >
+                            Rol
+                        </button>
+                    )}
                     <button
-                        onClick={() => onResetPassword(account)}
-                        className="rounded-lg px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50 transition-colors"
+                        onClick={() => onAction(account, 'reset')}
+                        className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50 transition-colors"
                         title="Resetear contraseña"
                     >
                         Resetear
                     </button>
+                    {!isOwner && (
+                        <>
+                            <button
+                                onClick={() => onAction(account, 'suspend')}
+                                className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                                    isSuspended
+                                        ? 'text-green-700 hover:bg-green-50'
+                                        : 'text-amber-700 hover:bg-amber-50'
+                                }`}
+                                title={isSuspended ? 'Reactivar' : 'Suspender'}
+                            >
+                                {isSuspended ? 'Reactivar' : 'Suspender'}
+                            </button>
+                            <button
+                                onClick={() => onAction(account, 'remove')}
+                                className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 transition-colors"
+                                title="Eliminar del negocio"
+                            >
+                                Eliminar
+                            </button>
+                        </>
+                    )}
                 </div>
             </td>
         </tr>

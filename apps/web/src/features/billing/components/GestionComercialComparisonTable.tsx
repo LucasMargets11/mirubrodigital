@@ -603,8 +603,8 @@ export function GestionComercialComparisonTable() {
 
       {/* Footer note */}
       <p className="mt-6 text-xs text-center text-slate-400">
-        Precios expresados en USD sin impuestos. Facturación mensual o anual. Podés cancelar o
-        cambiar de plan en cualquier momento.
+        Precios expresados en pesos argentinos (ARS). Cobro a través de Mercado Pago. Facturación mensual o anual.
+        Podés cancelar o cambiar de plan en cualquier momento.
       </p>
     </section>
   );

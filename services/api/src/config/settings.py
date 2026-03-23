@@ -62,6 +62,12 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = 'config.urls'
 
+# ── Authentication backends ──────────────────────────────────────────────────
+# Custom backend supports login by email OR username (internal users).
+AUTHENTICATION_BACKENDS = [
+    'apps.accounts.auth_backends.UsernameOrEmailBackend',
+]
+
 TEMPLATES = [
   {
     'BACKEND': 'django.template.backends.django.DjangoTemplates',
@@ -193,6 +199,16 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'billing.expire_subscriptions',
         # Every hour at minute 0. Adjust frequency in high-churn environments.
         'schedule': crontab(minute='0'),
+    },
+    'billing-execute-scheduled-cancellations': {
+        'task': 'billing.execute_scheduled_cancellations',
+        # Every hour at minute 30. Runs after expire_subscriptions.
+        'schedule': crontab(minute='30'),
+    },
+    'billing-expire-checkout-sessions': {
+        'task': 'billing.expire_checkout_sessions',
+        # Every 15 minutes.
+        'schedule': crontab(minute='*/15'),
     },
 }
 

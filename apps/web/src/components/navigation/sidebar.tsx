@@ -129,6 +129,7 @@ const NAV_CONFIG: Record<string, NavGroup[]> = {
                     children: [
                         { href: '/app/gestion/configuracion', label: 'General' },
                         { href: '/app/gestion/configuracion/negocio', label: 'Negocio', permissionKey: 'manage_commercial_settings' },
+                        { href: '/app/gestion/configuracion/plan-facturacion', label: 'Plan y Facturación' },
                     ],
                 },
                 {

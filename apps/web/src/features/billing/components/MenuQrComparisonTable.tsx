@@ -610,7 +610,7 @@ export function MenuQrComparisonTable({ proState }: MenuQrComparisonTableProps) 
       </div>
 
       <p className="mt-6 text-xs text-center text-slate-400">
-        Precios en ARS sin IVA. Podés cancelar o cambiar de plan en cualquier momento.
+        Precios expresados en pesos argentinos (ARS). Cobro a través de Mercado Pago. Podés cancelar o cambiar de plan en cualquier momento.
       </p>
     </section>
   );

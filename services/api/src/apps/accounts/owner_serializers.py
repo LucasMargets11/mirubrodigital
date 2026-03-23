@@ -36,13 +36,14 @@ class RoleSummarySerializer(serializers.Serializer):
 class UserAccountSerializer(serializers.Serializer):
     """Serializer for user account in access management."""
     id = serializers.IntegerField()
-    email = serializers.EmailField()
+    email = serializers.CharField(allow_blank=True, default='')
     username = serializers.CharField()
     full_name = serializers.CharField()
     role = serializers.CharField()
     role_display = serializers.CharField()
     is_active = serializers.BooleanField()
     has_usable_password = serializers.BooleanField()
+    membership_status = serializers.CharField(required=False, default='active')
     date_joined = serializers.DateTimeField()
     last_login = serializers.DateTimeField(allow_null=True)
 
@@ -200,3 +201,37 @@ class PermissionUpdateResponseSerializer(serializers.Serializer):
     service = serializers.CharField()
     updated_count = serializers.IntegerField()
     permissions_by_module = serializers.DictField()
+
+
+class CreateMemberSerializer(serializers.Serializer):
+    """Input for creating an internal user (member) by the owner."""
+    first_name = serializers.CharField(max_length=150, help_text='Nombre')
+    last_name = serializers.CharField(max_length=150, help_text='Apellido')
+    username = serializers.RegexField(
+        regex=r'^[a-zA-Z0-9._-]+$',
+        min_length=3,
+        max_length=150,
+        help_text='Nombre de usuario (letras, números, punto, guión o guión bajo)',
+        error_messages={
+            'invalid': 'El nombre de usuario solo puede contener letras, números, punto (.), guión (-) o guión bajo (_).',
+        },
+    )
+    password = serializers.CharField(min_length=8, max_length=128, trim_whitespace=False, write_only=True)
+    role = serializers.CharField(max_length=24)
+    email = serializers.EmailField(required=False, allow_blank=True, default='')
+
+
+class CreateMemberResponseSerializer(serializers.Serializer):
+    """Response after creating an internal user."""
+    success = serializers.BooleanField()
+    message = serializers.CharField()
+    user_id = serializers.IntegerField()
+    username = serializers.CharField()
+    full_name = serializers.CharField()
+    role = serializers.CharField()
+    role_display = serializers.CharField()
+
+
+class SetPasswordSerializer(serializers.Serializer):
+    """Input for owner-initiated password reset with explicit password."""
+    new_password = serializers.CharField(min_length=8, max_length=128, trim_whitespace=False, write_only=True)

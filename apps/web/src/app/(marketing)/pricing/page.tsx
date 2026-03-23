@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { PlansBundles } from '@/features/billing/components/PlansBundles';
 import { PlansBuilderWizard } from '@/features/billing/components/PlansBuilderWizard';
 import { CommercialPlanBuilder } from '@/features/billing/components/CommercialPlanBuilder';
+import { GestionComercialPlanBuilder, type GcSubscribeConfig } from '@/features/billing/components/GestionComercialPlanBuilder';
 import { GestionComercialComparisonTable } from '@/features/billing/components/GestionComercialComparisonTable';
 import { MenuQrPlanBuilder, type MenuQrSubscribeConfig } from '@/features/billing/components/MenuQrPlanBuilder';
 import { MenuQrComparisonTable, type QrProState } from '@/features/billing/components/MenuQrComparisonTable';
@@ -31,13 +32,14 @@ const SERVICE_OPTIONS: ServiceOption[] = [
         queryValue: 'commerce',
         description: 'Inventario, ventas y caja para retail'
     },
-    {
-        key: 'restaurant',
-        label: 'Restaurantes',
-        icon: UtensilsCrossed,
-        queryValue: 'restaurant',
-        description: 'Órdenes, mapa de mesas y cocina'
-    },
+    // TODO: Restaurante Inteligente oculto temporalmente
+    // {
+    //     key: 'restaurant',
+    //     label: 'Restaurantes',
+    //     icon: UtensilsCrossed,
+    //     queryValue: 'restaurant',
+    //     description: 'Órdenes, mapa de mesas y cocina'
+    // },
     {
         key: 'menu_qr',
         label: 'Menú QR Online',
@@ -109,6 +111,15 @@ export default function PricingPage() {
         router.push(`/subscribe?${params.toString()}`);
     };
 
+    const handleSubscribeGc = (config: GcSubscribeConfig) => {
+        const params = new URLSearchParams({
+            plan_code: config.planCode,
+            billing_period: billingPeriod,
+            vertical,
+        });
+        router.push(`/subscribe?${params.toString()}`);
+    };
+
     const handleSubscribeMenuQr = (config: MenuQrSubscribeConfig) => {
         // Menu QR subscription — encode plan + module choice + add-ons
         const params = new URLSearchParams({
@@ -167,7 +178,8 @@ export default function PricingPage() {
                         Packs Recomendados
                     </button>
                     {/* "Armá tu plan" tab is hidden for Menú QR — the plan builder is inline in Packs */}
-                    {vertical !== 'menu_qr' && (
+                    {/* TODO: re-enable "Armá tu plan" tab when ready */}
+                    {false && vertical !== 'menu_qr' && (
                         <button
                             className={`pb-4 border-b-2 font-medium text-lg transition-colors px-4 ${mode === 'custom' ? 'border-brand-600 text-brand-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
                             onClick={() => setMode('custom')}
@@ -190,7 +202,14 @@ export default function PricingPage() {
                 />
             )}
 
-            {mode === 'packs' && vertical !== 'menu_qr' && (
+            {mode === 'packs' && vertical === 'commercial' && (
+                <GestionComercialPlanBuilder
+                    billingPeriod={billingPeriod}
+                    onSubscribe={handleSubscribeGc}
+                />
+            )}
+
+            {mode === 'packs' && vertical !== 'menu_qr' && vertical !== 'commercial' && (
                 <PlansBundles
                     vertical={vertical}
                     billingPeriod={billingPeriod}
@@ -234,7 +253,7 @@ type ServiceSelectorCardsProps = {
 function ServiceSelectorCards({ value, onChange, options }: ServiceSelectorCardsProps) {
     return (
         <div className="w-full flex justify-center">
-            <div className="grid w-full max-w-3xl grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid w-full max-w-2xl grid-cols-1 gap-4 sm:grid-cols-2">
                 {options.map((service) => (
                     <ServiceCardOption
                         key={service.key}

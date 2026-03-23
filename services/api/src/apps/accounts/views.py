@@ -192,22 +192,24 @@ class LoginView(APIView):
 	authentication_classes: list = []
 
 	def post(self, request: Request) -> Response:
-		serializer = LoginSerializer(data=request.data)
-		serializer.is_valid(raise_exception=True)
-		email = serializer.validated_data['email'].lower()
-		password = serializer.validated_data['password']
+		# Accept either email or username field for backward compatibility.
+		# Internal users log in with username; owners log in with email.
+		identifier = (
+			request.data.get('email', '')
+			or request.data.get('username', '')
+		).strip()
+		password = request.data.get('password', '')
 
-		try:
-			user = User.objects.get(email__iexact=email)
-		except User.DoesNotExist:
+		if not identifier or not password:
 			return Response({'detail': 'Credenciales inválidas'}, status=status.HTTP_400_BAD_REQUEST)
 
-		if not user.is_active:
-			return Response({'detail': 'Usuario inactivo'}, status=status.HTTP_400_BAD_REQUEST)
-
-		authenticated_user = authenticate(request=request, username=user.get_username(), password=password)
+		# Use custom backend which tries email first, then username.
+		authenticated_user = authenticate(request=request, username=identifier, password=password)
 		if authenticated_user is None:
 			return Response({'detail': 'Credenciales inválidas'}, status=status.HTTP_400_BAD_REQUEST)
+
+		if not authenticated_user.is_active:
+			return Response({'detail': 'Usuario inactivo'}, status=status.HTTP_400_BAD_REQUEST)
 
 		membership = _ensure_membership(authenticated_user)
 		refresh = RefreshToken.for_user(authenticated_user)

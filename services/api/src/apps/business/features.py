@@ -75,7 +75,7 @@ PLAN_FEATURES: Dict[str, Iterable[str]] = {
     'menu_qr_tips',
   ),
   # New plans (Gestión Comercial)
-  'start': ('products', 'inventory', 'stock', 'sales'),
+  'start': ('products', 'inventory', 'stock', 'sales', 'orders'),
   'pro': ('products', 'inventory', 'stock', 'sales', 'customers', 'invoices', 'cash', 'quotes', 'treasury', 'reports', 'orders'),
   'business': ('products', 'inventory', 'stock', 'sales', 'customers', 'invoices', 'cash', 'quotes', 'treasury', 'reports', 'multi_branch', 'orders'),
   'enterprise': ('products', 'inventory', 'stock', 'sales', 'customers', 'invoices', 'cash', 'quotes', 'treasury', 'reports', 'multi_branch', 'orders'),

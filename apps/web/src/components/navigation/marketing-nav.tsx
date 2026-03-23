@@ -14,6 +14,7 @@ const marketingLinks = [
     { href: '/pricing', label: 'Precios' },
     { href: '/services', label: 'Servicios' },
     { href: '/blog', label: 'Blog' },
+    { href: '/soporte', label: 'Soporte' },
 ];
 
 export function MarketingNav() {

@@ -1,13 +1,17 @@
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.core.mail import send_mail
 from django.db import transaction
 from django.core.exceptions import ValidationError
-from apps.accounts.models import Membership
+from apps.accounts.models import Membership, AccountProfile, AccessAuditLog
+from apps.accounts.rbac import SERVICE_ROLE_PERMISSIONS
 from apps.business.models import Business, Subscription
 
 import logging
 
 logger = logging.getLogger(__name__)
+
+User = get_user_model()
 
 
 class LastOwnerProtectionError(ValidationError):
@@ -170,4 +174,156 @@ class MembershipService:
 
             # Proceed to create
             return Membership.objects.create(user=user, business=business, role=role)
+
+
+class InternalUserService:
+    """
+    Creates internal users directly (by the owner), without registration,
+    email verification or onboarding flow.
+
+    Transactional: User + AccountProfile + Membership created atomically.
+    Enforces seat limits and role validation.
+    """
+
+    # Roles that can be assigned via this endpoint.
+    # Owner creation is disallowed by default to prevent privilege escalation.
+    DISALLOWED_ROLES = {'owner'}
+
+    @classmethod
+    def create_internal_user(
+        cls,
+        *,
+        business: Business,
+        first_name: str,
+        last_name: str,
+        username: str,
+        password: str,
+        role: str,
+        email: str = '',
+        created_by_user=None,
+        request=None,
+    ) -> dict:
+        """
+        Create an internal user with a membership in the given business.
+
+        Returns dict with 'user' and 'membership' keys.
+
+        Raises ValidationError on constraint violations.
+        """
+        # ── Validate role ──────────────────────────────────────────────
+        if role in cls.DISALLOWED_ROLES:
+            raise ValidationError(
+                f'No se permite crear usuarios con el rol "{role}" desde este flujo.'
+            )
+
+        service_type = getattr(business, 'service_type', None) or getattr(business, 'default_service', None) or 'gestion'
+        service_roles = SERVICE_ROLE_PERMISSIONS.get(service_type, {})
+        if role not in service_roles:
+            valid = ', '.join(sorted(service_roles.keys() - cls.DISALLOWED_ROLES))
+            raise ValidationError(
+                f'El rol "{role}" no es válido para el servicio "{service_type}". '
+                f'Opciones: {valid}'
+            )
+
+        # ── Validate username uniqueness ───────────────────────────────
+        username = username.strip()
+        if User.objects.filter(username__iexact=username).exists():
+            raise ValidationError(
+                f'El nombre de usuario "{username}" ya está en uso.'
+            )
+
+        # ── Validate email uniqueness (if provided) ───────────────────
+        email = (email or '').strip().lower()
+        if email and User.objects.filter(email__iexact=email).exists():
+            raise ValidationError(
+                f'El email "{email}" ya está registrado en otra cuenta.'
+            )
+
+        # ── Transactional creation ─────────────────────────────────────
+        with transaction.atomic():
+            # Seat limit check (lock HQ subscription row)
+            hq = business.parent if business.parent else business
+            try:
+                sub = Subscription.objects.select_for_update().get(business=hq)
+            except Subscription.DoesNotExist:
+                sub = None
+
+            if sub and sub.max_seats > 0:
+                family_ids = [hq.id] + list(hq.branches.values_list('id', flat=True))
+                current_count = Membership.objects.filter(
+                    business__id__in=family_ids,
+                ).count()
+                if current_count >= sub.max_seats:
+                    raise ValidationError(
+                        f'Límite de usuarios ({sub.max_seats}) alcanzado para "{hq.name}". '
+                        f'Mejora tu plan para agregar más usuarios.'
+                    )
+
+            # Create Django User
+            user = User.objects.create_user(
+                username=username,
+                email=email,
+                password=password,
+                first_name=first_name.strip(),
+                last_name=last_name.strip(),
+            )
+
+            # AccountProfile is auto-created by post_save signal.
+            # Mark as active + email_verified for internal users (no verification flow).
+            AccountProfile.objects.filter(user=user).update(
+                account_status=AccountProfile.AccountStatus.ACTIVE,
+                email_verified=True,
+            )
+
+            # Create Membership
+            membership = Membership.objects.create(
+                user=user,
+                business=business,
+                role=role,
+                status=Membership.Status.ACTIVE,
+                created_by_user=created_by_user,
+            )
+
+            # Audit log
+            ip_address = None
+            user_agent = ''
+            if request:
+                xff = request.META.get('HTTP_X_FORWARDED_FOR')
+                ip_address = xff.split(',')[0].strip() if xff else request.META.get('REMOTE_ADDR', '')
+                user_agent = request.META.get('HTTP_USER_AGENT', '')[:500]
+
+            AccessAuditLog.objects.create(
+                action='USER_CREATED',
+                actor=created_by_user,
+                target_user=user,
+                business=business,
+                actor_type=AccessAuditLog.ActorType.USER,
+                entity_type='membership',
+                entity_id=str(membership.pk),
+                details={
+                    'username': username,
+                    'role': role,
+                    'email': email or None,
+                    'created_by': created_by_user.pk if created_by_user else None,
+                },
+                after_json={
+                    'user_id': user.pk,
+                    'username': username,
+                    'first_name': first_name,
+                    'last_name': last_name,
+                    'role': role,
+                    'membership_status': Membership.Status.ACTIVE,
+                },
+                ip_address=ip_address,
+                user_agent=user_agent,
+            )
+
+            logger.info(
+                "[InternalUserService] Created internal user=%s username=%s "
+                "role=%s business=%s by owner=%s",
+                user.pk, username, role, business.pk,
+                created_by_user.pk if created_by_user else None,
+            )
+
+            return {'user': user, 'membership': membership}
 

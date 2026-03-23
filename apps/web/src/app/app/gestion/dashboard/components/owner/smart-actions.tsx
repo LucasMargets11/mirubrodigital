@@ -1,6 +1,6 @@
 "use client";
 
-import { CreditCard, FileText, PackagePlus, ShoppingCart, Store, AlertTriangle } from 'lucide-react';
+import { CreditCard, FileText, PackagePlus, ShoppingCart, Store, AlertTriangle, ClipboardList, PackageCheck } from 'lucide-react';
 import type { Route } from 'next';
 import Link from 'next/link';
 
@@ -8,7 +8,6 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useCashSummary } from '@/features/cash/hooks';
 import { useInventorySummary, usePendingQuotesSummary } from '@/features/gestion/hooks';
-import { cn } from '@/lib/utils';
 import type { DashboardFeatures, DashboardPermissions } from '@/app/app/gestion/dashboard/dashboard-client';
 
 type SmartActionsProps = {
@@ -32,17 +31,23 @@ export function SmartActions({ permissions, features }: SmartActionsProps) {
             icon: isCashOpen ? CreditCard : Store, 
             href: '/app/cash',
             visible: permissions.canViewCash && features.cash,
-            variant: isCashOpen ? 'outline' : 'default', // Primary if closed
-            priority: isCashOpen ? 10 : 100 // High priority if closed
+            priority: isCashOpen ? 10 : 100
         },
         {
             id: 'new-sale',
             title: 'Nueva venta',
             icon: ShoppingCart,
             href: '/app/gestion/ventas/nueva',
-            visible: permissions.canCreateSales && features.sales && isCashOpen,
-            variant: 'default',
+            visible: permissions.canCreateSales && features.sales && (isCashOpen || !features.cash),
             priority: 90
+        },
+        {
+            id: 'new-order',
+            title: 'Nuevo pedido',
+            icon: ClipboardList,
+            href: '/app/gestion/ventas/pedidos/nuevo',
+            visible: permissions.canViewOrders && features.orders,
+            priority: 85
         },
         {
             id: 'new-quote',
@@ -50,7 +55,6 @@ export function SmartActions({ permissions, features }: SmartActionsProps) {
             icon: FileText,
             href: '/app/gestion/ventas/presupuestos/nuevo',
             visible: permissions.canCreateQuotes && features.quotes,
-            variant: 'outline',
             priority: 80
         },
         {
@@ -59,7 +63,6 @@ export function SmartActions({ permissions, features }: SmartActionsProps) {
             icon: FileText,
             href: '/app/gestion/ventas/presupuestos',
             visible: permissions.canViewQuotes && features.quotes && pendingQuotes > 0,
-            variant: 'outline', // High priority if pending
             priority: pendingQuotes > 0 ? 95 : 50
         },
         {
@@ -68,8 +71,15 @@ export function SmartActions({ permissions, features }: SmartActionsProps) {
             icon: PackagePlus,
             href: '/app/gestion/productos',
             visible: permissions.canManageProducts && features.products,
-            variant: 'ghost',
-            priority: 40
+            priority: 70
+        },
+        {
+            id: 'restock',
+            title: 'Reponer stock',
+            icon: PackageCheck,
+            href: '/app/gestion/stock',
+            visible: permissions.canManageStock && features.inventory,
+            priority: 60
         },
         {
             id: 'stock-alerts',
@@ -77,8 +87,15 @@ export function SmartActions({ permissions, features }: SmartActionsProps) {
             icon: AlertTriangle,
             href: '/app/gestion/stock?status=low',
             visible: permissions.canViewStock && features.inventory && lowStock > 0,
-            variant: 'outline',
             priority: lowStock > 0 ? 85 : 30
+        },
+        {
+            id: 'view-sales',
+            title: 'Ver ventas',
+            icon: ShoppingCart,
+            href: '/app/gestion/ventas',
+            visible: permissions.canViewSales && features.sales,
+            priority: 35
         },
         {
             id: 'finance-access',
@@ -86,7 +103,6 @@ export function SmartActions({ permissions, features }: SmartActionsProps) {
             icon: CreditCard,
             href: '/app/gestion/finanzas/resumen',
             visible: permissions.canViewFinance && features.treasury,
-            variant: 'ghost',
             priority: 20
         },
         {
@@ -95,7 +111,6 @@ export function SmartActions({ permissions, features }: SmartActionsProps) {
             icon: Store,
             href: '/app/gestion/clientes',
             visible: permissions.canViewCustomers && features.customers,
-            variant: 'ghost',
             priority: 15
         }
     ];
@@ -113,11 +128,8 @@ export function SmartActions({ permissions, features }: SmartActionsProps) {
                 {sortedActions.slice(0, 8).map((action) => (
                     <Button
                         key={action.id}
-                        variant={action.variant as 'default' | 'outline' | 'ghost'}
-                        className={cn(
-                            "h-auto flex-col gap-2 py-4 shadow-sm",
-                            action.variant === 'ghost' && "bg-slate-50 hover:bg-slate-100"
-                        )}
+                        variant="outline"
+                        className="h-auto flex-col gap-2 py-4 border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50 hover:text-slate-900 hover:border-slate-300"
                         asChild
                     >
                         <Link href={action.href as Route}>

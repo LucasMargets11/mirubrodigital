@@ -334,6 +334,43 @@ def _register_gestion_capabilities():
         'Configuración',
         'gestion'
     )
+    
+    # Orders (Pedidos)
+    register_capability(
+        'view_orders',
+        'Ver Pedidos',
+        'Consultar pedidos en curso y completados',
+        'Pedidos',
+        'gestion'
+    )
+    register_capability(
+        'create_orders',
+        'Crear Pedidos',
+        'Tomar pedidos nuevos de clientes',
+        'Pedidos',
+        'gestion'
+    )
+    register_capability(
+        'edit_orders',
+        'Editar Pedidos',
+        'Modificar pedidos existentes',
+        'Pedidos',
+        'gestion'
+    )
+    register_capability(
+        'change_order_status',
+        'Cambiar Estado de Pedidos',
+        'Actualizar estado del pedido (pendiente, en proceso, completado)',
+        'Pedidos',
+        'gestion'
+    )
+    register_capability(
+        'close_orders',
+        'Cerrar Pedidos',
+        'Finalizar pedidos y cobrar',
+        'Pedidos',
+        'gestion'
+    )
 
 
 # ============================================================================

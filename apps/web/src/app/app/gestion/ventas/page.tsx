@@ -18,6 +18,8 @@ export default async function GestionVentasPage() {
     const canCreate = session.permissions?.create_sales ?? false;
     const canViewQuotes = (session.permissions?.view_quotes ?? false) && quotesFeatureEnabled;
     const canCreateQuotes = (session.permissions?.create_quotes ?? false) && quotesFeatureEnabled;
+    const ordersFeatureEnabled = session.features?.orders !== false;
+    const canViewOrders = (session.permissions?.view_orders ?? false) && ordersFeatureEnabled;
 
     if (!featureEnabled) {
         return <AccessMessage title="Tu plan no incluye Ventas" description="Actualizá tu plan para habilitar el módulo de ventas." />;
@@ -27,5 +29,5 @@ export default async function GestionVentasPage() {
         return <AccessMessage title="Sin acceso" description="Tu rol no puede ver las ventas." hint="Pedí acceso a un administrador" />;
     }
 
-    return <SalesClient canCreate={canCreate} canViewQuotes={canViewQuotes} canCreateQuotes={canCreateQuotes} />;
+    return <SalesClient canCreate={canCreate} canViewQuotes={canViewQuotes} canCreateQuotes={canCreateQuotes} canViewOrders={canViewOrders} />;
 }

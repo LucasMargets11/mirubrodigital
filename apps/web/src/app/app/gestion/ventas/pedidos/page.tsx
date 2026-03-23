@@ -25,5 +25,8 @@ export default async function GestionPedidosPage() {
         return <AccessMessage title="Sin acceso" description="Tu rol no puede ver los pedidos." hint="Pedí acceso a un administrador" />;
     }
 
-    return <OrdersClient canCreate={canCreate} />;
+    const quotesFeatureEnabled = session.features?.quotes !== false;
+    const canViewQuotes = (session.permissions?.view_quotes ?? false) && quotesFeatureEnabled;
+
+    return <OrdersClient canCreate={canCreate} canViewQuotes={canViewQuotes} />;
 }

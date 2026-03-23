@@ -95,6 +95,7 @@ PLANS: List[PlanConfig] = [
             'Gestión de productos',
             'Inventario básico',
             'Ventas básicas',
+            'Pedidos',
             'Dashboard básico',
             'Configuración comercial básica',
         ],

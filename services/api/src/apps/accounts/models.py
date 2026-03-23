@@ -251,6 +251,10 @@ class AccessAuditLog(models.Model):
         ('MEMBERSHIP_UPDATED',    'Membership Updated'),
         ('MEMBERSHIP_DELETED',    'Membership Deleted'),
         ('MEMBERSHIP_SUSPENDED',  'Membership Suspended'),
+        ('MEMBER_REACTIVATED',    'Member Reactivated'),
+        ('MEMBER_REMOVED',        'Member Removed'),
+        # ── Alta directa de usuarios internos ─────────────────────────────
+        ('USER_CREATED',          'Internal User Created'),
         # ── Contraseñas / acceso admin ────────────────────────────────────
         ('PASSWORD_RESET',              'Password Reset'),
         ('PASSWORD_RESET_CONFIRMED',    'Password Reset Confirmed'),

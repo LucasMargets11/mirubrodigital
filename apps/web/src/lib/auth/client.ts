@@ -22,9 +22,18 @@ async function request<T>(path: string, body?: T): Promise<Response> {
   });
 }
 
-export async function login(email: string, password: string, nextUrl?: string): Promise<AuthResult> {
+export async function login(identifier: string, password: string, nextUrl?: string): Promise<AuthResult> {
   try {
-    const response = await request('/api/v1/auth/login/', { email, password });
+    // Send identifier as both email and username fields for backward compatibility.
+    // Backend accepts either field and resolves the user accordingly.
+    const body: Record<string, string> = { password };
+    if (identifier.includes('@')) {
+      body.email = identifier;
+    } else {
+      body.username = identifier;
+    }
+
+    const response = await request('/api/v1/auth/login/', body);
     if (!response.ok) {
       const errorPayload = await response.json().catch(() => ({}));
       return { success: false, message: errorPayload?.detail ?? 'No pudimos iniciar sesión' };

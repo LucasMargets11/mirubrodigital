@@ -31,6 +31,7 @@ export interface UserAccount {
   role_display: string;
   is_active: boolean;
   has_usable_password: boolean;
+  membership_status?: 'active' | 'suspended' | 'inactive';
   date_joined: string;
   last_login: string | null;
 }
@@ -95,4 +96,44 @@ export interface PermissionUpdateResponse {
   service: string;
   updated_count: number;
   permissions_by_module: PermissionsByModule;
+}
+
+export interface CreateMemberPayload {
+  first_name: string;
+  last_name: string;
+  username: string;
+  password: string;
+  role: string;
+  email?: string;
+}
+
+export interface CreateMemberResponse {
+  success: boolean;
+  message: string;
+  user_id: number;
+  username: string;
+  full_name: string;
+  role: string;
+  role_display: string;
+}
+
+export interface ChangeRoleResponse {
+  success: boolean;
+  message: string;
+  user_id: number;
+  role: string;
+  role_display: string;
+}
+
+export interface SuspendMemberResponse {
+  success: boolean;
+  message: string;
+  membership_status: string;
+}
+
+export interface RemoveMemberResponse {
+  success: boolean;
+  message: string;
+  user_id: number;
+  email: string;
 }

@@ -17,7 +17,7 @@ type GestionNavProps = {
 export function GestionNav({ tabs }: GestionNavProps) {
     const pathname = usePathname();
 
-    if (pathname?.startsWith('/app/gestion/reportes')) {
+    if (pathname?.startsWith('/app/gestion/reportes') || pathname?.startsWith('/app/gestion/configuracion')) {
         return null;
     }
 

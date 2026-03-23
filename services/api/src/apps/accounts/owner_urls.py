@@ -14,6 +14,9 @@ urlpatterns = [
     path('roles/<str:role>/permissions/', owner_views.update_role_permissions, name='owner-update-role-permissions'),
     path('accounts/', owner_views.accounts_list, name='owner-accounts-list'),
     
+    # Create internal user (member)
+    path('accounts/create/', owner_views.create_member, name='owner-create-member'),
+    
     # Account management actions
     path('accounts/<int:user_id>/reset-password/', owner_views.reset_password, name='owner-reset-password'),
     path('accounts/<int:user_id>/disable/', owner_views.disable_account, name='owner-disable-account'),

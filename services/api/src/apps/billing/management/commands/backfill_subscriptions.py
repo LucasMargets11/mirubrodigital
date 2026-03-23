@@ -220,6 +220,7 @@ class Command(BaseCommand):
                     provider_sub_id=leg.mp_preapproval_id or None,
                     external_reference=external_reference,
                     status=v2_status,
+                    is_active=v2_status not in SubscriptionV2.TERMINAL_STATUSES,
                     current_period_end=leg.current_period_end,
                     price_snapshot=price_snapshot,
                 )
@@ -302,6 +303,7 @@ class Command(BaseCommand):
                     provider_sub_id=None,
                     external_reference=external_reference,
                     status=v2_status,
+                    is_active=v2_status not in SubscriptionV2.TERMINAL_STATUSES,
                     current_period_end=biz_sub.renews_at,
                     price_snapshot=price_snapshot,
                 )

@@ -103,17 +103,17 @@ export function AuthForm() {
             <form onSubmit={handleSubmit} className="space-y-5">
                 <div className="text-left">
                     <label htmlFor="email" className="text-sm font-medium text-slate-700">
-                        Email
+                        {mode === 'login' ? 'Email o usuario' : 'Email'}
                     </label>
                     <input
                         id="email"
                         name="email"
-                        type="email"
+                        type={mode === 'signup' ? 'email' : 'text'}
                         required
                         value={email}
                         onChange={(event) => setEmail(event.target.value)}
                         className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
-                        placeholder="tu@empresa.com"
+                        placeholder={mode === 'login' ? 'tu@empresa.com o usuario' : 'tu@empresa.com'}
                     />
                 </div>
 

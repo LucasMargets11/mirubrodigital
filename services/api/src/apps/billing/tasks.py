@@ -229,3 +229,94 @@ def expire_checkout_sessions(self):
     except Exception as exc:
         logger.exception("[billing.task] expire_checkout_sessions failed: %s", exc)
         raise self.retry(exc=exc)
+
+
+@shared_task(
+    bind=True,
+    name='billing.execute_scheduled_cancellations',
+    max_retries=3,
+    default_retry_delay=120,
+    acks_late=True,
+)
+def execute_scheduled_cancellations(self):
+    """
+    Execute subscription cancellations whose effective date (current_period_end)
+    has passed.
+
+    Finds all SubscriptionV2 where:
+      - cancel_at_period_end = True
+      - current_period_end <= now
+      - status is NOT already CANCELED
+
+    For each:
+      1. Cancels the preapproval in MercadoPago.
+      2. Updates the local subscription status to CANCELED.
+      3. Handles errors without silently losing state.
+
+    Idempotent: already-CANCELED subscriptions are skipped safely.
+
+    Returns:
+        dict: {'canceled': int, 'failed': int}
+    """
+    from apps.billing.models import SubscriptionV2   # local import avoids circular
+    from apps.billing.cancellation_service import execute_cancellation
+    from apps.billing.mp_service import MercadoPagoService
+
+    now = timezone.now()
+    counts = {'canceled': 0, 'failed': 0}
+
+    due = list(
+        SubscriptionV2.objects
+        .filter(
+            cancel_at_period_end=True,
+            current_period_end__lte=now,
+        )
+        .exclude(status=SubscriptionV2.Status.CANCELED)
+        .values_list('pk', flat=True)
+    )
+
+    if not due:
+        logger.info("[billing.task] execute_scheduled_cancellations: nothing due.")
+        return counts
+
+    mp_service = MercadoPagoService()
+
+    for sub_pk in due:
+        try:
+            sub = SubscriptionV2.objects.get(pk=sub_pk)
+
+            # Double-check: skip if already canceled (race condition guard)
+            if sub.status == SubscriptionV2.Status.CANCELED:
+                continue
+
+            execute_cancellation(sub, mp_service=mp_service)
+            counts['canceled'] += 1
+
+        except SubscriptionV2.DoesNotExist:
+            logger.warning(
+                "[billing.task] Subscription %s disappeared during cancellation run.", sub_pk,
+            )
+        except Exception as exc:
+            counts['failed'] += 1
+            logger.error(
+                "[billing.task] Failed to execute cancellation for sub=%s: %s",
+                sub_pk, exc,
+            )
+
+    logger.info(
+        "[billing.task] execute_scheduled_cancellations complete: %s", counts,
+    )
+
+    # If there were failures, retry the entire task so they get another chance.
+    if counts['failed'] > 0:
+        try:
+            raise self.retry(
+                exc=Exception(f"{counts['failed']} cancellations failed"),
+            )
+        except self.MaxRetriesExceededError:
+            logger.error(
+                "[billing.task] Max retries exceeded for execute_scheduled_cancellations. "
+                "Manual intervention needed for %d subs.", counts['failed'],
+            )
+
+    return counts

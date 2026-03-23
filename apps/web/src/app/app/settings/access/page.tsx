@@ -14,6 +14,7 @@ import { PermissionList, EmptyState } from '@/components/app/owner-access/shared
 import { AccountsTable } from '@/components/app/owner-access/accounts-table';
 import { EmployeesTable } from '@/components/app/owner-access/employees-table';
 import { EmployeeFormModal } from '@/components/app/owner-access/employee-form-modal';
+import { CreateMemberModal } from '@/components/app/owner-access/create-member-modal';
 
 type Tab = 'my-roles' | 'business-roles' | 'accounts' | 'employees';
 
@@ -251,18 +252,38 @@ function BusinessRolesTab({ roles }: { roles: RoleSummary[] }) {
 }
 
 function AccountsTab({ accounts, onRefresh }: { accounts: UserAccount[]; onRefresh: () => void }) {
+    const [showCreate, setShowCreate] = useState(false);
+
     return (
         <div className="space-y-4">
             <div className="flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-slate-900">Cuentas de Usuario</h2>
-                <button
-                    onClick={onRefresh}
-                    className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
-                >
-                    Actualizar
-                </button>
+                <div className="flex gap-2">
+                    <button
+                        onClick={onRefresh}
+                        className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+                    >
+                        Actualizar
+                    </button>
+                    <button
+                        onClick={() => setShowCreate(true)}
+                        className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
+                    >
+                        + Crear usuario
+                    </button>
+                </div>
             </div>
             <AccountsTable accounts={accounts} onRefresh={onRefresh} />
+
+            {showCreate && (
+                <CreateMemberModal
+                    isOpen
+                    onClose={(created) => {
+                        setShowCreate(false);
+                        if (created) onRefresh();
+                    }}
+                />
+            )}
         </div>
     );
 }

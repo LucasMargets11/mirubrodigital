@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { Instagram } from 'lucide-react';
 import { SiteContainer } from '@/components/layout/site-container';
 
 interface FooterLinkProps {
@@ -11,7 +12,7 @@ function FooterLink({ href, children }: FooterLinkProps) {
         <li>
             <Link
                 href={href}
-                className="text-sm leading-7 text-slate-500 transition-colors hover:text-primary"
+                className="text-sm leading-7 text-slate-500 transition-colors hover:text-brand-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 rounded-sm"
             >
                 {children}
             </Link>
@@ -37,16 +38,6 @@ function FooterSection({ title, children }: FooterSectionProps) {
     );
 }
 
-/**
- * Footer de marketing.
- *
- * Layout espeja el header:
- *   header → [logo | nav links]  (flex justify-between dentro de SiteContainer)
- *   footer → [branding | cols]   (flex justify-between dentro de SiteContainer)
- *
- * Resultado: "Mirubro Digital" arranca en el mismo x que el logo,
- * y "Recursos" termina en el mismo x que "Ingresar".
- */
 export function MarketingFooter() {
     const year = new Date().getFullYear();
 
@@ -54,66 +45,88 @@ export function MarketingFooter() {
         <footer className="border-t border-slate-200 bg-white text-slate-600">
             <SiteContainer className="py-16 lg:py-20">
 
-                {/*
-                 * Zona principal — mismo modelo flex justify-between que el header.
-                 * Mobile: stack vertical.
-                 * Desktop: [branding izq] ←→ [3 cols der]
-                 */}
                 <div className="flex flex-col gap-10 lg:flex-row lg:justify-between">
 
-                    {/* ── Zona izquierda: Branding (alineada con el logo) ── */}
-                    <div className="flex flex-col gap-5 lg:max-w-[260px]">
+                    {/* ── Branding (izquierda) ── */}
+                    <div className="flex flex-col gap-6 lg:max-w-[300px]">
                         <div>
-                            <h3 className="mb-2 text-base font-bold text-slate-900">Mirubro Digital</h3>
+                            <h3 className="mb-2 text-base font-bold text-slate-900">MiRubro Digital</h3>
                             <p className="text-sm leading-relaxed text-slate-500">
-                                Plataforma para restaurantes y comercios: stock, pedidos, caja y operación en un solo lugar.
+                                Software y herramientas digitales para comercios y locales.
+                                Simplificá la gestión, compartí tu menú online y conseguí más
+                                reseñas para tu negocio.
                             </p>
                         </div>
-                        <Link
-                            href="/planes"
-                            className="inline-flex w-fit items-center justify-center rounded-xl border border-primary bg-transparent px-5 py-2 text-sm font-medium text-primary transition-all hover:bg-primary/5"
+
+                        <div className="flex flex-wrap gap-3">
+                            <Link
+                                href="/pricing"
+                                className="inline-flex items-center justify-center rounded-lg bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-brand-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2"
+                            >
+                                Ver planes
+                            </Link>
+                            <Link
+                                href="/contacto"
+                                className="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition-all hover:border-brand-300 hover:text-brand-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2"
+                            >
+                                Solicitar demo
+                            </Link>
+                        </div>
+
+                        <a
+                            href="https://www.instagram.com/mirubrodigital/"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            aria-label="Instagram de MiRubro Digital"
+                            className="mt-1 inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-brand-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2"
                         >
-                            Ver planes
-                        </Link>
+                            <Instagram className="h-5 w-5" />
+                        </a>
                     </div>
 
-                    {/*
-                     * ── Zona derecha: columnas de links (alineadas con el nav) ──
-                     * grid-cols-2 en mobile/tablet → grid-cols-3 en desktop.
-                     * No tiene ml-auto extra; justify-between del padre la empuja al borde derecho.
-                     */}
-                    <div className="grid grid-cols-2 gap-x-10 gap-y-8 sm:gap-x-16 lg:grid-cols-3 lg:gap-x-20">
-                        <FooterSection title="Productos">
-                            <FooterLink href="/restaurante-inteligente">Restaurante Inteligente</FooterLink>
-                            <FooterLink href="/gestion-comercial">Gestión Comercial</FooterLink>
-                            <FooterLink href="/qr-menu">Menú QR</FooterLink>
-                            <FooterLink href="/integraciones">Integraciones</FooterLink>
-                        </FooterSection>
+                    {/* ── Columnas de navegación (derecha) ── */}
+                    <nav aria-label="Navegación del footer">
+                        <div className="grid grid-cols-2 gap-x-10 gap-y-8 sm:gap-x-16 lg:grid-cols-3 lg:gap-x-20">
+                            <FooterSection title="Productos">
+                                <FooterLink href="/services#commercial">Gestión Comercial</FooterLink>
+                                <FooterLink href="/services#menu_qr">Menú QR Online</FooterLink>
+                                <FooterLink href="/services#qr_reviews">QR para reseñas</FooterLink>
+                            </FooterSection>
 
-                        <FooterSection title="Soluciones">
-                            <FooterLink href="/soluciones/restaurantes">Restaurantes</FooterLink>
-                            <FooterLink href="/soluciones/cafeterias">Cafeterías</FooterLink>
-                            <FooterLink href="/soluciones/kioscos">Kioscos</FooterLink>
-                            <FooterLink href="/soluciones/take-away">Take Away</FooterLink>
-                        </FooterSection>
+                            <FooterSection title="Recursos">
+                                <FooterLink href="/pricing">Planes</FooterLink>
+                                <FooterLink href="/contacto">Contacto</FooterLink>
+                                <FooterLink href="/soporte">Soporte</FooterLink>
+                                <FooterLink href="/preguntas-frecuentes">Preguntas frecuentes</FooterLink>
+                            </FooterSection>
 
-                        <FooterSection title="Recursos">
-                            <FooterLink href="/blog">Blog</FooterLink>
-                            <FooterLink href="/guias">Guías</FooterLink>
-                            <FooterLink href="/casos">Casos de éxito</FooterLink>
-                            <FooterLink href="/descargables">Descargables</FooterLink>
-                        </FooterSection>
-                    </div>
+                            <FooterSection title="Empresa">
+                                <FooterLink href="/nosotros">Nosotros</FooterLink>
+                                <FooterLink href="/blog">Blog</FooterLink>
+                                <FooterLink href="/privacidad">Privacidad</FooterLink>
+                                <FooterLink href="/terminos">Términos y condiciones</FooterLink>
+                            </FooterSection>
+                        </div>
+                    </nav>
                 </div>
 
-                {/* Franja legal */}
-                <div className="mt-16 flex flex-col items-start gap-4 border-t border-slate-100 pt-8 md:flex-row md:items-center md:justify-between">
-                    <p className="text-xs text-slate-400">© {year} Mirubro Digital. Todos los derechos reservados.</p>
-                    <div className="flex gap-6 text-xs text-slate-400">
-                        <Link href="/privacidad" className="transition-colors hover:text-primary">Privacidad</Link>
-                        <Link href="/terminos" className="transition-colors hover:text-primary">Términos</Link>
-                        <Link href="/contacto" className="transition-colors hover:text-primary">Contacto</Link>
-                    </div>
+                {/* Franja inferior — copyright + VIZION */}
+                <div className="mt-16 flex flex-col items-center gap-3 border-t border-slate-100 pt-8 sm:flex-row sm:justify-between sm:gap-0">
+                    <p className="text-xs text-slate-400">
+                        © {year} MiRubro Digital. Todos los derechos reservados.
+                    </p>
+                    <p className="text-xs text-slate-400">
+                        Desarrollado por{' '}
+                        <a
+                            href="https://estudiovizion.com"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            aria-label="Sitio web de Estudio VIZION"
+                            className="font-medium text-slate-500 transition-colors hover:text-brand-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 rounded-sm"
+                        >
+                            Estudio VIZION
+                        </a>
+                    </p>
                 </div>
 
             </SiteContainer>

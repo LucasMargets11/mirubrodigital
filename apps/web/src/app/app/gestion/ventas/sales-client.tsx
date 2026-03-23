@@ -26,11 +26,15 @@ type SalesClientProps = {
     canCreate: boolean;
     canViewQuotes?: boolean;
     canCreateQuotes?: boolean;
+    canViewOrders?: boolean;
 };
 
-export function SalesClient({ canCreate, canViewQuotes = false, canCreateQuotes = false }: SalesClientProps) {
+export function SalesClient({ canCreate, canViewQuotes = false, canCreateQuotes = false, canViewOrders = false }: SalesClientProps) {
     const pathname = usePathname();
     const isQuotesRoute = pathname?.includes('/presupuestos');
+    const isPedidosRoute = pathname?.includes('/pedidos');
+    const isVentasRoute = !isQuotesRoute && !isPedidosRoute;
+    const showTabs = canViewQuotes || canViewOrders;
     
     const [filters, setFilters] = useState<SalesFilters>({
         search: '',
@@ -78,28 +82,42 @@ export function SalesClient({ canCreate, canViewQuotes = false, canCreateQuotes 
                         ) : null}
                     </div>
                 </div>
-                {canViewQuotes ? (
+                {showTabs ? (
                     <div className="flex gap-2 border-t border-slate-200 pt-3">
                         <Link
                             href="/app/gestion/ventas"
                             className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
-                                !isQuotesRoute
+                                isVentasRoute
                                     ? 'bg-slate-900 text-white'
                                     : 'text-slate-600 hover:bg-slate-100'
                             }`}
                         >
                             Ventas
                         </Link>
-                        <Link
-                            href="/app/gestion/ventas/presupuestos"
-                            className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
-                                isQuotesRoute
-                                    ? 'bg-slate-900 text-white'
-                                    : 'text-slate-600 hover:bg-slate-100'
-                            }`}
-                        >
-                            Presupuestos
-                        </Link>
+                        {canViewQuotes ? (
+                            <Link
+                                href="/app/gestion/ventas/presupuestos"
+                                className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                                    isQuotesRoute
+                                        ? 'bg-slate-900 text-white'
+                                        : 'text-slate-600 hover:bg-slate-100'
+                                }`}
+                            >
+                                Presupuestos
+                            </Link>
+                        ) : null}
+                        {canViewOrders ? (
+                            <Link
+                                href="/app/gestion/ventas/pedidos"
+                                className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                                    isPedidosRoute
+                                        ? 'bg-slate-900 text-white'
+                                        : 'text-slate-600 hover:bg-slate-100'
+                                }`}
+                            >
+                                Pedidos
+                            </Link>
+                        ) : null}
                     </div>
                 ) : null}
             </header>

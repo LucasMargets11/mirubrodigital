@@ -23,6 +23,7 @@ export type FeatureCategory =
   | 'Productos'
   | 'Inventario'
   | 'Ventas'
+  | 'Pedidos'
   | 'Clientes'
   | 'Facturación'
   | 'Caja'
@@ -82,6 +83,17 @@ export interface ExtraEntry {
   };
   /** Plans that support adding extras */
   availableFor: string[];
+}
+
+export interface GcPlanEntry {
+  plan: 'start' | 'pro' | 'business';
+  label: string;
+  badge?: string;
+  priceMonthly: number;
+  priceYearly: number;
+  description: string;
+  ctaLabel: string;
+  isRecommended?: boolean;
 }
 
 export interface LegacyPlanEntry {
@@ -174,6 +186,15 @@ export const FEATURE_CATALOG: FeatureEntry[] = [
     description: 'Generación de presupuestos en PDF y conversión a venta en un clic.',
     category: 'Ventas',
     availability: { start: 'not_included', pro: 'included', business: 'included', enterprise: 'custom' },
+  },
+
+  // ── Pedidos ──────────────────────────────────────────────────────────────
+  {
+    key: 'gestion.orders',
+    title: 'Pedidos',
+    description: 'Creación, seguimiento y gestión de pedidos de clientes con estados y notificaciones.',
+    category: 'Pedidos',
+    availability: { start: 'included', pro: 'included', business: 'included', enterprise: 'custom' },
   },
 
   // ── Clientes ─────────────────────────────────────────────────────────────
@@ -302,7 +323,7 @@ export const ADDONS: AddonEntry[] = [
     code: 'crm',
     title: 'CRM / Gestión de clientes',
     description: 'Historial de compras, segmentación de clientes y saldos pendientes.',
-    pricing: { monthly: '$20/mes', yearly: '$192/año' },
+    pricing: { monthly: '$8.000/mes', yearly: '$76.800/año' },
     availableFor: ['start'],
     includedIn: ['pro', 'business', 'enterprise'],
   },
@@ -310,7 +331,7 @@ export const ADDONS: AddonEntry[] = [
     code: 'invoicing',
     title: 'Facturación Electrónica',
     description: 'Emisión de facturas fiscales válidas (AFIP, SAT, etc.).',
-    pricing: { monthly: '$150/mes', yearly: '$1440/año' },
+    pricing: { monthly: '$15.000/mes', yearly: '$144.000/año' },
     availableFor: ['start'],
     includedIn: ['pro', 'business', 'enterprise'],
   },
@@ -324,16 +345,89 @@ export const EXTRAS: ExtraEntry[] = [
   {
     code: 'extra_branch',
     title: 'Sucursal adicional',
-    pricing: { monthly: '$50/mes', yearly: '$480/año' },
+    pricing: { monthly: '$12.000/mes', yearly: '$115.200/año' },
     availableFor: ['pro', 'business'],
   },
   {
     code: 'extra_user',
     title: 'Usuario adicional',
-    pricing: { monthly: '$5/mes', yearly: '$48/año' },
+    pricing: { monthly: '$5.000/mes', yearly: '$48.000/año' },
     availableFor: ['pro', 'business'],
   },
 ];
+
+// ---------------------------------------------------------------------------
+// Plan definitions (prices in ARS pesos — synced with commercial_plans.py)
+// ---------------------------------------------------------------------------
+
+export const GC_PLANS: GcPlanEntry[] = [
+  {
+    plan: 'start',
+    label: 'Start',
+    priceMonthly: 36000,
+    priceYearly: 345600,
+    description: 'Gestión básica de productos, inventario y ventas. Ideal para empezar.',
+    ctaLabel: 'Empezar con Start',
+  },
+  {
+    plan: 'pro',
+    label: 'Pro',
+    badge: 'Recomendado',
+    priceMonthly: 50000,
+    priceYearly: 480000,
+    description: 'Operación completa con caja, clientes, reportes y tesorería.',
+    ctaLabel: 'Elegir Pro',
+    isRecommended: true,
+  },
+  {
+    plan: 'business',
+    label: 'Business',
+    priceMonthly: 75000,
+    priceYearly: 720000,
+    description: 'Multi-sucursal, facturación incluida y reportes consolidados.',
+    ctaLabel: 'Ir a Business',
+  },
+];
+
+// ---------------------------------------------------------------------------
+// Key features per plan (shown on plan cards)
+// ---------------------------------------------------------------------------
+
+export const GC_PLAN_KEY_FEATURES: Record<GcPlanEntry['plan'], string[]> = {
+  start: [
+    'Gestión de productos y catálogo',
+    'Inventario básico',
+    'Ventas básicas',
+    'Pedidos',
+    'Dashboard básico',
+    'Configuración comercial',
+  ],
+  pro: [
+    'Todo lo incluido en Start',
+    'CRM / Gestión de clientes',
+    'Caja y sesiones de caja',
+    'Cotizaciones con PDF',
+    'Reportes avanzados + Exportación',
+    'Tesorería / Finanzas',
+  ],
+  business: [
+    'Todo lo incluido en Pro',
+    'Facturación electrónica incluida',
+    'Gestión multi-sucursal',
+    'Transferencias entre sucursales',
+    'Reportes consolidados',
+  ],
+};
+
+// ---------------------------------------------------------------------------
+// Plan meta (highlight shown on cards)
+// ---------------------------------------------------------------------------
+
+export const GC_PLAN_META: Record<GcPlanEntry['plan'], { branches: string; users: string; highlight: string }> = {
+  start: { branches: '1 sucursal', users: '2 usuarios', highlight: 'Ideal para empezar' },
+  pro: { branches: 'Hasta 3 sucursales', users: '10 usuarios', highlight: 'Incluye Tesorería' },
+  business: { branches: 'Ilimitadas (5 incluidas)', users: '20 usuarios base', highlight: 'Facturación incluida' },
+};
 
 // ---------------------------------------------------------------------------
 // Legacy plan mapping

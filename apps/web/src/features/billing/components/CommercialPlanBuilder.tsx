@@ -25,8 +25,8 @@ const PLAN_LIMITS = {
 };
 
 const ADDON_PRICES = {
-  extra_branch: { monthly: 5000, yearly: 48000 }, // $50/mes
-  invoicing_module: { monthly: 15000, yearly: 144000 }, // $150/mes
+  extra_branch: { monthly: 1200000, yearly: 11520000 }, // $12.000/mes (en centavos)
+  invoicing_module: { monthly: 1500000, yearly: 14400000 }, // $15.000/mes (en centavos)
 };
 
 export function CommercialPlanBuilder({ billingPeriod, onSubscribe, onCancel }: CommercialPlanBuilderProps) {

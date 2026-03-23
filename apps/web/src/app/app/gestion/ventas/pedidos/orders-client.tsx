@@ -35,9 +35,10 @@ const paymentStatusStyles: Record<string, string> = {
 
 type OrdersClientProps = {
     canCreate: boolean;
+    canViewQuotes?: boolean;
 };
 
-export function OrdersClient({ canCreate }: OrdersClientProps) {
+export function OrdersClient({ canCreate, canViewQuotes = false }: OrdersClientProps) {
     const pathname = usePathname();
     
     const [filters, setFilters] = useState<OrdersFilters>({
@@ -84,12 +85,14 @@ export function OrdersClient({ canCreate }: OrdersClientProps) {
                         >
                             Ventas
                         </Link>
-                        <Link
-                            href="/app/gestion/ventas/presupuestos"
-                            className="rounded-full px-4 py-1.5 text-sm font-medium transition-colors text-slate-600 hover:bg-slate-100"
-                        >
-                            Presupuestos
-                        </Link>
+                        {canViewQuotes ? (
+                            <Link
+                                href="/app/gestion/ventas/presupuestos"
+                                className="rounded-full px-4 py-1.5 text-sm font-medium transition-colors text-slate-600 hover:bg-slate-100"
+                            >
+                                Presupuestos
+                            </Link>
+                        ) : null}
                         <Link
                             href="/app/gestion/ventas/pedidos"
                             className="rounded-full px-4 py-1.5 text-sm font-medium transition-colors bg-slate-900 text-white"

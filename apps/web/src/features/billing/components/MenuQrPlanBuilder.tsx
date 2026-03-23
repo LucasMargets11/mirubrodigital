@@ -35,8 +35,8 @@ interface MenuQrPlanBuilderProps {
 // Pricing helpers
 // ---------------------------------------------------------------------------
 
-const ADDON_PRICE_MONTHLY = 990; // ARS
-const ADDON_PRICE_YEARLY = 9504; // ARS (10% descuento aprox)
+const ADDON_PRICE_MONTHLY = 12000; // ARS
+const ADDON_PRICE_YEARLY = 115200; // ARS (20% descuento)
 
 function planCodeFor(plan: QrPlanEntry['plan']): string {
   return `menu_qr_${plan}`;
@@ -67,8 +67,8 @@ const PLAN_KEY_FEATURES: Record<QrPlanEntry['plan'], string[]> = {
     'Todo lo incluido en Lite',
     'Fotos por producto',
     'Analítica avanzada',
-    '1 módulo de engagement incluido',
-    'Add-on del segundo módulo disponible',
+    'Incluye Propinas o Reseñas',
+    'Sumá la opción adicional como add-on',
   ],
   premium: [
     'Todo lo incluido en Pro',
@@ -81,7 +81,7 @@ const PLAN_KEY_FEATURES: Record<QrPlanEntry['plan'], string[]> = {
 
 const PLAN_META: Record<QrPlanEntry['plan'], { highlight: string }> = {
   lite: { highlight: 'Ideal para empezar' },
-  pro: { highlight: 'Elegís 1 módulo de engagement' },
+  pro: { highlight: 'Incluye Propinas o Reseñas' },
   premium: { highlight: 'Engagement completo incluido' },
 };
 
@@ -208,8 +208,6 @@ function PlanCard({
   const isRecommended = plan.isRecommended ?? false;
   const addonCount = plan.plan === 'pro' && proAddonEnabled ? 1 : 0;
   const totalPrice = calculateTotal(plan, billingPeriod, addonCount);
-  const monthlyEquiv =
-    billingPeriod === 'yearly' ? Math.round(totalPrice / 12) : totalPrice;
   const canSubscribe = plan.plan !== 'pro' || proIncludedModule !== null;
 
   return (
@@ -240,9 +238,11 @@ function PlanCard({
         <div className="mb-6">
           <div className="flex items-baseline">
             <span className="text-4xl font-bold text-slate-900">
-              {formatArsPrice(monthlyEquiv)}
+              {formatArsPrice(totalPrice)}
             </span>
-            <span className="text-slate-500 text-sm ml-2">/ mes</span>
+            <span className="text-slate-500 text-sm ml-2">
+              / {billingPeriod === 'yearly' ? 'año' : 'mes'}
+            </span>
           </div>
           {billingPeriod === 'yearly' && (
             <p className="text-green-600 text-xs font-semibold mt-1">
@@ -346,18 +346,23 @@ export function MenuQrPlanBuilder({ billingPeriod, onSubscribe, onProStateChange
   };
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-stretch">
-      {QR_PLANS.map((plan) => (
-        <PlanCard
-          key={plan.plan}
-          plan={plan}
-          billingPeriod={billingPeriod}
-          proIncludedModule={proIncludedModule}
-          proAddonEnabled={proAddonEnabled}
-          onProChange={handleProChange}
-          onSubscribe={handleSubscribe}
-        />
-      ))}
+    <div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-stretch">
+        {QR_PLANS.map((plan) => (
+          <PlanCard
+            key={plan.plan}
+            plan={plan}
+            billingPeriod={billingPeriod}
+            proIncludedModule={proIncludedModule}
+            proAddonEnabled={proAddonEnabled}
+            onProChange={handleProChange}
+            onSubscribe={handleSubscribe}
+          />
+        ))}
+      </div>
+      <p className="text-center text-xs text-slate-400 mt-6">
+        Precios expresados en pesos argentinos (ARS). Cobro a través de Mercado Pago.
+      </p>
     </div>
   );
 }
