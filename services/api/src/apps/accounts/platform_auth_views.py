@@ -341,6 +341,27 @@ class AdminLoginView(APIView):
 
         # MFA not enrolled — check bootstrap mode
         bootstrap = getattr(settings, 'MFA_BOOTSTRAP_ENABLED', False)
+
+        # Runtime guard: even with bootstrap=true, refuse if all *other*
+        # platform staff already have MFA. This prevents bootstrap from
+        # staying open indefinitely after the initial enrollment window.
+        if bootstrap:
+            enrolled_count = AccountProfile.objects.filter(
+                is_platform_staff=True, mfa_enabled=True,
+            ).count()
+            if enrolled_count > 0:
+                # At least one admin has already enrolled MFA.
+                # This user should enroll through the normal invite/reset
+                # flow, not bootstrap.
+                bootstrap = False
+                logger.warning(
+                    'MFA bootstrap auto-disabled: %d admin(s) already enrolled. '
+                    'User %s must be enrolled by an existing admin. '
+                    'Set MFA_BOOTSTRAP_ENABLED=false in env.',
+                    enrolled_count,
+                    email,
+                )
+
         if not bootstrap:
             # MFA is required but not enrolled, and bootstrap is disabled
             _audit('ADMIN_LOGIN_FAILED', request, user=user, reason='mfa_not_enrolled')

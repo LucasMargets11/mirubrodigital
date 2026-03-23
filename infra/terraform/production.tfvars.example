@@ -1,0 +1,21 @@
+# ── Example values — copy to production.tfvars and fill in ───────────────────
+
+aws_region  = "us-east-1"
+environment = "production"
+
+# ALB (must exist already — created by your ECS/infra stack)
+alb_arn = "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/mirubro-api/abcdef1234567890"
+
+# VPC / networking
+vpc_id                 = "vpc-0abc123def456"
+elasticache_subnet_ids = ["subnet-aaa111", "subnet-bbb222"]
+app_security_group_id  = "sg-0abc123def456"
+
+# ElastiCache
+elasticache_node_type = "cache.t4g.micro"
+
+# Secrets
+mfa_encryption_key = ""  # Generate: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+
+# ECS (optional — auto-attaches secrets read policy)
+ecs_task_execution_role_arn = "arn:aws:iam::123456789012:role/mirubro-ecs-task-exec"
