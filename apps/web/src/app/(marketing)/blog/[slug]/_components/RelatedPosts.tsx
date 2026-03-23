@@ -1,4 +1,4 @@
-import type { BlogPost } from '../../_data';
+import type { BlogPost } from '../../_types';
 import { BlogCard } from '../../_components/BlogCard';
 
 interface RelatedPostsProps {

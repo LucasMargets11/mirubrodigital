@@ -1,23 +1,41 @@
-import { AdminPageHeader } from '@/components/admin/admin-page-header';
-import { EmptyState } from '@/components/admin/empty-state';
-import { FileText } from 'lucide-react';
+import { Metadata } from 'next';
 
-export const metadata = {
+import { AdminPageHeader } from '@/components/admin/admin-page-header';
+import { getAdminBlogPosts, getAdminBlogPostKPIs, getAdminBlogCategories } from '@/lib/admin';
+import { BlogContent } from './blog-content';
+
+export const metadata: Metadata = {
   title: 'Blog | Mi Rubro Admin',
 };
 
-export default function AdminBlogPage() {
+type Props = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
+
+export default async function AdminBlogPage({ searchParams }: Props) {
+  const raw = await searchParams;
+  const params: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (typeof v === 'string') params[k] = v;
+  }
+
+  const [posts, kpis, categoriesRes] = await Promise.all([
+    getAdminBlogPosts(params),
+    getAdminBlogPostKPIs(),
+    getAdminBlogCategories(),
+  ]);
+
   return (
     <div className="space-y-6">
       <AdminPageHeader
         title="Blog"
         description="Gestión de artículos, novedades y contenido del blog de Mi Rubro."
       />
-
-      <EmptyState
-        icon={<FileText className="h-12 w-12" />}
-        title="Módulo de blog"
-        description="Próximamente podrás crear, editar y publicar artículos del blog desde aquí."
+      <BlogContent
+        initialData={posts}
+        kpis={kpis}
+        categories={categoriesRes?.results ?? []}
+        initialParams={params}
       />
     </div>
   );

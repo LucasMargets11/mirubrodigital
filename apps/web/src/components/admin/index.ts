@@ -8,3 +8,5 @@ export { DataTable } from './data-table';
 export type { DataTableColumn } from './data-table';
 export { FilterBar } from './filter-bar';
 export { DetailDrawer } from './detail-drawer';
+export { Pagination } from './pagination';
+export { StatusBadge } from './status-badge';

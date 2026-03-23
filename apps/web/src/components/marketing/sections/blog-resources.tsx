@@ -5,8 +5,8 @@ import { Badge } from '@/components/ui/badge';
 import { ArrowRight, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { SiteContainer } from '@/components/layout/site-container';
-import { allPosts, featuredPost, categories } from '@/app/(marketing)/blog/_data';
-import type { BlogPost } from '@/app/(marketing)/blog/_data';
+import { getBlogListing, getBlogCategories } from '@/app/(marketing)/blog/_api';
+import type { BlogPost } from '@/app/(marketing)/blog/_types';
 
 // Helper to format date
 const formatDate = (dateString: string) => {
@@ -18,8 +18,8 @@ const formatDate = (dateString: string) => {
 };
 
 // Helper: Get category label and color based on slug
-const getCategoryDetails = (slug: string) => {
-    const category = categories.find(c => c.slug === slug);
+const getCategoryDetails = (slug: string, cats: Array<{ slug: string; label: string }>) => {
+    const category = cats.find(c => c.slug === slug);
     const label = category ? category.label : slug;
     
     // Color mapping
@@ -38,8 +38,8 @@ const getCategoryDetails = (slug: string) => {
 };
 
 // Component: Large/Featured Card
-function FeaturedPostCard({ post, priority = false }: { post: BlogPost; priority?: boolean }) {
-    const { label: categoryLabel } = getCategoryDetails(post.category);
+function FeaturedPostCard({ post, cats, priority = false }: { post: BlogPost; cats: Array<{ slug: string; label: string }>; priority?: boolean }) {
+    const { label: categoryLabel } = getCategoryDetails(post.category, cats);
 
     return (
         <Link href={`/blog/${post.slug}`} className="group block h-full">
@@ -86,8 +86,8 @@ function FeaturedPostCard({ post, priority = false }: { post: BlogPost; priority
 }
 
 // Component: Editorial List Item (New sidebar style)
-function EditorialPostListItem({ post }: { post: BlogPost }) {
-    const { label: categoryLabel, colorClass } = getCategoryDetails(post.category);
+function EditorialPostListItem({ post, cats }: { post: BlogPost; cats: Array<{ slug: string; label: string }> }) {
+    const { label: categoryLabel, colorClass } = getCategoryDetails(post.category, cats);
     
     // Formato de fecha tipo: 1 SEP 2025
     const dateFormatted = new Date(post.date).toLocaleDateString('es-AR', {
@@ -127,8 +127,8 @@ function EditorialPostListItem({ post }: { post: BlogPost }) {
 }
 
 // Component: Wide/Bottom Card (Bottom row) - Vertical Layout but Wide
-function WidePostCard({ post }: { post: BlogPost }) {
-    const { label: categoryLabel } = getCategoryDetails(post.category);
+function WidePostCard({ post, cats }: { post: BlogPost; cats: Array<{ slug: string; label: string }> }) {
+    const { label: categoryLabel } = getCategoryDetails(post.category, cats);
 
     return (
         <Link href={`/blog/${post.slug}`} className="group block h-full">
@@ -171,31 +171,24 @@ function WidePostCard({ post }: { post: BlogPost }) {
     );
 }
 
-// Helper to get posts for home structure
-function getHomePosts() {
-    // 1. Featured posts: Use 'featuredPost' + 1st from 'allPosts' (excluding featured if duplicate)
-    const featuredMain = featuredPost;
-    const others = allPosts.filter(p => p.slug !== featuredMain.slug);
-    
-    // We need:
-    // - 2 vertical featured (main + others[0])
-    // - 3 editorial text items (others[1..3])
-    // - 2 horizontal (others[4..5])
-    
-    const featuredSecondary = others[0];
-    const compactPosts = others.slice(1, 4);
-    const horizontalPosts = others.slice(4, 6); // Take 2
-    
-    return {
-        featuredPosts: [featuredMain, featuredSecondary].filter(Boolean),
-        compactPosts,
-        horizontalPosts
-    };
+// Helper to split posts for home structure
+function splitHomePosts(allPosts: BlogPost[]) {
+    const featuredPosts = allPosts.slice(0, 2);
+    const compactPosts = allPosts.slice(2, 5);
+    const horizontalPosts = allPosts.slice(5, 7);
+    return { featuredPosts, compactPosts, horizontalPosts };
 }
 
-// Main Section Component
-export function BlogResourcesSection() {
-    const { featuredPosts, compactPosts, horizontalPosts } = getHomePosts();
+// Main Section Component (async — fetches from CMS)
+export async function BlogResourcesSection() {
+    const [listing, cats] = await Promise.all([
+        getBlogListing({ page: 1 }),
+        getBlogCategories(),
+    ]);
+
+    if (!listing.posts.length) return null;
+
+    const { featuredPosts, compactPosts, horizontalPosts } = splitHomePosts(listing.posts);
 
     return (
         <section className="bg-white py-16 lg:py-24 border-t border-slate-100">
@@ -223,14 +216,14 @@ export function BlogResourcesSection() {
                         {/* Col 1: Featured 1 */}
                         {featuredPosts[0] && (
                             <div className="h-full">
-                                <FeaturedPostCard post={featuredPosts[0]} priority={true} />
+                                <FeaturedPostCard post={featuredPosts[0]} cats={cats} priority={true} />
                             </div>
                         )}
                         
                         {/* Col 2: Featured 2 */}
                         {featuredPosts[1] && (
                             <div className="h-full">
-                                <FeaturedPostCard post={featuredPosts[1]} />
+                                <FeaturedPostCard post={featuredPosts[1]} cats={cats} />
                             </div>
                         )}
                         
@@ -245,7 +238,7 @@ export function BlogResourcesSection() {
                             <div className="flex flex-col divide-y divide-slate-100">
                                 {compactPosts.map((post) => (
                                     <div key={post.slug} className="py-5 first:pt-0 last:pb-0">
-                                        <EditorialPostListItem post={post} />
+                                        <EditorialPostListItem post={post} cats={cats} />
                                     </div>
                                 ))}
                             </div>
@@ -263,7 +256,7 @@ export function BlogResourcesSection() {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 lg:gap-8">
                             {horizontalPosts.map((post) => (
                                 <div key={post.slug} className="h-full">
-                                    <WidePostCard post={post} />
+                                    <WidePostCard post={post} cats={cats} />
                                 </div>
                             ))}
                         </div>

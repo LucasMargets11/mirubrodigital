@@ -47,6 +47,7 @@ INSTALLED_APPS = [
   'apps.resto',
   'apps.billing',
   'apps.treasury',
+  'apps.blog',
 ]
 
 MIDDLEWARE = [
@@ -226,6 +227,11 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'billing.expire_checkout_sessions',
         # Every 15 minutes.
         'schedule': crontab(minute='*/15'),
+    },
+    'blog-publish-scheduled': {
+        'task': 'blog.publish_scheduled_posts',
+        # Every 5 minutes — check for scheduled blog posts to publish.
+        'schedule': crontab(minute='*/5'),
     },
 }
 

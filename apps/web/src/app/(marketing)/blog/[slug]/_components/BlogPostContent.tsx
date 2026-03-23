@@ -1,6 +1,6 @@
 import Image from 'next/image';
 import Link from 'next/link';
-import type { ContentBlock } from '../../_data';
+import type { ContentBlock } from '../../_types';
 
 interface BlogPostContentProps {
     excerpt: string;

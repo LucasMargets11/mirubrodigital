@@ -1,24 +1,36 @@
-import { AdminPageHeader } from '@/components/admin/admin-page-header';
-import { EmptyState } from '@/components/admin/empty-state';
-import { HeadphonesIcon } from 'lucide-react';
+import { Metadata } from 'next';
 
-export const metadata = {
+import { AdminPageHeader } from '@/components/admin/admin-page-header';
+import { getAdminTickets, getAdminTicketKPIs } from '@/lib/admin';
+import { SoporteContent } from './soporte-content';
+
+export const metadata: Metadata = {
   title: 'Soporte | Mi Rubro Admin',
 };
 
-export default function AdminSoportePage() {
+type Props = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
+
+export default async function AdminSoportePage({ searchParams }: Props) {
+  const raw = await searchParams;
+  const params: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (typeof v === 'string') params[k] = v;
+  }
+
+  const [tickets, kpis] = await Promise.all([
+    getAdminTickets(params),
+    getAdminTicketKPIs(),
+  ]);
+
   return (
     <div className="space-y-6">
       <AdminPageHeader
         title="Soporte"
         description="Tickets y solicitudes de soporte de los clientes."
       />
-
-      <EmptyState
-        icon={<HeadphonesIcon className="h-12 w-12" />}
-        title="Módulo de soporte"
-        description="Próximamente podrás gestionar tickets de soporte, responder consultas y hacer seguimiento de solicitudes desde aquí."
-      />
+      <SoporteContent initialData={tickets} kpis={kpis} initialParams={params} />
     </div>
   );
 }

@@ -1,23 +1,39 @@
-import { AdminPageHeader } from '@/components/admin/admin-page-header';
-import { EmptyState } from '@/components/admin/empty-state';
-import { CreditCard } from 'lucide-react';
+import { Metadata } from 'next';
 
-export const metadata = {
+import { getAdminSubscriptions, getAdminSubscriptionKPIs } from '@/lib/admin';
+import { AdminPageHeader } from '@/components/admin/admin-page-header';
+import { SuscripcionesContent } from './suscripciones-content';
+
+export const metadata: Metadata = {
   title: 'Suscripciones | Mi Rubro Admin',
 };
 
-export default function AdminSuscripcionesPage() {
+type Props = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
+
+export default async function AdminSuscripcionesPage({ searchParams }: Props) {
+  const params = await searchParams;
+  const queryParams: Record<string, string> = {};
+  for (const [key, val] of Object.entries(params)) {
+    if (typeof val === 'string') queryParams[key] = val;
+  }
+
+  const [subs, kpis] = await Promise.all([
+    getAdminSubscriptions(queryParams),
+    getAdminSubscriptionKPIs(),
+  ]);
+
   return (
     <div className="space-y-6">
       <AdminPageHeader
         title="Suscripciones"
-        description="Estado de suscripciones, planes y facturación de la plataforma."
+        description="Estado de suscripciones, planes y facturación."
       />
-
-      <EmptyState
-        icon={<CreditCard className="h-12 w-12" />}
-        title="Módulo de suscripciones"
-        description="Próximamente podrás gestionar planes, ver estado de pagos y administrar la facturación desde aquí."
+      <SuscripcionesContent
+        initialData={subs}
+        kpis={kpis}
+        initialParams={queryParams}
       />
     </div>
   );

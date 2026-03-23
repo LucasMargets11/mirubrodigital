@@ -1,23 +1,39 @@
-import { AdminPageHeader } from '@/components/admin/admin-page-header';
-import { EmptyState } from '@/components/admin/empty-state';
-import { Users } from 'lucide-react';
+import { Metadata } from 'next';
 
-export const metadata = {
+import { getAdminClients, getAdminClientKPIs } from '@/lib/admin';
+import { AdminPageHeader } from '@/components/admin/admin-page-header';
+import { ClientesContent } from './clientes-content';
+
+export const metadata: Metadata = {
   title: 'Clientes | Mi Rubro Admin',
 };
 
-export default function AdminClientesPage() {
+type Props = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
+
+export default async function AdminClientesPage({ searchParams }: Props) {
+  const params = await searchParams;
+  const queryParams: Record<string, string> = {};
+  for (const [key, val] of Object.entries(params)) {
+    if (typeof val === 'string') queryParams[key] = val;
+  }
+
+  const [clients, kpis] = await Promise.all([
+    getAdminClients(queryParams),
+    getAdminClientKPIs(),
+  ]);
+
   return (
     <div className="space-y-6">
       <AdminPageHeader
         title="Clientes"
-        description="Gestión de negocios registrados en la plataforma."
+        description="Negocios registrados en la plataforma."
       />
-
-      <EmptyState
-        icon={<Users className="h-12 w-12" />}
-        title="Módulo de clientes"
-        description="Próximamente podrás ver, buscar y gestionar todos los negocios registrados en Mi Rubro desde aquí."
+      <ClientesContent
+        initialData={clients}
+        kpis={kpis}
+        initialParams={queryParams}
       />
     </div>
   );

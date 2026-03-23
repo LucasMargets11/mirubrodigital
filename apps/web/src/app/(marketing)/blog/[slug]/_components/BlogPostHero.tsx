@@ -1,6 +1,6 @@
 import Image from 'next/image';
 import Link from 'next/link';
-import type { BlogPost } from '../../_data';
+import type { BlogPost } from '../../_types';
 
 interface BlogPostHeroProps {
     post: BlogPost;

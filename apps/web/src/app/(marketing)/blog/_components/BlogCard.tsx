@@ -1,7 +1,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import type { Route } from 'next';
-import type { BlogPost } from '../_data';
+import type { BlogPost } from '../_types';
 
 interface BlogCardProps {
     post: BlogPost;

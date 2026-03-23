@@ -355,6 +355,26 @@ class AccessAuditLog(models.Model):
         ('ADMIN_MFA_DISABLED',         'Admin MFA Disabled'),
         ('ADMIN_MFA_RESET',            'Admin MFA Reset'),
         ('ADMIN_SUSPICIOUS_AUTH',      'Admin Suspicious Auth Pattern'),
+        # ── Admin Backoffice Phase 2 ──────────────────────────────────────
+        ('ADMIN_CLIENT_VIEWED',        'Admin Client Viewed'),
+        ('ADMIN_SUBSCRIPTION_VIEWED',  'Admin Subscription Viewed'),
+        ('ADMIN_NOTE_CREATED',         'Admin Internal Note Created'),
+        # ── Admin Backoffice Phase 3 — Support ────────────────────────────
+        ('ADMIN_TICKET_CREATED',       'Admin Ticket Created'),
+        ('ADMIN_TICKET_UPDATED',       'Admin Ticket Updated'),
+        ('ADMIN_TICKET_VIEWED',        'Admin Ticket Viewed'),
+        ('ADMIN_TICKET_MESSAGE',       'Admin Ticket Message Sent'),
+        # ── Admin Backoffice Phase 4 — Reports ─────────────────────────────
+        ('ADMIN_REPORT_VIEWED',        'Admin Report Viewed'),
+        ('ADMIN_ALERTS_VIEWED',        'Admin Alerts Viewed'),
+        # ── Admin Backoffice Phase 5 — Blog CMS ──────────────────────────────
+        ('BLOG_POST_CREATED',          'Blog Post Created'),
+        ('BLOG_POST_UPDATED',          'Blog Post Updated'),
+        ('BLOG_POST_PUBLISHED',        'Blog Post Published'),
+        ('BLOG_POST_UNPUBLISHED',      'Blog Post Unpublished'),
+        ('BLOG_POST_ARCHIVED',         'Blog Post Archived'),
+        ('BLOG_POST_SCHEDULED',        'Blog Post Scheduled'),
+        ('BLOG_POST_VIEWED',           'Blog Post Viewed'),
     ]
     
     action = models.CharField(max_length=32, choices=ACTION_CHOICES)

@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import type { Route } from 'next';
-import type { BlogPost, BlogCategory } from '../_data';
+import type { BlogPost, BlogCategory } from '../_types';
 import { BlogCard } from './BlogCard';
 
 interface BlogGridProps {

@@ -2,7 +2,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import type { Route } from 'next';
 import { Button } from '@/components/ui/button';
-import type { BlogPost } from '../_data';
+import type { BlogPost } from '../_types';
 
 interface BlogFeaturedHeroProps {
     post: BlogPost;
