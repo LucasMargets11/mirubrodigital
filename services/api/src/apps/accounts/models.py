@@ -25,6 +25,13 @@ class AccountProfile(models.Model):
         PENDING_EMAIL_VERIFICATION = 'pending_email_verification', 'Pendiente de verificación'
         SUSPENDED                = 'suspended',                 'Suspendido'
 
+    # ── Platform internal roles (backoffice admin) ────────────────────────
+    class InternalRole(models.TextChoices):
+        SUPERADMIN    = 'superadmin',    'Super Admin'
+        OPERATIONS    = 'operations',    'Operaciones'
+        SUPPORT_AGENT = 'support_agent', 'Agente de Soporte'
+        CONTENT_ADMIN = 'content_admin', 'Admin de Contenido'
+
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -37,6 +44,33 @@ class AccountProfile(models.Model):
         default=AccountStatus.PENDING_EMAIL_VERIFICATION,
     )
     email_verified = models.BooleanField(default=False)
+
+    # ── Platform staff fields (internal backoffice) ──────────────────────
+    is_platform_staff = models.BooleanField(
+        default=False,
+        help_text='Marks this user as Mi Rubro internal staff with access to /admin.',
+    )
+    internal_role = models.CharField(
+        max_length=24,
+        choices=InternalRole.choices,
+        null=True, blank=True,
+        help_text='Internal backoffice role. Only meaningful when is_platform_staff=True.',
+    )
+
+    # ── MFA (TOTP) fields ─────────────────────────────────────────────────
+    mfa_secret_encrypted = models.TextField(
+        null=True, blank=True,
+        help_text='Fernet-encrypted TOTP secret. Never store plaintext.',
+    )
+    mfa_enabled = models.BooleanField(
+        default=False,
+        help_text='True once TOTP enrollment is confirmed.',
+    )
+    mfa_recovery_codes = models.JSONField(
+        null=True, blank=True,
+        help_text='List of SHA-256 hashed single-use recovery codes.',
+    )
+    mfa_enrolled_at = models.DateTimeField(null=True, blank=True)
 
     # Verification token (SHA-256 hash; plaintext sent once in email link)
     email_verification_token_hash   = models.CharField(max_length=64, null=True, blank=True, db_index=True)
@@ -301,6 +335,26 @@ class AccessAuditLog(models.Model):
         # ── Legacy ────────────────────────────────────────────────────────
         ('ACCOUNT_DISABLED', 'Account Disabled'),  # legacy → EMPLOYEE_SUSPENDED
         ('ACCOUNT_ENABLED',  'Account Enabled'),   # legacy
+        # ── Platform Admin (Backoffice Interno) ──────────────────────────
+        ('PLATFORM_ADMIN_LOGIN',       'Platform Admin Login'),
+        ('PLATFORM_ADMIN_ACTION',      'Platform Admin Generic Action'),
+        ('PLATFORM_STAFF_GRANTED',     'Platform Staff Access Granted'),
+        ('PLATFORM_STAFF_REVOKED',     'Platform Staff Access Revoked'),
+        ('PLATFORM_ROLE_CHANGED',      'Platform Internal Role Changed'),
+        # ── Platform Admin Auth Hardening (Phase 1.1) ─────────────────────
+        ('ADMIN_LOGIN_SUCCESS',        'Admin Login Success'),
+        ('ADMIN_LOGIN_FAILED',         'Admin Login Failed'),
+        ('ADMIN_LOGIN_THROTTLED',      'Admin Login Throttled'),
+        ('ADMIN_LOGIN_COOLDOWN',       'Admin Login Cooldown Triggered'),
+        ('ADMIN_LOGIN_BLOCKED_IP',     'Admin Login Blocked IP'),
+        ('ADMIN_MFA_REQUIRED',         'Admin MFA Required'),
+        ('ADMIN_MFA_SUCCESS',          'Admin MFA Success'),
+        ('ADMIN_MFA_FAILED',           'Admin MFA Failed'),
+        ('ADMIN_MFA_RECOVERY_USED',    'Admin MFA Recovery Code Used'),
+        ('ADMIN_MFA_ENABLED',          'Admin MFA Enabled'),
+        ('ADMIN_MFA_DISABLED',         'Admin MFA Disabled'),
+        ('ADMIN_MFA_RESET',            'Admin MFA Reset'),
+        ('ADMIN_SUSPICIOUS_AUTH',      'Admin Suspicious Auth Pattern'),
     ]
     
     action = models.CharField(max_length=32, choices=ACTION_CHOICES)
@@ -322,7 +376,8 @@ class AccessAuditLog(models.Model):
     business = models.ForeignKey(
         'business.Business',
         related_name='access_audit_logs',
-        on_delete=models.CASCADE
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
     )
     details = models.JSONField(
         default=dict,

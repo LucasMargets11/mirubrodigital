@@ -187,8 +187,25 @@ SPECTACULAR_SETTINGS = {
   'SERVE_INCLUDE_SCHEMA': False,
 }
 
-CELERY_BROKER_URL = os.getenv('REDIS_URL', 'redis://redis:6379/0')
+CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', os.getenv('REDIS_URL', 'redis://redis:6379/0'))
 CELERY_RESULT_BACKEND = CELERY_BROKER_URL
+
+# ── Cache (Redis / ElastiCache) ──────────────────────────────────────────────
+# Used for admin rate limiting, MFA challenge tokens, OTP replay prevention.
+# CACHE_REDIS_URL can point to Amazon ElastiCache (Redis or Valkey).
+# Example: rediss://my-cluster.xxxxx.use1.cache.amazonaws.com:6379/0
+# Use `rediss://` (double-s) for TLS, required by ElastiCache in-transit encryption.
+CACHES = {
+    'default': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': os.getenv('CACHE_REDIS_URL', os.getenv('REDIS_URL', 'redis://redis:6379/1')),
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+        },
+        'KEY_PREFIX': 'mirubro',
+        'TIMEOUT': 300,  # default 5 min
+    },
+}
 
 # Periodic task schedule (requires celery-beat or django-celery-beat).
 # expire_subscriptions runs every hour to enforce subscription lifecycle
@@ -335,4 +352,83 @@ LOGGING = {
         },
     },
 }
+
+# ── Security hardening ───────────────────────────────────────────────────────
+# In production, set these via environment variables.
+# In development, they default to permissive values.
+
+_IS_PROD = not DEBUG
+
+# Cookie security (applies to Django session cookie if session middleware is active)
+SESSION_COOKIE_SECURE = os.getenv('SESSION_COOKIE_SECURE', str(_IS_PROD)).lower() == 'true'
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = os.getenv('SESSION_COOKIE_SAMESITE', 'Lax')
+
+CSRF_COOKIE_SECURE = os.getenv('CSRF_COOKIE_SECURE', str(_IS_PROD)).lower() == 'true'
+CSRF_COOKIE_HTTPONLY = True
+
+# HTTPS enforcement (only in production)
+SECURE_SSL_REDIRECT = os.getenv('SECURE_SSL_REDIRECT', str(_IS_PROD)).lower() == 'true'
+SECURE_HSTS_SECONDS = int(os.getenv('SECURE_HSTS_SECONDS', '31536000' if _IS_PROD else '0'))
+SECURE_HSTS_INCLUDE_SUBDOMAINS = _IS_PROD
+SECURE_HSTS_PRELOAD = _IS_PROD
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https') if _IS_PROD else None
+
+X_FRAME_OPTIONS = 'DENY'
+SECURE_CONTENT_TYPE_NOSNIFF = True
+
+# Number of trusted proxies in front of Django (ALB=1, CloudFront+ALB=2).
+# Used to extract the real client IP from X-Forwarded-For.
+TRUSTED_PROXY_DEPTH = int(os.getenv('TRUSTED_PROXY_DEPTH', '1'))
+
+# ── Admin login rate limiting ────────────────────────────────────────────────
+# All values configurable via env to allow tuning without redeploy.
+
+ADMIN_LOGIN_IP_EMAIL_MAX_ATTEMPTS    = int(os.getenv('ADMIN_LOGIN_IP_EMAIL_MAX_ATTEMPTS', '5'))
+ADMIN_LOGIN_IP_EMAIL_WINDOW_SECONDS  = int(os.getenv('ADMIN_LOGIN_IP_EMAIL_WINDOW_SECONDS', str(15 * 60)))
+ADMIN_LOGIN_IP_EMAIL_COOLDOWN_SECONDS = int(os.getenv('ADMIN_LOGIN_IP_EMAIL_COOLDOWN_SECONDS', str(15 * 60)))
+
+ADMIN_LOGIN_EMAIL_MAX_ATTEMPTS       = int(os.getenv('ADMIN_LOGIN_EMAIL_MAX_ATTEMPTS', '10'))
+ADMIN_LOGIN_EMAIL_WINDOW_SECONDS     = int(os.getenv('ADMIN_LOGIN_EMAIL_WINDOW_SECONDS', str(30 * 60)))
+ADMIN_LOGIN_EMAIL_COOLDOWN_SECONDS   = int(os.getenv('ADMIN_LOGIN_EMAIL_COOLDOWN_SECONDS', str(30 * 60)))
+
+ADMIN_LOGIN_IP_MAX_ATTEMPTS          = int(os.getenv('ADMIN_LOGIN_IP_MAX_ATTEMPTS', '20'))
+ADMIN_LOGIN_IP_WINDOW_SECONDS        = int(os.getenv('ADMIN_LOGIN_IP_WINDOW_SECONDS', str(10 * 60)))
+ADMIN_LOGIN_IP_COOLDOWN_SECONDS      = int(os.getenv('ADMIN_LOGIN_IP_COOLDOWN_SECONDS', str(10 * 60)))
+
+# Anti-enumeration: minimum artificial delay (seconds) for failed login responses.
+ADMIN_LOGIN_FAILURE_DELAY_SECONDS    = float(os.getenv('ADMIN_LOGIN_FAILURE_DELAY_SECONDS', '0.5'))
+
+# ── MFA (TOTP) ──────────────────────────────────────────────────────────────
+# Fernet key for encrypting TOTP secrets at rest. REQUIRED in production.
+# Generate: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+#
+# Production (AWS): store in AWS Secrets Manager and inject via ECS task
+# definition secretsRef or a startup script that calls:
+#   aws secretsmanager get-secret-value --secret-id mirubro/mfa-encryption-key
+# Never commit this value to source control.
+MFA_ENCRYPTION_KEY = os.getenv('MFA_ENCRYPTION_KEY', '')
+
+# OTP verification limits
+MFA_OTP_MAX_ATTEMPTS   = int(os.getenv('MFA_OTP_MAX_ATTEMPTS', '5'))
+MFA_OTP_LOCKOUT_SECONDS = int(os.getenv('MFA_OTP_LOCKOUT_SECONDS', str(15 * 60)))
+MFA_CHALLENGE_TTL_SECONDS = int(os.getenv('MFA_CHALLENGE_TTL_SECONDS', str(5 * 60)))
+
+# MFA bootstrap: first platform staff user can complete login without MFA
+# to complete initial TOTP enrollment. Disable in production once enrolled.
+MFA_BOOTSTRAP_ENABLED = os.getenv('MFA_BOOTSTRAP_ENABLED', 'true').lower() == 'true'
+
+# ── IP allowlist for platform admin (optional) ───────────────────────────────
+# Comma-separated list of IPs or CIDR ranges. Empty = disabled (all IPs allowed).
+ADMIN_IP_ALLOWLIST = [
+    ip.strip()
+    for ip in os.getenv('ADMIN_IP_ALLOWLIST', '').split(',')
+    if ip.strip()
+]
+
+# ── DRF throttle scopes for admin auth (secondary defense) ──────────────────
+REST_FRAMEWORK['DEFAULT_THROTTLE_RATES'].update({
+    'admin_auth': os.getenv('ADMIN_AUTH_THROTTLE_RATE', '30/minute'),
+    'admin_mfa': os.getenv('ADMIN_MFA_THROTTLE_RATE', '10/minute'),
+})
 

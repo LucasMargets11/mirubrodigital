@@ -15,6 +15,7 @@ urlpatterns = [
   path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='docs'),
   path('api/v1/health/', health_check, name='health-check'),
   path('api/v1/auth/', include('apps.accounts.urls')),
+  path('api/v1/platform-admin/', include('apps.accounts.platform_admin_urls')),
   path('api/v1/auth/employee-login/', EmployeeLoginView.as_view(), name='employee-login'),
   path('api/v1/auth/employee-change-pin/', EmployeeChangePinView.as_view(), name='employee-change-pin'),
   path('api/v1/pos/', include('apps.accounts.pos_urls')),
