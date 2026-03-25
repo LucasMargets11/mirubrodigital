@@ -1,6 +1,12 @@
 from rest_framework import serializers
 from django.db import models as db_models
-from .models import Account, TransactionCategory, Transaction, ExpenseTemplate, Expense, Employee, PayrollPayment, FixedExpense, FixedExpensePeriod, TreasurySettings, Budget
+from .models import (
+    Account, TransactionCategory, Transaction, ExpenseTemplate, Expense,
+    Employee, PayrollPayment, FixedExpense, FixedExpensePeriod,
+    TreasurySettings, Budget, Payment, ExpenseDocument,
+    EXPENSE_DOCUMENT_ALLOWED_TYPES, EXPENSE_DOCUMENT_MAX_SIZE_BYTES,
+)
+from .file_validation import validate_expense_document_file
 from apps.business.models import Business
 
 class AccountSerializer(serializers.ModelSerializer):
@@ -120,10 +126,16 @@ class ExpenseTemplateSerializer(serializers.ModelSerializer):
         read_only_fields = ('business',)
 
 class ExpenseSerializer(serializers.ModelSerializer):
-    template_name = serializers.CharField(source='template.name', read_only=True)
+    template_name = serializers.CharField(source='template.name', read_only=True)  # DEPRECATED — transitional
     category_name = serializers.CharField(source='category.name', read_only=True)
+    # Legacy fields kept for frontend compat — computed from Payment when available
     paid_account_name = serializers.CharField(source='paid_account.name', read_only=True, allow_null=True)
     source_details = serializers.SerializerMethodField()
+    # Sprint 1: expose payment_id for new frontend paths
+    payment_id = serializers.SerializerMethodField()
+    # Sprint 2: document layer
+    documents_count = serializers.SerializerMethodField()
+    latest_document = serializers.SerializerMethodField()
 
     class Meta:
         model = Expense
@@ -132,6 +144,40 @@ class ExpenseSerializer(serializers.ModelSerializer):
             'business', 'created_at', 'paid_at', 'paid_account',
             'payment_transaction', 'source_type', 'source_id', 'is_auto_generated',
         )
+
+    def get_payment_id(self, obj):
+        """Return the active Payment ID — uses annotation if available."""
+        if hasattr(obj, '_payment_id'):
+            return obj._payment_id
+        payment = obj.payments.filter(status='completed').first() if hasattr(obj, 'payments') else None
+        return payment.id if payment else None
+
+    def get_documents_count(self, obj):
+        if hasattr(obj, '_documents_count'):
+            return obj._documents_count
+        return obj.documents.exclude(status='archived').count()
+
+    def get_latest_document(self, obj):
+        if hasattr(obj, '_latest_doc_id'):
+            if obj._latest_doc_id is None:
+                return None
+            return {
+                'id': obj._latest_doc_id,
+                'original_filename': obj._latest_doc_filename,
+                'mime_type': obj._latest_doc_mime,
+                'document_kind': obj._latest_doc_kind,
+                'created_at': obj._latest_doc_created.isoformat() if obj._latest_doc_created else None,
+            }
+        doc = obj.documents.exclude(status='archived').order_by('-created_at').first()
+        if not doc:
+            return None
+        return {
+            'id': doc.id,
+            'original_filename': doc.original_filename,
+            'mime_type': doc.mime_type,
+            'document_kind': doc.document_kind,
+            'created_at': doc.created_at.isoformat(),
+        }
 
     def get_source_details(self, obj):
         """Return extra info about the auto-generation source for frontend links/badges."""
@@ -200,8 +246,14 @@ class FixedExpenseSerializer(serializers.ModelSerializer):
 
 class FixedExpensePeriodSerializer(serializers.ModelSerializer):
     fixed_expense_name = serializers.CharField(source='fixed_expense.name', read_only=True)
+    # Legacy fields kept for frontend compat
     paid_account_name = serializers.CharField(source='paid_account.name', read_only=True, allow_null=True)
     period_display = serializers.SerializerMethodField()
+    # Sprint 1: expose payment_id for new frontend paths
+    payment_id = serializers.SerializerMethodField()
+    # Sprint 2: document layer
+    documents_count = serializers.SerializerMethodField()
+    latest_document = serializers.SerializerMethodField()
     
     class Meta:
         model = FixedExpensePeriod
@@ -212,12 +264,72 @@ class FixedExpensePeriodSerializer(serializers.ModelSerializer):
         """Return period in YYYY-MM format"""
         return obj.period.strftime('%Y-%m')
 
+    def get_payment_id(self, obj):
+        """Return the active Payment ID — uses annotation if available."""
+        if hasattr(obj, '_payment_id'):
+            return obj._payment_id
+        payment = obj.payments.filter(status='completed').first() if hasattr(obj, 'payments') else None
+        return payment.id if payment else None
+
+    def get_documents_count(self, obj):
+        if hasattr(obj, '_documents_count'):
+            return obj._documents_count
+        return obj.documents.exclude(status='archived').count()
+
+    def get_latest_document(self, obj):
+        if hasattr(obj, '_latest_doc_id'):
+            if obj._latest_doc_id is None:
+                return None
+            return {
+                'id': obj._latest_doc_id,
+                'original_filename': obj._latest_doc_filename,
+                'mime_type': obj._latest_doc_mime,
+                'document_kind': obj._latest_doc_kind,
+                'created_at': obj._latest_doc_created.isoformat() if obj._latest_doc_created else None,
+            }
+        doc = obj.documents.exclude(status='archived').order_by('-created_at').first()
+        if not doc:
+            return None
+        return {
+            'id': doc.id,
+            'original_filename': doc.original_filename,
+            'mime_type': doc.mime_type,
+            'document_kind': doc.document_kind,
+            'created_at': doc.created_at.isoformat(),
+        }
+
 
 class TreasurySettingsSerializer(serializers.ModelSerializer):
     class Meta:
         model = TreasurySettings
         fields = '__all__'
         read_only_fields = ('business',)
+
+
+class PaymentSerializer(serializers.ModelSerializer):
+    """Serializer for the Payment entity (Sprint 1)."""
+    expense_name = serializers.SerializerMethodField()
+    fixed_expense_period_label = serializers.SerializerMethodField()
+    account_name = serializers.CharField(source='account.name', read_only=True, allow_null=True)
+    transaction_id = serializers.IntegerField(source='transaction.id', read_only=True, allow_null=True)
+
+    class Meta:
+        model = Payment
+        fields = '__all__'
+        read_only_fields = (
+            'business', 'created_at', 'updated_at', 'is_backfilled',
+        )
+
+    def get_expense_name(self, obj):
+        if obj.expense_id and obj.expense:
+            return obj.expense.name
+        return None
+
+    def get_fixed_expense_period_label(self, obj):
+        if obj.fixed_expense_period_id and obj.fixed_expense_period:
+            fep = obj.fixed_expense_period
+            return f'{fep.fixed_expense.name} — {fep.period.strftime("%Y-%m")}'
+        return None
 
 
 class BudgetSerializer(serializers.ModelSerializer):
@@ -253,3 +365,131 @@ class BudgetSerializer(serializers.ModelSerializer):
         if not obj.limit_amount or obj.limit_amount == 0:
             return None
         return round((spent / float(obj.limit_amount)) * 100, 1)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ExpenseDocument — capa documental (Sprint 2)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class ExpenseDocumentSerializer(serializers.ModelSerializer):
+    """Serializer for expense documents / receipts (detail view)."""
+    file_url = serializers.SerializerMethodField()
+    uploaded_by_name = serializers.SerializerMethodField()
+    origin_type = serializers.SerializerMethodField()
+    origin_label = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ExpenseDocument
+        fields = (
+            'id', 'business', 'expense', 'fixed_expense_period',
+            'file', 'file_url', 'original_filename', 'mime_type', 'size_bytes',
+            'document_kind', 'status', 'notes', 'uploaded_by', 'uploaded_by_name',
+            'origin_type', 'origin_label',
+            # Processing fields (Sprint 3) — included in detail, excluded in list
+            'normalized_data', 'processing_errors',
+            'processed_at', 'extraction_source',
+            'created_at', 'updated_at',
+        )
+        read_only_fields = (
+            'business', 'expense', 'fixed_expense_period',
+            'original_filename', 'mime_type', 'size_bytes',
+            'file', 'uploaded_by', 'created_at', 'updated_at',
+            # Processing fields (Sprint 3) — set by pipeline only
+            'normalized_data', 'processing_errors',
+            'processed_at', 'extraction_source',
+        )
+
+    def get_file_url(self, obj):
+        request = self.context.get('request')
+        if obj.file and request:
+            return request.build_absolute_uri(obj.file.url)
+        return obj.file.url if obj.file else None
+
+    def get_uploaded_by_name(self, obj):
+        if obj.uploaded_by:
+            return getattr(obj.uploaded_by, 'get_full_name', lambda: str(obj.uploaded_by))()
+        return None
+
+    def get_origin_type(self, obj):
+        if obj.expense_id:
+            return 'expense'
+        if obj.fixed_expense_period_id:
+            return 'fixed_expense_period'
+        return None
+
+    def get_origin_label(self, obj):
+        if obj.expense_id and obj.expense:
+            return obj.expense.name
+        if obj.fixed_expense_period_id and obj.fixed_expense_period:
+            fep = obj.fixed_expense_period
+            return f'{fep.fixed_expense.name} — {fep.period.strftime("%Y-%m")}'
+        return None
+
+
+class ExpenseDocumentListSerializer(serializers.ModelSerializer):
+    """Lightweight serializer for list views — excludes raw_extraction & normalized_data."""
+    file_url = serializers.SerializerMethodField()
+    origin_type = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ExpenseDocument
+        fields = (
+            'id', 'expense', 'fixed_expense_period',
+            'file_url', 'original_filename', 'mime_type', 'size_bytes',
+            'document_kind', 'status', 'extraction_source',
+            'processed_at', 'created_at',
+            'origin_type',
+        )
+
+    def get_file_url(self, obj):
+        request = self.context.get('request')
+        if obj.file and request:
+            return request.build_absolute_uri(obj.file.url)
+        return obj.file.url if obj.file else None
+
+    def get_origin_type(self, obj):
+        if obj.expense_id:
+            return 'expense'
+        if obj.fixed_expense_period_id:
+            return 'fixed_expense_period'
+        return None
+
+
+class ExpenseDocumentUploadSerializer(serializers.Serializer):
+    """Minimal serializer for the upload action (multipart form)."""
+    file = serializers.FileField()
+    expense = serializers.PrimaryKeyRelatedField(
+        queryset=Expense.objects.none(), required=False, allow_null=True,
+    )
+    fixed_expense_period = serializers.PrimaryKeyRelatedField(
+        queryset=FixedExpensePeriod.objects.none(), required=False, allow_null=True,
+    )
+    document_kind = serializers.ChoiceField(
+        choices=ExpenseDocument.DocumentKind.choices,
+        default=ExpenseDocument.DocumentKind.OTHER,
+    )
+    notes = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get('request')
+        business = getattr(request, 'business', None) if request else None
+        if business:
+            self.fields['expense'].queryset = Expense.objects.filter(business=business)
+            self.fields['fixed_expense_period'].queryset = (
+                FixedExpensePeriod.objects.filter(fixed_expense__business=business)
+            )
+
+    def validate_file(self, value):
+        return validate_expense_document_file(value)
+
+    def validate(self, attrs):
+        expense = attrs.get('expense')
+        fep = attrs.get('fixed_expense_period')
+        has_expense = expense is not None
+        has_fep = fep is not None
+        if has_expense == has_fep:
+            raise serializers.ValidationError(
+                'Debe especificar exactamente un origen: expense o fixed_expense_period.'
+            )
+        return attrs

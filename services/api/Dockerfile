@@ -7,7 +7,13 @@ WORKDIR /app
 ENV PYTHONPATH="/app/src"
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential \
+    && apt-get install -y --no-install-recommends \
+       build-essential \
+       libzbar0 \
+       tesseract-ocr \
+       tesseract-ocr-spa \
+       poppler-utils \
+       libmagic1 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./

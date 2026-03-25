@@ -3,6 +3,7 @@ from django.conf import settings
 from apps.business.models import Business
 from django.utils import timezone
 from datetime import date
+import os
 import uuid
 
 class Account(models.Model):
@@ -137,7 +138,7 @@ class FixedExpensePeriod(models.Model):
         super().save(*args, **kwargs)
 
 class ExpenseTemplate(models.Model):
-    """DEPRECATED: Usar FixedExpense en su lugar. Mantenido por compatibilidad."""
+    """DEPRECATED: Usar FixedExpense en su lugar. Modelo congelado — no usar en código nuevo."""
     class Frequency(models.TextChoices):
         MONTHLY = 'monthly', 'Mensual'
 
@@ -149,6 +150,10 @@ class ExpenseTemplate(models.Model):
     due_day = models.PositiveSmallIntegerField(help_text="Day of the month (1-28)")
     start_date = models.DateField()
     is_active = models.BooleanField(default=True)
+
+    class Meta:
+        managed = False  # Sprint 1: frozen — table stays for legacy reads
+        db_table = 'treasury_expensetemplate'
 
     def __str__(self):
         return self.name
@@ -284,3 +289,252 @@ class Budget(models.Model):
 
     def __str__(self):
         return f"Budget {self.category.name} {self.year}-{self.month:02d}: {self.limit_amount}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Payment — entidad de pago desacoplada (Sprint 1)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class Payment(models.Model):
+    """
+    Representa un pago ejecutado sobre un origen pagable (Expense o FixedExpensePeriod).
+
+    Sprint 1: cada origen solo puede tener un Payment con status=completed.
+    La relación con Transaction es 1-a-1.
+    """
+
+    class Status(models.TextChoices):
+        COMPLETED = 'completed', 'Completado'
+        VOIDED = 'voided', 'Anulado'
+
+    business = models.ForeignKey(
+        Business, on_delete=models.CASCADE, related_name='treasury_payments',
+    )
+
+    # ── Origen pagable (exactamente uno seteado) ──────────────────────────
+    expense = models.ForeignKey(
+        'Expense', on_delete=models.CASCADE, null=True, blank=True,
+        related_name='payments',
+        help_text='Gasto puntual pagado (mutuamente excluyente con fixed_expense_period)',
+    )
+    fixed_expense_period = models.ForeignKey(
+        'FixedExpensePeriod', on_delete=models.CASCADE, null=True, blank=True,
+        related_name='payments',
+        help_text='Período de gasto fijo pagado (mutuamente excluyente con expense)',
+    )
+
+    # ── Datos del pago ────────────────────────────────────────────────────
+    transaction = models.OneToOneField(
+        Transaction, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='payment',
+        help_text='Transacción financiera asociada al pago',
+    )
+    account = models.ForeignKey(
+        Account, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='payments',
+        help_text='Cuenta desde la que se realizó el pago',
+    )
+    amount = models.DecimalField(max_digits=19, decimal_places=4)
+    currency = models.CharField(max_length=10, default='ARS')
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.COMPLETED,
+    )
+    paid_at = models.DateTimeField()
+
+    # ── Metadata ──────────────────────────────────────────────────────────
+    is_backfilled = models.BooleanField(
+        default=False,
+        help_text='True si fue generado por el backfill de migración',
+    )
+    notes = models.TextField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['business', 'status'], name='payment_biz_status_idx'),
+            models.Index(fields=['business', 'paid_at'], name='payment_biz_paid_idx'),
+        ]
+        constraints = [
+            # Exactamente un origen seteado
+            models.CheckConstraint(
+                check=(
+                    models.Q(expense__isnull=False, fixed_expense_period__isnull=True)
+                    | models.Q(expense__isnull=True, fixed_expense_period__isnull=False)
+                ),
+                name='payment_exactly_one_source',
+            ),
+            # Solo un Payment completed por Expense
+            models.UniqueConstraint(
+                fields=['expense'],
+                condition=models.Q(status='completed', expense__isnull=False),
+                name='payment_one_completed_per_expense',
+            ),
+            # Solo un Payment completed por FixedExpensePeriod
+            models.UniqueConstraint(
+                fields=['fixed_expense_period'],
+                condition=models.Q(status='completed', fixed_expense_period__isnull=False),
+                name='payment_one_completed_per_fep',
+            ),
+        ]
+
+    def __str__(self):
+        origin = f'expense={self.expense_id}' if self.expense_id else f'fep={self.fixed_expense_period_id}'
+        return f'Payment({origin}, {self.amount}, {self.status})'
+
+    def void(self, reason: str | None = None):
+        """Marca este pago como anulado."""
+        self.status = self.Status.VOIDED
+        if reason:
+            self.notes = (self.notes or '') + f' [ANULADO: {reason}]'
+        self.save(update_fields=['status', 'notes', 'updated_at'])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ExpenseDocument — capa documental común para gastos (Sprint 2)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def expense_document_upload_path(instance, filename):
+    """Generate upload path: treasury/documents/{business_id}/{YYYY}/{MM}/{uuid}_{safe_name}"""
+    ext = os.path.splitext(filename)[1].lower()
+    safe_name = f'{uuid.uuid4().hex[:12]}{ext}'
+    now = timezone.now()
+    return f'treasury/documents/{instance.business_id}/{now:%Y}/{now:%m}/{safe_name}'
+
+
+EXPENSE_DOCUMENT_ALLOWED_TYPES = {
+    'application/pdf',
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+}
+
+EXPENSE_DOCUMENT_MAX_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
+
+
+class ExpenseDocument(models.Model):
+    """
+    Documento/comprobante adjunto a un origen de gasto.
+
+    Sprint 2: capa documental común — almacena archivos con metadata
+    básica y estados mínimos. No incluye OCR, QR ni validación fiscal.
+    """
+
+    class Status(models.TextChoices):
+        UPLOADED = 'uploaded', 'Subido'
+        ARCHIVED = 'archived', 'Archivado'
+        # Preparados para sprints futuros — NO operativos en Sprint 2
+        QUEUED = 'queued', 'En cola'
+        PROCESSING = 'processing', 'Procesando'
+        PROCESSED = 'processed', 'Procesado'
+        FAILED = 'failed', 'Fallido'
+
+    class DocumentKind(models.TextChoices):
+        INVOICE = 'invoice', 'Factura'
+        RECEIPT = 'receipt', 'Recibo'
+        TICKET = 'ticket', 'Ticket'
+        CONTRACT = 'contract', 'Contrato'
+        OTHER = 'other', 'Otro'
+
+    class ExtractionSource(models.TextChoices):
+        QR = 'qr', 'QR'
+        OCR = 'ocr', 'OCR'
+        MIXED = 'mixed', 'QR + OCR'
+        NONE = 'none', 'Sin extracción'
+
+    # ── Negocio ───────────────────────────────────────────────────────────
+    business = models.ForeignKey(
+        Business, on_delete=models.CASCADE, related_name='expense_documents',
+    )
+
+    # ── Origen (exactamente uno seteado, multiples FKs nullable) ──────────
+    expense = models.ForeignKey(
+        'Expense', on_delete=models.CASCADE, null=True, blank=True,
+        related_name='documents',
+    )
+    fixed_expense_period = models.ForeignKey(
+        'FixedExpensePeriod', on_delete=models.CASCADE, null=True, blank=True,
+        related_name='documents',
+    )
+
+    # ── Archivo ───────────────────────────────────────────────────────────
+    file = models.FileField(upload_to=expense_document_upload_path)
+    original_filename = models.CharField(max_length=255)
+    mime_type = models.CharField(max_length=100)
+    size_bytes = models.PositiveIntegerField()
+
+    # ── Metadata ──────────────────────────────────────────────────────────
+    document_kind = models.CharField(
+        max_length=20, choices=DocumentKind.choices, default=DocumentKind.OTHER,
+    )
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.UPLOADED,
+    )
+    notes = models.TextField(null=True, blank=True)
+
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='uploaded_expense_documents',
+    )
+
+    # ── Procesamiento (Sprint 3) ──────────────────────────────────────────
+    raw_extraction = models.JSONField(
+        null=True, blank=True,
+        help_text='Resultado crudo de la extracción (QR payload, OCR text, etc.)',
+    )
+    normalized_data = models.JSONField(
+        null=True, blank=True,
+        help_text='Datos normalizados: issuer_name, issuer_tax_id, total_amount, etc.',
+    )
+    processing_errors = models.JSONField(
+        null=True, blank=True,
+        help_text='Lista de errores/advertencias del pipeline de procesamiento.',
+    )
+    processed_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text='Timestamp de finalización del procesamiento.',
+    )
+    extraction_source = models.CharField(
+        max_length=10, choices=ExtractionSource.choices,
+        null=True, blank=True,
+        help_text='Fuente de extracción usada (qr, ocr, mixed, none).',
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(
+                fields=['business', 'status'], name='expdoc_biz_status_idx',
+            ),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=(
+                    models.Q(expense__isnull=False, fixed_expense_period__isnull=True)
+                    | models.Q(expense__isnull=True, fixed_expense_period__isnull=False)
+                ),
+                name='expdoc_exactly_one_origin',
+            ),
+        ]
+
+    def __str__(self):
+        origin = f'expense={self.expense_id}' if self.expense_id else f'fep={self.fixed_expense_period_id}'
+        return f'ExpenseDocument({origin}, {self.original_filename})'
+
+    @property
+    def origin(self):
+        """Return the linked origin object (Expense or FixedExpensePeriod)."""
+        return self.expense or self.fixed_expense_period
+
+    @property
+    def origin_business_id(self):
+        """Return the business_id of the linked origin for ownership validation."""
+        if self.expense_id:
+            return self.expense.business_id
+        if self.fixed_expense_period_id:
+            return self.fixed_expense_period.fixed_expense.business_id
+        return None

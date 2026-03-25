@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Loader2, Upload, X } from 'lucide-react';
+import { Loader2, Upload, X, Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
 
 import {
   uploadDocument,
@@ -28,6 +28,7 @@ export function DocumentUpload({ profileId, onUploaded, onCancel }: Props) {
   const [file, setFile] = useState<File | null>(null);
   const [docType, setDocType] = useState<DocumentType>('factura');
   const [isFiscal, setIsFiscal] = useState(true);
+  const [showManualFields, setShowManualFields] = useState(false);
   const [issuerName, setIssuerName] = useState('');
   const [issuerTaxId, setIssuerTaxId] = useState('');
   const [invoiceNumber, setInvoiceNumber] = useState('');
@@ -119,101 +120,132 @@ export function DocumentUpload({ profileId, onUploaded, onCancel }: Props) {
         )}
       </div>
 
-      {/* Fields row */}
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">
-            Tipo de comprobante
-          </label>
-          <select
-            value={docType}
-            onChange={(e) => setDocType(e.target.value as DocumentType)}
-            className="block w-full rounded-md border border-slate-300 p-2 text-sm"
-          >
-            {DOCUMENT_TYPE_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
+      {/* Extraction info banner */}
+      {file && (
+        <div className="flex items-start gap-2 p-2.5 bg-indigo-50 border border-indigo-200 rounded-lg text-xs text-indigo-700">
+          <Sparkles className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+          <span>
+            Los datos del comprobante (CUIT, tipo, número, fecha, total) se
+            extraerán automáticamente del archivo al adjuntarlo.
+          </span>
         </div>
-        <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">
-            Nro comprobante
-          </label>
-          <input
-            type="text"
-            value={invoiceNumber}
-            onChange={(e) => setInvoiceNumber(e.target.value)}
-            placeholder="0001-00045234"
-            className="block w-full rounded-md border border-slate-300 p-2 text-sm"
-          />
-        </div>
-      </div>
+      )}
 
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">
-            Nombre emisor
-          </label>
-          <input
-            type="text"
-            value={issuerName}
-            onChange={(e) => setIssuerName(e.target.value)}
-            placeholder="Ej. Fibertel SA"
-            className="block w-full rounded-md border border-slate-300 p-2 text-sm"
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">
-            CUIT emisor
-          </label>
-          <input
-            type="text"
-            value={issuerTaxId}
-            onChange={(e) => setIssuerTaxId(e.target.value)}
-            placeholder="30-12345678-9"
-            className="block w-full rounded-md border border-slate-300 p-2 text-sm"
-          />
-        </div>
-      </div>
+      {/* Manual fields toggle */}
+      <button
+        type="button"
+        onClick={() => setShowManualFields(!showManualFields)}
+        className="flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-700 transition-colors"
+      >
+        {showManualFields ? (
+          <ChevronUp className="h-3.5 w-3.5" />
+        ) : (
+          <ChevronDown className="h-3.5 w-3.5" />
+        )}
+        {showManualFields
+          ? 'Ocultar campos manuales'
+          : 'Completar datos manualmente (opcional)'}
+      </button>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">
-            Fecha emisión
-          </label>
-          <input
-            type="date"
-            value={issueDate}
-            onChange={(e) => setIssueDate(e.target.value)}
-            className="block w-full rounded-md border border-slate-300 p-2 text-sm"
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1">
-            Total
-          </label>
-          <input
-            type="number"
-            step="0.01"
-            min="0"
-            value={total}
-            onChange={(e) => setTotal(e.target.value)}
-            className="block w-full rounded-md border border-slate-300 p-2 text-sm"
-          />
-        </div>
-      </div>
+      {showManualFields && (
+        <>
+          {/* Fields row */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">
+                Tipo de comprobante
+              </label>
+              <select
+                value={docType}
+                onChange={(e) => setDocType(e.target.value as DocumentType)}
+                className="block w-full rounded-md border border-slate-300 p-2 text-sm"
+              >
+                {DOCUMENT_TYPE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">
+                Nro comprobante
+              </label>
+              <input
+                type="text"
+                value={invoiceNumber}
+                onChange={(e) => setInvoiceNumber(e.target.value)}
+                placeholder="0001-00045234"
+                className="block w-full rounded-md border border-slate-300 p-2 text-sm"
+              />
+            </div>
+          </div>
 
-      <label className="flex items-center gap-2 text-sm text-slate-700">
-        <input
-          type="checkbox"
-          checked={isFiscal}
-          onChange={(e) => setIsFiscal(e.target.checked)}
-          className="rounded border-slate-300"
-        />
-        Es comprobante fiscal
-      </label>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">
+                Nombre emisor
+              </label>
+              <input
+                type="text"
+                value={issuerName}
+                onChange={(e) => setIssuerName(e.target.value)}
+                placeholder="Ej. Fibertel SA"
+                className="block w-full rounded-md border border-slate-300 p-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">
+                CUIT emisor
+              </label>
+              <input
+                type="text"
+                value={issuerTaxId}
+                onChange={(e) => setIssuerTaxId(e.target.value)}
+                placeholder="30-12345678-9"
+                className="block w-full rounded-md border border-slate-300 p-2 text-sm"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">
+                Fecha emisión
+              </label>
+              <input
+                type="date"
+                value={issueDate}
+                onChange={(e) => setIssueDate(e.target.value)}
+                className="block w-full rounded-md border border-slate-300 p-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">
+                Total
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={total}
+                onChange={(e) => setTotal(e.target.value)}
+                className="block w-full rounded-md border border-slate-300 p-2 text-sm"
+              />
+            </div>
+          </div>
+
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={isFiscal}
+              onChange={(e) => setIsFiscal(e.target.checked)}
+              className="rounded border-slate-300"
+            />
+            Es comprobante fiscal
+          </label>
+        </>
+      )}
 
       {mutation.error && (
         <p className="text-xs text-rose-600">
@@ -229,7 +261,7 @@ export function DocumentUpload({ profileId, onUploaded, onCancel }: Props) {
           {mutation.isPending && (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
           )}
-          Adjuntar
+          {mutation.isPending ? 'Procesando…' : 'Adjuntar y procesar'}
         </Button>
       </div>
     </form>

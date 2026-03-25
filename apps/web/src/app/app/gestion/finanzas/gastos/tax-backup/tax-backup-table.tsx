@@ -11,10 +11,11 @@ import {
   type FiscalProfile,
   type TaxStatus,
   type AllocationType,
+  type FiscalStatus,
 } from '@/lib/api/tax-backup';
 import { Currency } from '../../components/currency';
 import { cn } from '@/lib/utils';
-import { TAX_STATUS_CONFIG, ALLOCATION_CONFIG, PAGE_SIZE } from './constants';
+import { TAX_STATUS_CONFIG, FISCAL_STATUS_CONFIG, ALLOCATION_CONFIG, PAGE_SIZE } from './constants';
 
 interface Props {
   selectedId: number | null;
@@ -132,6 +133,7 @@ export function TaxBackupTable({ selectedId, onSelect, compact = false }: Props)
               <th className="px-3 py-2.5">Gasto</th>
               {!compact && <th className="px-3 py-2.5">Monto</th>}
               <th className="px-3 py-2.5">Estado</th>
+              {!compact && <th className="px-3 py-2.5">Fiscal</th>}
               {!compact && <th className="px-3 py-2.5">Asignación</th>}
               {!compact && <th className="px-3 py-2.5 text-center">Docs</th>}
             </tr>
@@ -140,13 +142,14 @@ export function TaxBackupTable({ selectedId, onSelect, compact = false }: Props)
             {isLoading
               ? Array.from({ length: 5 }).map((_, i) => (
                   <tr key={i}>
-                    <td colSpan={compact ? 2 : 5} className="px-3 py-3">
+                    <td colSpan={compact ? 2 : 6} className="px-3 py-3">
                       <div className="h-4 w-full animate-pulse rounded bg-slate-100" />
                     </td>
                   </tr>
                 ))
               : profiles.map((p: FiscalProfile) => {
                   const statusCfg = TAX_STATUS_CONFIG[p.tax_status];
+                  const fiscalCfg = FISCAL_STATUS_CONFIG[p.fiscal_status];
                   const allocCfg = ALLOCATION_CONFIG[p.allocation_type];
                   const isSelected = selectedId === p.id;
                   return (
@@ -198,6 +201,23 @@ export function TaxBackupTable({ selectedId, onSelect, compact = false }: Props)
                           {compact ? statusCfg.shortLabel : statusCfg.label}
                         </span>
                       </td>
+                      {!compact && fiscalCfg && (
+                        <td className="px-3 py-2.5">
+                          <span
+                            className={cn(
+                              'inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold border',
+                              fiscalCfg.bg,
+                              fiscalCfg.text,
+                              fiscalCfg.border,
+                            )}
+                          >
+                            {fiscalCfg.shortLabel}
+                          </span>
+                        </td>
+                      )}
+                      {!compact && !fiscalCfg && (
+                        <td className="px-3 py-2.5 text-xs text-slate-400">—</td>
+                      )}
                       {!compact && (
                         <td className="px-3 py-2.5 text-slate-600 text-xs">
                           {allocCfg.icon} {allocCfg.label}
@@ -214,7 +234,7 @@ export function TaxBackupTable({ selectedId, onSelect, compact = false }: Props)
             {!isLoading && profiles.length === 0 && (
               <tr>
                 <td
-                  colSpan={compact ? 2 : 5}
+                  colSpan={compact ? 2 : 6}
                   className="px-4 py-12 text-center text-slate-400"
                 >
                   No se encontraron perfiles con estos filtros.

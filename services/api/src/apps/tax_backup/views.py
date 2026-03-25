@@ -15,6 +15,7 @@ from apps.accounts.permissions import HasBusinessMembership, HasEntitlement, Has
 from .checklist import evaluate_checklist
 from .filters import build_period_queryset, parse_period_params
 from .exports import generate_csv_rows, build_zip_buffer
+from .fiscal_validation import apply_fiscal_validation
 from .models import (
     DuplicateFlag,
     ExpenseFiscalProfile,
@@ -72,7 +73,8 @@ class BaseTaxBackupViewSet(viewsets.ModelViewSet):
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 def _apply_rules_and_log(profile: ExpenseFiscalProfile, *, trigger: str = '') -> None:
-    """Evalúa reglas, actualiza tax_status si cambió, y crea TaxStatusLog."""
+    """Evalúa reglas de tax_status + fiscal_status, actualiza si cambió, y crea TaxStatusLog."""
+    # 1. Tax status rules (existing)
     result = evaluate_tax_status(profile)
     old_status = profile.tax_status
     if result.status != old_status:
@@ -86,6 +88,125 @@ def _apply_rules_and_log(profile: ExpenseFiscalProfile, *, trigger: str = '') ->
             rule_code=result.rule_code,
             note=result.note,
         )
+
+    # 2. Sprint 4: Fiscal validation (documentary completeness)
+    apply_fiscal_validation(profile, trigger=trigger)
+
+
+# ── Sprint 3: Document extraction integration ───────────────────────────
+
+# AFIP document types → tax_backup DocumentType mapping
+_AFIP_TO_DOC_TYPE = {
+    'Factura A': 'factura', 'Factura B': 'factura', 'Factura C': 'factura',
+    'Factura M': 'factura',
+    'Factura de Crédito Electrónica A': 'factura',
+    'Factura de Crédito Electrónica B': 'factura',
+    'Factura de Crédito Electrónica C': 'factura',
+    'Nota de Crédito A': 'nota_credito', 'Nota de Crédito B': 'nota_credito',
+    'Nota de Crédito C': 'nota_credito',
+    'Nota de Débito A': 'nota_debito', 'Nota de Débito B': 'nota_debito',
+    'Nota de Débito C': 'nota_debito',
+    'Recibo': 'recibo', 'Ticket': 'ticket',
+}
+
+_FISCAL_DOC_TYPES = {
+    'Factura A', 'Factura B', 'Factura C', 'Factura M',
+    'Factura de Crédito Electrónica A',
+    'Factura de Crédito Electrónica B',
+    'Factura de Crédito Electrónica C',
+    'Nota de Crédito A', 'Nota de Crédito B', 'Nota de Crédito C',
+    'Nota de Débito A', 'Nota de Débito B', 'Nota de Débito C',
+}
+
+
+def _run_document_extraction(doc, request):
+    """
+    Run Sprint 3 QR/OCR extraction on a FiscalDocument.
+    Fills empty fields from extraction results. User-provided data takes precedence.
+    """
+    from apps.tax_backup.models import ParseStatus
+
+    if not doc.file:
+        return
+
+    uploaded_file = request.FILES.get('file')
+    mime_type = uploaded_file.content_type if uploaded_file else 'application/pdf'
+
+    try:
+        from apps.treasury.extractors import extract_document
+
+        file_path = doc.file.path
+        result = extract_document(file_path, mime_type)
+
+        if result['extraction_source'] == 'none':
+            doc.parse_status = ParseStatus.FAILED
+            doc.save(update_fields=['parse_status'])
+            return
+
+        normalized = result.get('normalized_data', {})
+        update_fields = ['parse_status']
+
+        # Fill empty fields — user-provided data takes precedence
+        if not doc.issuer_tax_id and normalized.get('issuer_tax_id'):
+            doc.issuer_tax_id = normalized['issuer_tax_id']
+            update_fields.append('issuer_tax_id')
+
+        if not doc.issuer_name and normalized.get('issuer_name'):
+            doc.issuer_name = normalized['issuer_name']
+            update_fields.append('issuer_name')
+
+        if not doc.invoice_number and normalized.get('document_number'):
+            doc.invoice_number = normalized['document_number']
+            update_fields.append('invoice_number')
+
+        if not doc.issue_date and normalized.get('issue_date'):
+            try:
+                from datetime import date as date_type
+                doc.issue_date = date_type.fromisoformat(normalized['issue_date'])
+                update_fields.append('issue_date')
+            except (ValueError, TypeError):
+                pass
+
+        if not doc.total and normalized.get('total_amount'):
+            try:
+                from decimal import Decimal
+                doc.total = Decimal(normalized['total_amount'])
+                update_fields.append('total')
+            except Exception:
+                pass
+
+        if normalized.get('currency'):
+            doc.currency = normalized['currency']
+            update_fields.append('currency')
+
+        if not doc.buyer_tax_id and normalized.get('buyer_tax_id'):
+            doc.buyer_tax_id = normalized['buyer_tax_id']
+            update_fields.append('buyer_tax_id')
+
+        extracted_type = normalized.get('document_type', '')
+        mapped_type = _AFIP_TO_DOC_TYPE.get(extracted_type)
+        if mapped_type:
+            doc.document_type = mapped_type
+            update_fields.append('document_type')
+
+        # Auto-detect fiscal document if extraction found a recognized type
+        if extracted_type in _FISCAL_DOC_TYPES:
+            doc.is_fiscal_document = True
+            update_fields.append('is_fiscal_document')
+
+        # Extract point_of_sale from document_number if available
+        doc_num = normalized.get('document_number', '')
+        if doc_num and '-' in doc_num and not doc.point_of_sale:
+            doc.point_of_sale = doc_num.split('-')[0]
+            update_fields.append('point_of_sale')
+
+        doc.parse_status = ParseStatus.PARSED
+        doc.save(update_fields=update_fields)
+
+    except Exception as exc:
+        logger.exception('FiscalDocument %s extraction failed: %s', doc.pk, exc)
+        doc.parse_status = ParseStatus.FAILED
+        doc.save(update_fields=['parse_status'])
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -160,6 +281,10 @@ class ExpenseFiscalProfileViewSet(BaseTaxBackupViewSet):
         serializer = FiscalDocumentSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         doc = serializer.save(fiscal_profile=profile)
+
+        # Sprint 3 integration: run QR/OCR extraction on the uploaded file
+        _run_document_extraction(doc, request)
+
         # Re-evaluar reglas y buscar duplicados
         profile = ExpenseFiscalProfile.objects.prefetch_related('documents').get(pk=profile.pk)
         _apply_rules_and_log(profile, trigger='document_added')

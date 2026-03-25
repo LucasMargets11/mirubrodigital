@@ -27,8 +27,9 @@ import {
   Building2,
   ExternalLink,
   Info,
+  Sparkles,
 } from 'lucide-react';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import { es } from 'date-fns/locale';
 
 import {
@@ -43,12 +44,14 @@ import {
   type PaymentDetail,
   type StatusLog,
   type TaxStatus,
+  type FiscalStatus,
 } from '@/lib/api/tax-backup';
 import { Currency } from '../../components/currency';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
   TAX_STATUS_CONFIG,
+  FISCAL_STATUS_CONFIG,
   ALLOCATION_CONFIG,
   DOCUMENT_TYPE_OPTIONS,
   PAYMENT_METHOD_LABELS,
@@ -256,6 +259,9 @@ export function TaxBackupDetail({ profileId, onClose, canManage }: Props) {
           </details>
         )}
       </div>
+
+      {/* 2b. FISCAL STATUS CARD — Sprint 4 documentary validation */}
+      <FiscalStatusCard profile={p} />
 
       {/* 3. COMPLETION CHECKLIST — "Qué falta" */}
       {completionTotal > 0 && (
@@ -558,6 +564,18 @@ function DocumentCard({
                 No fiscal
               </span>
             )}
+            {doc.parse_status === 'parsed' && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-medium bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-md border border-indigo-200">
+                <Sparkles className="h-3 w-3" />
+                Datos extraídos
+              </span>
+            )}
+            {doc.parse_status === 'failed' && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-medium bg-amber-50 text-amber-600 px-2 py-0.5 rounded-md border border-amber-200">
+                <AlertCircle className="h-3 w-3" />
+                Extracción fallida
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
             {doc.file && (
@@ -601,7 +619,7 @@ function DocumentCard({
           {doc.issue_date && (
             <span className="flex items-center gap-1">
               <Calendar className="h-3 w-3" />
-              {format(new Date(doc.issue_date), "d 'de' MMM yyyy", { locale: es })}
+              {format(parseISO(doc.issue_date), "d 'de' MMM yyyy", { locale: es })}
             </span>
           )}
         </div>
@@ -740,6 +758,86 @@ function StatusTimelineInline({ logs }: { logs: StatusLog[] }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/** Sprint 4 — Fiscal validation status card */
+function FiscalStatusCard({ profile: p }: { profile: FiscalProfileDetail }) {
+  const cfg = FISCAL_STATUS_CONFIG[p.fiscal_status];
+  if (!cfg) return null;
+
+  const hasIssues = p.validation_issues && p.validation_issues.length > 0;
+  const hasMissing = p.missing_fields_labels && p.missing_fields_labels.length > 0;
+  const isValid = p.fiscal_status === 'valido';
+
+  return (
+    <div
+      className={cn(
+        'rounded-xl border p-4',
+        cfg.border,
+        cfg.bg,
+      )}
+    >
+      <div className="flex items-center justify-between mb-1">
+        <h4 className={cn('text-sm font-bold', cfg.text)}>
+          Validación documental
+        </h4>
+        <span
+          className={cn(
+            'inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold tracking-wide uppercase border',
+            cfg.bg, cfg.text, cfg.border,
+          )}
+        >
+          {cfg.shortLabel}
+        </span>
+      </div>
+
+      <p className={cn('text-sm', cfg.text, 'opacity-80')}>
+        {p.fiscal_status_label || cfg.label}
+      </p>
+
+      {p.review_required && !isValid && (
+        <div className="flex items-center gap-1.5 mt-2 text-xs font-medium text-amber-700 bg-amber-50 rounded-md px-2 py-1 border border-amber-200 w-fit">
+          <AlertCircle className="h-3 w-3" />
+          Revisión requerida
+        </div>
+      )}
+
+      {hasMissing && (
+        <div className="mt-3">
+          <p className="text-xs font-semibold text-slate-600 mb-1">Campos faltantes:</p>
+          <ul className="space-y-0.5">
+            {p.missing_fields_labels.map((f) => (
+              <li key={f.key} className="flex items-center gap-1.5 text-xs text-slate-600">
+                <Circle className="h-2.5 w-2.5 text-slate-300 shrink-0" />
+                {f.label}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {hasIssues && (
+        <div className="mt-3">
+          <p className="text-xs font-semibold text-slate-600 mb-1">Observaciones:</p>
+          <ul className="space-y-0.5">
+            {p.validation_issues.map((issue, i) => (
+              <li key={i} className="flex items-start gap-1.5 text-xs text-slate-600">
+                <AlertCircle className="h-3 w-3 text-amber-400 mt-0.5 shrink-0" />
+                {issue}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {p.evaluated_at && (
+        <p className="text-[10px] text-slate-400 mt-3">
+          Evaluado: {format(parseISO(p.evaluated_at), "d MMM yyyy, HH:mm", { locale: es })}
+          {p.evaluation_source && ` · Fuente: ${p.evaluation_source}`}
+        </p>
+      )}
     </div>
   );
 }

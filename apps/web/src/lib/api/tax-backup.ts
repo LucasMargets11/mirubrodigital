@@ -31,6 +31,15 @@ export type DuplicateStatus = 'pending' | 'confirmed_duplicate' | 'dismissed';
 
 export type SourceType = 'expense' | 'fixed_expense_period';
 
+export type FiscalStatus =
+  | 'sin_comprobante'
+  | 'incompleto'
+  | 'requiere_revision'
+  | 'valido_con_observaciones'
+  | 'valido';
+
+export type EvaluationSource = 'manual' | 'extracted' | 'mixed';
+
 // ── Interfaces ───────────────────────────────────────────────────────────────
 
 export interface FiscalProfile {
@@ -46,6 +55,9 @@ export interface FiscalProfile {
   allocation_type: AllocationType;
   tax_status: TaxStatus;
   tax_status_display: string;
+  fiscal_status: FiscalStatus;
+  fiscal_status_display: string;
+  review_required: boolean;
   is_capital_asset: boolean;
   doc_count: number;
   created_at: string;
@@ -76,6 +88,16 @@ export interface FiscalProfileDetail {
   status_logs: StatusLog[];
   tax_status_display: string;
   allocation_type_display: string;
+  // Sprint 4 — Fiscal validation fields
+  fiscal_status: FiscalStatus;
+  fiscal_status_display: string;
+  fiscal_status_label: string;
+  review_required: boolean;
+  missing_fields: string[];
+  missing_fields_labels: { key: string; label: string }[];
+  validation_issues: string[];
+  evaluated_at: string | null;
+  evaluation_source: EvaluationSource | null;
   // UX enrichment fields
   human_status_title: string;
   human_status_description: string;
@@ -101,7 +123,10 @@ export interface FiscalDocument {
   total: string | null;
   is_fiscal_document: boolean;
   file: string;
-  parse_status: string;
+  parse_status: 'manual' | 'pending' | 'parsed' | 'failed';
+  point_of_sale: string | null;
+  buyer_tax_id: string | null;
+  currency: string;
   created_at: string;
 }
 

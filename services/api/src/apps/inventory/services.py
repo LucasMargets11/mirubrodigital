@@ -232,7 +232,7 @@ def create_stock_replenishment(
   invoice_suffix = f' ({invoice_number})' if invoice_number else ''
   expense_name = f'Reposición de stock — {supplier_name}{invoice_suffix}'
 
-  Expense.objects.update_or_create(
+  expense, _expense_created = Expense.objects.update_or_create(
     business=business,
     source_type='stock_replenishment',
     source_id=str(replenishment.id),
@@ -249,6 +249,24 @@ def create_stock_replenishment(
       is_auto_generated=True,
     ),
   )
+
+  # ------------------------------------------------------------------ #
+  # Align with Payment as source of truth (Sprint 2 gap fix).
+  # Only create if no completed Payment already exists (idempotency).
+  # ------------------------------------------------------------------ #
+  from apps.treasury.models import Payment
+
+  if not Payment.objects.filter(expense=expense, status=Payment.Status.COMPLETED).exists():
+    Payment.objects.create(
+      business=business,
+      expense=expense,
+      transaction=tx,
+      account=account,
+      amount=total_amount,
+      currency='ARS',
+      status=Payment.Status.COMPLETED,
+      paid_at=occurred_at_dt,
+    )
 
   return replenishment
 
@@ -313,13 +331,21 @@ def void_stock_replenishment(
   replenishment.status = StockReplenishment.Status.VOIDED
   replenishment.save(update_fields=['status'])
 
-  # Cancel the linked Expense (classificatory record only — no money movement created)
-  from apps.treasury.models import Expense
-  Expense.objects.filter(
+  # Void associated Payments and cancel the linked Expense (Sprint 2 gap fix)
+  from apps.treasury.models import Expense, Payment
+
+  linked_expenses = Expense.objects.filter(
     business=replenishment.business,
     source_type='stock_replenishment',
     source_id=str(replenishment.id),
-  ).exclude(status=Expense.Status.CANCELLED).update(status=Expense.Status.CANCELLED)
+  )
+  for exp in linked_expenses:
+    for payment in exp.payments.filter(status=Payment.Status.COMPLETED):
+      payment.void(reason=reason)
+
+  linked_expenses.exclude(status=Expense.Status.CANCELLED).update(
+    status=Expense.Status.CANCELLED,
+  )
 
   return replenishment
 

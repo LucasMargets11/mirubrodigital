@@ -10,7 +10,7 @@ import logging
 
 from apps.treasury.models import Expense, FixedExpensePeriod
 
-from .models import ExpenseFiscalProfile, SourceType
+from .models import ExpenseFiscalProfile, SourceType, TaxStatus, TaxStatusLog
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +39,8 @@ def ensure_fiscal_profile_for_expense(expense: Expense) -> ExpenseFiscalProfile 
             "[tax_backup] Auto-created fiscal profile %s for expense %s (business=%s)",
             profile.pk, expense.pk, expense.business_id,
         )
+        # Sprint 4: initial fiscal validation
+        _run_fiscal_validation(profile, trigger='auto_create_expense')
 
     return profile
 
@@ -71,5 +73,78 @@ def ensure_fiscal_profile_for_fixed_expense_period(
             profile.pk, period.pk,
             period.fixed_expense_id, period.fixed_expense.business_id,
         )
+        # Sprint 4: initial fiscal validation
+        _run_fiscal_validation(profile, trigger='auto_create_fep')
 
     return profile
+
+
+def handle_payment_voided(payment, transaction, reason: str | None = None) -> None:
+    """
+    Servicio desacoplado para reaccionar a la anulación de un Payment
+    en el plano fiscal. Se invoca desde treasury (Transaction.void flow)
+    sin hardcodear reglas fiscales en la capa financiera.
+
+    Responsabilidades:
+    - Re-evaluar tax_status del perfil fiscal asociado al origen del pago.
+    - Registrar TaxStatusLog con el cambio.
+
+    No borra perfiles fiscales — los deja para trazabilidad.
+    """
+    # Resolve the fiscal profile from the payment's origin
+    profile = None
+    if payment.expense_id:
+        profile = ExpenseFiscalProfile.objects.filter(expense_id=payment.expense_id).first()
+    elif payment.fixed_expense_period_id:
+        profile = ExpenseFiscalProfile.objects.filter(
+            fixed_expense_period_id=payment.fixed_expense_period_id
+        ).first()
+
+    if not profile:
+        logger.info(
+            "[tax_backup] handle_payment_voided: no fiscal profile for payment %s — skipping",
+            payment.pk,
+        )
+        return
+
+    old_status = profile.tax_status
+    new_status = TaxStatus.NEEDS_REVIEW
+
+    note = f'Pago anulado (Payment #{payment.pk})'
+    if reason:
+        note += f' — motivo: {reason}'
+
+    if old_status != new_status:
+        profile.tax_status = new_status
+        profile.review_reason = note
+        profile.save(update_fields=['tax_status', 'review_reason', 'updated_at'])
+        TaxStatusLog.objects.create(
+            fiscal_profile=profile,
+            previous_status=old_status,
+            new_status=new_status,
+            rule_code='PAYMENT_VOIDED',
+            note=note,
+        )
+        logger.info(
+            "[tax_backup] Payment voided → fiscal profile %s moved %s → %s",
+            profile.pk, old_status, new_status,
+        )
+
+    # Sprint 4: re-evaluate fiscal validation
+    _run_fiscal_validation(profile, trigger='payment_voided')
+
+
+def _run_fiscal_validation(
+    profile: ExpenseFiscalProfile,
+    *,
+    trigger: str = '',
+) -> None:
+    """Sprint 4: run fiscal validation on a profile, catching errors to avoid breaking callers."""
+    try:
+        from .fiscal_validation import apply_fiscal_validation
+        apply_fiscal_validation(profile, trigger=trigger)
+    except Exception as exc:
+        logger.warning(
+            "[tax_backup] fiscal validation failed for profile %s: %s",
+            profile.pk, exc,
+        )

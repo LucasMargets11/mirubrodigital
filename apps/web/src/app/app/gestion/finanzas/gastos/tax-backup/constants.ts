@@ -4,6 +4,7 @@ import type {
   DocumentType,
   PaymentMethod,
   DuplicateStatus,
+  FiscalStatus,
 } from '@/lib/api/tax-backup';
 
 // ── Tax Status ───────────────────────────────────────────────────────────────
@@ -70,6 +71,61 @@ export const TAX_STATUS_CONFIG: Record<
     ringColor: 'ring-rose-300',
     iconBg: 'bg-rose-100',
     priority: 'danger',
+  },
+};
+
+// ── Fiscal Status (Sprint 4 — Validación documental) ─────────────────────────
+
+export const FISCAL_STATUS_CONFIG: Record<
+  FiscalStatus,
+  {
+    label: string;
+    shortLabel: string;
+    bg: string;
+    text: string;
+    border: string;
+    priority: 'success' | 'warning' | 'danger' | 'info';
+  }
+> = {
+  sin_comprobante: {
+    label: 'Sin comprobante',
+    shortLabel: 'Sin doc.',
+    bg: 'bg-slate-100',
+    text: 'text-slate-600',
+    border: 'border-slate-200',
+    priority: 'info',
+  },
+  incompleto: {
+    label: 'Datos incompletos',
+    shortLabel: 'Incompleto',
+    bg: 'bg-rose-50',
+    text: 'text-rose-700',
+    border: 'border-rose-200',
+    priority: 'danger',
+  },
+  requiere_revision: {
+    label: 'Requiere revisión',
+    shortLabel: 'Revisar',
+    bg: 'bg-amber-50',
+    text: 'text-amber-700',
+    border: 'border-amber-200',
+    priority: 'warning',
+  },
+  valido_con_observaciones: {
+    label: 'Válido con observaciones',
+    shortLabel: 'Observ.',
+    bg: 'bg-sky-50',
+    text: 'text-sky-700',
+    border: 'border-sky-200',
+    priority: 'warning',
+  },
+  valido: {
+    label: 'Válido',
+    shortLabel: 'Válido',
+    bg: 'bg-emerald-50',
+    text: 'text-emerald-700',
+    border: 'border-emerald-200',
+    priority: 'success',
   },
 };
 

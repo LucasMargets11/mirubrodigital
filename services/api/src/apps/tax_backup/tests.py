@@ -602,3 +602,300 @@ class SourceFieldsSerializerTest(TestCase):
         profile = make_profile(self.biz, expense=expense)
         data = self._serialize_list(profile)
         self.assertIsNotNone(data['source_amount'])
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Sprint 4 — Fiscal Validation Tests
+# ─────────────────────────────────────────────────────────────────────────
+
+from apps.tax_backup.models import FiscalStatus, EvaluationSource
+from apps.tax_backup.fiscal_validation import (
+    evaluate_expense_fiscal_status,
+    apply_fiscal_validation,
+    FiscalValidationResult,
+)
+
+
+class FiscalValidationNoDocTest(TestCase):
+    """Rule A: No document → sin_comprobante."""
+
+    def setUp(self):
+        self.biz = make_business('Biz FV NoDocs')
+
+    def test_no_documents_returns_sin_comprobante(self):
+        profile = make_profile(self.biz)
+        profile = ExpenseFiscalProfile.objects.prefetch_related('documents').get(pk=profile.pk)
+        result = evaluate_expense_fiscal_status(profile)
+        self.assertEqual(result.fiscal_status, FiscalStatus.SIN_COMPROBANTE)
+        self.assertFalse(result.review_required)
+        self.assertEqual(result.evaluation_source, EvaluationSource.MANUAL)
+        self.assertTrue(any(i['code'] == 'NO_DOCUMENT' for i in result.validation_issues))
+
+
+class FiscalValidationExtractionFailedTest(TestCase):
+    """Rule B: All extractions failed and no usable data → incompleto."""
+
+    def setUp(self):
+        self.biz = make_business('Biz FV ExtFail')
+
+    def test_all_extraction_failed_returns_incompleto(self):
+        profile = make_profile(self.biz)
+        make_fiscal_doc(profile, is_fiscal=True, parse_status='failed')
+        profile = ExpenseFiscalProfile.objects.prefetch_related('documents').get(pk=profile.pk)
+        result = evaluate_expense_fiscal_status(profile)
+        self.assertEqual(result.fiscal_status, FiscalStatus.INCOMPLETO)
+        self.assertTrue(result.review_required)
+        self.assertTrue(any(i['code'] == 'EXTRACTION_FAILED' for i in result.validation_issues))
+
+
+class FiscalValidationCompleteDocTest(TestCase):
+    """Full valid document → valido."""
+
+    def setUp(self):
+        self.biz = make_business('Biz FV Complete')
+
+    def test_complete_fiscal_doc_returns_valido(self):
+        expense = make_expense(self.biz, amount=Decimal('1000'), due_date=date(2025, 6, 15))
+        profile = make_profile(self.biz, expense=expense, allocation_type=AllocationType.BUSINESS)
+        make_fiscal_doc(
+            profile,
+            is_fiscal=True,
+            document_type='factura',
+            invoice_number='A-0001-00001234',
+            issuer_tax_id='20-12345678-9',
+            buyer_tax_id='20-98765432-1',
+            issue_date=date(2025, 6, 15),
+            total=Decimal('1000'),
+            parse_status='parsed',
+        )
+        profile = ExpenseFiscalProfile.objects.prefetch_related('documents').get(pk=profile.pk)
+        result = evaluate_expense_fiscal_status(profile)
+        self.assertEqual(result.fiscal_status, FiscalStatus.VALIDO)
+        self.assertFalse(result.review_required)
+        self.assertEqual(len(result.missing_fields), 0)
+
+
+class FiscalValidationAmountMismatchTest(TestCase):
+    """Rule D: Amount mismatch → requiere_revision."""
+
+    def setUp(self):
+        self.biz = make_business('Biz FV AmtMism')
+
+    def test_amount_mismatch_returns_requiere_revision(self):
+        expense = make_expense(self.biz, amount=Decimal('1000'), due_date=date(2025, 6, 15))
+        profile = make_profile(self.biz, expense=expense, allocation_type=AllocationType.BUSINESS)
+        make_fiscal_doc(
+            profile,
+            is_fiscal=True,
+            document_type='factura',
+            invoice_number='A-0001-00001234',
+            issuer_tax_id='20-12345678-9',
+            buyer_tax_id='20-98765432-1',
+            issue_date=date(2025, 6, 15),
+            total=Decimal('500'),  # Big mismatch
+            parse_status='parsed',
+        )
+        profile = ExpenseFiscalProfile.objects.prefetch_related('documents').get(pk=profile.pk)
+        result = evaluate_expense_fiscal_status(profile)
+        self.assertEqual(result.fiscal_status, FiscalStatus.REQUIERE_REVISION)
+        self.assertTrue(result.review_required)
+        self.assertTrue(any(i['code'] == 'AMOUNT_MISMATCH' for i in result.validation_issues))
+
+
+class FiscalValidationDateMismatchTest(TestCase):
+    """Rule D: Date mismatch → requiere_revision."""
+
+    def setUp(self):
+        self.biz = make_business('Biz FV DateMism')
+
+    def test_date_mismatch_returns_requiere_revision(self):
+        expense = make_expense(self.biz, amount=Decimal('1000'), due_date=date(2025, 6, 15))
+        profile = make_profile(self.biz, expense=expense, allocation_type=AllocationType.BUSINESS)
+        make_fiscal_doc(
+            profile,
+            is_fiscal=True,
+            document_type='factura',
+            invoice_number='A-0001-00001234',
+            issuer_tax_id='20-12345678-9',
+            buyer_tax_id='20-98765432-1',
+            issue_date=date(2025, 3, 1),  # 106 days diff
+            total=Decimal('1000'),
+            parse_status='parsed',
+        )
+        profile = ExpenseFiscalProfile.objects.prefetch_related('documents').get(pk=profile.pk)
+        result = evaluate_expense_fiscal_status(profile)
+        self.assertEqual(result.fiscal_status, FiscalStatus.REQUIERE_REVISION)
+        self.assertTrue(any(i['code'] == 'DATE_MISMATCH' for i in result.validation_issues))
+
+
+class FiscalValidationMinorIssuesTest(TestCase):
+    """Rule E: Minor issues → valido_con_observaciones."""
+
+    def setUp(self):
+        self.biz = make_business('Biz FV Minor')
+
+    def test_missing_buyer_tax_id_with_factura_A(self):
+        """Factura A without buyer → valido_con_observaciones (not critical missing)."""
+        expense = make_expense(self.biz, amount=Decimal('1000'), due_date=date(2025, 6, 15))
+        profile = make_profile(self.biz, expense=expense, allocation_type=AllocationType.BUSINESS)
+        make_fiscal_doc(
+            profile,
+            is_fiscal=True,
+            document_type='Factura A',
+            invoice_number='A-0001-00001234',
+            issuer_tax_id='20-12345678-9',
+            issue_date=date(2025, 6, 15),
+            total=Decimal('1000'),
+            parse_status='parsed',
+            # buyer_tax_id intentionally omitted
+        )
+        profile = ExpenseFiscalProfile.objects.prefetch_related('documents').get(pk=profile.pk)
+        result = evaluate_expense_fiscal_status(profile)
+        self.assertIn(result.fiscal_status, (
+            FiscalStatus.VALIDO_CON_OBSERVACIONES,
+            FiscalStatus.REQUIERE_REVISION,
+        ))
+        self.assertIn('buyer_tax_id', result.missing_fields)
+
+
+class FiscalValidationIncompleteDataTest(TestCase):
+    """Rule C: Critical fields missing → incompleto."""
+
+    def setUp(self):
+        self.biz = make_business('Biz FV Incomplete')
+
+    def test_missing_critical_fields_returns_incompleto(self):
+        """Doc with only file and is_fiscal but no issuer/total → incompleto."""
+        profile = make_profile(self.biz)
+        make_fiscal_doc(
+            profile,
+            is_fiscal=False,  # Missing is_fiscal_document
+            # No issuer_tax_id, no total
+        )
+        profile = ExpenseFiscalProfile.objects.prefetch_related('documents').get(pk=profile.pk)
+        result = evaluate_expense_fiscal_status(profile)
+        self.assertEqual(result.fiscal_status, FiscalStatus.INCOMPLETO)
+        self.assertTrue(result.review_required)
+        # Should be missing several critical fields
+        self.assertGreaterEqual(len(result.missing_fields), 3)
+
+
+class FiscalValidationApplyPersistenceTest(TestCase):
+    """apply_fiscal_validation() persists results to the model."""
+
+    def setUp(self):
+        self.biz = make_business('Biz FV Persist')
+
+    def test_apply_persists_fiscal_status(self):
+        profile = make_profile(self.biz)
+        profile = ExpenseFiscalProfile.objects.prefetch_related('documents').get(pk=profile.pk)
+        result = apply_fiscal_validation(profile, trigger='test')
+        profile.refresh_from_db()
+        self.assertEqual(profile.fiscal_status, FiscalStatus.SIN_COMPROBANTE)
+        self.assertIsNotNone(profile.evaluated_at)
+
+    def test_apply_updates_when_doc_added(self):
+        expense = make_expense(self.biz, amount=Decimal('1000'), due_date=date(2025, 6, 15))
+        profile = make_profile(self.biz, expense=expense, allocation_type=AllocationType.BUSINESS)
+        profile = ExpenseFiscalProfile.objects.prefetch_related('documents').get(pk=profile.pk)
+        apply_fiscal_validation(profile, trigger='create')
+        profile.refresh_from_db()
+        self.assertEqual(profile.fiscal_status, FiscalStatus.SIN_COMPROBANTE)
+
+        # Now add a complete fiscal document
+        make_fiscal_doc(
+            profile,
+            is_fiscal=True,
+            document_type='factura',
+            invoice_number='A-0001-00001234',
+            issuer_tax_id='20-12345678-9',
+            buyer_tax_id='20-98765432-1',
+            issue_date=date(2025, 6, 15),
+            total=Decimal('1000'),
+            parse_status='parsed',
+        )
+        profile = ExpenseFiscalProfile.objects.prefetch_related('documents').get(pk=profile.pk)
+        apply_fiscal_validation(profile, trigger='document_added')
+        profile.refresh_from_db()
+        self.assertEqual(profile.fiscal_status, FiscalStatus.VALIDO)
+        self.assertFalse(profile.review_required)
+
+
+class FiscalValidationFixedExpenseOriginTest(TestCase):
+    """Fiscal validation works for FixedExpensePeriod origin."""
+
+    def setUp(self):
+        self.biz = make_business('Biz FV FEP')
+
+    def test_fep_no_docs_sin_comprobante(self):
+        fe = FixedExpense.objects.create(
+            business=self.biz, name='Alquiler', default_amount=Decimal('50000'),
+            frequency='monthly', due_day=5,
+        )
+        fep = FixedExpensePeriod.objects.create(
+            fixed_expense=fe, period=date(2025, 7, 1),
+            amount=Decimal('50000'), status='paid',
+        )
+        profile = make_profile(self.biz, expense=None, fixed_expense_period=fep)
+        profile = ExpenseFiscalProfile.objects.prefetch_related('documents').get(pk=profile.pk)
+        result = evaluate_expense_fiscal_status(profile)
+        self.assertEqual(result.fiscal_status, FiscalStatus.SIN_COMPROBANTE)
+
+    def test_fep_with_complete_doc_valido(self):
+        fe = FixedExpense.objects.create(
+            business=self.biz, name='Seguros', default_amount=Decimal('8000'),
+            frequency='monthly', due_day=15,
+        )
+        fep = FixedExpensePeriod.objects.create(
+            fixed_expense=fe, period=date(2025, 8, 1),
+            amount=Decimal('8000'), status='paid',
+        )
+        profile = make_profile(self.biz, expense=None, fixed_expense_period=fep)
+        make_fiscal_doc(
+            profile,
+            is_fiscal=True,
+            document_type='factura',
+            invoice_number='B-0001-00005678',
+            issuer_tax_id='27-33445566-0',
+            buyer_tax_id='20-11223344-5',
+            issue_date=date(2025, 8, 10),
+            total=Decimal('8000'),
+            parse_status='parsed',
+        )
+        profile = ExpenseFiscalProfile.objects.prefetch_related('documents').get(pk=profile.pk)
+        result = evaluate_expense_fiscal_status(profile)
+        self.assertEqual(result.fiscal_status, FiscalStatus.VALIDO)
+
+
+class FiscalValidationSerializerTest(TestCase):
+    """Verify Sprint 4 fields appear in serializer output."""
+
+    def setUp(self):
+        self.biz = make_business('Biz FV Serializer')
+
+    def test_detail_serializer_includes_fiscal_status(self):
+        from apps.tax_backup.serializers import ExpenseFiscalProfileSerializer
+        profile = make_profile(self.biz)
+        apply_fiscal_validation(profile, trigger='test')
+        qs = ExpenseFiscalProfile.objects.select_related(
+            'expense', 'fixed_expense_period__fixed_expense',
+        ).prefetch_related('documents', 'payment_details', 'status_logs').filter(pk=profile.pk)
+        data = ExpenseFiscalProfileSerializer(qs.first()).data
+        self.assertIn('fiscal_status', data)
+        self.assertIn('fiscal_status_display', data)
+        self.assertIn('fiscal_status_label', data)
+        self.assertIn('missing_fields_labels', data)
+        self.assertIn('review_required', data)
+        self.assertEqual(data['fiscal_status'], FiscalStatus.SIN_COMPROBANTE)
+
+    def test_list_serializer_includes_fiscal_status(self):
+        from apps.tax_backup.serializers import ExpenseFiscalProfileListSerializer
+        profile = make_profile(self.biz)
+        apply_fiscal_validation(profile, trigger='test')
+        qs = ExpenseFiscalProfile.objects.select_related(
+            'expense', 'fixed_expense_period__fixed_expense',
+        ).filter(pk=profile.pk)
+        data = ExpenseFiscalProfileListSerializer(qs.first()).data
+        self.assertIn('fiscal_status', data)
+        self.assertIn('fiscal_status_display', data)
+        self.assertIn('review_required', data)

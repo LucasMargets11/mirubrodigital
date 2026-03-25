@@ -11,7 +11,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.pagination import LimitOffsetPagination
 from django.db import models, transaction
-from django.db.models import Sum, Count, Q
+from django.db.models import Sum, Count, Q, Subquery, OuterRef
 from django.http import StreamingHttpResponse
 from django.utils import timezone
 
@@ -19,17 +19,19 @@ from apps.accounts.permissions import HasBusinessMembership, HasPermission, HasE
 from apps.tax_backup.services import (
     ensure_fiscal_profile_for_expense,
     ensure_fiscal_profile_for_fixed_expense_period,
+    handle_payment_voided,
 )
 from .models import (
     Account, TransactionCategory, Transaction, ExpenseTemplate,
     Expense, Employee, PayrollPayment, FixedExpense, FixedExpensePeriod,
-    TreasurySettings, Budget
+    TreasurySettings, Budget, Payment, ExpenseDocument,
 )
 from .serializers import (
     AccountSerializer, TransactionCategorySerializer, TransactionSerializer,
     ExpenseTemplateSerializer, ExpenseSerializer, EmployeeSerializer, PayrollPaymentSerializer,
     FixedExpenseSerializer, FixedExpensePeriodSerializer,
-    TreasurySettingsSerializer, BudgetSerializer
+    TreasurySettingsSerializer, BudgetSerializer, PaymentSerializer,
+    ExpenseDocumentSerializer, ExpenseDocumentListSerializer, ExpenseDocumentUploadSerializer,
 )
 
 logger = logging.getLogger(__name__)
@@ -175,6 +177,13 @@ class TransactionViewSet(BaseTreasuryViewSet):
                 txn.description = (txn.description or '') + suffix
             txn.save(update_fields=['status', 'description'])
 
+            # Void associated Payment if exists (OneToOne reverse)
+            payment = getattr(txn, 'payment', None)
+            if payment and payment.status == Payment.Status.COMPLETED:
+                payment.void(reason=void_reason)
+                # Trigger fiscal cascade via decoupled service
+                handle_payment_voided(payment, txn, reason=void_reason)
+
             # Revert linked expense
             if txn.reference_type == 'expense' and txn.reference_id:
                 expense = Expense.objects.filter(id=txn.reference_id).first()
@@ -197,10 +206,10 @@ class TransactionViewSet(BaseTreasuryViewSet):
 
             # Detach linked payroll payment
             if txn.reference_type == 'payroll' and txn.reference_id:
-                payment = PayrollPayment.objects.filter(id=txn.reference_id).first()
-                if payment:
-                    payment.transaction = None
-                    payment.save(update_fields=['transaction'])
+                payroll_payment = PayrollPayment.objects.filter(id=txn.reference_id).first()
+                if payroll_payment:
+                    payroll_payment.transaction = None
+                    payroll_payment.save(update_fields=['transaction'])
 
         return Response(TransactionSerializer(txn).data)
 
@@ -347,6 +356,28 @@ class ExpenseViewSet(BaseTreasuryViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
+
+        # Annotate to avoid N+1 in serializer
+        active_docs = ExpenseDocument.objects.filter(
+            expense=OuterRef('pk'),
+        ).exclude(status='archived')
+        qs = qs.annotate(
+            _documents_count=Count(
+                'documents',
+                filter=~Q(documents__status='archived'),
+            ),
+            _payment_id=Subquery(
+                Payment.objects.filter(
+                    expense=OuterRef('pk'), status='completed',
+                ).values('id')[:1]
+            ),
+            _latest_doc_id=Subquery(active_docs.order_by('-created_at').values('id')[:1]),
+            _latest_doc_filename=Subquery(active_docs.order_by('-created_at').values('original_filename')[:1]),
+            _latest_doc_mime=Subquery(active_docs.order_by('-created_at').values('mime_type')[:1]),
+            _latest_doc_kind=Subquery(active_docs.order_by('-created_at').values('document_kind')[:1]),
+            _latest_doc_created=Subquery(active_docs.order_by('-created_at').values('created_at')[:1]),
+        )
+
         params = self.request.query_params
 
         exp_status = params.get('status')
@@ -412,21 +443,36 @@ class ExpenseViewSet(BaseTreasuryViewSet):
             return Response({'error': 'Invalid account'}, status=status.HTTP_400_BAD_REQUEST)
 
         with transaction.atomic():
+            now = timezone.now()
+
             trx = Transaction.objects.create(
                 business=expense.business,
                 account=account,
                 direction=Transaction.Direction.OUT,
                 amount=expense.amount,
-                occurred_at=timezone.now(),
+                occurred_at=now,
                 category=expense.category,
                 description=f"Pago gasto: {expense.name}",
                 reference_type='expense',
                 reference_id=str(expense.id),
                 created_by=request.user
             )
-            
+
+            # Create Payment entity
+            Payment.objects.create(
+                business=expense.business,
+                expense=expense,
+                transaction=trx,
+                account=account,
+                amount=expense.amount,
+                currency='ARS',
+                status=Payment.Status.COMPLETED,
+                paid_at=now,
+            )
+
+            # Update legacy fields for backwards compat
             expense.status = Expense.Status.PAID
-            expense.paid_at = timezone.now()
+            expense.paid_at = now
             expense.paid_account = account
             expense.payment_transaction = trx
             expense.save()
@@ -635,7 +681,30 @@ class FixedExpensePeriodViewSet(BaseTreasuryViewSet):
     def get_queryset(self):
         """Filter periods by business through fixed_expense"""
         business = getattr(self.request, 'business', None)
-        return self.queryset.filter(fixed_expense__business=business)
+        qs = self.queryset.filter(fixed_expense__business=business)
+
+        # Annotate to avoid N+1 in serializer
+        active_docs = ExpenseDocument.objects.filter(
+            fixed_expense_period=OuterRef('pk'),
+        ).exclude(status='archived')
+        qs = qs.annotate(
+            _documents_count=Count(
+                'documents',
+                filter=~Q(documents__status='archived'),
+            ),
+            _payment_id=Subquery(
+                Payment.objects.filter(
+                    fixed_expense_period=OuterRef('pk'), status='completed',
+                ).values('id')[:1]
+            ),
+            _latest_doc_id=Subquery(active_docs.order_by('-created_at').values('id')[:1]),
+            _latest_doc_filename=Subquery(active_docs.order_by('-created_at').values('original_filename')[:1]),
+            _latest_doc_mime=Subquery(active_docs.order_by('-created_at').values('mime_type')[:1]),
+            _latest_doc_kind=Subquery(active_docs.order_by('-created_at').values('document_kind')[:1]),
+            _latest_doc_created=Subquery(active_docs.order_by('-created_at').values('created_at')[:1]),
+        )
+
+        return qs
     
     @action(detail=True, methods=['post'])
     def pay(self, request, pk=None):
@@ -688,7 +757,20 @@ class FixedExpensePeriodViewSet(BaseTreasuryViewSet):
                 reference_id=str(period.id),
                 created_by=request.user
             )
-            
+
+            # Create Payment entity
+            Payment.objects.create(
+                business=period.fixed_expense.business,
+                fixed_expense_period=period,
+                transaction=trx,
+                account=account,
+                amount=amount,
+                currency='ARS',
+                status=Payment.Status.COMPLETED,
+                paid_at=paid_at,
+            )
+
+            # Update legacy fields for backwards compat
             period.status = FixedExpensePeriod.Status.PAID
             period.paid_at = paid_at
             period.paid_account = account
@@ -917,3 +999,171 @@ class BudgetViewSet(BaseTreasuryViewSet):
     def perform_create(self, serializer):
         business = getattr(self.request, 'business', None)
         serializer.save(business=business)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ExpenseDocument — capa documental (Sprint 2)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class ExpenseDocumentViewSet(BaseTreasuryViewSet):
+    """
+    CRUD for expense documents / receipts.
+    Upload via multipart POST, list/filter, archive, delete.
+    """
+    queryset = ExpenseDocument.objects.all().select_related(
+        'expense', 'fixed_expense_period__fixed_expense', 'uploaded_by',
+    )
+    serializer_class = ExpenseDocumentSerializer
+    pagination_class = TreasuryPagination
+
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return ExpenseDocumentListSerializer
+        return ExpenseDocumentSerializer
+
+    def get_queryset(self):
+        business = getattr(self.request, 'business', None)
+        qs = self.queryset.filter(business=business)
+
+        params = self.request.query_params
+
+        expense_id = params.get('expense')
+        if expense_id:
+            qs = qs.filter(expense_id=expense_id)
+
+        fep_id = params.get('fixed_expense_period')
+        if fep_id:
+            qs = qs.filter(fixed_expense_period_id=fep_id)
+
+        doc_status = params.get('status')
+        if doc_status:
+            qs = qs.filter(status=doc_status)
+        else:
+            # By default exclude archived documents from listings
+            qs = qs.exclude(status=ExpenseDocument.Status.ARCHIVED)
+
+        document_kind = params.get('document_kind')
+        if document_kind:
+            qs = qs.filter(document_kind=document_kind)
+
+        return qs
+
+    def create(self, request, *args, **kwargs):
+        """Upload a document attached to an expense origin."""
+        upload_ser = ExpenseDocumentUploadSerializer(
+            data=request.data, context={'request': request},
+        )
+        upload_ser.is_valid(raise_exception=True)
+        data = upload_ser.validated_data
+
+        uploaded_file = data['file']
+        business = getattr(request, 'business', None)
+
+        doc = ExpenseDocument.objects.create(
+            business=business,
+            expense=data.get('expense'),
+            fixed_expense_period=data.get('fixed_expense_period'),
+            file=uploaded_file,
+            original_filename=uploaded_file.name,
+            mime_type=uploaded_file.content_type,
+            size_bytes=uploaded_file.size,
+            document_kind=data.get('document_kind', ExpenseDocument.DocumentKind.OTHER),
+            notes=data.get('notes') or None,
+            uploaded_by=request.user,
+            status=ExpenseDocument.Status.QUEUED,
+        )
+
+        # Auto-enqueue for processing
+        from apps.treasury.tasks import process_expense_document
+        process_expense_document.delay(doc.id)
+
+        out_serializer = ExpenseDocumentSerializer(doc, context={'request': request})
+        return Response(out_serializer.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'])
+    def archive(self, request, pk=None):
+        """Soft-archive a document."""
+        self.required_permission = 'manage_finance'
+        doc = self.get_object()
+        if doc.status == ExpenseDocument.Status.ARCHIVED:
+            return Response({'error': 'El documento ya está archivado.'}, status=status.HTTP_400_BAD_REQUEST)
+        doc.status = ExpenseDocument.Status.ARCHIVED
+        doc.save(update_fields=['status', 'updated_at'])
+        return Response(ExpenseDocumentSerializer(doc, context={'request': request}).data)
+
+    @action(detail=True, methods=['post'])
+    def unarchive(self, request, pk=None):
+        """Restore an archived document."""
+        self.required_permission = 'manage_finance'
+        doc = self.get_object()
+        if doc.status != ExpenseDocument.Status.ARCHIVED:
+            return Response({'error': 'El documento no está archivado.'}, status=status.HTTP_400_BAD_REQUEST)
+        doc.status = ExpenseDocument.Status.UPLOADED
+        doc.save(update_fields=['status', 'updated_at'])
+        return Response(ExpenseDocumentSerializer(doc, context={'request': request}).data)
+
+    @action(detail=True, methods=['post'])
+    def process(self, request, pk=None):
+        """Enqueue a document for QR/OCR extraction processing."""
+        self.required_permission = 'manage_finance'
+        doc = self.get_object()
+        processable = {
+            ExpenseDocument.Status.UPLOADED,
+            ExpenseDocument.Status.FAILED,
+        }
+        if doc.status not in processable:
+            return Response(
+                {'error': f'No se puede procesar un documento con estado "{doc.get_status_display()}".'
+                          ' Solo documentos con estado Subido o Fallido.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        doc.status = ExpenseDocument.Status.QUEUED
+        doc.save(update_fields=['status', 'updated_at'])
+
+        from apps.treasury.tasks import process_expense_document
+        process_expense_document.delay(doc.id)
+
+        return Response(ExpenseDocumentSerializer(doc, context={'request': request}).data)
+
+    @action(detail=True, methods=['post'])
+    def reprocess(self, request, pk=None):
+        """Re-enqueue a processed or failed document for re-extraction."""
+        self.required_permission = 'manage_finance'
+        doc = self.get_object()
+        reprocessable = {
+            ExpenseDocument.Status.PROCESSED,
+            ExpenseDocument.Status.FAILED,
+        }
+        if doc.status not in reprocessable:
+            return Response(
+                {'error': f'No se puede reprocesar un documento con estado "{doc.get_status_display()}".'
+                          ' Solo documentos con estado Procesado o Fallido.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # Clear previous results
+        doc.status = ExpenseDocument.Status.QUEUED
+        doc.raw_extraction = None
+        doc.normalized_data = None
+        doc.processing_errors = None
+        doc.processed_at = None
+        doc.extraction_source = None
+        doc.save(update_fields=[
+            'status', 'raw_extraction', 'normalized_data',
+            'processing_errors', 'processed_at', 'extraction_source',
+            'updated_at',
+        ])
+
+        from apps.treasury.tasks import process_expense_document
+        process_expense_document.delay(doc.id)
+
+        return Response(ExpenseDocumentSerializer(doc, context={'request': request}).data)
+
+    def destroy(self, request, *args, **kwargs):
+        """Hard-delete a document and its file."""
+        self.required_permission = 'manage_finance'
+        doc = self.get_object()
+        # Delete the physical file
+        if doc.file:
+            doc.file.delete(save=False)
+        doc.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)

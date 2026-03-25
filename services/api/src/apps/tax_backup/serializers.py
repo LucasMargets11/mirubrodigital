@@ -5,9 +5,11 @@ from rest_framework import serializers
 from .models import (
     AllocationType,
     DuplicateFlag,
+    EvaluationSource,
     ExpenseFiscalProfile,
     ExpensePaymentDetail,
     FiscalDocument,
+    FiscalStatus,
     SourceType,
     TaxStatus,
     TaxStatusLog,
@@ -120,11 +122,21 @@ class ExpenseFiscalProfileSerializer(serializers.ModelSerializer):
     next_recommended_action = serializers.SerializerMethodField()
     completion_items = serializers.SerializerMethodField()
 
+    # ── Sprint 4: Fiscal validation fields (read-only) ───────────────────
+    fiscal_status_display = serializers.CharField(
+        source='get_fiscal_status_display', read_only=True,
+    )
+    fiscal_status_label = serializers.SerializerMethodField()
+    missing_fields_labels = serializers.SerializerMethodField()
+
     class Meta:
         model = ExpenseFiscalProfile
         fields = '__all__'
         read_only_fields = (
             'business', 'tax_status', 'source_type', 'created_by', 'created_at', 'updated_at',
+            # Sprint 4: fiscal validation fields are computed by the service
+            'fiscal_status', 'review_required', 'missing_fields',
+            'validation_issues', 'evaluated_at', 'evaluation_source',
         )
 
     # ── UX enrichment methods ────────────────────────────────────────────
@@ -269,6 +281,40 @@ class ExpenseFiscalProfileSerializer(serializers.ModelSerializer):
         ]
         return items
 
+    # ── Sprint 4: Fiscal validation display helpers ──────────────────────
+
+    _FISCAL_STATUS_LABELS = {
+        FiscalStatus.SIN_COMPROBANTE: 'Sin comprobante',
+        FiscalStatus.INCOMPLETO: 'Datos incompletos',
+        FiscalStatus.REQUIERE_REVISION: 'Requiere revisión',
+        FiscalStatus.VALIDO_CON_OBSERVACIONES: 'Válido con observaciones',
+        FiscalStatus.VALIDO: 'Válido',
+    }
+
+    _MISSING_FIELD_LABELS = {
+        'document_type': 'Tipo de comprobante',
+        'invoice_number': 'Número de comprobante',
+        'issuer_tax_id': 'CUIT emisor',
+        'issue_date': 'Fecha de emisión',
+        'total': 'Total',
+        'is_fiscal_document': 'Indicador fiscal',
+        'buyer_tax_id': 'CUIT/RUT comprador',
+    }
+
+    def get_fiscal_status_label(self, obj):
+        return self._FISCAL_STATUS_LABELS.get(obj.fiscal_status, obj.get_fiscal_status_display())
+
+    def get_missing_fields_labels(self, obj):
+        if not obj.missing_fields:
+            return []
+        return [
+            {
+                'key': f,
+                'label': self._MISSING_FIELD_LABELS.get(f, f),
+            }
+            for f in obj.missing_fields
+        ]
+
     def validate(self, attrs):
         """Impedir crear perfil para un gasto que no pertenece al business."""
         request = self.context.get('request')
@@ -307,6 +353,9 @@ class ExpenseFiscalProfileListSerializer(serializers.ModelSerializer):
     tax_status_display = serializers.CharField(
         source='get_tax_status_display', read_only=True,
     )
+    fiscal_status_display = serializers.CharField(
+        source='get_fiscal_status_display', read_only=True,
+    )
     doc_count = serializers.SerializerMethodField()
 
     class Meta:
@@ -316,6 +365,7 @@ class ExpenseFiscalProfileListSerializer(serializers.ModelSerializer):
             'source_name', 'source_amount', 'source_due_date',
             'source_period_label', 'source_status',
             'allocation_type', 'tax_status', 'tax_status_display',
+            'fiscal_status', 'fiscal_status_display', 'review_required',
             'is_capital_asset', 'doc_count', 'created_at',
         )
 

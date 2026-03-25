@@ -38,6 +38,22 @@ class ParseStatus(models.TextChoices):
     FAILED = 'failed', 'Extracción fallida'
 
 
+class FiscalStatus(models.TextChoices):
+    """Sprint 4 — Estado de validación fiscal/documental."""
+    SIN_COMPROBANTE = 'sin_comprobante', 'Sin comprobante'
+    INCOMPLETO = 'incompleto', 'Incompleto'
+    REQUIERE_REVISION = 'requiere_revision', 'Requiere revisión'
+    VALIDO_CON_OBSERVACIONES = 'valido_con_observaciones', 'Válido con observaciones'
+    VALIDO = 'valido', 'Válido'
+
+
+class EvaluationSource(models.TextChoices):
+    """Fuente de datos usada para la evaluación fiscal."""
+    MANUAL = 'manual', 'Manual'
+    EXTRACTED = 'extracted', 'Extracción automática'
+    MIXED = 'mixed', 'Manual + Extracción'
+
+
 class PaymentMethod(models.TextChoices):
     CASH = 'cash', 'Efectivo'
     TRANSFER = 'transfer', 'Transferencia'
@@ -167,6 +183,37 @@ class ExpenseFiscalProfile(models.Model):
         help_text='Motivo de revisión (generado por reglas o manual)',
     )
 
+    # ── Sprint 4: Validación fiscal/documental ─────────────────────────────
+    fiscal_status = models.CharField(
+        max_length=30,
+        choices=FiscalStatus.choices,
+        default=FiscalStatus.SIN_COMPROBANTE,
+        db_index=True,
+        help_text='Estado de validación fiscal/documental (Sprint 4)',
+    )
+    review_required = models.BooleanField(
+        default=False,
+        help_text='Flag rápido para UI: indica si necesita atención del usuario',
+    )
+    missing_fields = models.JSONField(
+        null=True, blank=True,
+        help_text='Lista de campos faltantes del comprobante ["issuer_tax_id", ...]',
+    )
+    validation_issues = models.JSONField(
+        null=True, blank=True,
+        help_text='Lista de observaciones/issues [{"code": "...", "message": "..."}]',
+    )
+    evaluated_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text='Timestamp de última evaluación fiscal',
+    )
+    evaluation_source = models.CharField(
+        max_length=15,
+        choices=EvaluationSource.choices,
+        null=True, blank=True,
+        help_text='Fuente de datos usada en la última evaluación',
+    )
+
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -182,6 +229,7 @@ class ExpenseFiscalProfile(models.Model):
             models.Index(fields=['business', 'allocation_type'], name='tb_fp_biz_alloc_idx'),
             models.Index(fields=['business', 'created_at'], name='tb_fp_biz_created_idx'),
             models.Index(fields=['business', 'source_type'], name='tb_fp_biz_source_idx'),
+            models.Index(fields=['business', 'fiscal_status'], name='tb_fp_biz_fstatus_idx'),
         ]
         constraints = [
             models.UniqueConstraint(

@@ -4,7 +4,7 @@ from .views import (
     AccountViewSet, TransactionCategoryViewSet, TransactionViewSet,
     ExpenseTemplateViewSet, ExpenseViewSet, EmployeeViewSet, PayrollPaymentViewSet,
     FixedExpenseViewSet, FixedExpensePeriodViewSet, TreasurySettingsViewSet, BudgetViewSet,
-    DashboardFinanceSummaryView
+    DashboardFinanceSummaryView, ExpenseDocumentViewSet
 )
 
 router = DefaultRouter()
@@ -20,6 +20,7 @@ router.register(r'fixed-expense-periods', FixedExpensePeriodViewSet)
 router.register(r'settings', TreasurySettingsViewSet, basename='treasury-settings')
 router.register(r'budgets', BudgetViewSet)
 router.register(r'dashboard', DashboardFinanceSummaryView, basename='treasury-dashboard')
+router.register(r'expense-documents', ExpenseDocumentViewSet)
 
 urlpatterns = [
     path('', include(router.urls)),
