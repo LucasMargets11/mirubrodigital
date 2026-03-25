@@ -1,9 +1,7 @@
 "use client";
 
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-
-import { cn } from '@/lib/utils';
+import { AppPageHeader } from '@/components/navigation/app-page-header';
+import { ModuleTabs, type ModuleTab } from '@/components/navigation/module-tabs';
 
 type Tab = {
     href: string;
@@ -15,28 +13,26 @@ type OperacionCajaNavProps = {
 };
 
 export function OperacionCajaNav({ tabs }: OperacionCajaNavProps) {
-    const pathname = usePathname();
-
     if (tabs.length === 0) {
         return null;
     }
 
+    const moduleTabs: ModuleTab[] = tabs.map((t) => ({
+        href: t.href,
+        label: t.label,
+        exact: t.href === '/app/operacion/caja',
+    }));
+
     return (
-        <nav className="flex flex-wrap gap-2">
-            {tabs.map((tab) => (
-                <Link
-                    key={tab.href}
-                    href={tab.href}
-                    className={cn(
-                        'rounded-full border px-4 py-2 text-sm font-semibold transition',
-                        pathname?.startsWith(tab.href)
-                            ? 'border-slate-900 bg-slate-900 text-white'
-                            : 'border-slate-200 bg-white text-slate-600 hover:border-slate-900 hover:text-slate-900'
-                    )}
-                >
-                    {tab.label}
-                </Link>
-            ))}
-        </nav>
+        <div className="space-y-4">
+            <AppPageHeader
+                title="Caja"
+                description="Gestioná la operación diaria de caja, movimientos y cierres."
+            />
+            <ModuleTabs
+                tabs={moduleTabs}
+                ariaLabel="Secciones de Caja"
+            />
+        </div>
     );
 }

@@ -166,6 +166,7 @@ class Membership(models.Model):
     ('kitchen', 'Cocina'),
     ('salon', 'Salon / Toma pedidos'),
     ('analyst', 'Analyst'),
+    ('contador', 'Contador'),
   ]
 
   user = models.ForeignKey(settings.AUTH_USER_MODEL, related_name='memberships', on_delete=models.CASCADE)

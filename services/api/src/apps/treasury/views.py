@@ -16,6 +16,10 @@ from django.http import StreamingHttpResponse
 from django.utils import timezone
 
 from apps.accounts.permissions import HasBusinessMembership, HasPermission, HasEntitlement
+from apps.tax_backup.services import (
+    ensure_fiscal_profile_for_expense,
+    ensure_fiscal_profile_for_fixed_expense_period,
+)
 from .models import (
     Account, TransactionCategory, Transaction, ExpenseTemplate,
     Expense, Employee, PayrollPayment, FixedExpense, FixedExpensePeriod,
@@ -426,6 +430,9 @@ class ExpenseViewSet(BaseTreasuryViewSet):
             expense.paid_account = account
             expense.payment_transaction = trx
             expense.save()
+
+            # Auto-provision fiscal profile for tax backup
+            ensure_fiscal_profile_for_expense(expense)
             
         return Response(ExpenseSerializer(expense).data)
 
@@ -688,6 +695,9 @@ class FixedExpensePeriodViewSet(BaseTreasuryViewSet):
             period.payment_transaction = trx
             period.amount = amount  # Update with actual paid amount
             period.save()
+
+            # Auto-provision fiscal profile for tax backup
+            ensure_fiscal_profile_for_fixed_expense_period(period)
         
         return Response(FixedExpensePeriodSerializer(period).data)
 

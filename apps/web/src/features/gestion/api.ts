@@ -328,5 +328,5 @@ export function fetchBusinessEntitlements() {
             quantity: number;
             is_active: boolean;
         }>;
-    }>('/api/v1/business/entitlements/');
+    }>('/api/v1/entitlements/');
 }

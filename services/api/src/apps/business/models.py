@@ -93,7 +93,7 @@ class Business(models.Model):
 
 
 class BusinessPlan(models.TextChoices):
-  START = 'start', 'Start'
+  STARTER = 'starter', 'Starter'
   PRO = 'pro', 'Pro'
   BUSINESS = 'business', 'Business'
   ENTERPRISE = 'enterprise', 'Enterprise'
@@ -107,7 +107,7 @@ class BusinessPlan(models.TextChoices):
   MENU_QR_PREMIUM = 'menu_qr_premium', 'Menú QR Premium'
 
   # Legacy plans (mantener para compatibilidad)
-  STARTER = 'starter', 'Starter (Legacy)'
+  START = 'start', 'Start (Legacy)'
   PLUS = 'plus', 'Plus (Legacy)'
 
 
@@ -124,7 +124,7 @@ class Subscription(models.Model):
   ]
 
   business = models.OneToOneField('business.Business', related_name='subscription', on_delete=models.CASCADE)
-  plan = models.CharField(max_length=32, choices=BusinessPlan.choices, default=BusinessPlan.START)
+  plan = models.CharField(max_length=32, choices=BusinessPlan.choices, default=BusinessPlan.STARTER)
   service = models.CharField(max_length=32, choices=Business.SERVICE_CHOICES, default='gestion')
   status = models.CharField(max_length=32, choices=STATUS_CHOICES, default='active')
   max_branches = models.PositiveIntegerField(default=1, help_text='Sucursales incluidas en el plan base')

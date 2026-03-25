@@ -21,6 +21,8 @@ export default async function PresupuestosPage() {
     // Props para el header
     const canViewSales = session.permissions?.view_sales ?? false;
     const canCreateSales = session.permissions?.create_sales ?? false;
+    const ordersFeature = session.features?.orders !== false;
+    const canViewOrders = (session.permissions?.view_orders ?? false) && ordersFeature;
 
     if (!salesFeature) {
         return <AccessMessage title="Tu plan no incluye Ventas" description="Actualizá tu plan para habilitar el módulo de ventas." />;
@@ -39,7 +41,8 @@ export default async function PresupuestosPage() {
             <SalesClient 
                 canCreate={canCreateSales} 
                 canViewQuotes={canView} 
-                canCreateQuotes={canCreate} 
+                canCreateQuotes={canCreate}
+                canViewOrders={canViewOrders}
             />
             <QuotesClient canCreate={canCreate} canSend={canSend} />
         </section>

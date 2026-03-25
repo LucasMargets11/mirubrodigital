@@ -19,7 +19,7 @@ SERVICE_CATALOG: Iterable[ServiceDefinition] = (
     name='Gestion Comercial',
     description='Stock, ventas, caja y clientes en un solo lugar.',
     features=['products', 'inventory', 'stock', 'sales'],
-    min_plan=BusinessPlan.START,
+    min_plan=BusinessPlan.STARTER,
   ),
   ServiceDefinition(
     slug='restaurante',

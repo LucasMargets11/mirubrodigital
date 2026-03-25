@@ -92,7 +92,7 @@ class Command(BaseCommand):
         """
         # Mapeo de bundles a planes legacy
         bundle_to_legacy_plan = {
-            'gestion_start': BusinessPlan.START,
+            'gestion_start': BusinessPlan.STARTER,
             'gestion_pro': BusinessPlan.PRO,
             'gestion_business': BusinessPlan.BUSINESS,
         }
@@ -178,11 +178,11 @@ class Command(BaseCommand):
                     self.stdout.write(f"   ℹ️  Membership ya existía")
             
             # 4. Crear/actualizar BusinessSubscription (sistema legacy)
-            legacy_plan = bundle_to_legacy_plan.get(data['bundle'].code, BusinessPlan.START)
+            legacy_plan = bundle_to_legacy_plan.get(data['bundle'].code, BusinessPlan.STARTER)
             
             # Determinar límites según el plan
             limits_by_plan = {
-                BusinessPlan.START: {'max_branches': 1, 'max_seats': 2},
+                BusinessPlan.STARTER: {'max_branches': 1, 'max_seats': 2},
                 BusinessPlan.PRO: {'max_branches': 1, 'max_seats': 10},
                 BusinessPlan.BUSINESS: {'max_branches': 5, 'max_seats': 20},
             }

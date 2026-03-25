@@ -4,7 +4,6 @@ import { AccessMessage } from '@/components/app/access-message';
 import { getSession } from '@/lib/auth';
 
 import { StockClient } from './stock-client';
-import { StockNav } from './stock-nav';
 
 type GestionStockPageProps = {
     searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -36,9 +35,6 @@ export default async function GestionStockPage({ searchParams }: GestionStockPag
     const initialProductId = typeof resolvedParams?.product === 'string' ? resolvedParams.product : undefined;
 
     return (
-        <section className="space-y-6">
-            <StockNav />
-            <StockClient canManage={canManage} canManagePurchases={canManagePurchases} initialStatus={initialStatus} initialAction={initialAction} initialProductId={initialProductId} />
-        </section>
+        <StockClient canManage={canManage} canManagePurchases={canManagePurchases} initialStatus={initialStatus} initialAction={initialAction} initialProductId={initialProductId} />
     );
 }

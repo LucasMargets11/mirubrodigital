@@ -241,7 +241,7 @@ class FixedExpensePeriodTest(TestCase):
     def test_period_default_status_is_pending(self):
         period = FixedExpensePeriod.objects.create(
             fixed_expense=self.fixed_expense,
-            period='2025-01',
+            period='2025-01-01',
             due_date=date(2025, 1, 10),
             amount=Decimal('2000'),
         )

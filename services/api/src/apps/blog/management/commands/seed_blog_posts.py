@@ -1,14 +1,18 @@
 """
-Seed the blog with the 14 original editorial posts and 9 categories.
+Import the 14 original editorial posts and 9 categories into the CMS.
 
-Idempotent — skips any category/post whose slug already exists.
+Idempotent — skips slugs that already exist unless --update-existing is passed.
+Assigns author and last_editor to the user specified by --author-email.
 
 Usage:
-    python manage.py seed_blog_posts
+    python manage.py seed_blog_posts --author-email admin@mirubro.com
+    python manage.py seed_blog_posts --author-email admin@mirubro.com --dry-run
+    python manage.py seed_blog_posts --author-email admin@mirubro.com --update-existing
 """
 from datetime import datetime, timezone
 
-from django.core.management.base import BaseCommand
+from django.contrib.auth import get_user_model
+from django.core.management.base import BaseCommand, CommandError
 
 from apps.blog.models import BlogCategory, BlogPost
 
@@ -384,58 +388,158 @@ POSTS = [
 
 
 class Command(BaseCommand):
-    help = 'Seed 9 blog categories and 14 editorial posts (idempotent).'
+    help = 'Import 9 blog categories and 14 editorial posts into the CMS (idempotent).'
+
+    def add_arguments(self, parser):
+        parser.add_argument(
+            '--author-email',
+            required=True,
+            help='Email of the admin user to set as author and last_editor.',
+        )
+        parser.add_argument(
+            '--update-existing',
+            action='store_true',
+            default=False,
+            help='Update fields on posts whose slug already exists (except slug itself).',
+        )
+        parser.add_argument(
+            '--dry-run',
+            action='store_true',
+            default=False,
+            help='Show what would happen without writing to the database.',
+        )
 
     def handle(self, *args, **options):
+        author_email = options['author_email']
+        update_existing = options['update_existing']
+        dry_run = options['dry_run']
+
+        User = get_user_model()
+        try:
+            author = User.objects.get(email__iexact=author_email)
+        except User.DoesNotExist:
+            raise CommandError(
+                f'User with email "{author_email}" does not exist. '
+                f'Create the user first or pass a valid --author-email.'
+            )
+
+        if dry_run:
+            self.stdout.write(self.style.WARNING('DRY RUN — no changes will be written.'))
+
+        # ── Categories ────────────────────────────────────────────────────
         cat_created = 0
         cat_skipped = 0
         cat_map: dict[str, BlogCategory] = {}
 
         for cat_data in CATEGORIES:
-            obj, created = BlogCategory.objects.get_or_create(
-                slug=cat_data['slug'],
-                defaults={'label': cat_data['label']},
-            )
-            cat_map[cat_data['slug']] = obj
-            if created:
-                cat_created += 1
-            else:
+            existing = BlogCategory.objects.filter(slug=cat_data['slug']).first()
+            if existing:
+                cat_map[cat_data['slug']] = existing
                 cat_skipped += 1
+            else:
+                if not dry_run:
+                    obj = BlogCategory.objects.create(
+                        slug=cat_data['slug'],
+                        label=cat_data['label'],
+                    )
+                    cat_map[cat_data['slug']] = obj
+                cat_created += 1
 
         self.stdout.write(
             f'Categories: {cat_created} created, {cat_skipped} already existed.'
         )
 
+        # ── Posts ─────────────────────────────────────────────────────────
         post_created = 0
+        post_updated = 0
         post_skipped = 0
+        post_errors: list[str] = []
+        created_slugs: list[str] = []
+        updated_slugs: list[str] = []
 
         for post_data in POSTS:
-            if BlogPost.objects.filter(slug=post_data['slug']).exists():
-                post_skipped += 1
-                continue
+            slug = post_data['slug']
+            existing = BlogPost.objects.filter(slug=slug).first()
 
             pub_date = datetime.strptime(post_data['date'], '%Y-%m-%d').replace(
                 tzinfo=timezone.utc,
             )
 
-            BlogPost.objects.create(
-                title=post_data['title'],
-                slug=post_data['slug'],
-                excerpt=post_data['excerpt'],
-                cover_image_url=post_data['cover_image_url'],
-                reading_time=post_data['reading_time'],
-                category=cat_map.get(post_data['category_slug']),
-                body_content=post_data.get('body_content', []),
-                meta_title=post_data.get('meta_title', ''),
-                meta_description=post_data.get('meta_description', ''),
-                source_label='MIRUBRO',
-                status=BlogPost.Status.PUBLISHED,
-                published_at=pub_date,
-            )
-            post_created += 1
+            fields = {
+                'title': post_data['title'],
+                'excerpt': post_data['excerpt'],
+                'cover_image_url': post_data['cover_image_url'],
+                'reading_time': post_data['reading_time'],
+                'category': cat_map.get(post_data['category_slug']),
+                'body_content': post_data.get('body_content', []),
+                'tags': [post_data['category_slug']],
+                'meta_title': post_data.get('meta_title', ''),
+                'meta_description': post_data.get('meta_description', ''),
+                'og_title': post_data.get('meta_title', ''),
+                'og_description': post_data.get('meta_description', ''),
+                'og_image_url': post_data.get('cover_image_url', ''),
+                'source_label': 'legacy-import',
+                'status': BlogPost.Status.PUBLISHED,
+                'published_at': pub_date,
+                'author': author,
+                'last_editor': author,
+            }
 
-        self.stdout.write(
-            self.style.SUCCESS(
-                f'Posts: {post_created} created, {post_skipped} already existed.'
-            )
-        )
+            try:
+                if existing:
+                    if update_existing:
+                        if not dry_run:
+                            for attr, val in fields.items():
+                                setattr(existing, attr, val)
+                            existing.save()
+                        post_updated += 1
+                        updated_slugs.append(slug)
+                    else:
+                        post_skipped += 1
+                else:
+                    if not dry_run:
+                        BlogPost.objects.create(slug=slug, **fields)
+                    post_created += 1
+                    created_slugs.append(slug)
+            except Exception as exc:
+                post_errors.append(f'{slug}: {exc}')
+
+        # ── Summary ───────────────────────────────────────────────────────
+        self.stdout.write('')
+        self.stdout.write('═' * 60)
+        self.stdout.write(self.style.SUCCESS('IMPORT SUMMARY'))
+        self.stdout.write('═' * 60)
+        self.stdout.write(f'  Legacy posts found:  {len(POSTS)}')
+        self.stdout.write(f'  Created:             {post_created}')
+        self.stdout.write(f'  Updated:             {post_updated}')
+        self.stdout.write(f'  Skipped (existing):  {post_skipped}')
+        self.stdout.write(f'  Errors:              {len(post_errors)}')
+        self.stdout.write(f'  Categories created:  {cat_created}')
+        self.stdout.write(f'  Author:              {author.email} (id={author.id})')
+        self.stdout.write('')
+
+        if post_errors:
+            self.stdout.write(self.style.ERROR('Errors:'))
+            for err in post_errors:
+                self.stdout.write(f'  ✗ {err}')
+
+        if created_slugs:
+            self.stdout.write('Created slugs:')
+            for s in created_slugs:
+                self.stdout.write(f'  + {s}')
+
+        if updated_slugs:
+            self.stdout.write('Updated slugs:')
+            for s in updated_slugs:
+                self.stdout.write(f'  ~ {s}')
+
+        # Example public URLs
+        sample_slugs = (created_slugs + updated_slugs)[:3] or [p['slug'] for p in POSTS[:3]]
+        self.stdout.write('')
+        self.stdout.write('Example public URLs:')
+        for s in sample_slugs:
+            self.stdout.write(f'  https://www.mirubro.com/blog/{s}')
+
+        self.stdout.write('═' * 60)
+        if dry_run:
+            self.stdout.write(self.style.WARNING('DRY RUN complete — nothing was written.'))

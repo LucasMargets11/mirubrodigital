@@ -22,6 +22,16 @@ from apps.billing.commercial_plans import (
 )
 from apps.billing.services.commercial.limits import get_branch_limits
 
+# Canonical plan slug normalization — legacy codes resolve to current 4 official slugs.
+_PLAN_CODE_CANONICAL = {
+    'start': 'starter',
+    'plus': 'business',
+}
+
+
+def _normalize_plan_code(raw: str) -> str:
+    return _PLAN_CODE_CANONICAL.get(raw, raw)
+
 
 class CommercialSubscriptionView(APIView):
     """
@@ -55,10 +65,12 @@ class CommercialSubscriptionView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        plan_code = subscription.plan.lower()
+        plan_code = _normalize_plan_code(subscription.plan.lower())
         plan_config = get_plan_config(plan_code)
         
         if not plan_config:
+            # Fallback: try the raw code in case normalization mapped to unknown
+            plan_config = get_plan_config(subscription.plan.lower())
             return Response(
                 {'detail': f'Plan configuration not found for {plan_code}'},
                 status=status.HTTP_404_NOT_FOUND

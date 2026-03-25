@@ -3,7 +3,6 @@ import { redirect } from 'next/navigation';
 import { AccessMessage } from '@/components/app/access-message';
 import { getSession } from '@/lib/auth';
 
-import { StockNav } from '../stock-nav';
 import { StockImportClient } from './stock-import-client';
 
 export default async function StockImportPage() {
@@ -24,10 +23,5 @@ export default async function StockImportPage() {
         return <AccessMessage title="Sin acceso" description="Tu rol no tiene permisos para importar stock." hint="Pedí acceso a un administrador" />;
     }
 
-    return (
-        <section className="space-y-6">
-            <StockNav />
-            <StockImportClient />
-        </section>
-    );
+    return <StockImportClient />;
 }

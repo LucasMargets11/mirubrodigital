@@ -66,12 +66,18 @@ export function riskColor(badge: string): string {
 // ── Plan labels ─────────────────────────────────────────────────────────────
 
 const PLAN_LABELS: Record<string, string> = {
-  gestion_start_monthly: 'Start (mensual)',
+  gestion_start_monthly: 'Starter (mensual)',
   gestion_pro_monthly: 'Pro (mensual)',
   gestion_business_monthly: 'Business (mensual)',
-  gestion_start_yearly: 'Start (anual)',
+  gestion_start_yearly: 'Starter (anual)',
   gestion_pro_yearly: 'Pro (anual)',
   gestion_business_yearly: 'Business (anual)',
+  start: 'Starter',
+  starter: 'Starter',
+  plus: 'Business',
+  pro: 'Pro',
+  business: 'Business',
+  enterprise: 'Enterprise',
   menu_qr: 'Menú QR',
   menu_qr_visual: 'Menú QR Visual',
   menu_qr_marca: 'Menú QR Marca',

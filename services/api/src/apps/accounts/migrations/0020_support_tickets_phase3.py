@@ -14,7 +14,7 @@ class Migration(migrations.Migration):
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
         ('accounts', '0019_admininternalnote_audit_phase2'),
         ('business', '0001_initial'),
-        ('billing', '0001_initial'),
+        ('billing', '0005_phase2a_subscriptionv2_billing'),
     ]
 
     operations = [

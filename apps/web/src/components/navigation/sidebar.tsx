@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useTransition, useRef, useEffect } from 'react';
 import Link from 'next/link';
+import type { Route } from 'next';
 import { usePathname } from 'next/navigation';
 import { ChevronDown, ChevronRight, LogOut } from 'lucide-react';
 
@@ -372,19 +373,23 @@ function NavItem({ item, pathname, onNavigate }: { item: AppLink; pathname: stri
 
     if (item.children) {
         return (
-            <div className="space-y-1">
+            <div className="space-y-0.5">
                 <button
                     onClick={() => setIsOpen(!isOpen)}
+                    aria-expanded={isOpen}
                     className={cn(
-                        'flex w-full items-center justify-between rounded-md px-3 py-2 text-left font-medium text-slate-600 hover:bg-brand-50',
-                        hasActiveChild && 'bg-brand-50 text-brand-700'
+                        'flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm transition-colors',
+                        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-1',
+                        hasActiveChild
+                            ? 'bg-brand-50 text-brand-900 font-semibold'
+                            : 'text-slate-600 font-medium hover:bg-slate-50 hover:text-slate-800'
                     )}
                 >
                     <span>{item.label}</span>
-                    {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                    {isOpen ? <ChevronDown className="h-4 w-4" aria-hidden="true" /> : <ChevronRight className="h-4 w-4" aria-hidden="true" />}
                 </button>
                 {isOpen && (
-                    <div className="ml-4 space-y-1 border-l border-slate-200 pl-2">
+                    <div className="ml-3 space-y-0.5 border-l border-slate-200 pl-2">
                         {item.children.map((child) => (
                             <NavItem key={child.href || child.label} item={child} pathname={pathname} onNavigate={onNavigate} />
                         ))}
@@ -398,11 +403,15 @@ function NavItem({ item, pathname, onNavigate }: { item: AppLink; pathname: stri
 
     return (
         <Link
-            href={item.href}
+            href={item.href as Route}
             onClick={() => onNavigate?.()}
+            aria-current={isActive ? 'page' : undefined}
             className={cn(
-                'block rounded-md px-3 py-2 font-medium text-slate-600 hover:bg-brand-50',
-                isActive && 'bg-brand-100 text-brand-700'
+                'block rounded-lg px-3 py-2.5 text-sm transition-all duration-150',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-1',
+                isActive
+                    ? 'bg-brand-600 text-white font-semibold shadow-sm'
+                    : 'text-slate-600 font-medium hover:bg-slate-100 hover:text-slate-900'
             )}
         >
             {item.label}
@@ -431,10 +440,13 @@ export function Sidebar({
     const sections = NAV_CONFIG[service] ?? [];
 
     return (
-        <aside className={cn(
-            "flex w-full flex-col bg-white",
-            isMobile ? "h-full" : "sticky top-0 h-screen w-64 border-r border-slate-200"
-        )}>
+        <aside
+            aria-label="Navegación principal"
+            className={cn(
+                "flex w-full flex-col bg-white",
+                isMobile ? "h-full" : "sticky top-0 h-screen w-64 border-r border-slate-200"
+            )}
+        >
             <AccountHeader 
                 businessName={businessName}
                 branchName={branchName}
@@ -462,8 +474,8 @@ export function Sidebar({
                     if (visibleLinks.length === 0) return null;
 
                     return (
-                        <div key={section.title} className="space-y-1">
-                            <p className="px-3 text-xs font-semibold uppercase tracking-wide text-slate-400">{section.title}</p>
+                        <div key={section.title} className="space-y-1.5">
+                            <p className="px-3 pb-1 text-[11px] font-bold uppercase tracking-wider text-slate-400/90">{section.title}</p>
                             {visibleLinks.map((link) => (
                                 <NavItem key={link.href || link.label} item={link} pathname={pathname} onNavigate={onNavigate} />
                             ))}

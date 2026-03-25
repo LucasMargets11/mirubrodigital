@@ -61,7 +61,7 @@ class Command(BaseCommand):
         b_start, _ = Bundle.objects.update_or_create(
             code='gestion_start',
             defaults={
-                'name': 'Start',
+                'name': 'Starter',
                 'description': 'Plan inicial para emprendedores. 1 sucursal, funcionalidades esenciales.',
                 'vertical': 'commercial',
                 'pricing_mode': 'fixed_price',
@@ -336,7 +336,7 @@ class Command(BaseCommand):
         # (Bundle.fixed_price_monthly stores the same value in centavos: divide by 100 for pesos)
         PLAN_SEEDS = [
             # Gestión Comercial
-            ('gestion_start',           'Start — Gestión Comercial',         Decimal('99.00'),   'commercial'),
+            ('gestion_start',           'Starter — Gestión Comercial',       Decimal('99.00'),   'commercial'),
             ('gestion_pro',             'Pro — Gestión Comercial',           Decimal('299.00'),  'commercial'),
             ('gestion_business',        'Business — Gestión Comercial',      Decimal('499.00'),  'commercial'),
             # Restaurante

@@ -1,11 +1,10 @@
 import { ReactNode } from 'react';
-import { FinanceHeader, FinanceTabs } from './components/header';
+import { FinanzasNav } from './components/header';
 
 export default function FinanzasLayout({ children }: { children: ReactNode }) {
     return (
         <div className="space-y-6">
-            <FinanceHeader />
-            <FinanceTabs />
+            <FinanzasNav />
             <div className="min-h-[400px]">
                 {children}
             </div>

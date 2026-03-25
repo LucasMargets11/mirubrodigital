@@ -1,6 +1,5 @@
 import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/auth';
-import { StockNav } from '@/app/app/gestion/stock/stock-nav';
 import { ReponerClient } from './reponer-client';
 
 export default async function ReponerPage() {
@@ -12,11 +11,8 @@ export default async function ReponerPage() {
     if (!canManage) redirect('/app/gestion/stock/compras');
 
     return (
-        <div>
-            <StockNav />
-            <div className="p-4 md:p-8">
-                <ReponerClient />
-            </div>
+        <div className="p-4 md:p-8">
+            <ReponerClient />
         </div>
     );
 }

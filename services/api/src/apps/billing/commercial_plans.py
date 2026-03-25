@@ -58,7 +58,7 @@ ADDONS: List[AddonConfig] = [
             'monthly': 2000,  # $20/mes
             'yearly': 19200,  # $192/año (descuento 20%)
         },
-        'availability': ['start'],  # Solo START puede comprarlo
+        'availability': ['starter'],  # Solo STARTER puede comprarlo
         'included_in': ['pro', 'business', 'enterprise'],
     },
     {
@@ -69,7 +69,7 @@ ADDONS: List[AddonConfig] = [
             'monthly': 15000,  # $150/mes
             'yearly': 144000,  # $1440/año (descuento 20%)
         },
-        'availability': ['start'],  # Solo START puede comprarlo
+        'availability': ['starter'],  # Solo STARTER puede comprarlo
         'included_in': ['pro', 'business', 'enterprise'],  # Incluido en PRO+
     },
 ]
@@ -77,8 +77,8 @@ ADDONS: List[AddonConfig] = [
 # Configuración de Planes
 PLANS: List[PlanConfig] = [
     {
-        'code': 'start',
-        'name': 'START',
+        'code': 'starter',
+        'name': 'Starter',
         'description': 'Para emprendedores y pequeños negocios',
         'pricing': {
             'monthly': 9900,  # $99/mes
@@ -117,7 +117,7 @@ PLANS: List[PlanConfig] = [
             'seats_included': 10,
         },
         'features': [
-            'Todo START +',
+            'Todo Starter +',
             'CRM / Gestión de clientes',
             'Facturación electrónica',
             'Caja / Sesiones de caja',

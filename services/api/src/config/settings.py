@@ -47,6 +47,7 @@ INSTALLED_APPS = [
   'apps.resto',
   'apps.billing',
   'apps.treasury',
+  'apps.tax_backup',
   'apps.blog',
 ]
 

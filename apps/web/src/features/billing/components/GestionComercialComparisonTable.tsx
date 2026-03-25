@@ -261,7 +261,7 @@ function AvailabilityCell({
 }
 
 const PLAN_LABELS: Record<string, string> = {
-  start: 'START',
+  start: 'STARTER',
   pro: 'PRO',
   business: 'BUSINESS',
   enterprise: 'ENTERPRISE',
@@ -318,7 +318,7 @@ function DividerRow({ label }: { label: string }) {
 
 // Desktop comparison table
 function DesktopTable() {
-  const headers = ['START', 'PRO', 'BUSINESS', 'ENTERPRISE'];
+  const headers = ['STARTER', 'PRO', 'BUSINESS', 'ENTERPRISE'];
 
   return (
     <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-sm">

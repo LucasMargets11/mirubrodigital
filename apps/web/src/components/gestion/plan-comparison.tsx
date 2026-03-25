@@ -23,8 +23,8 @@ interface PlanConfig {
 
 const PLANS: PlanConfig[] = [
     {
-        code: 'start',
-        name: 'START',
+        code: 'starter',
+        name: 'Starter',
         price_monthly: 9900,
         price_yearly: 95000,
         description: 'Para emprendimientos que comienzan',
@@ -41,7 +41,7 @@ const PLANS: PlanConfig[] = [
     },
     {
         code: 'pro',
-        name: 'PRO',
+        name: 'Pro',
         price_monthly: 29900,
         price_yearly: 287000,
         description: 'Para negocios en crecimiento',
@@ -60,7 +60,7 @@ const PLANS: PlanConfig[] = [
     },
     {
         code: 'business',
-        name: 'BUSINESS',
+        name: 'Business',
         price_monthly: 49900,
         price_yearly: 479000,
         description: 'Para empresas establecidas',
@@ -78,7 +78,7 @@ const PLANS: PlanConfig[] = [
     },
     {
         code: 'enterprise',
-        name: 'ENTERPRISE',
+        name: 'Enterprise',
         price_monthly: 0,
         price_yearly: 0,
         description: 'Soluciones personalizadas',

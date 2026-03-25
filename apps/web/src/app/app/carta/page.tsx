@@ -26,7 +26,7 @@ export default async function MenuPage() {
     // Feature-gated: QR Visual / QR Marca plans have menu_item_images flag.
     // Fall back to checking the plan code directly in case the features dict
     // is stale (e.g. Django process loaded old features.py before our changes).
-    const PLANS_WITH_IMAGES = ['menu_qr_visual', 'menu_qr_marca', 'plus'];
+    const PLANS_WITH_IMAGES = ['menu_qr_visual', 'menu_qr_marca', 'plus', 'business'];
     const canUploadImages =
         session.features?.menu_item_images === true ||
         PLANS_WITH_IMAGES.includes(session.subscription?.plan ?? '');

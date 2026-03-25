@@ -40,8 +40,13 @@ FEATURE_KEYS: Iterable[str] = (
 )
 
 PLAN_FEATURES: Dict[str, Iterable[str]] = {
-  # Legacy plans
-  'starter': ('products', 'inventory', 'stock', 'sales', 'customers'),
+  # 4 planes oficiales Gestión Comercial
+  'starter': ('products', 'inventory', 'stock', 'sales', 'orders'),
+  'pro': ('products', 'inventory', 'stock', 'sales', 'customers', 'invoices', 'cash', 'quotes', 'treasury', 'reports', 'orders'),
+  'business': ('products', 'inventory', 'stock', 'sales', 'customers', 'invoices', 'cash', 'quotes', 'treasury', 'reports', 'multi_branch', 'orders'),
+  'enterprise': ('products', 'inventory', 'stock', 'sales', 'customers', 'invoices', 'cash', 'quotes', 'treasury', 'reports', 'multi_branch', 'orders'),
+  # Legacy aliases
+  'start': ('products', 'inventory', 'stock', 'sales', 'orders'),
   'plus': (
     'products',
     'inventory',
@@ -64,8 +69,6 @@ PLAN_FEATURES: Dict[str, Iterable[str]] = {
     'resto_recipes',
     'resto_menu',
     'resto_reports',
-    # Restaurante Inteligente includes the full Menú QR Online feature set
-    # (including images), so that feature-gated QR menu UI elements are shown.
     'menu_builder',
     'menu_branding',
     'public_menu',
@@ -74,11 +77,6 @@ PLAN_FEATURES: Dict[str, Iterable[str]] = {
     'menu_qr_reviews',
     'menu_qr_tips',
   ),
-  # New plans (Gestión Comercial)
-  'start': ('products', 'inventory', 'stock', 'sales', 'orders'),
-  'pro': ('products', 'inventory', 'stock', 'sales', 'customers', 'invoices', 'cash', 'quotes', 'treasury', 'reports', 'orders'),
-  'business': ('products', 'inventory', 'stock', 'sales', 'customers', 'invoices', 'cash', 'quotes', 'treasury', 'reports', 'multi_branch', 'orders'),
-  'enterprise': ('products', 'inventory', 'stock', 'sales', 'customers', 'invoices', 'cash', 'quotes', 'treasury', 'reports', 'multi_branch', 'orders'),
   # Menu QR Básico (standalone — sin imágenes)
   'menu_qr': (
     'menu_builder',
@@ -144,7 +142,10 @@ PLAN_FEATURES: Dict[str, Iterable[str]] = {
 
 
 def feature_flags_for_plan(plan: str) -> Dict[str, bool]:
-  normalized_plan = plan if plan in PLAN_FEATURES else 'starter'
+  # Resolve legacy aliases
+  _PLAN_ALIAS = {'start': 'starter', 'plus': 'business'}
+  resolved = _PLAN_ALIAS.get(plan, plan) if plan not in PLAN_FEATURES else plan
+  normalized_plan = resolved if resolved in PLAN_FEATURES else 'starter'
   flags = {key: False for key in FEATURE_KEYS}
   for key in BASE_ALWAYS_ON:
     flags[key] = True

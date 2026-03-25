@@ -36,16 +36,16 @@ class Command(BaseCommand):
             raise CommandError(f'El business {business_id} no tiene una subscription válida')
 
         # Validar plan
-        valid_plans = ['start', 'starter', 'pro', 'business', 'enterprise', 'plus']
+        valid_plans = ['starter', 'pro', 'business', 'enterprise', 'start', 'plus']
         if plan_code not in valid_plans:
             raise CommandError(
                 f'Código de plan inválido: {plan_code}\n'
                 f'Códigos válidos: {", ".join(valid_plans)}'
             )
 
-        # Mapear legacy plans
+        # Mapear legacy plans → canonical
         plan_map = {
-            'starter': 'start',
+            'start': 'starter',
             'plus': 'business',
         }
         plan_code = plan_map.get(plan_code, plan_code)

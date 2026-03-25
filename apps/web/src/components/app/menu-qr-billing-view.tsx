@@ -8,8 +8,10 @@ const SERVICE_LABELS: Record<string, string> = {
 
 const PLAN_LABELS: Record<string, string> = {
     menu_qr: 'Menú QR Online',
-    plus: 'Restaurante Inteligente (Plus)',
+    plus: 'Restaurante Inteligente (Business)',
+    business: 'Restaurante Inteligente (Business)',
     starter: 'Restaurante Inteligente (Starter)',
+    start: 'Restaurante Inteligente (Starter)',
 };
 
 const STATUS_LABELS: Record<string, { label: string; className: string }> = {

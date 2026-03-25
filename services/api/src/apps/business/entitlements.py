@@ -12,9 +12,9 @@ from typing import Set
 logger = logging.getLogger(__name__)
 
 
-# Entitlements por plan
+# Entitlements por plan — 4 planes oficiales + aliases legacy
 PLAN_ENTITLEMENTS = {
-    'start': {
+    'starter': {
         'gestion.products',
         'gestion.inventory_basic',
         'gestion.sales_basic',
@@ -65,6 +65,7 @@ PLAN_ENTITLEMENTS = {
         'gestion.multi_branch',
         'gestion.transfers',
         'gestion.consolidated_reports',
+        'gestion.tax_backup',
     },
     'enterprise': {
         # Todos los de BUSINESS
@@ -89,42 +90,23 @@ PLAN_ENTITLEMENTS = {
         'gestion.multi_branch',
         'gestion.transfers',
         'gestion.consolidated_reports',
+        'gestion.tax_backup',
     },
     
-    # Legacy plans (compatibilidad)
-    'starter': {
-        'gestion.products',
-        'gestion.inventory_basic',
-        'gestion.sales_basic',
-        'gestion.orders',
-        'gestion.dashboard_basic',
-        'gestion.settings_basic',
-    },
-    'plus': {
-        # Plus era el plan anterior más alto, mapearlo a BUSINESS
-        'gestion.products',
-        'gestion.inventory_basic',
-        'gestion.sales_basic',
-        'gestion.orders',
-        'gestion.dashboard_basic',
-        'gestion.settings_basic',
-        'gestion.customers',
-        'gestion.cash',
-        'gestion.quotes',
-        'gestion.reports',
-        'gestion.export',
-        'gestion.treasury',
-        'gestion.dashboard_finance',
-        'gestion.inventory_advanced',
-        'gestion.sales_advanced',
-        'gestion.rbac_full',
-        'gestion.audit',
-        'gestion.invoices',
-        'gestion.multi_branch',
-        'gestion.transfers',
-        'gestion.consolidated_reports',
-    },
+    # Legacy aliases — mapean a los planes canónicos
+    'start': None,   # resolved dynamically below
+    'plus': None,     # resolved dynamically below
 }
+
+# Legacy slug → canonical slug
+_PLAN_ALIAS = {
+    'start': 'starter',
+    'plus': 'business',
+}
+
+# Wire aliases to their canonical entitlement sets
+PLAN_ENTITLEMENTS['start'] = PLAN_ENTITLEMENTS['starter']
+PLAN_ENTITLEMENTS['plus'] = PLAN_ENTITLEMENTS['business']
 
 
 # Entitlements agregados por add-ons
@@ -151,20 +133,17 @@ ENTITLEMENT_UPGRADE_HINTS = {
     'gestion.multi_branch': 'BUSINESS',
     'gestion.transfers': 'BUSINESS',
     'gestion.consolidated_reports': 'BUSINESS',
+    'gestion.tax_backup': 'BUSINESS',
 }
 
 
 def get_plan_entitlements(plan: str) -> Set[str]:
     """
     Retorna los entitlements base del plan.
-    
-    Args:
-        plan: Código del plan (start, pro, business, enterprise)
-    
-    Returns:
-        Set de códigos de entitlements
+    Resuelve aliases legacy (start→starter, plus→business).
     """
-    return PLAN_ENTITLEMENTS.get(plan.lower(), set()).copy()
+    key = _PLAN_ALIAS.get(plan.lower(), plan.lower())
+    return PLAN_ENTITLEMENTS.get(key, set()).copy()
 
 
 def get_effective_entitlements(subscription) -> Set[str]:

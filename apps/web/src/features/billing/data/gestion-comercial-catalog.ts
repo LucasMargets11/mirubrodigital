@@ -110,7 +110,7 @@ export interface LegacyPlanEntry {
 export const PLAN_LIMITS: PlanLimitsEntry[] = [
   {
     plan: 'start',
-    label: 'START',
+    label: 'STARTER',
     branches: '1 sucursal',
     users: '2 usuarios',
   },
@@ -363,11 +363,11 @@ export const EXTRAS: ExtraEntry[] = [
 export const GC_PLANS: GcPlanEntry[] = [
   {
     plan: 'start',
-    label: 'Start',
+    label: 'Starter',
     priceMonthly: 36000,
     priceYearly: 345600,
     description: 'Gestión básica de productos, inventario y ventas. Ideal para empezar.',
-    ctaLabel: 'Empezar con Start',
+    ctaLabel: 'Empezar con Starter',
   },
   {
     plan: 'pro',
@@ -403,7 +403,7 @@ export const GC_PLAN_KEY_FEATURES: Record<GcPlanEntry['plan'], string[]> = {
     'Configuración comercial',
   ],
   pro: [
-    'Todo lo incluido en Start',
+    'Todo lo incluido en Starter',
     'CRM / Gestión de clientes',
     'Caja y sesiones de caja',
     'Cotizaciones con PDF',
@@ -434,7 +434,7 @@ export const GC_PLAN_META: Record<GcPlanEntry['plan'], { branches: string; users
 // ---------------------------------------------------------------------------
 
 export const LEGACY_PLANS: LegacyPlanEntry[] = [
-  { legacyCode: 'starter', legacyName: 'Starter', mapsToPlan: 'start', mapsToLabel: 'START' },
+  { legacyCode: 'starter', legacyName: 'Starter', mapsToPlan: 'start', mapsToLabel: 'STARTER' },
   { legacyCode: 'pro', legacyName: 'Pro', mapsToPlan: 'pro', mapsToLabel: 'PRO' },
   { legacyCode: 'plus', legacyName: 'Plus', mapsToPlan: 'business', mapsToLabel: 'BUSINESS' },
 ];

@@ -94,18 +94,6 @@ export function SalesClient({ canCreate, canViewQuotes = false, canCreateQuotes 
                         >
                             Ventas
                         </Link>
-                        {canViewQuotes ? (
-                            <Link
-                                href="/app/gestion/ventas/presupuestos"
-                                className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
-                                    isQuotesRoute
-                                        ? 'bg-slate-900 text-white'
-                                        : 'text-slate-600 hover:bg-slate-100'
-                                }`}
-                            >
-                                Presupuestos
-                            </Link>
-                        ) : null}
                         {canViewOrders ? (
                             <Link
                                 href="/app/gestion/ventas/pedidos"
@@ -116,6 +104,18 @@ export function SalesClient({ canCreate, canViewQuotes = false, canCreateQuotes 
                                 }`}
                             >
                                 Pedidos
+                            </Link>
+                        ) : null}
+                        {canViewQuotes ? (
+                            <Link
+                                href="/app/gestion/ventas/presupuestos"
+                                className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                                    isQuotesRoute
+                                        ? 'bg-slate-900 text-white'
+                                        : 'text-slate-600 hover:bg-slate-100'
+                                }`}
+                            >
+                                Presupuestos
                             </Link>
                         ) : null}
                     </div>

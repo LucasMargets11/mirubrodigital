@@ -85,6 +85,12 @@ export function OrdersClient({ canCreate, canViewQuotes = false }: OrdersClientP
                         >
                             Ventas
                         </Link>
+                        <Link
+                            href="/app/gestion/ventas/pedidos"
+                            className="rounded-full px-4 py-1.5 text-sm font-medium transition-colors bg-slate-900 text-white"
+                        >
+                            Pedidos
+                        </Link>
                         {canViewQuotes ? (
                             <Link
                                 href="/app/gestion/ventas/presupuestos"
@@ -93,12 +99,6 @@ export function OrdersClient({ canCreate, canViewQuotes = false }: OrdersClientP
                                 Presupuestos
                             </Link>
                         ) : null}
-                        <Link
-                            href="/app/gestion/ventas/pedidos"
-                            className="rounded-full px-4 py-1.5 text-sm font-medium transition-colors bg-slate-900 text-white"
-                        >
-                            Pedidos
-                        </Link>
                     </div>
             </header>
 

@@ -1,6 +1,5 @@
 import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/auth';
-import { StockNav } from '@/app/app/gestion/stock/stock-nav';
 import { ReplenishmentDetailClient } from './replenishment-detail-client';
 
 interface Props {
@@ -19,11 +18,8 @@ export default async function ComprasDetailPage({ params }: Props) {
     const canManage = session.permissions?.manage_purchases ?? false;
 
     return (
-        <div>
-            <StockNav />
-            <div className="p-4 md:p-8">
-                <ReplenishmentDetailClient id={id} canManage={canManage} />
-            </div>
+        <div className="p-4 md:p-8">
+            <ReplenishmentDetailClient id={id} canManage={canManage} />
         </div>
     );
 }
