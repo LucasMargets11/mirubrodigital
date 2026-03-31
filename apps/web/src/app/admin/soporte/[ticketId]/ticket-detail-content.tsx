@@ -16,6 +16,7 @@ import {
 
 import { SectionCard } from '@/components/admin/section-card';
 import { StatusBadge } from '@/components/admin/status-badge';
+import { apiPost, apiPatch, ApiError } from '@/lib/api/client';
 import {
   ticketStatusLabel,
   ticketStatusColor,
@@ -52,29 +53,36 @@ export function TicketDetailContent({ ticket, staffMembers }: Props) {
   const [messageBody, setMessageBody] = useState('');
   const [updating, setUpdating] = useState(false);
   const [sending, setSending] = useState(false);
+  const [updateError, setUpdateError] = useState<string | null>(null);
+  const [sendError, setSendError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const staff = staffMembers?.results ?? [];
 
   const patchTicket = useCallback(
-    async (payload: Record<string, string>) => {
+    async (payload: Record<string, string>, rollback?: () => void) => {
       setUpdating(true);
+      setUpdateError(null);
       try {
-        const res = await fetch(`/api/v1/platform-admin/tickets/${ticket.id}/update/`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify(payload),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.status) setStatus(data.status);
-          if (data.priority) setPriority(data.priority);
-          if (data.category) setCategory(data.category);
-          // Refresh messages to include system messages
-          if (data.messages) {
-            setMessages(data.messages);
-          }
+        const data = await apiPatch<{
+          status?: string;
+          priority?: string;
+          category?: string;
+          assigned_to_id?: number | null;
+          messages?: AdminTicketMessage[];
+        }>(`/api/v1/platform-admin/tickets/${ticket.id}/update/`, payload);
+        if (data.status) setStatus(data.status);
+        if (data.priority) setPriority(data.priority);
+        if (data.category) setCategory(data.category);
+        if (data.messages) {
+          setMessages(data.messages);
+        }
+      } catch (err) {
+        rollback?.();
+        if (err instanceof ApiError) {
+          setUpdateError((err.payload as { detail?: string })?.detail ?? 'Error al actualizar el ticket.');
+        } else {
+          setUpdateError('Error inesperado al actualizar.');
         }
       } finally {
         setUpdating(false);
@@ -86,18 +94,20 @@ export function TicketDetailContent({ ticket, staffMembers }: Props) {
   const handleSendMessage = useCallback(async () => {
     if (!messageBody.trim() || sending) return;
     setSending(true);
+    setSendError(null);
     try {
-      const res = await fetch(`/api/v1/platform-admin/tickets/${ticket.id}/messages/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ body: messageBody.trim() }),
-      });
-      if (res.ok) {
-        const msg = await res.json();
-        setMessages((prev) => [...prev, msg]);
-        setMessageBody('');
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      const msg = await apiPost<AdminTicketMessage>(
+        `/api/v1/platform-admin/tickets/${ticket.id}/messages/`,
+        { body: messageBody.trim() },
+      );
+      setMessages((prev) => [...prev, msg]);
+      setMessageBody('');
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setSendError((err.payload as { detail?: string })?.detail ?? 'Error al enviar el mensaje.');
+      } else {
+        setSendError('Error inesperado al enviar.');
       }
     } finally {
       setSending(false);
@@ -152,7 +162,7 @@ export function TicketDetailContent({ ticket, staffMembers }: Props) {
                       <>
                         <div className="flex items-center justify-between">
                           <p className="text-sm font-medium text-slate-800">{msg.author_name}</p>
-                          <p className="text-xs text-slate-400">{formatRelativeTime(msg.created_at)}</p>
+                          <p className="text-xs text-slate-400" suppressHydrationWarning>{formatRelativeTime(msg.created_at)}</p>
                         </div>
                         <p className="mt-1 text-sm text-slate-700 whitespace-pre-wrap">{msg.body}</p>
                       </>
@@ -167,13 +177,19 @@ export function TicketDetailContent({ ticket, staffMembers }: Props) {
 
             {/* Reply box */}
             <div className="mt-4 space-y-2 border-t border-slate-100 pt-4">
+              {sendError && (
+                <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                  {sendError}
+                </p>
+              )}
               <textarea
                 value={messageBody}
                 onChange={(e) => setMessageBody(e.target.value)}
                 placeholder="Escribir respuesta..."
                 rows={3}
                 maxLength={5000}
-                className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-500 focus:bg-white focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none"
+                disabled={sending}
+                className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-500 focus:bg-white focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none disabled:opacity-50"
               />
               <button
                 onClick={handleSendMessage}
@@ -202,7 +218,7 @@ export function TicketDetailContent({ ticket, staffMembers }: Props) {
                   <tbody className="divide-y divide-slate-100">
                     {ticket.recent_payments.map((p) => (
                       <tr key={p.id}>
-                        <td className="py-2 text-slate-600">{formatDateTime(p.attempt_at)}</td>
+                        <td className="py-2 text-slate-600" suppressHydrationWarning>{formatDateTime(p.attempt_at)}</td>
                         <td className="py-2 font-medium">${p.amount} {p.currency}</td>
                         <td className="py-2">
                           <StatusBadge label={paymentStatusLabel(p.status)} colorClass={paymentStatusColor(p.status)} />
@@ -226,7 +242,7 @@ export function TicketDetailContent({ ticket, staffMembers }: Props) {
                   <div key={ev.id} className="flex items-start justify-between rounded-lg border border-slate-100 px-3 py-2">
                     <div>
                       <p className="text-sm font-medium text-slate-800">{eventTypeLabel(ev.event_type)}</p>
-                      <p className="text-xs text-slate-500">{formatDateTime(ev.received_at)}</p>
+                      <p className="text-xs text-slate-500" suppressHydrationWarning>{formatDateTime(ev.received_at)}</p>
                     </div>
                     <StatusBadge
                       label={ev.status}
@@ -246,12 +262,18 @@ export function TicketDetailContent({ ticket, staffMembers }: Props) {
           {/* Ticket details */}
           <SectionCard title="Detalle del ticket">
             <div className="space-y-4">
+              {updateError && (
+                <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                  {updateError}
+                </p>
+              )}
               <InfoItem label="Estado">
                 <select
                   value={status}
                   onChange={(e) => {
+                    const prev = status;
                     setStatus(e.target.value);
-                    patchTicket({ status: e.target.value });
+                    patchTicket({ status: e.target.value }, () => setStatus(prev));
                   }}
                   disabled={updating}
                   className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm"
@@ -268,8 +290,9 @@ export function TicketDetailContent({ ticket, staffMembers }: Props) {
                 <select
                   value={priority}
                   onChange={(e) => {
+                    const prev = priority;
                     setPriority(e.target.value);
-                    patchTicket({ priority: e.target.value });
+                    patchTicket({ priority: e.target.value }, () => setPriority(prev));
                   }}
                   disabled={updating}
                   className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm"
@@ -285,8 +308,9 @@ export function TicketDetailContent({ ticket, staffMembers }: Props) {
                 <select
                   value={category}
                   onChange={(e) => {
+                    const prev = category;
                     setCategory(e.target.value);
-                    patchTicket({ category: e.target.value });
+                    patchTicket({ category: e.target.value }, () => setCategory(prev));
                   }}
                   disabled={updating}
                   className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm"
@@ -303,8 +327,9 @@ export function TicketDetailContent({ ticket, staffMembers }: Props) {
                 <select
                   value={assignedTo}
                   onChange={(e) => {
+                    const prev = assignedTo;
                     setAssignedTo(e.target.value);
-                    patchTicket({ assigned_to_id: e.target.value });
+                    patchTicket({ assigned_to_id: e.target.value }, () => setAssignedTo(prev));
                   }}
                   disabled={updating}
                   className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm"
@@ -320,7 +345,7 @@ export function TicketDetailContent({ ticket, staffMembers }: Props) {
 
               <InfoItem label="Email contacto" value={ticket.contact_email} />
               <InfoItem label="Creado" value={formatDateTime(ticket.created_at)} />
-              <InfoItem label="Actualizado" value={formatRelativeTime(ticket.updated_at)} />
+              <InfoItem label="Actualizado" value={formatRelativeTime(ticket.updated_at)} suppressHydrationWarning />
               {ticket.resolved_at && (
                 <InfoItem label="Resuelto" value={formatDateTime(ticket.resolved_at)} />
               )}
@@ -365,7 +390,7 @@ export function TicketDetailContent({ ticket, staffMembers }: Props) {
                 {ticket.business_notes.map((note) => (
                   <div key={note.id} className="py-3 first:pt-0">
                     <p className="text-sm text-slate-800 whitespace-pre-wrap">{note.body}</p>
-                    <p className="mt-1 text-xs text-slate-500">
+                    <p className="mt-1 text-xs text-slate-500" suppressHydrationWarning>
                       {note.author_name} · {formatRelativeTime(note.created_at)}
                     </p>
                   </div>
@@ -387,15 +412,17 @@ function InfoItem({
   label,
   value,
   children,
+  suppressHydrationWarning: shw,
 }: {
   label: string;
   value?: string;
   children?: React.ReactNode;
+  suppressHydrationWarning?: boolean;
 }) {
   return (
     <div>
       <dt className="text-xs font-medium text-slate-500 uppercase tracking-wide">{label}</dt>
-      <dd className="mt-0.5 text-sm text-slate-900">{children ?? value ?? '—'}</dd>
+      <dd className="mt-0.5 text-sm text-slate-900" suppressHydrationWarning={shw}>{children ?? value ?? '—'}</dd>
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Send } from 'lucide-react';
 
 import { SectionCard } from '@/components/admin/section-card';
+import { apiPost, ApiError } from '@/lib/api/client';
 
 export function NuevoTicketForm() {
   const router = useRouter();
@@ -36,22 +37,14 @@ export function NuevoTicketForm() {
         if (contactEmail.trim()) payload.contact_email = contactEmail.trim();
         if (firstMessage.trim()) payload.body = firstMessage.trim();
 
-        const res = await fetch('/api/v1/platform-admin/tickets/create/', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify(payload),
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          router.push(`/admin/soporte/${data.id}`);
+        const res = await apiPost<{ id: string }>('/api/v1/platform-admin/tickets/create/', payload);
+        router.push(`/admin/soporte/${res.id}`);
+      } catch (err) {
+        if (err instanceof ApiError) {
+          setError((err.payload as { detail?: string })?.detail ?? `Error ${err.status}: no se pudo crear el ticket.`);
         } else {
-          const data = await res.json().catch(() => null);
-          setError(data?.detail ?? `Error ${res.status}: no se pudo crear el ticket.`);
+          setError('Error de red. Intente nuevamente.');
         }
-      } catch {
-        setError('Error de red. Intente nuevamente.');
       } finally {
         setSubmitting(false);
       }

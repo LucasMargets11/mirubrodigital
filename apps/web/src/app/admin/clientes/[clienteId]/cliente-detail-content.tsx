@@ -13,10 +13,13 @@ import {
   ExternalLink,
   AlertTriangle,
   Send,
+  Ticket,
 } from 'lucide-react';
 
 import { SectionCard } from '@/components/admin/section-card';
 import { StatusBadge } from '@/components/admin/status-badge';
+import { apiPost } from '@/lib/api/client';
+import type { AdminInternalNote } from '@/lib/admin/types';
 import {
   statusLabel,
   statusColor,
@@ -30,6 +33,9 @@ import {
   formatDate,
   formatDateTime,
   formatRelativeTime,
+  ticketStatusLabel,
+  ticketStatusColor,
+  ticketPriorityColor,
 } from '@/lib/admin/display';
 import type { AdminClientDetail } from '@/lib/admin/types';
 
@@ -46,21 +52,15 @@ export function ClienteDetailContent({ client }: Props) {
     if (!noteBody.trim() || noteSubmitting) return;
     setNoteSubmitting(true);
     try {
-      const res = await fetch('/api/v1/platform-admin/notes/', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          target_type: 'business',
-          target_id: String(client.id),
-          body: noteBody.trim(),
-        }),
+      const note = await apiPost<AdminInternalNote>('/api/v1/platform-admin/notes/', {
+        target_type: 'business',
+        target_id: String(client.id),
+        body: noteBody.trim(),
       });
-      if (res.ok) {
-        const note = await res.json();
-        setNotes((prev) => [note, ...prev]);
-        setNoteBody('');
-      }
+      setNotes((prev) => [note, ...prev]);
+      setNoteBody('');
+    } catch {
+      // apiPost throws on non-2xx — silently ignore for now
     } finally {
       setNoteSubmitting(false);
     }
@@ -255,6 +255,81 @@ export function ClienteDetailContent({ client }: Props) {
               </p>
             </SectionCard>
           )}
+
+          {/* Support summary */}
+          <SectionCard
+            title="Soporte"
+            description={`${client.support_summary.total_tickets} ticket(s) en total`}
+          >
+            <div className="space-y-3">
+              {/* Quick stats */}
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="rounded-lg bg-blue-50 px-2 py-2">
+                  <p className="text-lg font-semibold text-blue-700">{client.support_summary.open_tickets}</p>
+                  <p className="text-xs text-blue-600">Abiertos</p>
+                </div>
+                <div className="rounded-lg bg-emerald-50 px-2 py-2">
+                  <p className="text-lg font-semibold text-emerald-700">{client.support_summary.resolved_tickets}</p>
+                  <p className="text-xs text-emerald-600">Resueltos</p>
+                </div>
+                <div className="rounded-lg bg-slate-50 px-2 py-2">
+                  <p className="text-lg font-semibold text-slate-700">{client.support_summary.total_tickets}</p>
+                  <p className="text-xs text-slate-500">Total</p>
+                </div>
+              </div>
+
+              {/* Last activity */}
+              {client.support_summary.last_ticket_reference && (
+                <p className="text-xs text-slate-500">
+                  Último ticket: <span className="font-medium text-slate-700">{client.support_summary.last_ticket_reference}</span>
+                  {client.support_summary.last_ticket_at && (
+                    <span suppressHydrationWarning> · {formatRelativeTime(client.support_summary.last_ticket_at)}</span>
+                  )}
+                </p>
+              )}
+
+              {/* Recent tickets */}
+              {client.support_summary.recent_tickets.length > 0 ? (
+                <div className="space-y-1.5">
+                  {client.support_summary.recent_tickets.map((t) => (
+                    <Link
+                      key={t.id}
+                      href={`/admin/soporte/${t.id}`}
+                      className="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2 hover:bg-slate-50 transition-colors"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-slate-800 truncate">
+                          <span className="text-slate-400 mr-1">{t.reference}</span>
+                          {t.subject}
+                        </p>
+                        <p className="text-xs text-slate-500" suppressHydrationWarning>{formatRelativeTime(t.created_at)}</p>
+                      </div>
+                      <div className="ml-2 flex items-center gap-1.5 shrink-0">
+                        <StatusBadge label={ticketStatusLabel(t.status)} colorClass={ticketStatusColor(t.status)} />
+                        <span className={`inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-medium ${ticketPriorityColor(t.priority)}`}>
+                          {t.priority[0]?.toUpperCase()}
+                        </span>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-slate-400">Sin tickets registrados.</p>
+              )}
+
+              {/* View all link */}
+              {client.support_summary.total_tickets > 0 && (
+                <Link
+                  href={`/admin/soporte?business=${client.id}`}
+                  className="inline-flex items-center gap-1 text-sm font-medium text-brand-600 hover:text-brand-700"
+                >
+                  <Ticket className="h-3.5 w-3.5" />
+                  Ver todos los tickets
+                  <ExternalLink className="h-3 w-3" />
+                </Link>
+              )}
+            </div>
+          </SectionCard>
 
           {/* Billing profile */}
           {client.billing_profile && (

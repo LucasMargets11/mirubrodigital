@@ -376,6 +376,11 @@ class AccessAuditLog(models.Model):
         ('BLOG_POST_ARCHIVED',         'Blog Post Archived'),
         ('BLOG_POST_SCHEDULED',        'Blog Post Scheduled'),
         ('BLOG_POST_VIEWED',           'Blog Post Viewed'),
+        # ── Tenant Support ────────────────────────────────────────────────
+        ('TENANT_TICKET_CREATED',      'Tenant Ticket Created'),
+        ('TENANT_TICKET_REPLIED',      'Tenant Ticket Replied'),
+        ('TENANT_TICKET_CLOSED',       'Tenant Ticket Closed'),
+        ('TENANT_TICKET_REOPENED',     'Tenant Ticket Reopened'),
     ]
     
     action = models.CharField(max_length=32, choices=ACTION_CHOICES)

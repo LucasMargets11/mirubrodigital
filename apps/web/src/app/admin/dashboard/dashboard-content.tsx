@@ -7,6 +7,10 @@ import {
   Users,
   Activity,
   Bell,
+  Ticket,
+  Clock,
+  AlertCircle,
+  CalendarPlus,
 } from 'lucide-react';
 
 import { StatCard } from '@/components/admin/stat-card';
@@ -65,7 +69,7 @@ export function DashboardContent({ metrics }: DashboardContentProps) {
     );
   }
 
-  const { kpis, alerts, recent_activity, recent_activity_count_24h } = metrics;
+  const { kpis, ticket_kpis, alerts, recent_activity, recent_activity_count_24h } = metrics;
 
   return (
     <div className="space-y-6">
@@ -97,6 +101,39 @@ export function DashboardContent({ metrics }: DashboardContentProps) {
           icon={Users}
         />
       </div>
+
+      {/* Ticket KPI Cards */}
+      {ticket_kpis && (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <StatCard
+            title="Tickets abiertos"
+            value={ticket_kpis.open_tickets}
+            description="Abiertos y en curso"
+            icon={Ticket}
+            className={ticket_kpis.open_tickets > 0 ? 'border-blue-200 bg-blue-50' : undefined}
+          />
+          <StatCard
+            title="Esperando cliente"
+            value={ticket_kpis.waiting_on_client}
+            description="Pendientes de respuesta"
+            icon={Clock}
+            className={ticket_kpis.waiting_on_client > 0 ? 'border-violet-200 bg-violet-50' : undefined}
+          />
+          <StatCard
+            title="Urgentes sin asignar"
+            value={ticket_kpis.urgent_unassigned}
+            description="Requieren atención inmediata"
+            icon={AlertCircle}
+            className={ticket_kpis.urgent_unassigned > 0 ? 'border-red-200 bg-red-50' : undefined}
+          />
+          <StatCard
+            title="Nuevos (7 días)"
+            value={ticket_kpis.new_last_7_days}
+            description="Tickets creados esta semana"
+            icon={CalendarPlus}
+          />
+        </div>
+      )}
 
       {/* Alerts */}
       <SectionCard

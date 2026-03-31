@@ -22,6 +22,7 @@ from apps.accounts.models import AccessAuditLog
 from apps.accounts.admin_internal_note import AdminInternalNote
 from apps.accounts.platform_permissions import IsPlatformStaff, HasInternalRole
 from apps.accounts.platform_audit import log_platform_action
+from apps.accounts.support_ticket import SupportTicket
 from apps.billing.models import SubscriptionV2, BillingEvent, PaymentAttempt
 from apps.business.models import Business
 
@@ -363,6 +364,38 @@ class AdminClientDetailView(APIView):
                 'phone': bp.phone or '',
             }
 
+        # ── Support summary ──────────────────────────────────────────────
+        biz_tickets = SupportTicket.objects.filter(business=biz)
+        total_tickets = biz_tickets.count()
+        open_tickets = biz_tickets.filter(
+            status__in=[SupportTicket.STATUS_OPEN, SupportTicket.STATUS_IN_PROGRESS, SupportTicket.STATUS_WAITING],
+        ).count()
+        resolved_tickets = biz_tickets.filter(status=SupportTicket.STATUS_RESOLVED).count()
+
+        recent_tickets_qs = biz_tickets.order_by('-created_at')[:5]
+        recent_tickets_data = [
+            {
+                'id': str(t.id),
+                'reference': t.reference,
+                'subject': t.subject,
+                'status': t.status,
+                'priority': t.priority,
+                'created_at': t.created_at.isoformat() if t.created_at else None,
+                'updated_at': t.updated_at.isoformat() if t.updated_at else None,
+            }
+            for t in recent_tickets_qs
+        ]
+
+        last_ticket = biz_tickets.order_by('-updated_at').first()
+        support_summary = {
+            'total_tickets': total_tickets,
+            'open_tickets': open_tickets,
+            'resolved_tickets': resolved_tickets,
+            'last_ticket_at': last_ticket.updated_at.isoformat() if last_ticket and last_ticket.updated_at else None,
+            'last_ticket_reference': last_ticket.reference if last_ticket else None,
+            'recent_tickets': recent_tickets_data,
+        }
+
         return Response({
             'id': biz.id,
             'name': biz.name,
@@ -399,6 +432,7 @@ class AdminClientDetailView(APIView):
             ],
             'notes': notes_data,
             'billing_profile': billing_profile,
+            'support_summary': support_summary,
         })
 
 

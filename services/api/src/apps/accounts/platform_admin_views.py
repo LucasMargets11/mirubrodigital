@@ -19,6 +19,7 @@ from apps.accounts.platform_permissions import (
     HasInternalRole,
     get_authorized_sections,
 )
+from apps.accounts.support_ticket import SupportTicket
 from apps.business.models import Business, Subscription
 
 User = get_user_model()
@@ -99,6 +100,47 @@ class AdminDashboardMetricsView(APIView):
             )
         )
 
+        # ── Ticket KPIs ──────────────────────────────────────────────────
+        seven_days_ago = now - timezone.timedelta(days=7)
+        open_tickets = SupportTicket.objects.filter(
+            status__in=[SupportTicket.STATUS_OPEN, SupportTicket.STATUS_IN_PROGRESS],
+        ).count()
+        waiting_on_client = SupportTicket.objects.filter(
+            status=SupportTicket.STATUS_WAITING,
+        ).count()
+        urgent_unassigned = SupportTicket.objects.filter(
+            priority=SupportTicket.PRIORITY_URGENT,
+            assigned_to__isnull=True,
+        ).exclude(status__in=[SupportTicket.STATUS_RESOLVED, SupportTicket.STATUS_CLOSED]).count()
+        new_last_7_days = SupportTicket.objects.filter(
+            created_at__gte=seven_days_ago,
+        ).count()
+
+        ticket_kpis = {
+            'open_tickets': open_tickets,
+            'waiting_on_client': waiting_on_client,
+            'urgent_unassigned': urgent_unassigned,
+            'new_last_7_days': new_last_7_days,
+        }
+
+        # ── Alerts ────────────────────────────────────────────────────────
+        alerts = []
+        if past_due_businesses > 0:
+            alerts.append({
+                'type': 'warning',
+                'message': f'{past_due_businesses} negocio(s) con pago pendiente',
+            })
+        if urgent_unassigned > 0:
+            alerts.append({
+                'type': 'error',
+                'message': f'{urgent_unassigned} ticket(s) urgente(s) sin asignar',
+            })
+        if not alerts:
+            alerts.append({
+                'type': 'info',
+                'message': 'Sin alertas operativas',
+            })
+
         return Response({
             'kpis': {
                 'active_businesses': active_businesses,
@@ -106,13 +148,8 @@ class AdminDashboardMetricsView(APIView):
                 'past_due_businesses': past_due_businesses,
                 'total_users': total_users,
             },
-            'alerts': [
-                # Placeholder operational alerts
-                {
-                    'type': 'warning' if past_due_businesses > 0 else 'info',
-                    'message': f'{past_due_businesses} negocio(s) con pago pendiente' if past_due_businesses > 0 else 'Sin alertas operativas',
-                },
-            ],
+            'ticket_kpis': ticket_kpis,
+            'alerts': alerts,
             'recent_activity': [
                 {
                     'id': entry['id'],

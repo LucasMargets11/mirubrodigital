@@ -21,6 +21,7 @@ type AppLink = {
     label: string;
     featureKey?: keyof FeatureFlags;
     permissionKey?: string;
+    roleKey?: string;
     services?: string[];
     children?: AppLink[];
 };
@@ -92,6 +93,7 @@ const NAV_CONFIG: Record<string, NavGroup[]> = {
                         },
                     ],
                 },
+                { href: '/app/soporte', label: 'Soporte', roleKey: 'owner' },
             ],
         },
     ],
@@ -138,6 +140,7 @@ const NAV_CONFIG: Record<string, NavGroup[]> = {
                     label: 'Roles & Accesos',
                     permissionKey: 'manage_users',
                 },
+                { href: '/app/soporte', label: 'Soporte', roleKey: 'owner' },
             ],
         },
     ],
@@ -158,6 +161,7 @@ const NAV_CONFIG: Record<string, NavGroup[]> = {
                 { href: '/app/planes', label: 'Facturación' },
                 { href: '/app/settings', label: 'Configuración' },
                 { href: '/app/settings/access', label: 'Roles & Accesos', permissionKey: 'manage_users' },
+                { href: '/app/soporte', label: 'Soporte', roleKey: 'owner' },
             ],
         },
     ],
@@ -466,6 +470,9 @@ export function Sidebar({
                             return false;
                         }
                         if (link.permissionKey && permissions?.[link.permissionKey] !== true) {
+                            return false;
+                        }
+                        if (link.roleKey && link.roleKey !== role) {
                             return false;
                         }
                         return true;

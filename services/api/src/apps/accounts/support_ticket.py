@@ -57,6 +57,15 @@ class SupportTicket(models.Model):
         (CATEGORY_OTHER, 'Otro'),
     ]
 
+    # ── Origin ────────────────────────────────────────────────────────────
+    ORIGIN_ADMIN = 'admin'
+    ORIGIN_TENANT = 'tenant'
+
+    ORIGIN_CHOICES = [
+        (ORIGIN_ADMIN, 'Creado por admin'),
+        (ORIGIN_TENANT, 'Creado por tenant'),
+    ]
+
     # ── Fields ────────────────────────────────────────────────────────────
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     reference = models.CharField(
@@ -87,6 +96,13 @@ class SupportTicket(models.Model):
     contact_email = models.EmailField(
         blank=True,
         help_text='Tenant contact email for this ticket (pre-filled from business owner)',
+    )
+    origin = models.CharField(
+        max_length=10,
+        choices=ORIGIN_CHOICES,
+        default=ORIGIN_ADMIN,
+        db_index=True,
+        help_text='Where the ticket was created: admin backoffice or tenant portal.',
     )
 
     # ── Assignment ────────────────────────────────────────────────────────

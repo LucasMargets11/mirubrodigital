@@ -41,6 +41,7 @@ def _serialize_ticket_row(t) -> dict:
         'status': t.status,
         'priority': t.priority,
         'category': t.category,
+        'origin': t.origin,
         'business_id': t.business_id,
         'business_name': t.business.name if t.business else '—',
         'assigned_to_email': t.assigned_to.email if t.assigned_to else None,
@@ -266,6 +267,7 @@ class AdminTicketCreateView(APIView):
             priority=priority,
             contact_email=contact_email,
             created_by=request.user,
+            origin=SupportTicket.ORIGIN_ADMIN,
         )
         ticket.save()
 

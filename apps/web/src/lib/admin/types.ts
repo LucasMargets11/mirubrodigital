@@ -48,8 +48,16 @@ export type AdminActivityEntry = {
   created_at: string | null;
 };
 
+export type AdminTicketKPIsDashboard = {
+  open_tickets: number;
+  waiting_on_client: number;
+  urgent_unassigned: number;
+  new_last_7_days: number;
+};
+
 export type AdminDashboardMetrics = {
   kpis: AdminKPIs;
+  ticket_kpis: AdminTicketKPIsDashboard;
   alerts: AdminAlert[];
   recent_activity: AdminActivityEntry[];
   recent_activity_count_24h: number;
@@ -162,6 +170,25 @@ export type AdminBillingProfile = {
   phone: string;
 };
 
+export type AdminSupportTicketSummary = {
+  id: string;
+  reference: string;
+  subject: string;
+  status: string;
+  priority: string;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export type AdminSupportSummary = {
+  total_tickets: number;
+  open_tickets: number;
+  resolved_tickets: number;
+  last_ticket_at: string | null;
+  last_ticket_reference: string | null;
+  recent_tickets: AdminSupportTicketSummary[];
+};
+
 export type AdminClientDetail = {
   id: number;
   name: string;
@@ -185,6 +212,7 @@ export type AdminClientDetail = {
   recent_audit: AdminAuditEntry[];
   notes: AdminInternalNote[];
   billing_profile: AdminBillingProfile | null;
+  support_summary: AdminSupportSummary;
 };
 
 // ── Phase 2: Subscriptions ─────────────────────────────────────────────────

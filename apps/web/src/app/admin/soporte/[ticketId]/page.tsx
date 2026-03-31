@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 
 import { getAdminTicketDetail, getAdminStaff } from '@/lib/admin';
 import { AdminPageHeader } from '@/components/admin/admin-page-header';
+import { formatDate } from '@/lib/admin/display';
 import { TicketDetailContent } from './ticket-detail-content';
 
 export const metadata: Metadata = {
@@ -26,7 +27,7 @@ export default async function AdminTicketDetailPage({ params }: Props) {
     <div className="space-y-6">
       <AdminPageHeader
         title={`${ticket.reference} — ${ticket.subject}`}
-        description={`Creado ${ticket.created_at ? new Date(ticket.created_at).toLocaleDateString('es-AR') : '—'} · ${ticket.contact_email}`}
+        description={`Creado ${formatDate(ticket.created_at)} · ${ticket.contact_email}`}
       />
       <TicketDetailContent ticket={ticket} staffMembers={staff} />
     </div>

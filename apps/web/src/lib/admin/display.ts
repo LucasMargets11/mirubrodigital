@@ -230,24 +230,39 @@ export function blogStatusColor(status: string): string {
 
 // ── Date formatting ─────────────────────────────────────────────────────────
 
+/**
+ * Normalise invisible Unicode whitespace that differs between Node.js ICU
+ * and browser Intl (e.g. U+202F narrow no-break space before "a.\u00a0m.").
+ * Prevents React hydration mismatches.
+ */
+function normaliseIntlSpaces(s: string): string {
+  return s.replace(/[\u00a0\u202f]/g, ' ');
+}
+
 export function formatDate(dateStr: string | null): string {
   if (!dateStr) return '—';
-  return new Date(dateStr).toLocaleDateString('es-AR', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  });
+  return normaliseIntlSpaces(
+    new Date(dateStr).toLocaleDateString('es-AR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      timeZone: 'America/Argentina/Buenos_Aires',
+    }),
+  );
 }
 
 export function formatDateTime(dateStr: string | null): string {
   if (!dateStr) return '—';
-  return new Date(dateStr).toLocaleString('es-AR', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return normaliseIntlSpaces(
+    new Date(dateStr).toLocaleString('es-AR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: 'America/Argentina/Buenos_Aires',
+    }),
+  );
 }
 
 export function formatRelativeTime(dateStr: string | null): string {
