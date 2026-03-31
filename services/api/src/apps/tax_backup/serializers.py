@@ -45,7 +45,7 @@ class FiscalDocumentSerializer(serializers.ModelSerializer):
     class Meta:
         model = FiscalDocument
         fields = '__all__'
-        read_only_fields = ('fiscal_profile', 'created_at', 'parse_status')
+        read_only_fields = ('fiscal_profile', 'created_at', 'parse_status', 'processing_error')
 
 
 class FiscalDocumentListSerializer(serializers.ModelSerializer):
@@ -53,8 +53,11 @@ class FiscalDocumentListSerializer(serializers.ModelSerializer):
     class Meta:
         model = FiscalDocument
         fields = (
-            'id', 'document_type', 'issuer_name', 'invoice_number',
-            'issue_date', 'total', 'is_fiscal_document', 'created_at',
+            'id', 'document_type', 'document_subtype', 'issuer_name',
+            'issuer_tax_id', 'invoice_number', 'issue_date', 'total',
+            'currency', 'is_fiscal_document', 'created_at',
+            'parse_status', 'processing_error', 'file',
+            'point_of_sale', 'buyer_tax_id', 'buyer_name',
         )
 
 
@@ -273,7 +276,7 @@ class ExpenseFiscalProfileSerializer(serializers.ModelSerializer):
             },
             {
                 'key': 'review_resolved',
-                'label': 'Sin revisiones pendientes',
+                'label': 'Observaciones resueltas' if no_review_needed else 'Observaciones pendientes',
                 'done': no_review_needed,
                 'applicable': True,
                 'hint': 'Resolvé las observaciones para avanzar' if not no_review_needed else None,

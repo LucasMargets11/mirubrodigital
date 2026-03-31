@@ -66,8 +66,8 @@ class PayrollPaymentAdmin(admin.ModelAdmin):
 
 @admin.register(ExpenseDocument)
 class ExpenseDocumentAdmin(admin.ModelAdmin):
-    list_display = ('id', 'business', 'original_filename', 'mime_type', 'document_kind', 'status', 'extraction_source', 'expense', 'fixed_expense_period', 'processed_at', 'created_at')
-    list_filter = ('business', 'status', 'document_kind', 'extraction_source')
+    list_display = ('id', 'business', 'original_filename', 'mime_type', 'document_kind', 'status', 'extraction_source', 'pipeline_version', 'processing_attempts', 'expense', 'fixed_expense_period', 'processed_at', 'created_at')
+    list_filter = ('business', 'status', 'document_kind', 'extraction_source', 'upload_source', 'pipeline_version')
     search_fields = ('original_filename', 'notes')
     raw_id_fields = ('expense', 'fixed_expense_period', 'uploaded_by')
-    readonly_fields = ('raw_extraction', 'normalized_data', 'processing_errors', 'processed_at', 'extraction_source')
+    readonly_fields = ('raw_extraction', 'normalized_data', 'processing_errors', 'error_trace', 'processed_at', 'extraction_source', 'pipeline_version', 'processing_attempts')

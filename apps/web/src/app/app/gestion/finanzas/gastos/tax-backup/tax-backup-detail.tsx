@@ -825,7 +825,7 @@ function FiscalStatusCard({ profile: p }: { profile: FiscalProfileDetail }) {
             {p.validation_issues.map((issue, i) => (
               <li key={i} className="flex items-start gap-1.5 text-xs text-slate-600">
                 <AlertCircle className="h-3 w-3 text-amber-400 mt-0.5 shrink-0" />
-                {issue}
+                {issue.message}
               </li>
             ))}
           </ul>

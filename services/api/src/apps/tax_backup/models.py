@@ -387,6 +387,11 @@ class FiscalDocument(models.Model):
         choices=DocumentType.choices,
         default=DocumentType.FACTURA,
     )
+    document_subtype = models.CharField(
+        max_length=80,
+        null=True, blank=True,
+        help_text='Subtipo AFIP original (ej: Factura A, Nota de Crédito B)',
+    )
 
     # ── Datos del emisor ───────────────────────────────────────────────────
     issuer_name = models.CharField(max_length=255, null=True, blank=True, help_text='Razón social del emisor')
@@ -417,6 +422,10 @@ class FiscalDocument(models.Model):
         choices=ParseStatus.choices,
         default=ParseStatus.MANUAL,
         help_text='Estado de extracción automática de datos (OCR futuro)',
+    )
+    processing_error = models.TextField(
+        null=True, blank=True,
+        help_text='Detalle del error si el procesamiento falló (distingue "sin datos" de "fallo técnico")',
     )
 
     created_at = models.DateTimeField(auto_now_add=True)

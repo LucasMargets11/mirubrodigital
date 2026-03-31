@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { Loader2, Plus, Eye } from 'lucide-react';
 
@@ -15,7 +16,6 @@ import { cn } from '@/lib/utils';
 
 import { TaxBackupDashboard } from './tax-backup-dashboard';
 import { TaxBackupTable } from './tax-backup-table';
-import { TaxBackupDetail } from './tax-backup-detail';
 import { TaxBackupExports } from './tax-backup-exports';
 import { TaxBackupChecklist } from './tax-backup-checklist';
 import { CreateProfileModal } from './create-profile-modal';
@@ -23,10 +23,8 @@ import { CreateProfileModal } from './create-profile-modal';
 type MainTab = 'profiles' | 'exports' | 'checklist';
 
 export function TaxBackupClient({ canManage }: { canManage: boolean }) {
+  const router = useRouter();
   const [mainTab, setMainTab] = useState<MainTab>('profiles');
-  const [selectedProfileId, setSelectedProfileId] = useState<number | null>(
-    null,
-  );
   const [showCreate, setShowCreate] = useState(false);
 
   // Summary for dashboard cards
@@ -42,10 +40,14 @@ export function TaxBackupClient({ canManage }: { canManage: boolean }) {
   });
 
   // Filter expenses that don't already have a fiscal_profile
-  // The API should ideally filter this, but we do a client-side fallback
   const availableExpenses: Expense[] = (expensesData?.results ?? []).filter(
     (e: any) => !e.fiscal_profile,
   );
+
+  /** Navigate to the dedicated review workspace */
+  const handleReview = (profileId: number) => {
+    router.push(`/app/gestion/finanzas/gastos/respaldo/${profileId}` as any);
+  };
 
   return (
     <div className="space-y-6">
@@ -70,10 +72,7 @@ export function TaxBackupClient({ canManage }: { canManage: boolean }) {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
         <div className="flex gap-1 p-1 bg-slate-100 rounded-xl w-fit">
           <button
-            onClick={() => {
-              setMainTab('profiles');
-              setSelectedProfileId(null);
-            }}
+            onClick={() => setMainTab('profiles')}
             className={cn(
               'px-5 py-2 text-sm font-medium rounded-lg transition-all',
               mainTab === 'profiles'
@@ -84,10 +83,7 @@ export function TaxBackupClient({ canManage }: { canManage: boolean }) {
             Perfiles
           </button>
           <button
-            onClick={() => {
-              setMainTab('exports');
-              setSelectedProfileId(null);
-            }}
+            onClick={() => setMainTab('exports')}
             className={cn(
               'px-5 py-2 text-sm font-medium rounded-lg transition-all',
               mainTab === 'exports'
@@ -98,10 +94,7 @@ export function TaxBackupClient({ canManage }: { canManage: boolean }) {
             Exportes
           </button>
           <button
-            onClick={() => {
-              setMainTab('checklist');
-              setSelectedProfileId(null);
-            }}
+            onClick={() => setMainTab('checklist')}
             className={cn(
               'px-5 py-2 text-sm font-medium rounded-lg transition-all',
               mainTab === 'checklist'
@@ -124,36 +117,13 @@ export function TaxBackupClient({ canManage }: { canManage: boolean }) {
         )}
       </div>
 
-      {/* Main content */}
+      {/* Main content — inbox-style table (no inline detail panel) */}
       {mainTab === 'profiles' && (
-        <div className={cn(
-          'grid grid-cols-1 gap-5',
-          selectedProfileId ? 'lg:grid-cols-5' : 'lg:grid-cols-1',
-        )}>
-          {/* Table (master) */}
-          <div
-            className={cn(
-              selectedProfileId ? 'lg:col-span-2' : 'lg:col-span-1',
-            )}
-          >
-            <TaxBackupTable
-              selectedId={selectedProfileId}
-              onSelect={(id) => setSelectedProfileId(id)}
-              compact={!!selectedProfileId}
-            />
-          </div>
-
-          {/* Detail (detail panel) */}
-          {selectedProfileId && (
-            <div className="lg:col-span-3 bg-white rounded-2xl border border-slate-200 p-5 shadow-sm max-h-[calc(100vh-12rem)] overflow-y-auto">
-              <TaxBackupDetail
-                profileId={selectedProfileId}
-                onClose={() => setSelectedProfileId(null)}
-                canManage={canManage}
-              />
-            </div>
-          )}
-        </div>
+        <TaxBackupTable
+          selectedId={null}
+          onSelect={handleReview}
+          compact={false}
+        />
       )}
 
       {mainTab === 'exports' && <TaxBackupExports />}

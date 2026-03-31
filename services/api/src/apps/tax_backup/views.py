@@ -127,6 +127,7 @@ def _run_document_extraction(doc, request):
     from apps.tax_backup.models import ParseStatus
 
     if not doc.file:
+        logger.warning('[extraction] FiscalDocument %s has no file — skipping extraction', doc.pk)
         return
 
     uploaded_file = request.FILES.get('file')
@@ -134,17 +135,45 @@ def _run_document_extraction(doc, request):
 
     try:
         from apps.treasury.extractors import extract_document
+        from apps.tax_backup.file_utils import resolve_file_field
 
-        file_path = doc.file.path
-        result = extract_document(file_path, mime_type)
+        # ── Resolve file to bytes (local storage or Django backend) ──
+        resolved = resolve_file_field(doc.file)
+        if not resolved:
+            logger.error(
+                '[extraction] FiscalDocument %s: could not resolve file to bytes (name=%s)',
+                doc.pk, doc.file.name,
+            )
+            doc.parse_status = ParseStatus.FAILED
+            doc.processing_error = 'No se pudo leer el archivo desde almacenamiento local.'
+            doc.save(update_fields=['parse_status', 'processing_error'])
+            return
+
+        file_bytes = resolved.file_bytes
+        mime_type = resolved.mime_type  # use detected mime, more reliable than upload header
+        logger.info(
+            '[extraction] FiscalDocument %s: resolved %d bytes, mime=%s, local_path=%s',
+            doc.pk, resolved.size, mime_type, resolved.local_path,
+        )
+
+        result = extract_document(file_bytes, mime_type)
 
         if result['extraction_source'] == 'none':
+            logger.warning(
+                '[extraction] FiscalDocument %s: extraction returned source=none (no data found)',
+                doc.pk,
+            )
             doc.parse_status = ParseStatus.FAILED
-            doc.save(update_fields=['parse_status'])
+            doc.processing_error = 'La extracción no encontró datos en el archivo.'
+            doc.save(update_fields=['parse_status', 'processing_error'])
             return
 
         normalized = result.get('normalized_data', {})
-        update_fields = ['parse_status']
+        update_fields = ['parse_status', 'processing_error']
+        logger.info(
+            '[extraction] FiscalDocument %s: extraction_source=%s, normalized keys=%s',
+            doc.pk, result['extraction_source'], list(normalized.keys()),
+        )
 
         # Fill empty fields — user-provided data takes precedence
         if not doc.issuer_tax_id and normalized.get('issuer_tax_id'):
@@ -183,11 +212,20 @@ def _run_document_extraction(doc, request):
             doc.buyer_tax_id = normalized['buyer_tax_id']
             update_fields.append('buyer_tax_id')
 
+        if not doc.buyer_name and normalized.get('buyer_name'):
+            doc.buyer_name = normalized['buyer_name']
+            update_fields.append('buyer_name')
+
         extracted_type = normalized.get('document_type', '')
         mapped_type = _AFIP_TO_DOC_TYPE.get(extracted_type)
         if mapped_type:
             doc.document_type = mapped_type
             update_fields.append('document_type')
+
+        # Preserve the AFIP subtype detail (e.g. "Factura A", "Nota de Crédito B")
+        if extracted_type and not doc.document_subtype:
+            doc.document_subtype = extracted_type
+            update_fields.append('document_subtype')
 
         # Auto-detect fiscal document if extraction found a recognized type
         if extracted_type in _FISCAL_DOC_TYPES:
@@ -201,12 +239,22 @@ def _run_document_extraction(doc, request):
             update_fields.append('point_of_sale')
 
         doc.parse_status = ParseStatus.PARSED
+        doc.processing_error = None  # clear any previous error
         doc.save(update_fields=update_fields)
 
+        logger.info(
+            '[extraction] FiscalDocument %s: PARSED successfully — detected fields: %s',
+            doc.pk,
+            {k: v for k, v in normalized.items()
+             if k not in ('_source_priority', 'inferred_source_confidence', 'qr_payload')
+             and v},
+        )
+
     except Exception as exc:
-        logger.exception('FiscalDocument %s extraction failed: %s', doc.pk, exc)
+        logger.exception('[extraction] FiscalDocument %s extraction failed: %s', doc.pk, exc)
         doc.parse_status = ParseStatus.FAILED
-        doc.save(update_fields=['parse_status'])
+        doc.processing_error = f'Error durante extracción: {exc}'
+        doc.save(update_fields=['parse_status', 'processing_error'])
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -281,6 +329,10 @@ class ExpenseFiscalProfileViewSet(BaseTaxBackupViewSet):
         serializer = FiscalDocumentSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         doc = serializer.save(fiscal_profile=profile)
+        logger.info(
+            '[tax_backup] Document %s created for profile %s (file=%s, type=%s)',
+            doc.pk, profile.pk, doc.file.name if doc.file else 'none', doc.document_type,
+        )
 
         # Sprint 3 integration: run QR/OCR extraction on the uploaded file
         _run_document_extraction(doc, request)
@@ -289,6 +341,9 @@ class ExpenseFiscalProfileViewSet(BaseTaxBackupViewSet):
         profile = ExpenseFiscalProfile.objects.prefetch_related('documents').get(pk=profile.pk)
         _apply_rules_and_log(profile, trigger='document_added')
         create_duplicate_flags(profile)
+
+        # Refresh doc to include extraction results
+        doc.refresh_from_db()
         return Response(FiscalDocumentSerializer(doc).data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['delete'], url_path=r'documents/(?P<doc_id>\d+)')
@@ -298,11 +353,32 @@ class ExpenseFiscalProfileViewSet(BaseTaxBackupViewSet):
         doc = profile.documents.filter(pk=doc_id).first()
         if not doc:
             return Response({'detail': 'Documento no encontrado.'}, status=status.HTTP_404_NOT_FOUND)
-        doc.file.delete(save=False)
+
+        doc_file_name = doc.file.name if doc.file else 'none'
+        logger.info(
+            '[tax_backup] Deleting document %s from profile %s (file=%s)',
+            doc.pk, profile.pk, doc_file_name,
+        )
+
+        # Delete the physical file from storage
+        if doc.file:
+            try:
+                doc.file.delete(save=False)
+                logger.info('[tax_backup] Physical file deleted: %s', doc_file_name)
+            except Exception as exc:
+                logger.warning(
+                    '[tax_backup] Could not delete physical file %s: %s',
+                    doc_file_name, exc,
+                )
         doc.delete()
+
         # Re-evaluar tras borrar documento
         profile = ExpenseFiscalProfile.objects.prefetch_related('documents').get(pk=profile.pk)
         _apply_rules_and_log(profile, trigger='document_removed')
+        logger.info(
+            '[tax_backup] Post-delete: profile %s now has %d documents, fiscal_status=%s',
+            profile.pk, profile.documents.count(), profile.fiscal_status,
+        )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     # ── Nested: Pagos ────────────────────────────────────────────────────

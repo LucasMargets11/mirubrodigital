@@ -95,7 +95,7 @@ export interface FiscalProfileDetail {
   review_required: boolean;
   missing_fields: string[];
   missing_fields_labels: { key: string; label: string }[];
-  validation_issues: string[];
+  validation_issues: { code: string; message: string }[];
   evaluated_at: string | null;
   evaluation_source: EvaluationSource | null;
   // UX enrichment fields
@@ -116,6 +116,7 @@ export interface CompletionItem {
 export interface FiscalDocument {
   id: number;
   document_type: DocumentType;
+  document_subtype: string | null;
   issuer_name: string;
   issuer_tax_id: string;
   invoice_number: string;
@@ -124,8 +125,10 @@ export interface FiscalDocument {
   is_fiscal_document: boolean;
   file: string;
   parse_status: 'manual' | 'pending' | 'parsed' | 'failed';
+  processing_error: string | null;
   point_of_sale: string | null;
   buyer_tax_id: string | null;
+  buyer_name: string | null;
   currency: string;
   created_at: string;
 }

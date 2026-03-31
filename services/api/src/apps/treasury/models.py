@@ -424,11 +424,17 @@ class ExpenseDocument(models.Model):
     class Status(models.TextChoices):
         UPLOADED = 'uploaded', 'Subido'
         ARCHIVED = 'archived', 'Archivado'
-        # Preparados para sprints futuros — NO operativos en Sprint 2
         QUEUED = 'queued', 'En cola'
         PROCESSING = 'processing', 'Procesando'
         PROCESSED = 'processed', 'Procesado'
+        PROCESSED_WITH_WARNINGS = 'processed_with_warnings', 'Procesado con advertencias'
         FAILED = 'failed', 'Fallido'
+
+    class UploadSource(models.TextChoices):
+        WEB = 'web', 'Web'
+        MOBILE = 'mobile', 'Móvil'
+        API = 'api', 'API'
+        BULK = 'bulk', 'Carga masiva'
 
     class DocumentKind(models.TextChoices):
         INVOICE = 'invoice', 'Factura'
@@ -469,13 +475,18 @@ class ExpenseDocument(models.Model):
         max_length=20, choices=DocumentKind.choices, default=DocumentKind.OTHER,
     )
     status = models.CharField(
-        max_length=20, choices=Status.choices, default=Status.UPLOADED,
+        max_length=30, choices=Status.choices, default=Status.UPLOADED,
     )
     notes = models.TextField(null=True, blank=True)
 
     uploaded_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
         null=True, blank=True, related_name='uploaded_expense_documents',
+    )
+    upload_source = models.CharField(
+        max_length=20, choices=UploadSource.choices,
+        default=UploadSource.WEB,
+        help_text='Origen de la subida (web, mobile, api, bulk).',
     )
 
     # ── Procesamiento (Sprint 3) ──────────────────────────────────────────
@@ -499,6 +510,18 @@ class ExpenseDocument(models.Model):
         max_length=10, choices=ExtractionSource.choices,
         null=True, blank=True,
         help_text='Fuente de extracción usada (qr, ocr, mixed, none).',
+    )
+    pipeline_version = models.CharField(
+        max_length=20, default='1.0',
+        help_text='Versión del pipeline que procesó el documento.',
+    )
+    processing_attempts = models.PositiveSmallIntegerField(
+        default=0,
+        help_text='Cantidad de intentos de procesamiento realizados.',
+    )
+    error_trace = models.JSONField(
+        null=True, blank=True,
+        help_text='Traza estructurada de errores: [{step, error, timestamp}, ...]',
     )
 
     created_at = models.DateTimeField(auto_now_add=True)

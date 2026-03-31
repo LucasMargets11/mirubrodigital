@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, Search } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Search, Eye } from 'lucide-react';
 
 import {
   listProfiles,
@@ -136,13 +136,14 @@ export function TaxBackupTable({ selectedId, onSelect, compact = false }: Props)
               {!compact && <th className="px-3 py-2.5">Fiscal</th>}
               {!compact && <th className="px-3 py-2.5">Asignación</th>}
               {!compact && <th className="px-3 py-2.5 text-center">Docs</th>}
+              {!compact && <th className="px-3 py-2.5 text-right">Acción</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {isLoading
               ? Array.from({ length: 5 }).map((_, i) => (
                   <tr key={i}>
-                    <td colSpan={compact ? 2 : 6} className="px-3 py-3">
+                    <td colSpan={compact ? 2 : 7} className="px-3 py-3">
                       <div className="h-4 w-full animate-pulse rounded bg-slate-100" />
                     </td>
                   </tr>
@@ -228,13 +229,28 @@ export function TaxBackupTable({ selectedId, onSelect, compact = false }: Props)
                           {p.doc_count}
                         </td>
                       )}
+                      {!compact && (
+                        <td className="px-3 py-2.5 text-right">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onSelect(p.id);
+                            }}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1"
+                            aria-label={`Revisar comprobante de ${p.source_name || 'gasto'}`}
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                            Revisar
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
             {!isLoading && profiles.length === 0 && (
               <tr>
                 <td
-                  colSpan={compact ? 2 : 6}
+                  colSpan={compact ? 2 : 7}
                   className="px-4 py-12 text-center text-slate-400"
                 >
                   No se encontraron perfiles con estos filtros.

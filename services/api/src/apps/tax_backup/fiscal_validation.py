@@ -141,6 +141,7 @@ def evaluate_expense_fiscal_status(
     # ── D. Consistencia documento vs gasto/pago ──────────────────────
     amount_ok = _check_amount_consistency(profile, merged, issues)
     date_ok = _check_date_consistency(profile, merged, issues)
+    currency_ok = _check_currency_consistency(profile, merged, issues)
     fiscal_ok = merged.get('is_fiscal_document', False)
 
     if not fiscal_ok:
@@ -163,7 +164,7 @@ def evaluate_expense_fiscal_status(
 
     if len(critical_missing) > 0 or len(missing) >= 3:
         status = FiscalStatus.INCOMPLETO
-    elif not amount_ok or not date_ok:
+    elif not amount_ok or not date_ok or not currency_ok:
         status = FiscalStatus.REQUIERE_REVISION
     elif len(missing) > 0 or len(issues) > 0:
         if any(i['code'] in ('NOT_FISCAL', 'EXTRACTION_FAILED', 'EXTRACTION_PARTIAL')
@@ -398,6 +399,8 @@ def _merge_document_data(
             merged['buyer_tax_id'] = nd['buyer_tax_id']
         if nd.get('issuer_name'):
             merged['issuer_name'] = nd['issuer_name']
+        if nd.get('currency'):
+            merged['currency'] = nd['currency']
         # Mark as fiscal if document type is recognized
         _FISCAL_TYPES = {
             'Factura A', 'Factura B', 'Factura C', 'Factura M',
@@ -425,6 +428,11 @@ def _merge_document_data(
             merged['buyer_tax_id'] = fiscal_doc.buyer_tax_id
         if fiscal_doc.issuer_name:
             merged['issuer_name'] = fiscal_doc.issuer_name
+        if fiscal_doc.currency and fiscal_doc.currency != 'ARS':
+            # Only override if not the default — a non-default currency is meaningful
+            merged['currency'] = fiscal_doc.currency
+        elif not merged.get('currency') and fiscal_doc.currency:
+            merged['currency'] = fiscal_doc.currency
 
     return merged
 
@@ -511,6 +519,35 @@ def _check_date_consistency(
             'message': (
                 f'La fecha del comprobante ({doc_date}) difiere en {diff_days} días '
                 f'de la fecha del gasto ({source_date}).'
+            ),
+        })
+        return False
+
+    return True
+
+
+def _check_currency_consistency(
+    profile: ExpenseFiscalProfile,
+    merged: dict,
+    issues: list[dict],
+) -> bool:
+    """
+    Valida que la moneda del comprobante coincida con la esperada (ARS por defecto).
+    Returns True if currencies match (or not checkable).
+    """
+    doc_currency = merged.get('currency')
+    if not doc_currency:
+        return True  # Can't check — not an inconsistency
+
+    # Expected currency: ARS for Argentine businesses (default assumption)
+    expected_currency = 'ARS'
+
+    if doc_currency.upper() != expected_currency:
+        issues.append({
+            'code': 'CURRENCY_MISMATCH',
+            'message': (
+                f'La moneda del comprobante ({doc_currency}) no coincide '
+                f'con la esperada ({expected_currency}).'
             ),
         })
         return False

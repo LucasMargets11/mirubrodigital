@@ -1068,6 +1068,7 @@ class ExpenseDocumentViewSet(BaseTreasuryViewSet):
             mime_type=uploaded_file.content_type,
             size_bytes=uploaded_file.size,
             document_kind=data.get('document_kind', ExpenseDocument.DocumentKind.OTHER),
+            upload_source=data.get('upload_source', ExpenseDocument.UploadSource.WEB),
             notes=data.get('notes') or None,
             uploaded_by=request.user,
             status=ExpenseDocument.Status.QUEUED,
@@ -1107,6 +1108,14 @@ class ExpenseDocumentViewSet(BaseTreasuryViewSet):
         """Enqueue a document for QR/OCR extraction processing."""
         self.required_permission = 'manage_finance'
         doc = self.get_object()
+
+        # Guard: already in the pipeline
+        if doc.status in (ExpenseDocument.Status.QUEUED, ExpenseDocument.Status.PROCESSING):
+            return Response(
+                {'error': 'El documento ya está en cola o procesándose. Esperá a que termine.'},
+                status=status.HTTP_409_CONFLICT,
+            )
+
         processable = {
             ExpenseDocument.Status.UPLOADED,
             ExpenseDocument.Status.FAILED,
@@ -1130,27 +1139,48 @@ class ExpenseDocumentViewSet(BaseTreasuryViewSet):
         """Re-enqueue a processed or failed document for re-extraction."""
         self.required_permission = 'manage_finance'
         doc = self.get_object()
+
+        # Guard: already in the pipeline — prevent queue spam
+        if doc.status in (ExpenseDocument.Status.QUEUED, ExpenseDocument.Status.PROCESSING):
+            return Response(
+                {'error': 'El documento ya está en cola o procesándose. Esperá a que termine.'},
+                status=status.HTTP_409_CONFLICT,
+            )
+
         reprocessable = {
             ExpenseDocument.Status.PROCESSED,
+            ExpenseDocument.Status.PROCESSED_WITH_WARNINGS,
             ExpenseDocument.Status.FAILED,
         }
         if doc.status not in reprocessable:
             return Response(
                 {'error': f'No se puede reprocesar un documento con estado "{doc.get_status_display()}".'
-                          ' Solo documentos con estado Procesado o Fallido.'},
+                          ' Solo documentos con estado Procesado, Procesado con advertencias, o Fallido.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        # Cooldown: reject if the document was processed less than 60 seconds ago
+        if doc.processed_at:
+            from django.utils import timezone
+            elapsed = (timezone.now() - doc.processed_at).total_seconds()
+            if elapsed < 60:
+                remaining = int(60 - elapsed)
+                return Response(
+                    {'error': f'Reproceso muy reciente. Esperá {remaining} segundos antes de reintentar.'},
+                    status=status.HTTP_429_TOO_MANY_REQUESTS,
+                )
         # Clear previous results
         doc.status = ExpenseDocument.Status.QUEUED
         doc.raw_extraction = None
         doc.normalized_data = None
         doc.processing_errors = None
+        doc.error_trace = None
         doc.processed_at = None
         doc.extraction_source = None
         doc.save(update_fields=[
             'status', 'raw_extraction', 'normalized_data',
-            'processing_errors', 'processed_at', 'extraction_source',
-            'updated_at',
+            'processing_errors', 'error_trace', 'processed_at',
+            'extraction_source', 'updated_at',
         ])
 
         from apps.treasury.tasks import process_expense_document

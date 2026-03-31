@@ -12,7 +12,7 @@ import { AuthForm } from '@/components/auth/auth-form';
  */
 export default function EntrarPage() {
     return (
-        <section className="min-h-full flex items-center justify-center">
+        <section className="flex-1 flex items-center justify-center">
             <div className="w-full">
                 <div className="mx-auto max-w-7xl px-6 lg:px-10">
                     <div className="grid gap-10 lg:grid-cols-2 lg:gap-16 items-center">

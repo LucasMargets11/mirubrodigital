@@ -384,19 +384,21 @@ class ExpenseDocumentSerializer(serializers.ModelSerializer):
             'id', 'business', 'expense', 'fixed_expense_period',
             'file', 'file_url', 'original_filename', 'mime_type', 'size_bytes',
             'document_kind', 'status', 'notes', 'uploaded_by', 'uploaded_by_name',
-            'origin_type', 'origin_label',
-            # Processing fields (Sprint 3) — included in detail, excluded in list
-            'normalized_data', 'processing_errors',
+            'upload_source', 'origin_type', 'origin_label',
+            # Processing fields (Sprint 3+5)
+            'normalized_data', 'processing_errors', 'error_trace',
             'processed_at', 'extraction_source',
+            'pipeline_version', 'processing_attempts',
             'created_at', 'updated_at',
         )
         read_only_fields = (
             'business', 'expense', 'fixed_expense_period',
             'original_filename', 'mime_type', 'size_bytes',
             'file', 'uploaded_by', 'created_at', 'updated_at',
-            # Processing fields (Sprint 3) — set by pipeline only
-            'normalized_data', 'processing_errors',
+            # Processing fields — set by pipeline only
+            'normalized_data', 'processing_errors', 'error_trace',
             'processed_at', 'extraction_source',
+            'pipeline_version', 'processing_attempts',
         )
 
     def get_file_url(self, obj):
@@ -437,6 +439,7 @@ class ExpenseDocumentListSerializer(serializers.ModelSerializer):
             'id', 'expense', 'fixed_expense_period',
             'file_url', 'original_filename', 'mime_type', 'size_bytes',
             'document_kind', 'status', 'extraction_source',
+            'upload_source', 'pipeline_version', 'processing_attempts',
             'processed_at', 'created_at',
             'origin_type',
         )
@@ -467,6 +470,11 @@ class ExpenseDocumentUploadSerializer(serializers.Serializer):
     document_kind = serializers.ChoiceField(
         choices=ExpenseDocument.DocumentKind.choices,
         default=ExpenseDocument.DocumentKind.OTHER,
+    )
+    upload_source = serializers.ChoiceField(
+        choices=ExpenseDocument.UploadSource.choices,
+        default=ExpenseDocument.UploadSource.WEB,
+        required=False,
     )
     notes = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 

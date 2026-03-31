@@ -46,7 +46,7 @@ function AppShellContent({ session, children }: { session: Session; children: Re
     }, [pathname, service]);
 
     return (
-        <div className="flex h-screen bg-slate-50 overflow-hidden">
+        <div className="fixed inset-0 flex bg-slate-50 overflow-hidden">
             {/* Desktop Sidebar - Hidden on mobile */}
             <div className="hidden md:block">
                 <Sidebar
@@ -87,7 +87,7 @@ function AppShellContent({ session, children }: { session: Session; children: Re
                 </SheetContent>
             </Sheet>
 
-            <div className="flex flex-1 flex-col min-w-0">
+            <div className="flex flex-1 flex-col min-w-0 min-h-0">
                 {/* Mobile header with menu button - Only visible on mobile */}
                 <div className="md:hidden flex items-center justify-between px-4 py-3 border-b border-slate-200 bg-white shrink-0">
                     <h1 className="text-lg font-semibold text-slate-900">
@@ -103,7 +103,7 @@ function AppShellContent({ session, children }: { session: Session; children: Re
                     showRenewalPrompt={session.subscription.show_renewal_prompt}
                 />
 
-                <main className="flex-1 space-y-6 overflow-y-auto p-6">
+                <main className="flex-1 min-h-0 space-y-6 overflow-y-auto p-6">
                     {isRestricted ? (
                         <AccessMessage
                             title="No disponible en tu plan"
