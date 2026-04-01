@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { ArrowRight, Package, TrendingUp, AlertCircle, Loader2 } from 'lucide-react';
 import { formatCurrency, formatNumber } from '@/lib/format';
-import { cn } from '@/lib/utils';
+import { HorizontalRankChart } from '@/lib/charts';
 import { useMemo } from 'react';
 
 type SalesTrendBlockProps = {
@@ -18,12 +18,12 @@ export function SalesTrendBlock({ canViewSales }: SalesTrendBlockProps) {
     const { data, isLoading, isError } = useTopSellingProducts('7d', 5, canViewSales);
     
     // 1. Data Sanitization & Memoization
-    const { processedItems, maxSales } = useMemo(() => {
+    const processedItems = useMemo(() => {
         if (!data?.items || !Array.isArray(data.items)) {
-            return { processedItems: [], maxSales: 0 };
+            return [];
         }
 
-        const cleanItems = data.items
+        return data.items
             .filter(item => item && (item.total_sales || item.total_qty)) // Remove nulls/zeros
             .map(item => ({
                 id: item.product_id || Math.random().toString(36),
@@ -33,11 +33,12 @@ export function SalesTrendBlock({ canViewSales }: SalesTrendBlockProps) {
             }))
             .sort((a, b) => b.amount - a.amount)
             .slice(0, 5); // Strict limit to 5 items
-
-        const max = cleanItems.length > 0 ? cleanItems[0].amount : 0;
-
-        return { processedItems: cleanItems, maxSales: max };
     }, [data]);
+
+    const chartItems = useMemo(
+        () => processedItems.map(p => ({ name: p.name, value: p.amount })),
+        [processedItems],
+    );
 
     // 2. Permission Check
     if (!canViewSales) return null;
@@ -111,63 +112,18 @@ export function SalesTrendBlock({ canViewSales }: SalesTrendBlockProps) {
                     </Link>
                 </Button>
             </CardHeader>
-            <CardContent className="p-0 flex-1">
-                <div className="divide-y divide-slate-100">
-                    {processedItems.map((item, index) => {
-                        const percentage = maxSales > 0 ? (item.amount / maxSales) * 100 : 0;
-                        const isTop = index === 0;
-
-                        return (
-                            <div key={item.id} className="relative group hover:bg-slate-50/80 transition-colors p-3">
-                                {/* Row Content */}
-                                <div className="flex items-start gap-3 relative z-10 w-full">
-                                    {/* Rank Badge */}
-                                    <div className={cn(
-                                        "flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold border shadow-sm mt-0.5",
-                                        isTop 
-                                            ? "bg-amber-100 text-amber-700 border-amber-200" 
-                                            : "bg-white text-slate-500 border-slate-200"
-                                    )}>
-                                        {index + 1}
-                                    </div>
-                                    
-                                    {/* Product Info */}
-                                    <div className="flex-1 min-w-0 flex flex-col gap-1">
-                                        <div className="flex justify-between items-center gap-4">
-                                            <p 
-                                                className="truncate text-sm font-medium text-slate-700 group-hover:text-slate-900 transition-colors"
-                                                title={item.name}
-                                            >
-                                                {item.name}
-                                            </p>
-                                            <span className="text-sm font-bold text-slate-900 shrink-0">
-                                                {formatCurrency(item.amount)}
-                                            </span>
-                                        </div>
-
-                                        <div className="flex justify-between items-center text-xs text-slate-500">
-                                            <span className="flex items-center gap-1">
-                                                <Package className="h-3 w-3" />
-                                                {formatNumber(item.qty)} u.
-                                            </span>
-                                            
-                                            {/* Progress Bar Container */}
-                                            <div className="w-24 h-1.5 bg-slate-100 rounded-full overflow-hidden ml-auto">
-                                                <div 
-                                                    className={cn(
-                                                        "h-full rounded-full transition-all duration-500 ease-out",
-                                                        isTop ? "bg-gradient-to-r from-amber-400 to-orange-500" : "bg-indigo-500"
-                                                    )}
-                                                    style={{ width: `${percentage}%` }}
-                                                />
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
+            <CardContent className="p-4 flex-1">
+                <HorizontalRankChart
+                    items={chartItems}
+                    formatLabel={formatCurrency}
+                    formatTooltip={(name, value, idx) => {
+                        const item = processedItems[idx];
+                        return `<div style="font-weight:600;margin-bottom:4px">${name}</div>
+                            <div style="font-family:ui-monospace,monospace;font-weight:600">${formatCurrency(value)}</div>
+                            <div style="font-size:12px;color:#94a3b8;margin-top:2px">${formatNumber(item?.qty ?? 0)} unidades</div>`;
+                    }}
+                    color="#4f46e5"
+                />
             </CardContent>
             {/* Footer Summary */}
             <div className="bg-slate-50 border-t border-slate-100 p-3 text-xs text-center text-slate-500">

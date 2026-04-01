@@ -1,8 +1,16 @@
 "use client";
 
+import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { BarChart3, Loader2, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import type { EChartsCoreOption } from 'echarts/core';
 import { getMonthlyReport, MonthlyReport } from '@/lib/api/treasury';
+import { EChart } from '@/lib/charts';
+import {
+    COLOR_AXIS_LABEL,
+    COLOR_GRID_LINE,
+    TOOLTIP_BASE_STYLE,
+} from '@/lib/charts/theme';
 import { Currency } from '../components/currency';
 import { EmptyState } from '../components/empty-state';
 
@@ -10,11 +18,129 @@ function toNum(v: number | string) {
     return typeof v === 'string' ? parseFloat(v) : v;
 }
 
+/* ── ARS formatter shared between tooltip and yAxis ── */
+const fmtARS = new Intl.NumberFormat('es-AR', {
+    style: 'currency',
+    currency: 'ARS',
+    notation: 'compact',
+    maximumFractionDigits: 1,
+});
+
+const fmtARSFull = new Intl.NumberFormat('es-AR', {
+    style: 'currency',
+    currency: 'ARS',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+});
+
+/* ── Colour tokens matching the existing emerald/rose palette ── */
+const COLOR_INCOME = '#10b981';   // emerald-500
+const COLOR_EXPENSE = '#f43f5e';  // rose-500
+
+/**
+ * Pure function: builds the ECharts option for the monthly income/expense
+ * grouped bar chart.  Exported for testing.
+ */
+export function buildMonthlyReportOption(data: MonthlyReport[]): EChartsCoreOption {
+    const categories = data.map((m) => m.label);
+    const incomeData = data.map((m) => toNum(m.income));
+    const expenseData = data.map((m) => toNum(m.expense));
+
+    return {
+        tooltip: {
+            ...TOOLTIP_BASE_STYLE,
+            trigger: 'axis',
+            axisPointer: {
+                type: 'shadow',
+                animation: false,
+                shadowStyle: { color: 'rgba(0,0,0,0.03)' },
+            },
+            formatter(params: any) {
+                const items = Array.isArray(params) ? params : [params];
+                const month = items[0]?.axisValueLabel ?? '';
+                const dot = (c: string) => `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${c};margin-right:6px;vertical-align:middle"></span>`;
+                let html = `<div style="font-weight:600;color:#0f172a;margin-bottom:8px;font-size:13px">${month}</div>`;
+                for (const p of items) {
+                    html += `<div style="display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:3px">
+                        <span>${dot(p.color)}${p.seriesName}</span>
+                        <span style="font-weight:600;font-family:ui-monospace,monospace">${fmtARSFull.format(p.value)}</span>
+                    </div>`;
+                }
+                const inc = items.find((i: any) => i.seriesName === 'Ingresos')?.value ?? 0;
+                const exp = items.find((i: any) => i.seriesName === 'Egresos')?.value ?? 0;
+                const res = inc - exp;
+                const resColor = res >= 0 ? '#059669' : '#e11d48';
+                html += `<div style="margin-top:6px;padding-top:6px;border-top:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between;gap:16px">
+                    <span style="font-weight:600">Resultado</span>
+                    <span style="font-weight:700;color:${resColor};font-family:ui-monospace,monospace">${fmtARSFull.format(res)}</span>
+                </div>`;
+                return html;
+            },
+        },
+        legend: {
+            show: true,
+            bottom: 0,
+            icon: 'circle',
+            itemWidth: 8,
+            itemHeight: 8,
+            itemGap: 24,
+            textStyle: { color: '#64748b', fontSize: 12 },
+        },
+        grid: {
+            left: 8,
+            right: 8,
+            top: 16,
+            bottom: 40,
+            containLabel: true,
+        },
+        xAxis: {
+            type: 'category',
+            data: categories,
+            axisLabel: { color: COLOR_AXIS_LABEL, fontSize: 11, margin: 12 },
+            axisLine: { show: false },
+            axisTick: { show: false },
+        },
+        yAxis: {
+            type: 'value',
+            axisLabel: {
+                color: COLOR_AXIS_LABEL,
+                fontSize: 11,
+                formatter: (v: number) => fmtARS.format(v),
+            },
+            axisLine: { show: false },
+            axisTick: { show: false },
+            splitLine: { lineStyle: { color: COLOR_GRID_LINE, type: 'dashed', opacity: 0.7 } },
+            splitNumber: 4,
+        },
+        series: [
+            {
+                name: 'Ingresos',
+                type: 'bar',
+                data: incomeData,
+                barWidth: 14,
+                barGap: '30%',
+                itemStyle: { color: COLOR_INCOME, borderRadius: [4, 4, 0, 0] },
+                emphasis: { itemStyle: { color: '#059669' } },
+            },
+            {
+                name: 'Egresos',
+                type: 'bar',
+                data: expenseData,
+                barWidth: 14,
+                itemStyle: { color: COLOR_EXPENSE, borderRadius: [4, 4, 0, 0] },
+                emphasis: { itemStyle: { color: '#e11d48' } },
+            },
+        ],
+    };
+}
+
 export function ReportesClient() {
     const { data: report, isLoading } = useQuery({
         queryKey: ['treasury', 'monthly-report'],
         queryFn: getMonthlyReport,
     });
+
+    const chartOption = useMemo(() => buildMonthlyReportOption(report ?? []), [report]);
 
     if (isLoading) {
         return <div className="flex justify-center p-12"><Loader2 className="h-8 w-8 animate-spin text-slate-400" /></div>;
@@ -28,10 +154,6 @@ export function ReportesClient() {
             />
         );
     }
-
-    const maxIncome = Math.max(...report.map(m => toNum(m.income)), 1);
-    const maxExpense = Math.max(...report.map(m => toNum(m.expense)), 1);
-    const maxBar = Math.max(maxIncome, maxExpense);
 
     const totalIncome = report.reduce((s, m) => s + toNum(m.income), 0);
     const totalExpense = report.reduce((s, m) => s + toNum(m.expense), 0);
@@ -56,35 +178,9 @@ export function ReportesClient() {
                 <SummaryCard label="Resultado Neto" value={totalResult} colorClass={totalResult >= 0 ? 'text-emerald-700' : 'text-rose-700'} bgClass={totalResult >= 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-rose-50 border-rose-200'} icon={<Minus className="h-5 w-5 text-slate-500" />} />
             </div>
 
-            {/* Bar visualization */}
-            <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm overflow-x-auto">
-                <div className="flex items-end gap-3 min-w-[600px]" style={{ height: 180 }}>
-                    {report.map((m) => {
-                        const inc = toNum(m.income);
-                        const exp = toNum(m.expense);
-                        return (
-                            <div key={`${m.year}-${m.month}`} className="flex-1 flex flex-col items-center gap-1 group">
-                                <div className="flex items-end gap-0.5 w-full justify-center" style={{ height: 140 }}>
-                                    <div
-                                        className="w-4 rounded-t-sm bg-emerald-400 group-hover:bg-emerald-500 transition-all"
-                                        style={{ height: `${Math.round((inc / maxBar) * 140)}px` }}
-                                        title={`Ingresos: $${inc.toFixed(2)}`}
-                                    />
-                                    <div
-                                        className="w-4 rounded-t-sm bg-rose-400 group-hover:bg-rose-500 transition-all"
-                                        style={{ height: `${Math.round((exp / maxBar) * 140)}px` }}
-                                        title={`Egresos: $${exp.toFixed(2)}`}
-                                    />
-                                </div>
-                                <span className="text-[10px] text-slate-500 text-center leading-tight">{m.label}</span>
-                            </div>
-                        );
-                    })}
-                </div>
-                <div className="flex gap-4 mt-3 justify-center">
-                    <span className="flex items-center gap-1.5 text-xs text-slate-600"><span className="w-3 h-3 rounded-sm bg-emerald-400 inline-block" />Ingresos</span>
-                    <span className="flex items-center gap-1.5 text-xs text-slate-600"><span className="w-3 h-3 rounded-sm bg-rose-400 inline-block" />Egresos</span>
-                </div>
+            {/* Bar chart */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+                <EChart option={chartOption} height={220} />
             </div>
 
             {/* Table */}

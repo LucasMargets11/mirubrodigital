@@ -7,6 +7,7 @@ import { formatDateShort } from '@/components/reports/utils/format';
 import { useTopProductsLeaderboard } from '@/features/reports/hooks';
 import type { ReportsFilters, TopProductLeaderboardItem } from '@/features/reports/types';
 import { formatARS, formatNumber } from '@/lib/format';
+import { HorizontalRankChart } from '@/lib/charts';
 
 export type MetricOption = 'amount' | 'units';
 
@@ -83,6 +84,14 @@ type TopProductsListProps = {
 };
 
 export function TopProductsList({ items, metric, loading }: TopProductsListProps) {
+    const chartItems = useMemo(
+        () => items.map(item => ({
+            name: item.name,
+            value: metric === 'amount' ? Number(item.amount_total) || 0 : Number(item.units) || 0,
+        })),
+        [items, metric],
+    );
+
     if (loading) {
         return (
             <ul className="mt-4 space-y-3">
@@ -101,31 +110,23 @@ export function TopProductsList({ items, metric, loading }: TopProductsListProps
         );
     }
 
+    const fmtLabel = metric === 'amount'
+        ? (v: number) => formatARS(v)
+        : (v: number) => `${formatNumber(v)} u`;
+
     return (
-        <ul className="mt-4 space-y-3">
-            {items.map((item) => {
-                const shareValue = Number(item.share_pct);
-                const shareWidth = Number.isFinite(shareValue) ? Math.min(100, Math.max(0, shareValue)) : 0;
-                const accentClass = metric === 'amount' ? 'bg-slate-900' : 'bg-sky-500';
-                const key = item.product_id ?? `${item.name}-${item.share_pct}`;
-                return (
-                    <li key={key} className="rounded-2xl border border-slate-100 p-4">
-                        <div className="flex items-start justify-between gap-4">
-                            <div>
-                                <p className="font-semibold text-slate-900">{item.name}</p>
-                                <p className="text-xs text-slate-500">{formatNumber(item.units)} u</p>
-                            </div>
-                            <div className="text-right">
-                                <p className="text-sm font-semibold text-slate-900">{formatARS(item.amount_total)}</p>
-                                <p className="text-xs text-slate-500">{item.share_pct}%</p>
-                            </div>
-                        </div>
-                        <div className="mt-3 h-2 w-full rounded-full bg-slate-100">
-                            <div className={`h-2 rounded-full ${accentClass}`} style={{ width: `${shareWidth}%` }} />
-                        </div>
-                    </li>
-                );
-            })}
-        </ul>
+        <div className="mt-4">
+            <HorizontalRankChart
+                items={chartItems}
+                formatLabel={fmtLabel}
+                formatTooltip={(name, value, idx) => {
+                    const item = items[idx];
+                    return `<div style="font-weight:600;margin-bottom:4px">${name}</div>
+                        <div style="font-family:ui-monospace,monospace;font-weight:600">${formatARS(item?.amount_total)}</div>
+                        <div style="font-size:12px;color:#94a3b8;margin-top:2px">${formatNumber(item?.units)} u · ${item?.share_pct}%</div>`;
+                }}
+                color={metric === 'amount' ? '#0f172a' : '#0ea5e9'}
+            />
+        </div>
     );
 }

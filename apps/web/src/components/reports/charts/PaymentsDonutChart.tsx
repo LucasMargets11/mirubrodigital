@@ -1,7 +1,10 @@
 'use client';
 
-import { Pie, PieChart, ResponsiveContainer, Tooltip, TooltipProps, Cell } from 'recharts';
+import { useMemo } from 'react';
+import type { EChartsCoreOption } from 'echarts/core';
 
+import { EChart } from '@/lib/charts';
+import { TOOLTIP_BASE_STYLE, CATEGORICAL_PALETTE } from '@/lib/charts/theme';
 import type { PaymentBreakdownRow } from '@/features/reports/types';
 
 import { formatARS, humanizePaymentMethod, toNumber } from '../utils/format';
@@ -34,7 +37,7 @@ const METHOD_COLORS: Record<string, string> = {
     OTHERS: '#6b7280',
 };
 
-const FALLBACK_COLORS = ['#312e81', '#7c3aed', '#0f766e', '#be123c', '#fb923c', '#0ea5e9'];
+const FALLBACK_COLORS = CATEGORICAL_PALETTE.slice(0, 6);
 
 export function PaymentsDonutChart({ data, topN = 5 }: PaymentsDonutChartProps) {
     const prepared = prepareData(data, topN);
@@ -43,31 +46,13 @@ export function PaymentsDonutChart({ data, topN = 5 }: PaymentsDonutChartProps) 
         return null;
     }
 
+    const option = useMemo(() => buildDonutOption(prepared), [prepared]);
+
     return (
         <div className="flex h-full w-full min-h-0 flex-col gap-6 md:flex-row md:items-center">
             <div className="relative flex-none min-h-[16rem] w-full md:flex-1 md:h-full md:min-h-0">
                 <div className="h-64 md:h-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                            <Pie
-                                data={prepared}
-                                dataKey="value"
-                                nameKey="label"
-                                innerRadius="60%"
-                                outerRadius="85%"
-                                cx="50%"
-                                cy="50%"
-                                paddingAngle={2}
-                                stroke="white"
-                                strokeWidth={2}
-                            >
-                                {prepared.map((entry) => (
-                                    <Cell key={entry.method} fill={entry.color} />
-                                ))}
-                            </Pie>
-                            <Tooltip content={<PaymentsTooltip />} />
-                        </PieChart>
-                    </ResponsiveContainer>
+                    <EChart option={option} height="100%" />
                 </div>
             </div>
             <div className="flex-1 min-h-0 space-y-3 overflow-y-auto md:flex-none md:w-56 md:shrink-0 md:max-h-full">
@@ -91,19 +76,47 @@ export function PaymentsDonutChart({ data, topN = 5 }: PaymentsDonutChartProps) 
     );
 }
 
-function PaymentsTooltip({ active, payload }: TooltipProps<number, string>) {
-    if (!active || !payload?.length) {
-        return null;
-    }
-    const entry = payload[0].payload as ChartDatum;
-    return (
-        <div className="rounded-2xl border border-slate-200 bg-white/95 p-3 text-sm text-slate-600 shadow-lg">
-            <p className="font-semibold text-slate-900">{entry.label}</p>
-            <p>Monto: {formatARS(entry.value)}</p>
-            <p>Pagos: {entry.payments_count}</p>
-            <p>Participación: {entry.percent.toFixed(1)}%</p>
-        </div>
-    );
+// ── Option builder (pure, testable) ─────────────────────────
+
+export function buildDonutOption(prepared: ChartDatum[]): EChartsCoreOption {
+    return {
+        tooltip: {
+            ...TOOLTIP_BASE_STYLE,
+            trigger: 'item',
+            formatter(params: unknown) {
+                const p = params as { data: { label: string; value: number; payments_count: number; percent: number } };
+                const d = p.data;
+                return [
+                    `<p style="font-weight:600;color:#0f172a;margin:0 0 4px">${d.label}</p>`,
+                    `<p style="margin:0">Monto: ${formatARS(d.value)}</p>`,
+                    `<p style="margin:0">Pagos: ${d.payments_count}</p>`,
+                    `<p style="margin:0">Participación: ${d.percent.toFixed(1)}%</p>`,
+                ].join('');
+            },
+        },
+        series: [
+            {
+                type: 'pie',
+                radius: ['60%', '85%'],
+                center: ['50%', '50%'],
+                padAngle: 2,
+                itemStyle: {
+                    borderColor: '#ffffff',
+                    borderWidth: 2,
+                },
+                label: { show: false },
+                data: prepared.map((item) => ({
+                    name: item.label,
+                    value: item.value,
+                    // extra fields for tooltip formatter
+                    label: item.label,
+                    payments_count: item.payments_count,
+                    percent: item.percent,
+                    itemStyle: { color: item.color },
+                })),
+            },
+        ],
+    } satisfies EChartsCoreOption;
 }
 
 function prepareData(data: PaymentBreakdownRow[], topN: number): ChartDatum[] {

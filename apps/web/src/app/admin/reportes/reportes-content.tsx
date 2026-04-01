@@ -18,6 +18,7 @@ import Link from 'next/link';
 import { StatCard } from '@/components/admin/stat-card';
 import { SectionCard } from '@/components/admin/section-card';
 import { ErrorState } from '@/components/admin/error-state';
+import { HorizontalRankChart } from '@/lib/charts';
 import {
   statusLabel,
   statusColor,
@@ -107,29 +108,21 @@ function DistributionBar({
     return <p className="text-sm text-slate-400">Sin datos.</p>;
   }
 
+  const chartItems = items.map((item) => ({
+    name: labelFn((item as Record<string, unknown>)[keyField] as string),
+    value: item.count,
+  }));
+
   return (
-    <div className="space-y-2">
-      {items.map((item, idx) => {
-        const key = (item as Record<string, unknown>)[keyField] as string;
-        const pct = Math.round((item.count / total) * 100);
-        return (
-          <div key={idx} className="space-y-1">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-slate-700">{labelFn(key)}</span>
-              <span className="font-medium text-slate-900">
-                {item.count} <span className="text-slate-400">({pct}%)</span>
-              </span>
-            </div>
-            <div className="h-2 w-full rounded-full bg-slate-100">
-              <div
-                className="h-2 rounded-full bg-brand-500"
-                style={{ width: `${pct}%` }}
-              />
-            </div>
-          </div>
-        );
-      })}
-    </div>
+    <HorizontalRankChart
+      items={chartItems}
+      formatLabel={(v) => String(v)}
+      formatTooltip={(name, value) => {
+        const pct = total > 0 ? Math.round((value / total) * 100) : 0;
+        return `<div style="font-weight:600;margin-bottom:4px">${name}</div>
+          <div style="font-family:ui-monospace,monospace;font-weight:600">${value} <span style="opacity:.6">(${pct}%)</span></div>`;
+      }}
+    />
   );
 }
 

@@ -6,6 +6,7 @@ import { downloadCsv } from '@/lib/csv';
 import { formatCurrency, formatNumber } from '@/lib/format';
 import { useReportsProducts } from '@/features/reports/hooks';
 import { todayDateString, dateOffsetFromToday } from '@/lib/dates';
+import { HorizontalRankChart } from '@/lib/charts';
 
 import { ReportsFilters, type ReportsFiltersValue } from '@/modules/reports/components/filters';
 import { ReportsPagination } from '@/modules/reports/components/pagination';
@@ -42,6 +43,14 @@ export function ReportsProductsClient() {
     );
 
     const { data, isLoading, isError } = useReportsProducts(queryFilters);
+
+    const shareChartItems = useMemo(
+        () => (data?.results ?? []).slice(0, 10).map(row => ({
+            name: row.name,
+            value: Number(row.share ?? 0),
+        })),
+        [data?.results],
+    );
 
     const handleExport = () => {
         if (!data?.results?.length) {
@@ -126,6 +135,23 @@ export function ReportsProductsClient() {
                     <KpiCard label="Precio promedio" value={formatCurrency(data?.totals?.avg_price ?? '0')} />
                 </div>
 
+                {shareChartItems.length > 0 && (
+                    <div className="mt-6 rounded-2xl border border-slate-100 p-4">
+                        <p className="text-sm font-medium text-slate-500 mb-2">Participación — Top {shareChartItems.length}</p>
+                        <HorizontalRankChart
+                            items={shareChartItems}
+                            formatLabel={(v) => `${v.toFixed(1)}%`}
+                            formatTooltip={(name, value, idx) => {
+                                const row = (data?.results ?? [])[idx];
+                                return `<div style="font-weight:600;margin-bottom:4px">${name}</div>
+                                    <div style="font-family:ui-monospace,monospace;font-weight:600">${formatCurrency(row?.amount_total ?? 0)}</div>
+                                    <div style="font-size:12px;color:#94a3b8;margin-top:2px">${formatNumber(row?.quantity)} u · ${value.toFixed(2)}%</div>`;
+                            }}
+                            color="#0f172a"
+                        />
+                    </div>
+                )}
+
                 <div className="mt-8 overflow-x-auto">
                     <table className="w-full text-sm">
                         <thead>
@@ -153,9 +179,7 @@ export function ReportsProductsClient() {
                                     </td>
                                 </tr>
                             )}
-                            {(data?.results ?? []).map((row) => {
-                                const shareValue = Number(row.share ?? '0');
-                                return (
+                            {(data?.results ?? []).map((row) => (
                                     <tr key={`${row.product_id ?? 'custom'}-${row.name}`} className="border-t border-slate-100 text-slate-700">
                                         <td className="px-2 py-3">
                                             <p className="font-semibold text-slate-900">{row.name}</p>
@@ -163,21 +187,10 @@ export function ReportsProductsClient() {
                                         <td className="px-2 py-3 text-slate-500">{row.sku || '—'}</td>
                                         <td className="px-2 py-3 text-right font-semibold">{formatCurrency(row.amount_total)}</td>
                                         <td className="px-2 py-3 text-right">{formatNumber(row.quantity)}</td>
-                                        <td className="px-2 py-3">
-                                            <div className="flex items-center gap-3">
-                                                <span className="font-semibold text-slate-900">{formatShare(row.share)}</span>
-                                                <div className="h-2 w-32 rounded-full bg-slate-100">
-                                                    <div
-                                                        className="h-full rounded-full bg-slate-900"
-                                                        style={{ width: `${Math.max(0, Math.min(100, shareValue))}%` }}
-                                                    />
-                                                </div>
-                                            </div>
-                                        </td>
+                                        <td className="px-2 py-3 font-semibold text-slate-900">{formatShare(row.share)}</td>
                                         <td className="px-2 py-3 text-right">{formatNumber(row.sales_count)}</td>
                                     </tr>
-                                );
-                            })}
+                            ))}
                         </tbody>
                     </table>
                 </div>
