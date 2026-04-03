@@ -14,6 +14,7 @@ const SERVICE_LABELS: Record<string, string> = {
     gestion: 'Gestión Comercial',
     restaurante: 'Restaurante Inteligente',
     menu_qr: 'Menú QR Online',
+    qr_reviews: 'QR de Reseñas',
 };
 
 type AppLink = {
@@ -152,6 +153,26 @@ const NAV_CONFIG: Record<string, NavGroup[]> = {
                 { href: '/app/menu/branding', label: 'Branding', permissionKey: 'manage_menu_branding' },
                 { href: '/app/menu/qr', label: 'QR y enlaces', permissionKey: 'view_menu_admin' },
                 { href: '/app/menu/preview', label: 'Preview público', permissionKey: 'view_menu' },
+            ],
+        },
+        {
+            title: 'Cuenta',
+            items: [
+                { href: '/app/servicios', label: 'Planes y upgrades' },
+                { href: '/app/planes', label: 'Facturación' },
+                { href: '/app/settings', label: 'Configuración' },
+                { href: '/app/settings/access', label: 'Roles & Accesos', permissionKey: 'manage_users' },
+                { href: '/app/soporte', label: 'Soporte', roleKey: 'owner' },
+            ],
+        },
+    ],
+    qr_reviews: [
+        {
+            title: 'QR de Reseñas',
+            items: [
+                { href: '/app/resenas', label: 'Inicio' },
+                { href: '/app/resenas/configuracion', label: 'Configuración', permissionKey: 'manage_menu' },
+                { href: '/app/resenas/qr', label: 'Mi QR', permissionKey: 'manage_menu' },
             ],
         },
         {

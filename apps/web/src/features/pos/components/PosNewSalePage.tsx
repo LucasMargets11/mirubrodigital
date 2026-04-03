@@ -13,7 +13,7 @@
  * │  Izquierda                │  Derecha (sticky)        │
  * │  · ProductSearchPanel     │  · CustomerPanel         │
  * │  · SaleItemsPanel         │  · DiscountPanel         │
- * │                           │  · PaymentPanel          │
+ * │                           │  · SplitPaymentPanel     │
  * │                           │  · SaleSummaryCard       │
  * └───────────────────────────┴─────────────────────────┘
  *
@@ -43,9 +43,8 @@ import { CustomerPanel } from './CustomerPanel';
 import type { CustomerType } from './CustomerPanel';
 import { DiscountPanel } from './DiscountPanel';
 import type { DiscountType } from './DiscountPanel';
-import { PaymentPanel } from './PaymentPanel';
-import type { UiPaymentMethod } from './PaymentPanel';
-import { toApiPaymentMethod } from './PaymentPanel';
+import { SplitPaymentPanel, createPaymentLine, toApiPaymentLineMethod } from './SplitPaymentPanel';
+import type { PaymentLine } from './SplitPaymentPanel';
 import { SaleSummaryCard } from './SaleSummaryCard';
 import { ProductCatalogPanel } from './ProductCatalogPanel';
 
@@ -74,7 +73,7 @@ export function PosNewSalePage() {
 
   // ── Payment state ─────────────────────────────────────────────────────────
 
-  const [paymentMethod, setPaymentMethod] = useState<UiPaymentMethod>('efectivo');
+  const [paymentLines, setPaymentLines] = useState<PaymentLine[]>(() => [createPaymentLine()]);
   const [cashReceived, setCashReceived] = useState('');
 
   // ── UI state ──────────────────────────────────────────────────────────────
@@ -121,12 +120,16 @@ export function PosNewSalePage() {
   const total = useMemo(() => Math.max(0, subtotal - discountAmount), [subtotal, discountAmount]);
 
   const cashReceivedNum = parseFloat(cashReceived);
+  const hasCashLine = paymentLines.some((l) => l.method === 'efectivo');
+  const cashLineTotal = paymentLines
+    .filter((l) => l.method === 'efectivo')
+    .reduce((sum, l) => sum + (parseFloat(l.amount) || 0), 0);
   const cashChange = useMemo(() => {
-    if (paymentMethod !== 'efectivo') return 0;
+    if (!hasCashLine) return 0;
     const received = cashReceivedNum;
     if (isNaN(received)) return 0;
-    return Math.max(0, received - total);
-  }, [paymentMethod, cashReceivedNum, total]);
+    return Math.max(0, received - cashLineTotal);
+  }, [hasCashLine, cashReceivedNum, cashLineTotal]);
 
   // ── Discount validation ───────────────────────────────────────────────────
 
@@ -142,11 +145,16 @@ export function PosNewSalePage() {
   // ── Cash validation ───────────────────────────────────────────────────────
 
   const cashError = useMemo(() => {
-    if (paymentMethod !== 'efectivo') return '';
+    if (!hasCashLine) return '';
     if (!cashReceived || isNaN(cashReceivedNum)) return '';
-    if (cashReceivedNum < total) return 'El monto recibido es menor al total.';
+    if (cashReceivedNum < cashLineTotal) return 'El monto recibido es menor al total en efectivo.';
     return '';
-  }, [paymentMethod, cashReceived, cashReceivedNum, total]);
+  }, [hasCashLine, cashReceived, cashReceivedNum, cashLineTotal]);
+
+  // ── Payment lines validation ──────────────────────────────────────────────
+
+  const totalPaid = paymentLines.reduce((sum, l) => sum + (parseFloat(l.amount) || 0), 0);
+  const paymentsExact = Math.abs(total - totalPaid) < 0.01 && total > 0;
 
   // ── Confirm button disabled state ─────────────────────────────────────────
 
@@ -155,9 +163,14 @@ export function PosNewSalePage() {
     if (total <= 0) return true;
     if (customerType === 'registered' && !customer) return true;
     if (discountEnabled && !!discountError) return true;
-    if (paymentMethod === 'efectivo' && cashReceived && !!cashError) return true;
+    // Payment lines must sum to exactly the total
+    if (!paymentsExact) return true;
+    // All payment lines must have a valid amount > 0
+    if (paymentLines.some((l) => !l.amount || parseFloat(l.amount) <= 0 || isNaN(parseFloat(l.amount)))) return true;
+    // Cash received must be sufficient if cash line exists
+    if (hasCashLine && cashReceived && !!cashError) return true;
     return false;
-  }, [cart, total, customerType, customer, discountEnabled, discountError, paymentMethod, cashReceived, cashError]);
+  }, [cart, total, customerType, customer, discountEnabled, discountError, paymentsExact, paymentLines, hasCashLine, cashReceived, cashError]);
 
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
 
@@ -284,8 +297,12 @@ export function PosNewSalePage() {
       setError(discountError);
       return;
     }
-    if (paymentMethod === 'efectivo' && cashReceived && cashError) {
+    if (hasCashLine && cashReceived && cashError) {
       setError(cashError);
+      return;
+    }
+    if (!paymentsExact) {
+      setError('La suma de pagos no coincide con el total de la venta.');
       return;
     }
 
@@ -297,19 +314,23 @@ export function PosNewSalePage() {
 
     try {
       const result = await createSaleMutation.mutateAsync({
-        payment_method: toApiPaymentMethod(paymentMethod),
         items: cart.map((item) => ({
           product_id: item.product.id,
           quantity: item.quantity,
         })),
+        payments: paymentLines.map((line) => ({
+          method: toApiPaymentLineMethod(line.method),
+          amount: parseFloat(line.amount).toFixed(2),
+          reference: line.reference || undefined,
+        })),
         customer_id: customerType === 'registered' ? (customer?.id ?? null) : null,
         discount: discountAmount > 0 ? discountAmount : undefined,
         notes:
-          paymentMethod === 'mercadopago'
+          paymentLines.some((l) => l.method === 'mercadopago')
             ? 'Mercado Pago'
-            : paymentMethod === 'credito'
+            : paymentLines.some((l) => l.method === 'credito')
               ? 'Tarjeta de crédito'
-              : paymentMethod === 'debito'
+              : paymentLines.some((l) => l.method === 'debito')
                 ? 'Tarjeta de débito'
                 : undefined,
       });
@@ -470,15 +491,13 @@ export function PosNewSalePage() {
           <hr className="border-slate-100" />
 
           {/* Payment method */}
-          <PaymentPanel
-            method={paymentMethod}
-            onMethodChange={setPaymentMethod}
-            cashReceived={cashReceived}
-            onCashReceivedChange={setCashReceived}
-            cashChange={cashChange}
+          <SplitPaymentPanel
+            lines={paymentLines}
+            onLinesChange={setPaymentLines}
             total={total}
             disabled={isPending}
-            cashError={cashReceived ? cashError : undefined}
+            cashReceived={cashReceived}
+            onCashReceivedChange={setCashReceived}
           />
 
           {/* Spacer to push summary to bottom on taller screens */}

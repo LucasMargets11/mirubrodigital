@@ -37,7 +37,8 @@ def _make_user(email: str, password: str = 'pass1234!') -> User:
 
 
 def _make_business(name: str = 'TestBiz', service: str = 'gestion') -> Business:
-    return Business.objects.create(name=name, default_service=service, status='active')
+    slug = name.lower().replace(' ', '-')
+    return Business.objects.create(name=name, slug=slug, default_service=service, status='active')
 
 
 def _make_membership(user, business, role: str = 'owner') -> Membership:
@@ -188,7 +189,7 @@ class SuspendedEmployeeLoginTest(TestCase):
         resp = self.client.post(
             '/api/v1/auth/employee-login/',
             {
-                'business_id':   self.biz.pk,
+                'business_code': self.biz.slug,
                 'employee_code': 'EMP-0010',
                 'pin':           '112233',
             },
@@ -213,7 +214,7 @@ class EmployeeLoginSuccessTest(TestCase):
         resp = self.client.post(
             '/api/v1/auth/employee-login/',
             {
-                'business_id':   self.biz.pk,
+                'business_code': self.biz.slug,
                 'employee_code': 'EMP-0004',
                 'pin':           '777888',
             },
@@ -232,7 +233,7 @@ class EmployeeLoginSuccessTest(TestCase):
         resp = self.client.post(
             '/api/v1/auth/employee-login/',
             {
-                'business_id':   self.biz.pk,
+                'business_code': self.biz.slug,
                 'employee_code': 'EMP-0004',
                 'pin':           '000000',
             },
@@ -287,7 +288,7 @@ class PermissionOverridesTest(TestCase):
         resp = self.client.post(
             '/api/v1/auth/employee-login/',
             {
-                'business_id':   self.biz.pk,
+                'business_code': self.biz.slug,
                 'employee_code': 'EMP-0005',
                 'pin':           '321654',
             },
@@ -347,7 +348,7 @@ class EmployeeTokenClaimsTest(TestCase):
         resp = self.client.post(
             '/api/v1/auth/employee-login/',
             {
-                'business_id':   self.biz.pk,
+                'business_code': self.biz.slug,
                 'employee_code': 'EMP-0007',
                 'pin':           '246810',
             },
@@ -525,7 +526,7 @@ class EmployeeTokenOnOwnerRouteTest(TestCase):
     def _login(self):
         resp = APIClient().post(
             '/api/v1/auth/employee-login/',
-            {'business_id': self.biz.pk, 'employee_code': 'EMP-OWN1', 'pin': '555444'},
+            {'business_code': self.biz.slug, 'employee_code': 'EMP-OWN1', 'pin': '555444'},
             format='json',
         )
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
@@ -610,15 +611,15 @@ class LoginWrongCodeTest(TestCase):
     def test_nonexistent_code_returns_401(self):
         resp = self.client.post(
             '/api/v1/auth/employee-login/',
-            {'business_id': self.biz.pk, 'employee_code': 'DOESNT-EXIST', 'pin': '000000'},
+            {'business_code': self.biz.slug, 'employee_code': 'DOESNT-EXIST', 'pin': '000000'},
             format='json',
         )
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    def test_nonexistent_business_id_returns_401(self):
+    def test_nonexistent_business_code_returns_401(self):
         resp = self.client.post(
             '/api/v1/auth/employee-login/',
-            {'business_id': 999999, 'employee_code': 'EMP-0001', 'pin': '000000'},
+            {'business_code': 'nonexistent-biz', 'employee_code': 'EMP-0001', 'pin': '000000'},
             format='json',
         )
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
@@ -669,7 +670,7 @@ class AuditLogCompletenessTest(TestCase):
         """OPERATOR_SESSION_STARTED is logged after a valid login."""
         APIClient().post(
             '/api/v1/auth/employee-login/',
-            {'business_id': self.biz.pk, 'employee_code': 'EMP-AUD2', 'pin': '123777'},
+            {'business_code': self.biz.slug, 'employee_code': 'EMP-AUD2', 'pin': '123777'},
             format='json',
         )
         self.assertTrue(
@@ -683,7 +684,7 @@ class AuditLogCompletenessTest(TestCase):
         """LOGIN_FAILED is logged when PIN is incorrect for a known employee."""
         APIClient().post(
             '/api/v1/auth/employee-login/',
-            {'business_id': self.biz.pk, 'employee_code': 'EMP-AUD2', 'pin': '000000'},
+            {'business_code': self.biz.slug, 'employee_code': 'EMP-AUD2', 'pin': '000000'},
             format='json',
         )
         self.assertTrue(

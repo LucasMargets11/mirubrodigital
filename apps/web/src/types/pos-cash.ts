@@ -151,14 +151,29 @@ export interface PosSaleItemPayload {
   unit_price?: string;
 }
 
+/** A single payment line in a split-payment sale. */
+export interface PosSalePaymentLine {
+  /** Payment method matching cash.Payment.Method choices */
+  method: 'cash' | 'debit' | 'credit' | 'transfer' | 'wallet' | 'account';
+  /** Decimal string, e.g. "10000.00" */
+  amount: string;
+  /** Optional reference/note for this payment line */
+  reference?: string;
+}
+
 /**
  * Request body for POST /api/v1/pos/sales/
  * Note: cash_session_id is intentionally absent — the server auto-assigns
  * the employee's current open session.
+ *
+ * Supports two modes:
+ * - Legacy: send `payment_method` (single payment, backward compat)
+ * - Split: send `payments` array (multiple payment lines)
  */
 export interface PosSalePayload {
-  payment_method: 'cash' | 'transfer' | 'card' | 'other';
+  payment_method?: 'cash' | 'transfer' | 'card' | 'other';
   items: PosSaleItemPayload[];
+  payments?: PosSalePaymentLine[];
   customer_id?: string | null;
   discount?: number;
   notes?: string;

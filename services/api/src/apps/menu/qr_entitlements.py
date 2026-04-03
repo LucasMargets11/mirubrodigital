@@ -138,6 +138,20 @@ def resolve_menu_qr_flags(subscription) -> MenuQRFlags:
             plan=plan,
         )
 
+    # ── QR de Reseñas standalone ──────────────────────────────────────────
+    # Reviews are always allowed for qr_reviews plans — the product IS reviews.
+    if plan == 'qr_reviews':
+        return MenuQRFlags(
+            reviews_allowed=True,
+            tips_allowed=False,
+            analytics_advanced=False,
+            images_allowed=False,
+            custom_domain_allowed=False,
+            multi_branch_allowed=False,
+            pro_included_module=None,
+            plan=plan,
+        )
+
     # Fallback — sin acceso
     return _empty_flags(plan)
 

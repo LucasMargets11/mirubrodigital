@@ -37,7 +37,6 @@ from apps.accounts.authentication import EmployeeTokenAuthentication, EmployeeSc
 from apps.accounts.models import AccessAuditLog, EmployeeProfile
 from apps.accounts.permissions import HasBusinessMembership, EmployeeIsAuthenticated
 from apps.accounts.employee_serializers import (
-    ChangePinSerializer,
     CreateEmployeeSerializer,
     EmployeeLoginSerializer,
     EmployeeProfileSerializer,
@@ -168,7 +167,7 @@ def employees_list(request: Request) -> Response:
         qs = (
             EmployeeProfile.objects
             .filter(business__id__in=family_ids)
-            .select_related('branch', 'created_by_membership__user')
+            .select_related('business', 'branch', 'created_by_membership__user')
             .order_by('status', 'last_name', 'first_name')
         )
         return Response(EmployeeProfileSerializer(qs, many=True).data)
@@ -226,7 +225,7 @@ def employees_list(request: Request) -> Response:
             role_type=data['role_type'],
             credential_type=data.get('credential_type', EmployeeProfile.CredentialType.PIN),
             login_code_hash=pin_hash,
-            must_change_pin=True,
+            must_change_pin=False,
             status=EmployeeProfile.Status.ACTIVE,
             created_by_membership=membership,
         )
@@ -252,6 +251,9 @@ def employees_list(request: Request) -> Response:
     # Return the PIN once (plain text) so the admin can hand it to the employee.
     response_data['initial_pin'] = raw_pin
     response_data['pin_was_generated'] = temp_pin_generated
+    # Ensure business_code is always included for the credential sheet.
+    if 'business_code' not in response_data or not response_data['business_code']:
+        response_data['business_code'] = hq.slug
 
     return Response(response_data, status=status.HTTP_201_CREATED)
 
@@ -280,7 +282,7 @@ def employee_detail(request: Request, employee_id) -> Response:
 
     try:
         employee = EmployeeProfile.objects.select_related(
-            'branch', 'created_by_membership__user'
+            'business', 'branch', 'created_by_membership__user'
         ).get(pk=employee_id, business__id__in=family_ids)
     except (EmployeeProfile.DoesNotExist, ValueError):
         return Response({'error': 'Empleado no encontrado.'}, status=status.HTTP_404_NOT_FOUND)
@@ -382,7 +384,7 @@ def employee_reset_pin(request: Request, employee_id) -> Response:
 
     with transaction.atomic():
         employee.login_code_hash = make_password(raw_pin)
-        employee.must_change_pin = True
+        employee.must_change_pin = False
         employee.save(update_fields=['login_code_hash', 'must_change_pin', 'updated_at'])
 
         _audit_employee(
@@ -403,7 +405,7 @@ def employee_reset_pin(request: Request, employee_id) -> Response:
         'message': 'PIN reseteado. Entregá este código al empleado; no volverá a mostrarse.',
         'employee_code': employee.employee_code,
         'temporary_pin': raw_pin,
-        'must_change_pin': True,
+        'must_change_pin': False,
         'pin_was_generated': pin_was_generated,
     })
 
@@ -521,18 +523,18 @@ class EmployeeLoginView(APIView):
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        business_id   = serializer.validated_data['business_id']
+        business_code = serializer.validated_data['business_code'].strip().lower()
         employee_code = serializer.validated_data['employee_code'].strip().upper()
         raw_pin       = serializer.validated_data['pin']
 
-        # Resolve the business
+        # Resolve the business by slug
         from apps.business.models import Business as BizModel
         try:
-            business = BizModel.objects.get(pk=business_id)
+            business = BizModel.objects.get(slug=business_code)
         except BizModel.DoesNotExist:
             # Timing mitigation: do a dummy hash check to equalise response time
             check_password(raw_pin, _DUMMY_HASH)
-            return self._auth_failed(request, business_id, employee_code)
+            return self._auth_failed(request, business_code, employee_code)
 
         # Resolve the employee
         try:
@@ -543,13 +545,13 @@ class EmployeeLoginView(APIView):
         except EmployeeProfile.DoesNotExist:
             # Timing mitigation: do a dummy hash check to equalise response time
             check_password(raw_pin, _DUMMY_HASH)
-            return self._auth_failed(request, business_id, employee_code)
+            return self._auth_failed(request, business_code, employee_code)
 
         # Status check
         if employee.status != EmployeeProfile.Status.ACTIVE:
             logger.warning(
                 '[employee_login] Blocked inactive employee=%s status=%s business=%s',
-                employee.pk, employee.status, business_id,
+                employee.pk, employee.status, business.pk,
             )
             return Response(
                 {'error': 'Cuenta de empleado suspendida o inactiva.'},
@@ -558,7 +560,7 @@ class EmployeeLoginView(APIView):
 
         # Credential validation
         if not check_password(raw_pin, employee.login_code_hash):
-            return self._auth_failed(request, business_id, employee_code, employee=employee)
+            return self._auth_failed(request, business_code, employee_code, employee=employee)
 
         # Resolve permissions
         context = build_business_context(business)
@@ -604,11 +606,11 @@ class EmployeeLoginView(APIView):
             'permissions':     permissions,
         })
 
-    def _auth_failed(self, request, business_id, employee_code, employee=None) -> Response:
+    def _auth_failed(self, request, business_code, employee_code, employee=None) -> Response:
         """Log a failed login attempt and return a generic error."""
         logger.warning(
             '[employee_login] FAILED business=%s code=%s ip=%s',
-            business_id, employee_code, _get_client_ip(request),
+            business_code, employee_code, _get_client_ip(request),
         )
         if employee:
             try:
@@ -662,97 +664,24 @@ class EmployeeChangePinView(APIView):
     """
     POST /api/v1/auth/employee-change-pin/
 
-    Allows an authenticated employee to change their own PIN.  This endpoint
-    is intentionally accessible even when must_change_pin=True — it is the
-    only way the employee can clear that flag.
+    DISABLED — Self-service PIN change is no longer available for operative
+    employees.  PINs are managed exclusively by the business owner/admin
+    via the dashboard (reset-pin endpoint).
 
-    Request (X-Employee-Token required):
-        {
-            "current_pin":     "123456",
-            "new_pin":         "789012",
-            "confirm_new_pin": "789012"
-        }
-
-    Response on success:
-        {
-            "success": true,
-            "must_change_pin": false
-        }
-
-    Error codes:
-        400 — validation failure (format, confirmation mismatch, same PIN)
-        401 — bad current PIN  (code: bad_current_pin)
-        401 — not authenticated
+    This endpoint is kept registered to return a clear 403 error instead of
+    a confusing 404 for any client still referencing it.
     """
     authentication_classes = [EmployeeTokenAuthentication]
     permission_classes = [EmployeeIsAuthenticated]
-    # Rate-limited per employee UUID
     throttle_classes = [EmployeeScopedThrottle]
     throttle_scope = 'employee_change_pin'
 
     def post(self, request: Request) -> Response:
-        employee = request.employee
-
-        serializer = ChangePinSerializer(data=request.data)
-        if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-        data = serializer.validated_data
-
-        # Verify current PIN
-        if not check_password(data['current_pin'], employee.login_code_hash):
-            # Audit the failed attempt
-            try:
-                AccessAuditLog.objects.create(
-                    action='ACCESS_DENIED',
-                    actor=None,
-                    target_user=None,
-                    business=employee.business,
-                    details={
-                        'reason':           'bad_current_pin',
-                        'action_attempted': 'employee_change_pin',
-                        'employee_code':    employee.employee_code,
-                    },
-                    ip_address=_get_client_ip(request),
-                    user_agent=_get_user_agent(request),
-                    actor_type=AccessAuditLog.ActorType.EMPLOYEE,
-                    actor_employee=employee,
-                    entity_type='employee_profile',
-                    entity_id=str(employee.pk),
-                )
-            except Exception:
-                logger.exception(
-                    '[employee_change_pin] Audit log failed for employee=%s', employee.pk
-                )
-            return Response(
-                {'error': 'PIN actual incorrecto.', 'code': 'bad_current_pin'},
-                status=status.HTTP_401_UNAUTHORIZED,
-            )
-
-        new_hash = make_password(data['new_pin'])
-
-        with transaction.atomic():
-            employee.login_code_hash = new_hash
-            employee.must_change_pin = False
-            employee.save(update_fields=['login_code_hash', 'must_change_pin', 'updated_at'])
-
-            AccessAuditLog.objects.create(
-                action='PIN_CHANGED',
-                actor=None,
-                target_user=None,
-                business=employee.business,
-                details={'employee_code': employee.employee_code},
-                ip_address=_get_client_ip(request),
-                user_agent=_get_user_agent(request),
-                actor_type=AccessAuditLog.ActorType.EMPLOYEE,
-                actor_employee=employee,
-                entity_type='employee_profile',
-                entity_id=str(employee.pk),
-            )
-
-        logger.info(
-            '[employee_change_pin] PIN_CHANGED employee=%s business=%s',
-            employee.pk, employee.business.pk,
+        return Response(
+            {
+                'error': 'El cambio de PIN por parte del empleado no está habilitado. '
+                         'Contacte al administrador del negocio.',
+                'code': 'pin_change_disabled',
+            },
+            status=status.HTTP_403_FORBIDDEN,
         )
-
-        return Response({'success': True, 'must_change_pin': False})

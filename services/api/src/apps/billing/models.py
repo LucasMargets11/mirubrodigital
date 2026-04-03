@@ -73,6 +73,7 @@ class Module(models.Model):
         ('restaurant', 'Restaurant'),
         ('both', 'Both'),
         ('menu_qr', 'Menu QR'),
+        ('qr_reviews', 'QR de Reseñas'),
     ]
     CATEGORY_CHOICES = [
         ('operation', 'Operation'),
@@ -101,6 +102,7 @@ class Bundle(models.Model):
         ('commercial', 'Commercial'),
         ('restaurant', 'Restaurant'),
         ('menu_qr', 'Menu QR'),
+        ('qr_reviews', 'QR de Reseñas'),
     ]
     PRICING_MODE_CHOICES = [
         ('fixed_price', 'Fixed Price'),
@@ -268,6 +270,7 @@ class SubscriptionV2(models.Model):
         MENU_QR       = 'menu_qr',       'Menú QR'
         MENU_QR_VISUAL = 'menu_qr_visual', 'Menú QR Visual'
         MENU_QR_MARCA  = 'menu_qr_marca',  'Menú QR Marca'
+        QR_REVIEWS    = 'qr_reviews',     'QR de Reseñas'
 
     class Provider(models.TextChoices):
         MERCADOPAGO = 'mercadopago', 'Mercado Pago'

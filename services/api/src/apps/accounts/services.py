@@ -3,8 +3,11 @@ from django.contrib.auth import get_user_model
 from django.core.mail import send_mail
 from django.db import transaction
 from django.core.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied
 from apps.accounts.models import Membership, AccountProfile, AccessAuditLog
 from apps.accounts.rbac import SERVICE_ROLE_PERMISSIONS
+from apps.billing.plans import get_seat_limit
+from apps.billing.runtime import resolve_subscription
 from apps.business.models import Business, Subscription
 
 import logging
@@ -148,31 +151,38 @@ class MembershipService:
     @staticmethod
     def create_membership_safely(user, business, role):
         """
-        Creates a membership ensuring seat limits are respected with row locking.
+        Creates a membership ensuring seat limits are respected.
+        Uses V2-first subscription resolution, consistent with InternalUserService.
         """
         with transaction.atomic():
-            # Resolve HQ and lock specific tables or rows if possible
-            # We lock the HQ business to serialize additions to the family
             hq = business.parent if business.parent else business
-            
-            # Select for update to prevent concurrent reads of seat counts
-            # We lock the HQ subscription since the limit is there
-            try:
-                sub = Subscription.objects.select_for_update().get(business=hq)
-            except Subscription.DoesNotExist:
-                # If no subscription, maybe we don't enforce? Or fail?
-                # Default logic usually implies open or starter. 
-                # Assuming check_seat_limit signal default behavior: if no sub, no limit.
-                sub = None
+            resolved = resolve_subscription(hq)
 
-            if sub and sub.max_seats > 0:
+            if not resolved.access_granted:
+                raise PermissionDenied(
+                    'No tenés una suscripción activa. '
+                    'Activá un plan para poder agregar usuarios.'
+                )
+
+            if resolved.source == 'v2':
+                max_seats = get_seat_limit(resolved.plan)
+            elif resolved.source == 'legacy':
+                max_seats = resolved.legacy_sub.max_seats if resolved.legacy_sub else 0
+            else:
+                max_seats = 0
+
+            if max_seats > 0:
                 family_ids = [hq.id] + list(hq.branches.values_list('id', flat=True))
-                current_count = Membership.objects.filter(business__id__in=family_ids).count()
-                
-                if current_count >= sub.max_seats:
-                    raise ValidationError(f"Límite de usuarios ({sub.max_seats}) alcanzado para la cuenta {hq.name}.")
+                current_count = Membership.objects.filter(
+                    business__id__in=family_ids,
+                ).exclude(
+                    role='owner',
+                ).count()
+                if current_count >= max_seats:
+                    raise ValidationError(
+                        f'Límite de usuarios ({max_seats}) alcanzado para la cuenta {hq.name}.'
+                    )
 
-            # Proceed to create
             return Membership.objects.create(user=user, business=business, role=role)
 
 
@@ -202,6 +212,8 @@ class InternalUserService:
         email: str = '',
         created_by_user=None,
         request=None,
+        account_mode: str = AccountProfile.AccountMode.OWNER_MANAGED,
+        force_password_change: bool = False,
     ) -> dict:
         """
         Create an internal user with a membership in the given business.
@@ -210,6 +222,15 @@ class InternalUserService:
 
         Raises ValidationError on constraint violations.
         """
+        # ── Validate account_mode + force_password_change ─────────────
+        if account_mode not in (AccountProfile.AccountMode.OWNER_MANAGED, AccountProfile.AccountMode.PERSONAL):
+            raise ValidationError(f'Modo de cuenta inválido: "{account_mode}".')
+
+        if account_mode == AccountProfile.AccountMode.OWNER_MANAGED and force_password_change:
+            raise ValidationError(
+                'No se puede forzar cambio de contraseña en cuentas gestionadas por el dueño.'
+            )
+
         # ── Validate role ──────────────────────────────────────────────
         if role in cls.DISALLOWED_ROLES:
             raise ValidationError(
@@ -241,21 +262,33 @@ class InternalUserService:
 
         # ── Transactional creation ─────────────────────────────────────
         with transaction.atomic():
-            # Seat limit check (lock HQ subscription row)
+            # ── V2-first seat limit check ──────────────────────────────
             hq = business.parent if business.parent else business
-            try:
-                sub = Subscription.objects.select_for_update().get(business=hq)
-            except Subscription.DoesNotExist:
-                sub = None
+            resolved = resolve_subscription(hq)
 
-            if sub and sub.max_seats > 0:
+            if not resolved.access_granted:
+                raise PermissionDenied(
+                    'No tenés una suscripción activa. '
+                    'Activá un plan para poder agregar usuarios.'
+                )
+
+            if resolved.source == 'v2':
+                max_seats = get_seat_limit(resolved.plan)
+            elif resolved.source == 'legacy':
+                max_seats = resolved.legacy_sub.max_seats if resolved.legacy_sub else 0
+            else:
+                max_seats = 0
+
+            if max_seats > 0:
                 family_ids = [hq.id] + list(hq.branches.values_list('id', flat=True))
                 current_count = Membership.objects.filter(
                     business__id__in=family_ids,
+                ).exclude(
+                    role='owner',
                 ).count()
-                if current_count >= sub.max_seats:
+                if current_count >= max_seats:
                     raise ValidationError(
-                        f'Límite de usuarios ({sub.max_seats}) alcanzado para "{hq.name}". '
+                        f'Límite de usuarios ({max_seats}) alcanzado para "{hq.name}". '
                         f'Mejora tu plan para agregar más usuarios.'
                     )
 
@@ -273,6 +306,8 @@ class InternalUserService:
             AccountProfile.objects.filter(user=user).update(
                 account_status=AccountProfile.AccountStatus.ACTIVE,
                 email_verified=True,
+                account_mode=account_mode,
+                must_change_password=force_password_change,
             )
 
             # Create Membership
@@ -304,6 +339,8 @@ class InternalUserService:
                     'username': username,
                     'role': role,
                     'email': email or None,
+                    'account_mode': account_mode,
+                    'force_password_change': force_password_change,
                     'created_by': created_by_user.pk if created_by_user else None,
                 },
                 after_json={

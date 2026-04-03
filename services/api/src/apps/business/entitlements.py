@@ -108,6 +108,13 @@ _PLAN_ALIAS = {
 PLAN_ENTITLEMENTS['start'] = PLAN_ENTITLEMENTS['starter']
 PLAN_ENTITLEMENTS['plus'] = PLAN_ENTITLEMENTS['business']
 
+# QR de Reseñas
+PLAN_ENTITLEMENTS['qr_reviews'] = {
+    'qr_reviews.config',
+    'qr_reviews.qr',
+    'qr_reviews.dashboard',
+}
+
 
 # Entitlements agregados por add-ons
 ADDON_ENTITLEMENTS = {

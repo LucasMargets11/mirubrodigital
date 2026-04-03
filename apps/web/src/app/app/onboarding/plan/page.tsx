@@ -52,6 +52,7 @@ export default async function OnboardingPlanPage() {
         gestion: 'commercial',
         restaurante: 'restaurant',
         menu_qr: 'menu_qr',
+        qr_reviews: 'qr_reviews',
     };
     const vertical = verticalMap[serviceType] ?? 'commercial';
 
@@ -69,6 +70,7 @@ export default async function OnboardingPlanPage() {
         gestion: 'Gestión Comercial',
         restaurante: 'Restaurante',
         menu_qr: 'Menú QR',
+        qr_reviews: 'QR de Reseñas',
     };
 
     return (

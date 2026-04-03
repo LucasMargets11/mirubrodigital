@@ -15,6 +15,7 @@ SERVICE_IMPLIES: Dict[str, FrozenSet[str]] = {
     'restaurante': frozenset({'restaurante', 'menu_qr'}),
     'menu_qr_visual': frozenset({'menu_qr', 'menu_qr_visual'}),
     'menu_qr_marca': frozenset({'menu_qr', 'menu_qr_visual', 'menu_qr_marca'}),
+    # qr_reviews intentionally NOT implied by menu_qr — separate products
 }
 
 

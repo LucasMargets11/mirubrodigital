@@ -5,8 +5,6 @@
  *
  * - Wraps all /pos/* routes with EmployeeSessionProvider.
  * - Guards access: if no session → /pos/login
- * - Guards pin change: if must_change_pin → /pos/change-pin (except when
- *   already there).
  *
  * This layout is a pure client component because it reads sessionStorage
  * and must react to session state changes.
@@ -31,15 +29,6 @@ function PosGuard({ children }: { children: React.ReactNode }) {
       }
       return;
     }
-
-    if (
-      session.status === 'authenticated' &&
-      session.mustChangePin &&
-      pathname !== '/pos/change-pin'
-    ) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      router.replace('/pos/change-pin' as any);
-    }
   }, [session, pathname, router]);
 
   // Show nothing while redirecting
@@ -55,15 +44,6 @@ function PosGuard({ children }: { children: React.ReactNode }) {
   if (
     (session.status === 'unauthenticated' || session.status === 'error') &&
     pathname !== '/pos/login'
-  ) {
-    return null;
-  }
-
-  // On /pos/change-pin block normal routes but allow the change-pin page itself
-  if (
-    session.status === 'authenticated' &&
-    session.mustChangePin &&
-    pathname !== '/pos/change-pin'
   ) {
     return null;
   }

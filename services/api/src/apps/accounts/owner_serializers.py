@@ -44,6 +44,7 @@ class UserAccountSerializer(serializers.Serializer):
     is_active = serializers.BooleanField()
     has_usable_password = serializers.BooleanField()
     membership_status = serializers.CharField(required=False, default='active')
+    account_mode = serializers.CharField(required=False, default='owner_managed')
     date_joined = serializers.DateTimeField()
     last_login = serializers.DateTimeField(allow_null=True)
 
@@ -219,6 +220,17 @@ class CreateMemberSerializer(serializers.Serializer):
     password = serializers.CharField(min_length=8, max_length=128, trim_whitespace=False, write_only=True)
     role = serializers.CharField(max_length=24)
     email = serializers.EmailField(required=False, allow_blank=True, default='')
+    account_mode = serializers.ChoiceField(
+        choices=['owner_managed', 'personal'],
+        default='owner_managed',
+        required=False,
+        help_text='Modo de la cuenta: owner_managed (gestionada por el dueño) o personal',
+    )
+    force_password_change = serializers.BooleanField(
+        default=False,
+        required=False,
+        help_text='Si es True, el usuario deberá cambiar su contraseña en el próximo inicio de sesión',
+    )
 
 
 class CreateMemberResponseSerializer(serializers.Serializer):

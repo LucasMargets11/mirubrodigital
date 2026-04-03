@@ -132,7 +132,7 @@ class Payment(models.Model):
   id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
   business = models.ForeignKey('business.Business', related_name='payments', on_delete=models.CASCADE)
   sale = models.ForeignKey('sales.Sale', related_name='payments', on_delete=models.PROTECT)
-  session = models.ForeignKey('cash.CashSession', related_name='payments', on_delete=models.PROTECT)
+  session = models.ForeignKey('cash.CashSession', related_name='payments', null=True, blank=True, on_delete=models.PROTECT)
   method = models.CharField(max_length=16, choices=Method.choices)
   amount = models.DecimalField(max_digits=12, decimal_places=2)
   reference = models.CharField(max_length=128, blank=True)

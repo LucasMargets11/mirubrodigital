@@ -11,6 +11,8 @@ from .views import (
     ResendVerificationView,
     ForgotPasswordView,
     ResetPasswordView,
+    ChangePasswordView,
+    ForceChangePasswordView,
 )
 from .onboarding_views import (
     OnboardingStatusView,
@@ -31,6 +33,9 @@ urlpatterns = [
     # Self-service password recovery
     path('forgot-password/', ForgotPasswordView.as_view(), name='auth-forgot-password'),
     path('reset-password/', ResetPasswordView.as_view(), name='auth-reset-password'),
+    # Authenticated password change (personal accounts)
+    path('change-password/', ChangePasswordView.as_view(), name='auth-change-password'),
+    path('force-change-password/', ForceChangePasswordView.as_view(), name='auth-force-change-password'),
     # Wave 3: Authenticated onboarding funnel
     # Gated by rollout.NEW_ONBOARDING on the frontend; backend always accepts
     # requests so unauthenticated-path users aren't broken if flag is off.

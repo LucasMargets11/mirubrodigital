@@ -2,6 +2,7 @@ const SERVICE_ENTRY_ROUTES: Record<string, string> = {
     gestion: '/app/gestion/dashboard',
     restaurante: '/app/orders',
     menu_qr: '/app/menu',
+    qr_reviews: '/app/resenas',
 };
 
 export function getServiceEntryPath(slug: string): string | undefined {

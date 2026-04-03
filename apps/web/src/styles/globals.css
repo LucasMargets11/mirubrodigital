@@ -3,6 +3,11 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Prevent space-y-* from adding margin-top to fixed fullscreen overlays (modals) */
+.fixed.inset-0 {
+  margin: 0;
+}
+
 :root {
   color-scheme: light;
   background-color: #ffffff;

@@ -4,6 +4,7 @@
 import { apiGet, apiPost, apiPut, apiPatch, apiDelete } from '@/lib/api/client';
 import type {
     AccessSummary,
+    AccountsListResponse,
     AuditLog,
     BulkPermissionUpdate,
     ChangeRoleResponse,
@@ -40,10 +41,10 @@ export const ownerAccessApi = {
     getRoleDetail: (role: string) => apiGet<RoleDetail>(`${BASE}/roles/${role}/`),
 
     /**
-     * Get list of all user accounts in the business
+     * Get list of all user accounts in the business with seat info
      * Owner-only
      */
-    getAccounts: () => apiGet<UserAccount[]>(`${BASE}/accounts/`),
+    getAccounts: () => apiGet<AccountsListResponse>(`${BASE}/accounts/?include_seat_info=1`),
 
     /**
      * Reset a user's password and get temporary password (shown only once)

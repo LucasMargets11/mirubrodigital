@@ -28,6 +28,11 @@ const SERVICE_OPTIONS: ServiceOption[] = [
         label: 'Menú QR',
         description: 'Carta digital con código QR para que tus clientes vean tu menú.',
     },
+    {
+        code: 'qr_reviews',
+        label: 'QR de Reseñas',
+        description: 'Un QR para que tus clientes dejen reseñas en Google fácilmente.',
+    },
 ];
 
 /**

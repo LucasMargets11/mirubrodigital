@@ -51,6 +51,7 @@ class EmployeeProfileSerializer(serializers.ModelSerializer):
     )
     branch_name = serializers.SerializerMethodField()
     created_by_name = serializers.SerializerMethodField()
+    business_code = serializers.SerializerMethodField()
 
     class Meta:
         model = EmployeeProfile
@@ -69,6 +70,7 @@ class EmployeeProfileSerializer(serializers.ModelSerializer):
             'status_display',
             'branch',
             'branch_name',
+            'business_code',
             'created_by_name',
             'created_at',
             'updated_at',
@@ -77,6 +79,9 @@ class EmployeeProfileSerializer(serializers.ModelSerializer):
 
     def get_branch_name(self, obj: EmployeeProfile) -> str | None:
         return obj.branch.name if obj.branch else None
+
+    def get_business_code(self, obj: EmployeeProfile) -> str | None:
+        return obj.business.slug if obj.business else None
 
     def get_created_by_name(self, obj: EmployeeProfile) -> str | None:
         if obj.created_by_membership:
@@ -141,7 +146,7 @@ class ResetPinSerializer(serializers.Serializer):
 
 class EmployeeLoginSerializer(serializers.Serializer):
     """Validates credentials for operative login."""
-    business_id   = serializers.IntegerField()
+    business_code = serializers.CharField(max_length=80)
     employee_code = serializers.CharField()
     pin           = serializers.CharField(trim_whitespace=False)
 

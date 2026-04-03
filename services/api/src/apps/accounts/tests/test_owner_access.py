@@ -163,6 +163,9 @@ class OwnerAccessEndpointsTestCase(TestCase):
         """Test that owner cannot reset password for user in different business."""
         # Create another business
         other_business = Business.objects.create(name="Other Business")
+        Subscription.objects.create(
+            business=other_business, plan='starter', status='active', max_seats=5,
+        )
         other_user = User.objects.create_user(
             username="other@test.com",
             email="other@test.com",

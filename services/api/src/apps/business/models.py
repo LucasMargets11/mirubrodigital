@@ -1,6 +1,7 @@
 from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+from django.utils.text import slugify
 
 
 class Business(models.Model):
@@ -11,6 +12,7 @@ class Business(models.Model):
     ('menu_qr', 'Menú QR Online'),
     ('menu_qr_visual', 'Menú QR Visual'),
     ('menu_qr_marca', 'Menú QR Marca'),
+    ('qr_reviews', 'QR de Reseñas'),
   ]
 
   # ── Phase 2A: canonical service enum ─────────────────────────────────────
@@ -21,6 +23,7 @@ class Business(models.Model):
     MENU_QR      = 'menu_qr',       'Menú QR'
     MENU_QR_VISUAL = 'menu_qr_visual', 'Menú QR Visual'
     MENU_QR_MARCA  = 'menu_qr_marca',  'Menú QR Marca'
+    QR_REVIEWS   = 'qr_reviews',    'QR de Reseñas'
 
   # ── Status choices (Phase 2A extends legacy 3-value set) ─────────────────
   STATUS_CHOICES = [
@@ -77,6 +80,19 @@ class Business(models.Model):
       ),
     ]
 
+  def save(self, *args, **kwargs):
+    if not self.slug:
+      base = slugify(self.name) or f'negocio-{self.pk or "new"}'
+      base = base[:80]
+      slug = base
+      counter = 1
+      while Business.objects.filter(slug=slug).exclude(pk=self.pk).exists():
+        suffix = f'-{counter}'
+        slug = f'{base[:80 - len(suffix)]}{suffix}'
+        counter += 1
+      self.slug = slug
+    super().save(*args, **kwargs)
+
   def __str__(self) -> str:
     return self.name
 
@@ -105,6 +121,9 @@ class BusinessPlan(models.TextChoices):
   MENU_QR_LITE = 'menu_qr_lite', 'Menú QR Lite'
   MENU_QR_PRO = 'menu_qr_pro', 'Menú QR Pro'
   MENU_QR_PREMIUM = 'menu_qr_premium', 'Menú QR Premium'
+
+  # QR de Reseñas
+  QR_REVIEWS = 'qr_reviews', 'QR de Reseñas'
 
   # Legacy plans (mantener para compatibilidad)
   START = 'start', 'Start (Legacy)'

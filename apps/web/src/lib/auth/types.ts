@@ -45,6 +45,10 @@ export type Session = {
     name: string;
     /** Whether the user has verified their email address. */
     email_verified: boolean;
+    /** Account mode: 'owner_managed' or 'personal'. */
+    account_mode: 'owner_managed' | 'personal';
+    /** Whether the user must change their password before accessing the app. */
+    must_change_password: boolean;
   };
   memberships: MembershipSummary[];
   current: {

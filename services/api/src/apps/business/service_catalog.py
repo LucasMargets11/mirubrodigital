@@ -35,6 +35,13 @@ SERVICE_CATALOG: Iterable[ServiceDefinition] = (
     features=['menu_builder', 'menu_branding', 'public_menu', 'menu_qr_tools'],
     min_plan=BusinessPlan.MENU_QR,
   ),
+  ServiceDefinition(
+    slug='qr_reviews',
+    name='QR de Reseñas',
+    description='QR para reseñas de Google: configurá tu negocio y compartí el código.',
+    features=['qr_reviews_core'],
+    min_plan=BusinessPlan.QR_REVIEWS,
+  ),
 )
 
 
@@ -55,6 +62,8 @@ PLAN_ORDER = {
   BusinessPlan.MENU_QR: 0,
   BusinessPlan.MENU_QR_VISUAL: 1,
   BusinessPlan.MENU_QR_MARCA: 2,
+  # QR de Reseñas
+  BusinessPlan.QR_REVIEWS: 0,
 }
 
 

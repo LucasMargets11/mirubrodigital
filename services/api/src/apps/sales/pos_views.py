@@ -101,20 +101,27 @@ class PosSaleCreateView(APIView):
 
     Required capability: can_create_sale
 
-    Request (JSON)
-    --------------
+    Request (JSON) — Single payment (legacy)
+    -----------------------------------------
     {
         "payment_method": "cash" | "transfer" | "card" | "other",
-        "items": [
-            {
-                "product_id": "<uuid>",
-                "quantity": 1,
-                "unit_price": 100.00   // optional — defaults to product price
-            }
+        "items": [{ "product_id": "<uuid>", "quantity": 1 }],
+        "customer_id": "<uuid> | null",
+        "discount": 0.00,
+        "notes": ""
+    }
+
+    Request (JSON) — Split payment (new)
+    -------------------------------------
+    {
+        "items": [{ "product_id": "<uuid>", "quantity": 1 }],
+        "payments": [
+            { "method": "cash", "amount": "10000.00", "reference": "" },
+            { "method": "transfer", "amount": "20000.00", "reference": "Op 123" }
         ],
-        "customer_id": "<uuid> | null",  // optional
-        "discount": 0.00,                // optional
-        "notes": ""                      // optional
+        "customer_id": "<uuid> | null",
+        "discount": 0.00,
+        "notes": ""
     }
 
     Note: `cash_session_id` is NOT a request field.  The view automatically
@@ -127,7 +134,7 @@ class PosSaleCreateView(APIView):
     Errors
     ------
     403 → capability missing / must_change_pin
-    400 → validation errors (items, stock, customer, cash session required)
+    400 → validation errors (items, stock, customer, cash session required, payments sum mismatch)
     """
 
     authentication_classes = [EmployeeTokenAuthentication]

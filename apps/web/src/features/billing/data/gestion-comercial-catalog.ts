@@ -214,6 +214,13 @@ export const FEATURE_CATALOG: FeatureEntry[] = [
     category: 'Facturación',
     availability: { start: 'addon', pro: 'included', business: 'included', enterprise: 'custom' },
   },
+  {
+    key: 'gestion.tax_backup',
+    title: 'Respaldo Impositivo',
+    description: 'Generación y almacenamiento de respaldos impositivos para cumplimiento fiscal.',
+    category: 'Facturación',
+    availability: { start: 'not_included', pro: 'not_included', business: 'included', enterprise: 'custom' },
+  },
 
   // ── Caja ─────────────────────────────────────────────────────────────────
   {
@@ -413,6 +420,7 @@ export const GC_PLAN_KEY_FEATURES: Record<GcPlanEntry['plan'], string[]> = {
   business: [
     'Todo lo incluido en Pro',
     'Facturación electrónica incluida',
+    'Respaldo Impositivo',
     'Gestión multi-sucursal',
     'Transferencias entre sucursales',
     'Reportes consolidados',

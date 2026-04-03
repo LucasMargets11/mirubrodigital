@@ -34,6 +34,8 @@ export interface EmployeeProfile {
   /** Returned only on create — never stored server-side after creation. */
   initial_pin?: string;
   pin_was_generated?: boolean;
+  /** Business slug — used for POS login. */
+  business_code?: string;
 }
 
 export interface CreateEmployeePayload {
@@ -191,7 +193,7 @@ export interface PosApiErrorPayload {
 
 /** Request body for POST /api/v1/auth/employee-login/ */
 export interface EmployeeLoginRequest {
-  business_id: number;
+  business_code: string;
   employee_code: string;
   pin: string;
 }

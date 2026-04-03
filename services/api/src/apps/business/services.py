@@ -241,6 +241,31 @@ class BusinessDocumentConfig:
             }
 
 
+def resolve_document_logo_path(image_field) -> str | None:
+    """
+    Resuelve el path absoluto del logo de branding para renderizar en PDFs.
+
+    Maneja de forma segura:
+    - Campo vacío / None
+    - Logo SVG (no soportado por ReportLab)
+    - Archivo inaccesible
+
+    Returns:
+        Path absoluto del archivo de imagen, o None si no se puede usar.
+    """
+    if not image_field:
+        return None
+    try:
+        name = getattr(image_field, 'name', '') or ''
+        if not name:
+            return None
+        if name.lower().endswith('.svg'):
+            return None
+        return image_field.path
+    except Exception:
+        return None
+
+
 def get_business_document_config(business: Business) -> BusinessDocumentConfig:
     """
     Obtener config de documento para un negocio.

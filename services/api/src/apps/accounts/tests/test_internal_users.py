@@ -224,7 +224,7 @@ class InternalUserCreationTests(TestCase):
 
     def test_seat_limit_exceeded_fails(self):
         """Cannot create user when seat limit is reached."""
-        self.subscription.max_seats = 2  # owner + admin already exist
+        self.subscription.max_seats = 1  # admin already uses 1 seat (owner excluded)
         self.subscription.save()
 
         self.client.force_authenticate(user=self.owner)

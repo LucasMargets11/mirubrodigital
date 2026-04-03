@@ -7,12 +7,11 @@
  *
  * Operative endpoints:
  *   POST /api/v1/auth/employee-login/          — public (no token)
- *   POST /api/v1/auth/employee-change-pin/     — X-Employee-Token required
  *   GET  /api/v1/pos/me/                       — X-Employee-Token required
- *   GET  /api/v1/pos/capabilities/             — X-Employee-Token required, pin-change blocked
+ *   GET  /api/v1/pos/capabilities/             — X-Employee-Token required
  *   GET  /api/v1/pos/health/                   — X-Employee-Token required
  *
- * Cash POS endpoints (all require X-Employee-Token, pin-change blocked):
+ * Cash POS endpoints (all require X-Employee-Token):
  *   POST /api/v1/pos/cash/open/
  *   GET  /api/v1/pos/cash/current/
  *   POST /api/v1/pos/cash/current/close/
@@ -20,8 +19,6 @@
  */
 import { ApiError } from '@/lib/api/client';
 import type {
-  ChangePinRequest,
-  ChangePinResponse,
   EmployeeCapabilities,
   EmployeeLoginRequest,
   EmployeeLoginResponse,
@@ -129,29 +126,6 @@ export function posGetHealth(token: string): Promise<PosHealthResponse> {
   });
 }
 
-/**
- * POST /api/v1/auth/employee-change-pin/
- * Allows the authenticated employee to change their own PIN.
- * Accessible even when must_change_pin=true (it is the resolution path).
- *
- * Throws ApiError with:
- *   status=400 — validation failures
- *   status=401, payload.code='bad_current_pin' — wrong current PIN
- */
-export function posChangePin(
-  token: string,
-  payload: ChangePinRequest,
-): Promise<ChangePinResponse> {
-  return posFetch<ChangePinResponse>(
-    '/api/v1/auth/employee-change-pin/',
-    token,
-    {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    },
-  );
-}
-
 // ── Error helpers ─────────────────────────────────────────────────────────────
 
 /**
@@ -170,15 +144,6 @@ export function isPinChangeRequired(err: unknown): boolean {
   if (!(err instanceof ApiError)) return false;
   const payload = err.payload as PosApiErrorPayload | undefined;
   return err.status === 403 && payload?.code === 'pin_change_required';
-}
-
-/**
- * Returns true if the error means the supplied current PIN was wrong.
- */
-export function isBadCurrentPin(err: unknown): boolean {
-  if (!(err instanceof ApiError)) return false;
-  const payload = err.payload as PosApiErrorPayload | undefined;
-  return err.status === 401 && payload?.code === 'bad_current_pin';
 }
 
 // ── Cash POS endpoints ────────────────────────────────────────────────────────

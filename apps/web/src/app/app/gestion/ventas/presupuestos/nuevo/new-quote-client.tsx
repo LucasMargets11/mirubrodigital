@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import { useState, useMemo, useRef, useEffect } from 'react';
 
 import { SaleCustomerPicker } from '../../sale-customer-picker';
-import { useCreateQuote, useProducts, useBusinessBillingProfileQuery, useDocumentSeriesQuery } from '@/features/gestion/hooks';
+import { ProductSearchList } from '@/components/app/product-search-list';
+import { useCreateQuote, useBusinessBillingProfileQuery, useDocumentSeriesQuery } from '@/features/gestion/hooks';
 import type { Product, QuotePayload } from '@/features/gestion/types';
 import type { CustomerSummary } from '@/features/customers/types';
 import { ApiError } from '@/lib/api/client';
@@ -21,7 +22,6 @@ type CartItem = {
 
 export function NewQuoteClient() {
     const router = useRouter();
-    const [search, setSearch] = useState('');
     const [cart, setCart] = useState<CartItem[]>([]);
     const [selectedCustomer, setSelectedCustomer] = useState<CustomerSummary | null>(null);
     const [customerName, setCustomerName] = useState('');
@@ -33,14 +33,10 @@ export function NewQuoteClient() {
     const [selectedSeriesId, setSelectedSeriesId] = useState('');
     const [feedback, setFeedback] = useState('');
     const searchInputRef = useRef<HTMLInputElement>(null);
-    const [highlightedId, setHighlightedId] = useState<number | null>(null);
+    const [highlightedId, setHighlightedId] = useState<string | null>(null);
 
     const billingProfileQuery = useBusinessBillingProfileQuery();
     const documentSeriesQuery = useDocumentSeriesQuery();
-    const trimmedSearch = search.trim();
-    const shouldSearch = trimmedSearch.length >= 2;
-    const productsQuery = useProducts(trimmedSearch, false, undefined, { enabled: shouldSearch });
-    const products = shouldSearch ? (productsQuery.data ?? []).slice(0, 20) : [];
 
     const createQuote = useCreateQuote();
 
@@ -69,6 +65,11 @@ export function NewQuoteClient() {
     }, [cart]);
 
     const total = subtotal - discountTotal;
+
+    const selectedProductIds = useMemo(
+        () => cart.filter((item) => item.product !== null).map((item) => item.product!.id),
+        [cart]
+    );
 
     const addToCart = (product: Product) => {
         setCart((prev) => {
@@ -296,74 +297,18 @@ export function NewQuoteClient() {
             <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
                 <h3 className="mb-3 text-lg font-semibold text-slate-900">Productos / Servicios</h3>
                 
-                <div className="mb-4 space-y-2">
-                    <div className="relative">
-                        <input
-                            ref={searchInputRef}
-                            type="search"
-                            value={search}
-                            onChange={(e) => setSearch(e.target.value)}
-                            placeholder="Buscar productos por nombre, SKU o código de barras…"
-                            autoComplete="off"
-                            aria-label="Buscar productos"
-                            aria-autocomplete="list"
-                            aria-expanded={shouldSearch && products.length > 0}
-                            className="w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm focus:border-slate-900 focus:outline-none"
-                        />
-                        {search.length > 0 && (
-                            <button
-                                type="button"
-                                onMouseDown={(e) => e.preventDefault()}
-                                onClick={() => { setSearch(''); searchInputRef.current?.focus(); }}
-                                aria-label="Limpiar búsqueda"
-                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
-                            >
-                                ✕
-                            </button>
-                        )}
-                    </div>
-                    {shouldSearch && productsQuery.isLoading && (
-                        <p className="text-sm text-slate-500">Buscando…</p>
-                    )}
-                    {shouldSearch && !productsQuery.isLoading && products.length === 0 && (
-                        <p className="text-sm text-slate-400">Sin resultados para &ldquo;{search}&rdquo;</p>
-                    )}
-                    {shouldSearch && !productsQuery.isLoading && products.length > 0 && (
-                        <div
-                            role="listbox"
-                            aria-label="Resultados de productos"
-                            className="max-h-60 overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-sm"
-                        >
-                            {products.map((product) => (
-                                <button
-                                    key={product.id}
-                                    type="button"
-                                    role="option"
-                                    aria-selected={cart.some((i) => i.product?.id === product.id)}
-                                    onMouseDown={(e) => e.preventDefault()}
-                                    onClick={() => addToCart(product)}
-                                    className="flex w-full items-center justify-between gap-2 px-4 py-2.5 text-left transition-colors hover:bg-slate-50 focus-visible:bg-slate-50 focus-visible:outline-none"
-                                >
-                                    <div className="min-w-0 flex-1">
-                                        <p className="truncate text-sm font-medium text-slate-900">{product.name}</p>
-                                        <p className="text-xs text-slate-400">
-                                            {product.sku || product.barcode || 'Sin código'}
-                                        </p>
-                                    </div>
-                                    <div className="flex shrink-0 items-center gap-2">
-                                        {cart.some((i) => i.product?.id === product.id) && (
-                                            <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">
-                                                ✓ en lista
-                                            </span>
-                                        )}
-                                        <span className="text-sm font-semibold text-slate-900">
-                                            {formatCurrencySmart(Number(product.price))}
-                                        </span>
-                                    </div>
-                                </button>
-                            ))}
-                        </div>
-                    )}
+                <div className="mb-4">
+                    <ProductSearchList
+                        onSelect={addToCart}
+                        showStockFilter={false}
+                        showStockInfo={false}
+                        minSearchLength={2}
+                        searchLabel="Buscar productos"
+                        searchPlaceholder="Buscar productos por nombre, SKU o código de barras…"
+                        selectedProductIds={selectedProductIds}
+                        inputRef={searchInputRef}
+                        idPrefix="quote-product-search"
+                    />
                 </div>
 
             </div>

@@ -89,7 +89,7 @@ export function ResetPinModalEmployee({
             <div className="space-y-3">
               <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
                 <p className="text-sm font-medium text-amber-800">
-                  PIN temporal generado — mostralo solo una vez:
+                  Nuevo PIN generado — mostralo solo una vez:
                 </p>
                 <div className="mt-3 flex items-center gap-3">
                   <span className="flex-1 rounded border border-amber-200 bg-white px-3 py-2 text-center font-mono text-2xl font-bold tracking-widest text-slate-900 select-all">
@@ -103,7 +103,7 @@ export function ResetPinModalEmployee({
                   </button>
                 </div>
                 <p className="mt-2 text-xs text-amber-700">
-                  El empleado deberá cambiarlo en su próximo inicio de sesión.
+                  Este PIN no volverá a mostrarse. Solo vos podés cambiarlo desde acá.
                 </p>
               </div>
               <button

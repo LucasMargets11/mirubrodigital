@@ -113,6 +113,26 @@ export function EmployeeFormModal({
               </p>
             </div>
 
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <p className="mb-2 text-sm font-semibold text-slate-800">
+                Datos de acceso al POS
+              </p>
+              <div className="space-y-1.5 text-sm text-slate-700">
+                <p>
+                  <span className="font-medium">Código de negocio:</span>{' '}
+                  {createdEmployee.business_code ? (
+                    <span className="font-mono">{createdEmployee.business_code}</span>
+                  ) : (
+                    <span className="italic text-amber-600">No disponible — contactá soporte</span>
+                  )}
+                </p>
+                <p>
+                  <span className="font-medium">Código de empleado:</span>{' '}
+                  <span className="font-mono">{createdEmployee.employee_code}</span>
+                </p>
+              </div>
+            </div>
+
             {createdEmployee.initial_pin && (
               <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
                 <p className="text-sm font-medium text-amber-800">
@@ -130,10 +150,14 @@ export function EmployeeFormModal({
                   </button>
                 </div>
                 <p className="mt-2 text-xs text-amber-700">
-                  El empleado deberá cambiarlo en su próximo inicio de sesión.
+                  Este PIN no volverá a mostrarse. Solo vos podés cambiarlo desde acá.
                 </p>
               </div>
             )}
+
+            <p className="text-xs text-slate-500">
+              El empleado debe usar estos datos para iniciar sesión en el POS.
+            </p>
 
             <button
               onClick={handleDone}

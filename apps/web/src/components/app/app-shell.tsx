@@ -22,6 +22,14 @@ const MENU_QR_ALLOWED_PATHS = [
     '/app/settings',
 ];
 
+const QR_REVIEWS_ALLOWED_PATHS = [
+    '/app',
+    '/app/resenas',
+    '/app/servicios',
+    '/app/planes',
+    '/app/settings',
+];
+
 function pathMatches(pathname: string, allowed: string): boolean {
     if (pathname === allowed) {
         return true;
@@ -39,10 +47,13 @@ function AppShellContent({ session, children }: { session: Session; children: Re
     const { isOpen, close } = useMobileMenu();
 
     const isRestricted = useMemo(() => {
-        if (service !== 'menu_qr') {
-            return false;
+        if (service === 'menu_qr') {
+            return !isMenuQrPathAllowed(pathname);
         }
-        return !isMenuQrPathAllowed(pathname);
+        if (service === 'qr_reviews') {
+            return !QR_REVIEWS_ALLOWED_PATHS.some((allowed) => pathMatches(pathname, allowed));
+        }
+        return false;
     }, [pathname, service]);
 
     return (

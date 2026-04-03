@@ -134,6 +134,18 @@ class SaleDetailSerializer(SaleListSerializer):
     fields = SaleListSerializer.Meta.fields + ['items', 'payments']
 
 
+class SalePaymentLineInputSerializer(serializers.Serializer):
+  """Validates a single payment line in a split-payment sale."""
+  method = serializers.ChoiceField(choices=Payment.Method.choices)
+  amount = serializers.DecimalField(max_digits=12, decimal_places=2)
+  reference = serializers.CharField(required=False, allow_blank=True, max_length=128, default='')
+
+  def validate_amount(self, value: Decimal) -> Decimal:
+    if value <= 0:
+      raise serializers.ValidationError('El monto del pago debe ser mayor a cero.')
+    return value
+
+
 class SaleCreateItemSerializer(serializers.Serializer):
   product_id = serializers.UUIDField()
   quantity = serializers.DecimalField(max_digits=12, decimal_places=2)
@@ -162,11 +174,12 @@ class SaleCreateSerializer(serializers.Serializer):
       self.context['commercial_settings'] = self._commercial_settings
 
   customer_id = serializers.UUIDField(required=False, allow_null=True)
-  payment_method = serializers.ChoiceField(choices=Sale.PaymentMethod.choices, default=Sale.PaymentMethod.CASH)
+  payment_method = serializers.ChoiceField(choices=Sale.PaymentMethod.choices, default=Sale.PaymentMethod.CASH, required=False)
   discount = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, default=Decimal('0'))
   notes = serializers.CharField(required=False, allow_blank=True)
   items = SaleCreateItemSerializer(many=True)
   cash_session_id = serializers.UUIDField(required=False, allow_null=True)
+  payments = SalePaymentLineInputSerializer(many=True, required=False)
 
   def _get_settings(self) -> CommercialSettings:
     if self._commercial_settings is not None:
@@ -212,6 +225,13 @@ class SaleCreateSerializer(serializers.Serializer):
   def validate_items(self, value: List[dict]) -> List[dict]:
     if not value:
       raise serializers.ValidationError('Agregá al menos un producto a la venta.')
+    return value
+
+  def validate_payments(self, value: Optional[List[dict]]) -> Optional[List[dict]]:
+    if value is None:
+      return value
+    if len(value) == 0:
+      raise serializers.ValidationError('Debés enviar al menos una línea de pago.')
     return value
 
   def validate_cash_session_id(self, value: Optional[UUID]):
@@ -342,6 +362,42 @@ class SaleCreateSerializer(serializers.Serializer):
     sale.discount = discount
     sale.total = total
     sale.save(update_fields=['subtotal', 'discount', 'total', 'updated_at'])
+
+    # ── Create Payment records (split payment) ──────────────────────────────
+    payments_data = validated_data.get('payments')
+    if payments_data:
+      payments_sum = sum(Decimal(p['amount']) for p in payments_data)
+      if payments_sum != total:
+        raise serializers.ValidationError({
+          'payments': f'La suma de pagos ({payments_sum}) no coincide con el total de la venta ({total}).'
+        })
+      # Determine primary payment method (largest amount) for backward-compat field
+      primary_method = max(payments_data, key=lambda p: Decimal(p['amount']))['method']
+      # Map Payment.Method choices to Sale.PaymentMethod choices
+      METHOD_MAP = {
+        'cash': Sale.PaymentMethod.CASH,
+        'debit': Sale.PaymentMethod.CARD,
+        'credit': Sale.PaymentMethod.CARD,
+        'transfer': Sale.PaymentMethod.TRANSFER,
+        'wallet': Sale.PaymentMethod.TRANSFER,
+        'account': Sale.PaymentMethod.OTHER,
+      }
+      sale.payment_method = METHOD_MAP.get(primary_method, Sale.PaymentMethod.OTHER)
+      sale.save(update_fields=['payment_method', 'updated_at'])
+
+      bulk_payments = []
+      for p in payments_data:
+        bulk_payments.append(Payment(
+          business=business,
+          sale=sale,
+          session=cash_session,
+          method=p['method'],
+          amount=Decimal(p['amount']),
+          reference=p.get('reference', ''),
+          created_by=user if getattr(user, 'is_authenticated', False) else None,
+        ))
+      Payment.objects.bulk_create(bulk_payments)
+
     return sale
 
   def to_representation(self, instance):

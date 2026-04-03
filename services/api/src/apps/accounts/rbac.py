@@ -84,7 +84,13 @@ MENU_QR_PERMISSIONS: Set[str] = {
   'manage_users',
 }
 
-ALL_PERMISSIONS: Set[str] = GESTION_PERMISSIONS.union(RESTAURANT_PERMISSIONS).union(MENU_QR_PERMISSIONS)
+QR_REVIEWS_PERMISSIONS: Set[str] = {
+  'manage_menu',        # Reuse: needed for engagement settings endpoint
+  'manage_settings',
+  'manage_users',
+}
+
+ALL_PERMISSIONS: Set[str] = GESTION_PERMISSIONS.union(RESTAURANT_PERMISSIONS).union(MENU_QR_PERMISSIONS).union(QR_REVIEWS_PERMISSIONS)
 
 SERVICE_ROLE_PERMISSIONS: Dict[str, Dict[str, Set[str]]] = {
   'gestion': {
@@ -229,6 +235,13 @@ SERVICE_ROLE_PERMISSIONS: Dict[str, Dict[str, Set[str]]] = {
       'view_menu',
       'view_menu_admin',
       'view_public_menu',
+    },
+  },
+  'qr_reviews': {
+    'owner': set(QR_REVIEWS_PERMISSIONS),
+    'manager': QR_REVIEWS_PERMISSIONS - {'manage_users'},
+    'viewer': {
+      'manage_menu',    # read-only access to engagement settings
     },
   },
 }

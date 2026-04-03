@@ -50,6 +50,9 @@ export function AccountsTable({ accounts, onRefresh }: AccountsTableProps) {
                                 Rol
                             </th>
                             <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+                                Modo
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
                                 Estado
                             </th>
                             <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
@@ -129,6 +132,19 @@ function AccountRow({ account, onAction }: AccountRowProps) {
             </td>
             <td className="px-6 py-4">
                 <RoleBadge role={account.role} roleDisplay={account.role_display} size="sm" />
+            </td>
+            <td className="px-6 py-4">
+                {account.role === 'owner' ? (
+                    <span className="text-xs text-slate-400">—</span>
+                ) : account.account_mode === 'personal' ? (
+                    <span className="inline-flex items-center rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-700">
+                        Personal
+                    </span>
+                ) : (
+                    <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-600">
+                        Administrada
+                    </span>
+                )}
             </td>
             <td className="px-6 py-4">
                 {isSuspended ? (

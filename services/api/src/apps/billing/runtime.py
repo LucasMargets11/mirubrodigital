@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 _KNOWN_TIERS = [
     'menu_qr_premium', 'menu_qr_visual', 'menu_qr_marca',
     'menu_qr_lite', 'menu_qr_pro', 'menu_qr',
+    'qr_reviews',
     'enterprise', 'business', 'starter', 'start', 'plus', 'pro',
 ]
 

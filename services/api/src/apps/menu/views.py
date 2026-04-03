@@ -1108,3 +1108,104 @@ class PublicTipVerifyView(APIView):
             'mp_status_detail': mp_status_detail,
             'verified_at': tip.updated_at,
         })
+
+
+# ---------------------------------------------------------------------------
+# Public: Review redirect data (QR de Reseñas)
+# ---------------------------------------------------------------------------
+
+class PublicReviewRedirectView(APIView):
+    """
+    GET /api/v1/menu/public/reviews/<slug>/
+    Returns business name + Google review URL for the public /r/<slug> landing.
+    No authentication required.
+    """
+    permission_classes = []
+
+    def get(self, request, slug):
+        from apps.business.models import Business
+
+        business = get_object_or_404(Business, slug=slug)
+
+        try:
+            eng = business.menu_engagement_settings
+        except MenuEngagementSettings.DoesNotExist:
+            return Response(
+                {'detail': 'Reseñas no configuradas para este negocio.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # A1: Respect the explicit reviews_enabled toggle
+        if not eng.reviews_enabled:
+            return Response(
+                {'detail': 'Reseñas no configuradas para este negocio.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # A2: Validate plan-level entitlement (same source as _build_public_engagement)
+        sub = get_subscription_for_business(business)
+        qr_flags = resolve_menu_qr_flags(sub)
+        if not qr_flags['reviews_allowed']:
+            return Response(
+                {'detail': 'Reseñas no configuradas para este negocio.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        review_url = eng.google_write_review_url
+        if not review_url:
+            return Response(
+                {'detail': 'URL de reseñas no configurada.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        return Response({
+            'business_name': business.name,
+            'review_url': review_url,
+        })
+
+
+class ReviewQRCodeView(APIView):
+    """
+    GET /api/v1/reviews/qr/
+    Generate QR code for the /r/<slug>/ review landing page.
+    Requires qr_reviews service or menu_qr with reviews enabled.
+    """
+    permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+    required_permission = 'manage_menu'
+
+    def get(self, request):
+        business = getattr(request, 'business')
+
+        # A3: Validate plan-level reviews entitlement
+        sub = get_subscription_for_business(business)
+        qr_flags = resolve_menu_qr_flags(sub)
+        if not qr_flags['reviews_allowed']:
+            return Response(
+                {'detail': 'Reseñas no disponibles en tu plan actual.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        if not business.slug:
+            return Response(
+                {'detail': 'El negocio no tiene un slug configurado.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        public_url = build_review_landing_url(business.slug)
+        qr_svg = build_qr_svg(public_url)
+
+        return Response({
+            'slug': business.slug,
+            'public_url': public_url,
+            'qr_svg': qr_svg,
+            'generated_at': timezone.now(),
+        })
+
+
+def build_review_landing_url(slug: str) -> str:
+    base_url = (
+        getattr(settings, 'PUBLIC_MENU_BASE_URL', None)
+        or getattr(settings, 'FRONTEND_URL', None)
+        or 'http://localhost:3000'
+    )
+    return f"{base_url.rstrip('/')}/r/{slug}/"

@@ -2,14 +2,13 @@
  * Frontend tests for the POS operative module.
  *
  * Coverage:
- * 1. POS API client — error helpers (isPosAuthError, isPinChangeRequired, isBadCurrentPin)
- * 2. EmployeeSessionContext — login, logout, mustChangePin flag, changePin
- * 3. PinChangeGuard routing — must_change_pin=true → /pos/change-pin redirect
+ * 1. POS API client — error helpers (isPosAuthError, isPinChangeRequired)
+ * 2. EmployeeSessionContext — login, logout, mustChangePin flag
+ * 3. POS type contract — EmployeeLoginResponse, PosCapabilitySet
  * 4. Login page — form submission, 401/429 error messages
- * 5. Change-pin page — validation, bad_current_pin error, success redirect
- * 6. Type alignment — EmployeeLoginResponse shape matches backend contract
- * 7. Cash POS API — posGetCurrentCashSession, posOpenCashSession, posCloseCurrentCashSession, posCreateCashMovement
- * 8. usePosCashCurrentSession — session data, null session, 401 rejection
+ * 5. (removed — change-pin page disabled)
+ * 6. Cash POS API — posGetCurrentCashSession, posOpenCashSession, posCloseCurrentCashSession, posCreateCashMovement
+ * 7. usePosCashCurrentSession — session data, null session, 401 rejection
  */
 
 import React from 'react';
@@ -24,7 +23,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '@/lib/api/client';
 import {
-  isBadCurrentPin,
   isPinChangeRequired,
   isPosAuthError,
   posGetCurrentCashSession,
@@ -121,19 +119,6 @@ describe('POS error helpers', () => {
   it('isPinChangeRequired returns false for non-403 with code', () => {
     const err = new ApiError('bad', 400, { code: 'pin_change_required' });
     expect(isPinChangeRequired(err)).toBe(false);
-  });
-
-  it('isBadCurrentPin returns true for 401 + bad_current_pin code', () => {
-    const err = new ApiError('bad pin', 401, { code: 'bad_current_pin' });
-    expect(isBadCurrentPin(err)).toBe(true);
-  });
-
-  it('isBadCurrentPin returns false for 401 without code', () => {
-    expect(isBadCurrentPin(new ApiError('unauth', 401))).toBe(false);
-  });
-
-  it('isBadCurrentPin returns false for non-ApiError', () => {
-    expect(isBadCurrentPin(new Error('generic'))).toBe(false);
   });
 });
 
@@ -233,7 +218,7 @@ describe('EmployeeSessionContext', () => {
       return (
         <>
           <div data-testid="status">{session.status}</div>
-          <button onClick={() => login({ business_id: 5, employee_code: 'EMP-001', pin: '1234' })}>
+          <button onClick={() => login({ business_code: 'cafe-aurora', employee_code: 'EMP-001', pin: '1234' })}>
             Login
           </button>
         </>
@@ -309,53 +294,6 @@ describe('EmployeeSessionContext', () => {
     await waitFor(() => {
       expect(screen.getByTestId('must-change').textContent).toBe('true');
     });
-  });
-
-  it('changePin() updates mustChangePin to false on success', async () => {
-    const employee = makeEmployee({ must_change_pin: true });
-    sessionStorage.setItem('pos_employee_token', 'valid-token');
-
-    vi.spyOn(global, 'fetch')
-      .mockResolvedValueOnce(
-        // hydrate /pos/me/
-        new Response(JSON.stringify(employee), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        }),
-      )
-      .mockResolvedValueOnce(
-        // changePin POST
-        new Response(
-          JSON.stringify({ success: true, must_change_pin: false }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        ),
-      );
-
-    function Inspector() {
-      const { session, changePin } = useEmployeeSession();
-      if (session.status !== 'authenticated') return null;
-      return (
-        <>
-          <div data-testid="must-change">{String(session.mustChangePin)}</div>
-          <button
-            onClick={() =>
-              changePin({ current_pin: '1234', new_pin: '5678', confirm_new_pin: '5678' })
-            }
-          >
-            Change
-          </button>
-        </>
-      );
-    }
-
-    render(<Inspector />, { wrapper: Wrapper });
-    await waitFor(() => expect(screen.getByTestId('must-change').textContent).toBe('true'));
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Change' }));
-    });
-
-    expect(screen.getByTestId('must-change').textContent).toBe('false');
   });
 });
 
@@ -491,85 +429,6 @@ describe('Login page — field rendering', () => {
 
     await waitFor(() => {
       expect(screen.getByRole('alert').textContent).toMatch(/demasiados intentos/i);
-    });
-  });
-});
-
-// ── 5. Change-pin page — validation ──────────────────────────────────────────
-
-describe('Change-pin page — client-side validation', () => {
-  beforeEach(() => {
-    vi.mock('next/navigation', () => ({
-      useRouter: () => ({ replace: vi.fn() }),
-      usePathname: () => '/pos/change-pin',
-    }));
-  });
-
-  it('shows mismatch error when PINs differ', async () => {
-    // Pre-seed an authenticated session
-    const employee = makeEmployee({ must_change_pin: true });
-    sessionStorage.setItem('pos_employee_token', 'valid-token');
-
-    vi.spyOn(global, 'fetch').mockResolvedValueOnce(
-      new Response(JSON.stringify(employee), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      }),
-    );
-
-    const { default: PosChangePinPage } = await import('@/app/pos/change-pin/page');
-
-    render(<PosChangePinPage />, { wrapper: Wrapper });
-
-    await waitFor(() => screen.getByLabelText(/pin actual/i));
-
-    // Use the input id directly to avoid label ambiguity between
-    // "Nuevo PIN" and "Confirmar nuevo PIN"
-    fireEvent.change(document.getElementById('current_pin')!, { target: { value: '1234' } });
-    fireEvent.change(document.getElementById('new_pin')!, { target: { value: '9999' } });
-    fireEvent.change(document.getElementById('confirm_pin')!, { target: { value: '8888' } });
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /cambiar pin/i }));
-    });
-
-    expect(screen.getByText(/no coinciden/i)).toBeInTheDocument();
-  });
-
-  it('shows bad_current_pin error from API', async () => {
-    const employee = makeEmployee({ must_change_pin: true });
-    sessionStorage.setItem('pos_employee_token', 'valid-token');
-
-    vi.spyOn(global, 'fetch')
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify(employee), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        }),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({ error: 'Wrong PIN', code: 'bad_current_pin' }),
-          { status: 401, headers: { 'Content-Type': 'application/json' } },
-        ),
-      );
-
-    const { default: PosChangePinPage } = await import('@/app/pos/change-pin/page');
-
-    render(<PosChangePinPage />, { wrapper: Wrapper });
-
-    await waitFor(() => screen.getByLabelText(/pin actual/i));
-
-    fireEvent.change(document.getElementById('current_pin')!, { target: { value: 'wrong' } });
-    fireEvent.change(document.getElementById('new_pin')!, { target: { value: '5678' } });
-    fireEvent.change(document.getElementById('confirm_pin')!, { target: { value: '5678' } });
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /cambiar pin/i }));
-    });
-
-    await waitFor(() => {
-      expect(screen.getByText(/pin actual incorrecto/i)).toBeInTheDocument();
     });
   });
 });

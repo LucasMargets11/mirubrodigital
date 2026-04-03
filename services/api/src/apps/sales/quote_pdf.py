@@ -1,4 +1,5 @@
 """Generador de PDF para presupuestos usando ReportLab."""
+import logging
 from io import BytesIO
 from decimal import Decimal
 
@@ -6,11 +7,17 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image as RLImage
 from reportlab.lib.enums import TA_LEFT, TA_RIGHT, TA_CENTER
 
 from .models import Quote
-from apps.business.services import get_business_document_config
+from apps.business.services import get_business_document_config, resolve_document_logo_path
+
+logger = logging.getLogger(__name__)
+
+# Dimensiones máximas del logo en header del presupuesto
+LOGO_MAX_W = 2.5 * inch
+LOGO_MAX_H = 1.0 * inch
 
 
 def format_money_ar(value) -> str:
@@ -117,6 +124,28 @@ def build_quote_pdf(quote: Quote) -> bytes:
     # Construir contenido
     story = []
 
+    # ── Logo del negocio (branding) ──────────────────────────────────────
+    config = get_business_document_config(quote.business)
+    branding = config.get_invoice_branding()
+    logo_path = resolve_document_logo_path(branding.get('logo_header'))
+    if logo_path:
+        try:
+            from reportlab.lib.utils import ImageReader
+            img_reader = ImageReader(logo_path)
+            img_w, img_h = img_reader.getSize()
+            scale = min(LOGO_MAX_W / img_w, LOGO_MAX_H / img_h, 1.0)
+            draw_w = img_w * scale
+            draw_h = img_h * scale
+            logo_img = RLImage(logo_path, width=draw_w, height=draw_h)
+            logo_img.hAlign = 'LEFT'
+            story.append(logo_img)
+            story.append(Spacer(1, 0.15 * inch))
+        except Exception:
+            logger.warning(
+                'No se pudo renderizar el logo en el PDF de presupuesto; se continúa sin imagen.',
+                exc_info=True,
+            )
+
     # Header: Título y número
     story.append(Paragraph("PRESUPUESTO", title_style))
     story.append(Paragraph(f"<b>Número:</b> {quote.number}", normal_style))
@@ -131,8 +160,7 @@ def build_quote_pdf(quote: Quote) -> bytes:
         ))
     story.append(Spacer(1, 0.3 * inch))
 
-    # Obtener configuración centralizada del negocio
-    config = get_business_document_config(quote.business)
+    # Información del negocio (emisor) — reutiliza config ya cargado arriba
     issuer = config.get_issuer_data()
     
     # Información del negocio (emisor)

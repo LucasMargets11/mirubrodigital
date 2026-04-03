@@ -16,12 +16,13 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from apps.accounts.access import resolve_request_membership
-from apps.accounts.models import Membership, AccessAuditLog
+from apps.accounts.models import Membership, AccessAuditLog, AccountProfile
 from apps.accounts.models import RolePermissionOverride
 from apps.accounts.permissions import HasBusinessMembership
 from apps.accounts.rbac import permissions_for_service, SERVICE_ROLE_PERMISSIONS
@@ -462,6 +463,7 @@ def accounts_list(request: Request) -> Response:
     for m in memberships:
         user = m.user
         role_display = dict(Membership.ROLE_CHOICES).get(m.role, m.role)
+        profile = AccountProfile.objects.filter(user=user).first()
         accounts_data.append({
             'id': user.id,
             'email': user.email or '',
@@ -472,11 +474,41 @@ def accounts_list(request: Request) -> Response:
             'is_active': user.is_active,
             'has_usable_password': user.has_usable_password(),
             'membership_status': m.status,
+            'account_mode': getattr(profile, 'account_mode', 'owner_managed'),
             'date_joined': user.date_joined,
             'last_login': user.last_login,
         })
     
     serializer = UserAccountSerializer(accounts_data, many=True)
+
+    # Wrapped response with seat_info when requested
+    if request.query_params.get('include_seat_info') == '1':
+        from apps.billing.runtime import resolve_subscription
+        from apps.billing.plans import get_seat_limit
+
+        resolved = resolve_subscription(hq)
+
+        if resolved.source == 'v2':
+            max_seats = get_seat_limit(resolved.plan)
+        elif resolved.source == 'legacy':
+            max_seats = resolved.legacy_sub.max_seats if resolved.legacy_sub else 0
+        else:
+            max_seats = 0
+
+        current_count = Membership.objects.filter(
+            business__id__in=family_ids,
+        ).exclude(role='owner').count()
+
+        return Response({
+            'accounts': serializer.data,
+            'seat_info': {
+                'current': current_count,
+                'max': max_seats,
+                'access_granted': resolved.access_granted,
+                'source': resolved.source,
+            },
+        })
+
     return Response(serializer.data)
 
 
@@ -534,6 +566,8 @@ def create_member(request: Request) -> Response:
             email=data.get('email', ''),
             created_by_user=request.user,
             request=request,
+            account_mode=data.get('account_mode', 'owner_managed'),
+            force_password_change=data.get('force_password_change', False),
         )
     except DjangoValidationError as exc:
         # Extract message(s) from ValidationError
@@ -541,6 +575,11 @@ def create_member(request: Request) -> Response:
         return Response(
             {'error': messages[0] if len(messages) == 1 else messages},
             status=status.HTTP_400_BAD_REQUEST,
+        )
+    except PermissionDenied as exc:
+        return Response(
+            {'error': str(exc.detail) if hasattr(exc, 'detail') else str(exc)},
+            status=status.HTTP_403_FORBIDDEN,
         )
 
     new_user = result['user']
@@ -627,6 +666,13 @@ def reset_password(request: Request, user_id: int) -> Response:
     # Set the password
     target_user.set_password(new_password)
     target_user.save()
+
+    # If the target account is personal, flag must_change_password so
+    # the user is prompted on next login.
+    target_profile = AccountProfile.objects.filter(user=target_user).first()
+    if target_profile and target_profile.account_mode == AccountProfile.AccountMode.PERSONAL:
+        target_profile.must_change_password = True
+        target_profile.save(update_fields=['must_change_password'])
     
     # Log the audit
     _log_audit(
@@ -735,6 +781,13 @@ def disable_account(request: Request, user_id: int) -> Response:
     _AccountProfile.objects.filter(user=target_user).update(
         account_status=_AccountProfile.AccountStatus.ACTIVE if new_status else _AccountProfile.AccountStatus.SUSPENDED,
     )
+
+    # Sync Membership.status so that suspend/disable states stay coherent.
+    if target_membership:
+        target_membership.status = (
+            Membership.Status.ACTIVE if new_status else Membership.Status.SUSPENDED
+        )
+        target_membership.save(update_fields=['status'])
     
     action = 'ACCOUNT_ENABLED' if new_status else 'ACCOUNT_DISABLED'
     

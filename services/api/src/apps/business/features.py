@@ -37,6 +37,8 @@ FEATURE_KEYS: Iterable[str] = (
   'menu_qr_reviews',   # Google Reviews CTA on public carta
   'menu_qr_tips',      # Tip CTA on public carta (MP link / QR image)
   'menu_qr_tips_pro',  # Dynamic tip amount via MP OAuth Checkout (Fase 2)
+  # QR de Reseñas — standalone product flags
+  'qr_reviews_core',   # Core access flag for QR de Reseñas standalone product
 )
 
 PLAN_FEATURES: Dict[str, Iterable[str]] = {
@@ -137,6 +139,10 @@ PLAN_FEATURES: Dict[str, Iterable[str]] = {
     'menu_qr_tips',
     'menu_qr_tips_pro',
     'multi_branch',
+  ),
+  # ── QR de Reseñas standalone ────────────────────────────────────────────
+  'qr_reviews': (
+    'qr_reviews_core',      # Main product access flag
   ),
 }
 

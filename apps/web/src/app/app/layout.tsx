@@ -41,6 +41,14 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     const sub = resolvedSession.subscription;
     const businessStatus = resolvedSession.current?.business?.status;
 
+    // Force password change guard — must run before billing checks.
+    // Users with must_change_password=true are redirected to the auth-layout
+    // change-password page. This only applies to 'personal' account mode
+    // users whose password was reset by the owner.
+    if (resolvedSession.user.must_change_password) {
+        redirect('/cambiar-contrasena');
+    }
+
     // Paths that must remain accessible regardless of billing state.
     // /app/onboarding/*    — guided onboarding funnel (Wave 3)
     // /app/planes          — plan page for returning users

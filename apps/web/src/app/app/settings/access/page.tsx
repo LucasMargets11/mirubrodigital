@@ -8,10 +8,11 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ownerAccessApi } from '@/lib/api/owner-access';
 import { employeesApi } from '@/lib/api/employees';
-import type { AccessSummary, RoleSummary, UserAccount } from '@/types/owner-access';
+import type { AccessSummary, RoleSummary, UserAccount, SeatInfo } from '@/types/owner-access';
 import type { EmployeeProfile } from '@/types/employees';
 import { PermissionList, EmptyState } from '@/components/app/owner-access/shared-components';
 import { AccountsTable } from '@/components/app/owner-access/accounts-table';
+import { SeatInfoBar } from '@/components/app/owner-access/seat-info-bar';
 import { EmployeesTable } from '@/components/app/owner-access/employees-table';
 import { EmployeeFormModal } from '@/components/app/owner-access/employee-form-modal';
 import { CreateMemberModal } from '@/components/app/owner-access/create-member-modal';
@@ -23,6 +24,7 @@ export default function OwnerAccessPage() {
     const [accessSummary, setAccessSummary] = useState<AccessSummary | null>(null);
     const [roles, setRoles] = useState<RoleSummary[]>([]);
     const [accounts, setAccounts] = useState<UserAccount[]>([]);
+    const [seatInfo, setSeatInfo] = useState<SeatInfo | null>(null);
     const [employees, setEmployees] = useState<EmployeeProfile[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -38,17 +40,18 @@ export default function OwnerAccessPage() {
             setError(null);
             const summary = await ownerAccessApi.getAccessSummary();
             setAccessSummary(summary);
-            const canManage = summary.role === 'owner' || summary.role === 'admin';
+            const canManage = summary.role === 'owner';
             setIsOwner(canManage);
 
             if (canManage) {
-                const [rolesData, accountsData, employeesData] = await Promise.all([
+                const [rolesData, accountsResponse, employeesData] = await Promise.all([
                     ownerAccessApi.getRoles(),
                     ownerAccessApi.getAccounts(),
                     employeesApi.list(),
                 ]);
                 setRoles(rolesData);
-                setAccounts(accountsData);
+                setAccounts(accountsResponse.accounts);
+                setSeatInfo(accountsResponse.seat_info);
                 setEmployees(employeesData);
             }
         } catch (err: any) {
@@ -170,7 +173,7 @@ export default function OwnerAccessPage() {
             <div className="rounded-xl border border-slate-200 bg-white p-6">
                 {activeTab === 'my-roles' && <MyRolesTab summary={accessSummary} />}
                 {activeTab === 'business-roles' && isOwner && <BusinessRolesTab roles={roles} />}
-                {activeTab === 'accounts' && isOwner && <AccountsTab accounts={accounts} onRefresh={loadAccessSummary} />}
+                {activeTab === 'accounts' && isOwner && <AccountsTab accounts={accounts} seatInfo={seatInfo} onRefresh={loadAccessSummary} />}
                 {activeTab === 'employees' && isOwner && (
                     <EmployeesTab employees={employees} onRefresh={reloadEmployees} />
                 )}
@@ -251,8 +254,9 @@ function BusinessRolesTab({ roles }: { roles: RoleSummary[] }) {
     );
 }
 
-function AccountsTab({ accounts, onRefresh }: { accounts: UserAccount[]; onRefresh: () => void }) {
+export function AccountsTab({ accounts, seatInfo, onRefresh }: { accounts: UserAccount[]; seatInfo: SeatInfo | null; onRefresh: () => void }) {
     const [showCreate, setShowCreate] = useState(false);
+    const accessBlocked = seatInfo != null && !seatInfo.access_granted;
 
     return (
         <div className="space-y-4">
@@ -267,15 +271,26 @@ function AccountsTab({ accounts, onRefresh }: { accounts: UserAccount[]; onRefre
                     </button>
                     <button
                         onClick={() => setShowCreate(true)}
-                        className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
+                        disabled={accessBlocked}
+                        className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+                            accessBlocked
+                                ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                                : 'bg-blue-600 text-white hover:bg-blue-700'
+                        }`}
                     >
                         + Crear usuario
                     </button>
                 </div>
             </div>
+            {accessBlocked && (
+                <p className="text-sm text-slate-500">
+                    Necesitás una suscripción activa para agregar usuarios.
+                </p>
+            )}
+            {seatInfo && <SeatInfoBar seatInfo={seatInfo} />}
             <AccountsTable accounts={accounts} onRefresh={onRefresh} />
 
-            {showCreate && (
+            {showCreate && !accessBlocked && (
                 <CreateMemberModal
                     isOpen
                     onClose={(created) => {

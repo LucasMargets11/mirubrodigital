@@ -23,7 +23,7 @@ from reportlab.pdfgen import canvas
 from reportlab.platypus import Table, TableStyle
 
 from .models import Invoice
-from apps.business.services import get_business_document_config
+from apps.business.services import get_business_document_config, resolve_document_logo_path
 
 logger = logging.getLogger(__name__)
 
@@ -45,18 +45,10 @@ def _draw_logo(pdf: canvas.Canvas, image_field, x: float, y_top: float) -> float
     Returns:
         Altura real dibujada en puntos (0 si no se dibujó nada).
     """
-    if not image_field:
+    file_path = resolve_document_logo_path(image_field)
+    if not file_path:
         return 0.0
     try:
-        name = getattr(image_field, 'name', '') or ''
-        if not name:
-            return 0.0
-        if name.lower().endswith('.svg'):
-            logger.warning('Logo SVG no soportado en PDF (%s); se omite el logo.', name)
-            return 0.0
-
-        file_path = image_field.path  # puede lanzar SuspiciousFileOperation si vacío
-
         from reportlab.lib.utils import ImageReader
         img_reader = ImageReader(file_path)
         img_w, img_h = img_reader.getSize()

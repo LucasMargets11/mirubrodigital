@@ -23,11 +23,9 @@ import React, {
 import { ApiError } from '@/lib/api/client';
 import {
   employeeLogin,
-  posChangePin,
   posGetMe,
 } from '@/lib/api/pos';
 import type {
-  ChangePinRequest,
   EmployeeLoginRequest,
   EmployeeMe,
 } from '@/types/employees';
@@ -70,11 +68,6 @@ interface EmployeeSessionContextValue {
   logout: () => void;
   /** Re-fetch /pos/me/ with current token and refresh state. */
   refreshMe: () => Promise<void>;
-  /**
-   * Submit a PIN change. On success `must_change_pin` is cleared.
-   * Throws ApiError on failure so callers can show appropriate messages.
-   */
-  changePin: (payload: ChangePinRequest) => Promise<void>;
 }
 
 // ── Context ───────────────────────────────────────────────────────────────────
@@ -130,9 +123,14 @@ export function EmployeeSessionProvider({
   const login = useCallback(
     async (payload: EmployeeLoginRequest) => {
       setSession({ status: 'loading' });
-      const resp = await employeeLogin(payload);
-      persistToken(resp.token);
-      await hydrateFromToken(resp.token);
+      try {
+        const resp = await employeeLogin(payload);
+        persistToken(resp.token);
+        await hydrateFromToken(resp.token);
+      } catch (err) {
+        setSession({ status: 'unauthenticated' });
+        throw err;
+      }
     },
     [hydrateFromToken],
   );
@@ -151,26 +149,9 @@ export function EmployeeSessionProvider({
     await hydrateFromToken(stored);
   }, [hydrateFromToken]);
 
-  const changePin = useCallback(async (payload: ChangePinRequest) => {
-    const stored = readStoredToken();
-    if (!stored) throw new Error('No hay sesión operativa activa');
-
-    await posChangePin(stored, payload);
-
-    // Refresh employee state so mustChangePin becomes false
-    setSession((prev) => {
-      if (prev.status !== 'authenticated') return prev;
-      return {
-        ...prev,
-        employee: { ...prev.employee, must_change_pin: false },
-        mustChangePin: false,
-      };
-    });
-  }, []);
-
   const value = useMemo<EmployeeSessionContextValue>(
-    () => ({ session, login, logout, refreshMe, changePin }),
-    [session, login, logout, refreshMe, changePin],
+    () => ({ session, login, logout, refreshMe }),
+    [session, login, logout, refreshMe],
   );
 
   return (

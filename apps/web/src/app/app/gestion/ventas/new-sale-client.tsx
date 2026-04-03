@@ -4,11 +4,12 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { ProductSearchList } from '@/components/app/product-search-list';
 import { ToastBubble } from '@/components/app/toast';
 import { SaleCustomerPicker } from './sale-customer-picker';
 
 import { useCashSummary } from '@/features/cash/hooks';
-import { useCommercialSettingsQuery, useCreateSale, useProducts } from '@/features/gestion/hooks';
+import { useCommercialSettingsQuery, useCreateSale } from '@/features/gestion/hooks';
 import type { PaymentMethod, Product, SalePayload } from '@/features/gestion/types';
 import type { CustomerSummary } from '@/features/customers/types';
 import { ApiError } from '@/lib/api/client';
@@ -36,9 +37,6 @@ type CartItem = {
     unitPrice: number;
 };
 
-type StockStatus = 'ok' | 'low' | 'out';
-type StockFilter = 'all' | 'in' | 'low' | 'out';
-
 const paymentOptions: { value: PaymentMethod; label: string }[] = [
     { value: 'cash', label: 'Efectivo' },
     { value: 'card', label: 'Tarjeta' },
@@ -46,18 +44,9 @@ const paymentOptions: { value: PaymentMethod; label: string }[] = [
     { value: 'other', label: 'Otro' },
 ];
 
-const stockFilterOptions: { value: StockFilter; label: string }[] = [
-    { value: 'all', label: 'Todos' },
-    { value: 'in', label: 'Con stock' },
-    { value: 'low', label: 'Bajo stock' },
-    { value: 'out', label: 'Sin stock' },
-];
-
 export function NewSaleClient() {
     const router = useRouter();
     const searchInputRef = useRef<HTMLInputElement | null>(null);
-    const [search, setSearch] = useState('');
-    const [stockFilter, setStockFilter] = useState<StockFilter>('in');
     const [cart, setCart] = useState<CartItem[]>([]);
     const [selectedCustomer, setSelectedCustomer] = useState<CustomerSummary | null>(null);
     const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
@@ -108,10 +97,7 @@ export function NewSaleClient() {
         });
     };
 
-    const trimmedSearch = search.trim();
-    const shouldSearchProducts = trimmedSearch.length >= 2;
     const canOperateWithoutCustomer = !requiresCustomer;
-    const canFetchProducts = (canOperateWithoutCustomer || Boolean(selectedCustomer)) && shouldSearchProducts;
     const productSearchDisabled = requiresCustomer && !selectedCustomer;
 
     const stockMetaConfig = useMemo(
@@ -119,23 +105,10 @@ export function NewSaleClient() {
         [warnLowStock, lowStockThreshold]
     );
 
-    const productsQuery = useProducts(trimmedSearch, false, undefined, { enabled: canFetchProducts });
-    const rawProducts = canFetchProducts ? productsQuery.data ?? [] : [];
-
-    const filteredProducts = useMemo(() => {
-        return rawProducts.filter((product) => {
-            const meta = getStockMeta(product, stockMetaConfig);
-            if (stockFilter === 'all') {
-                return true;
-            }
-            if (stockFilter === 'in') {
-                return meta.status !== 'out';
-            }
-            return meta.status === stockFilter;
-        });
-    }, [rawProducts, stockFilter, stockMetaConfig]);
-
-    const products = filteredProducts.slice(0, 40);
+    const selectedProductIds = useMemo(
+        () => cart.map((item) => item.product.id),
+        [cart]
+    );
 
     const createSale = useCreateSale();
     const cashSummaryQuery = useCashSummary();
@@ -287,10 +260,6 @@ export function NewSaleClient() {
         showToast('No pudimos registrar la venta.', 'error');
     };
 
-    const focusSearchInput = () => {
-        searchInputRef.current?.focus();
-    };
-
     const isSaving = createSale.isPending;
 
     return (
@@ -313,112 +282,15 @@ export function NewSaleClient() {
                             </p>
                         </div>
                     </div>
-                    {requiresCustomer && !selectedCustomer ? (
-                        <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500">
-                            Elegí una opción de cliente para habilitar la búsqueda de productos.
-                        </div>
-                    ) : (
-                        <>
-                            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                                <input
-                                    ref={searchInputRef}
-                                    type="search"
-                                    value={search}
-                                    onChange={(event) => setSearch(event.target.value)}
-                                    placeholder="Buscar por nombre o SKU"
-                                    disabled={productSearchDisabled}
-                                    className="w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm disabled:cursor-not-allowed disabled:bg-slate-50 focus:border-slate-900 focus:outline-none"
-                                    aria-label="Buscar productos"
-                                />
-                                <div className="flex flex-wrap gap-2">
-                                    {stockFilterOptions.map((option) => (
-                                        <button
-                                            key={option.value}
-                                            type="button"
-                                            onClick={() => setStockFilter(option.value)}
-                                            disabled={productSearchDisabled}
-                                            aria-pressed={stockFilter === option.value}
-                                            className={`rounded-full px-4 py-1 text-xs font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 ${stockFilter === option.value
-                                                ? 'bg-slate-900 text-white'
-                                                : 'border border-slate-200 text-slate-600 hover:border-slate-900'
-                                                } disabled:cursor-not-allowed disabled:opacity-50`}
-                                        >
-                                            {option.label}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                            {!shouldSearchProducts ? (
-                                <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-sm text-slate-500">
-                                    <p>
-                                        {productSearchDisabled
-                                            ? 'Mostramos resultados cuando selecciones un cliente y escribas al menos 2 caracteres.'
-                                            : 'Mostramos resultados cuando ingreses al menos 2 caracteres.'}
-                                    </p>
-                                    <button
-                                        type="button"
-                                        onClick={focusSearchInput}
-                                        className="mt-3 inline-flex items-center justify-center rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:border-slate-900 hover:text-slate-900"
-                                    >
-                                        Buscar por nombre o SKU
-                                    </button>
-                                </div>
-                            ) : (
-                                <div className="rounded-2xl border border-slate-100">
-                                    {productsQuery.isLoading ? (
-                                        <p className="p-4 text-sm text-slate-500">Buscando productos...</p>
-                                    ) : productsQuery.isError ? (
-                                        <p className="p-4 text-sm text-rose-600">No pudimos cargar los productos. Intentá nuevamente.</p>
-                                    ) : products.length === 0 ? (
-                                        <p className="p-4 text-sm text-slate-500">No encontramos productos con esos filtros.</p>
-                                    ) : (
-                                        <ul className="divide-y divide-slate-100">
-                                            {products.map((product) => {
-                                                const stockMeta = getStockMeta(product, stockMetaConfig);
-                                                return (
-                                                    <li
-                                                        key={product.id}
-                                                        role="button"
-                                                        tabIndex={0}
-                                                        aria-label={`Agregar ${product.name} al carrito`}
-                                                        onClick={() => addProductToCart(product)}
-                                                        onKeyDown={(e) => {
-                                                            if (e.key === 'Enter' || e.key === ' ') {
-                                                                e.preventDefault();
-                                                                addProductToCart(product);
-                                                            }
-                                                        }}
-                                                        className="flex cursor-pointer flex-wrap items-center justify-between gap-4 px-4 py-3 transition hover:bg-slate-50 active:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-slate-900"
-                                                    >
-                                                        <div className="min-w-0 flex-1">
-                                                            <p className="font-medium text-slate-900">{product.name}</p>
-                                                            <p className="text-xs text-slate-400">SKU {product.sku || '—'}</p>
-                                                            <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-slate-500">
-                                                                <StockBadge status={stockMeta.status} />
-                                                                <span>Stock: {stockMeta.quantity}</span>
-                                                            </div>
-                                                        </div>
-                                                        <div className="flex flex-col items-end gap-2 sm:flex-row sm:items-center">
-                                                            <p className="text-sm font-semibold text-slate-600">{formatCurrency(Number(product.price))}</p>
-                                                            <button
-                                                                type="button"
-                                                                onClick={(e) => { e.stopPropagation(); addProductToCart(product); }}
-                                                                disabled={stockMeta.status === 'out'}
-                                                                aria-disabled={stockMeta.status === 'out'}
-                                                                className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 transition hover:border-slate-900 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
-                                                            >
-                                                                {stockMeta.status === 'out' ? 'Sin stock' : 'Agregar'}
-                                                            </button>
-                                                        </div>
-                                                    </li>
-                                                );
-                                            })}
-                                        </ul>
-                                    )}
-                                </div>
-                            )}
-                        </>
-                    )}
+                    <ProductSearchList
+                        onSelect={addProductToCart}
+                        disabled={productSearchDisabled}
+                        disabledMessage="Elegí una opción de cliente para habilitar la búsqueda de productos."
+                        stockMetaConfig={stockMetaConfig}
+                        selectedProductIds={selectedProductIds}
+                        inputRef={searchInputRef}
+                        idPrefix="product-search"
+                    />
                 </section>
                 <section className="space-y-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
                     <div className="flex items-center justify-between">
@@ -638,7 +510,7 @@ function getAvailableQuantity(product: Product) {
 function getStockMeta(
     product: Product,
     config?: { warnLowStock: boolean; defaultThreshold: number }
-): { quantity: number; status: StockStatus } {
+): { quantity: number; status: 'ok' | 'low' | 'out' } {
     const quantity = getAvailableQuantity(product);
     if (quantity === 0) {
         return { quantity: 0, status: 'out' };
@@ -650,18 +522,4 @@ function getStockMeta(
         return { quantity, status: 'low' };
     }
     return { quantity, status: 'ok' };
-}
-
-function StockBadge({ status }: { status: StockStatus }) {
-    const config: Record<StockStatus, { color: string; label: string }> = {
-        ok: { color: 'bg-emerald-500', label: 'Stock OK' },
-        low: { color: 'bg-amber-400', label: 'Stock bajo' },
-        out: { color: 'bg-rose-500', label: 'Sin stock' },
-    };
-    return (
-        <span className="inline-flex items-center gap-1 text-xs font-semibold text-slate-600" aria-live="polite">
-            <span className={`h-2.5 w-2.5 rounded-full ${config[status].color}`} aria-hidden />
-            {config[status].label}
-        </span>
-    );
 }

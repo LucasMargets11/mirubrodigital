@@ -1,13 +1,14 @@
 """
-accounts/tests/test_pos_routes.py — Backend tests for POS endpoints and PIN change.
+accounts/tests/test_pos_routes.py — Backend tests for POS endpoints.
 
 Test blocks:
   A. POS /me/ — authenticated access, pin-change exempt
   B. POS /capabilities/ — enforces must_change_pin, returns perms + capabilities
   C. POS /health/ — lightweight probe, pin-change exempt
-  D. POST /auth/employee-change-pin/ — full PIN change flow
+  D. POST /auth/employee-change-pin/ — disabled, always returns 403
   E. must_change_pin enforcement — whitelist vs blocked routes
   F. Token edge cases on POS routes (invalid, suspended, wrong business)
+  G. Employee creation & reset PIN — must_change_pin always False
 """
 from __future__ import annotations
 
@@ -315,7 +316,7 @@ class PosHealthViewTest(TestCase):
 
 
 class EmployeeChangePinTest(TestCase):
-    """Tests for POST /api/v1/auth/employee-change-pin/."""
+    """Tests for POST /api/v1/auth/employee-change-pin/ — DISABLED (returns 403)."""
 
     URL = '/api/v1/auth/employee-change-pin/'
 
@@ -323,120 +324,19 @@ class EmployeeChangePinTest(TestCase):
         self.biz = _make_business('PinChangeBiz')
         self.pin = '123456'
         self.employee = _make_employee(
-            self.biz, code='EMP-PIN01', pin=self.pin, must_change_pin=True,
+            self.biz, code='EMP-PIN01', pin=self.pin, must_change_pin=False,
         )
         self.client = _employee_client(self.employee, self.biz)
 
-    # ── Success ────────────────────────────────────────────────────────────────
-
-    def test_change_pin_success(self):
-        """Correct current PIN + valid new PIN → 200, must_change_pin cleared."""
+    def test_change_pin_returns_403_disabled(self):
+        """Authenticated request → 403 with code=pin_change_disabled."""
         resp = self.client.post(self.URL, {
             'current_pin':     self.pin,
             'new_pin':         '654321',
             'confirm_new_pin': '654321',
         }, format='json')
-        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
-        self.assertTrue(resp.data['success'])
-        self.assertFalse(resp.data['must_change_pin'])
-
-    def test_must_change_pin_cleared_in_db(self):
-        """After successful change, must_change_pin=False in DB."""
-        self.client.post(self.URL, {
-            'current_pin': self.pin, 'new_pin': '654321', 'confirm_new_pin': '654321',
-        }, format='json')
-        self.employee.refresh_from_db()
-        self.assertFalse(self.employee.must_change_pin)
-
-    def test_new_hash_stored(self):
-        """After successful change, new PIN hash is stored (old PIN fails)."""
-        self.client.post(self.URL, {
-            'current_pin': self.pin, 'new_pin': '654321', 'confirm_new_pin': '654321',
-        }, format='json')
-        self.employee.refresh_from_db()
-        self.assertFalse(check_password(self.pin, self.employee.login_code_hash))
-        self.assertTrue(check_password('654321', self.employee.login_code_hash))
-
-    def test_old_pin_no_longer_authenticates(self):
-        """After change, old PIN cannot be used to login at /employee-login/."""
-        self.client.post(self.URL, {
-            'current_pin': self.pin, 'new_pin': '654321', 'confirm_new_pin': '654321',
-        }, format='json')
-        resp = APIClient().post('/api/v1/auth/employee-login/', {
-            'business_id': self.biz.pk,
-            'employee_code': 'EMP-PIN01',
-            'pin': self.pin,  # old PIN
-        }, format='json')
-        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
-
-    def test_new_pin_authenticates(self):
-        """After change, new PIN authenticates successfully at /employee-login/."""
-        self.client.post(self.URL, {
-            'current_pin': self.pin, 'new_pin': '654321', 'confirm_new_pin': '654321',
-        }, format='json')
-        resp = APIClient().post('/api/v1/auth/employee-login/', {
-            'business_id': self.biz.pk,
-            'employee_code': 'EMP-PIN01',
-            'pin': '654321',
-        }, format='json')
-        self.assertEqual(resp.status_code, status.HTTP_200_OK)
-
-    def test_audit_created_on_success(self):
-        """Successful PIN change creates a PIN_CHANGED audit entry."""
-        self.client.post(self.URL, {
-            'current_pin': self.pin, 'new_pin': '654321', 'confirm_new_pin': '654321',
-        }, format='json')
-        self.assertTrue(
-            AccessAuditLog.objects.filter(
-                action='PIN_CHANGED',
-                actor_type=AccessAuditLog.ActorType.EMPLOYEE,
-                entity_id=str(self.employee.pk),
-            ).exists()
-        )
-
-    # ── Validation failures ────────────────────────────────────────────────────
-
-    def test_wrong_current_pin_returns_401(self):
-        """Incorrect current PIN → 401 with code=bad_current_pin."""
-        resp = self.client.post(self.URL, {
-            'current_pin': '000000', 'new_pin': '654321', 'confirm_new_pin': '654321',
-        }, format='json')
-        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(resp.data.get('code'), 'bad_current_pin')
-
-    def test_wrong_current_pin_creates_access_denied_audit(self):
-        """A failed PIN change attempt creates an ACCESS_DENIED audit entry."""
-        self.client.post(self.URL, {
-            'current_pin': '000000', 'new_pin': '654321', 'confirm_new_pin': '654321',
-        }, format='json')
-        self.assertTrue(
-            AccessAuditLog.objects.filter(
-                action='ACCESS_DENIED',
-                actor_type=AccessAuditLog.ActorType.EMPLOYEE,
-                entity_id=str(self.employee.pk),
-            ).exists()
-        )
-
-    def test_confirmation_mismatch_returns_400(self):
-        """new_pin != confirm_new_pin → 400."""
-        resp = self.client.post(self.URL, {
-            'current_pin': self.pin, 'new_pin': '654321', 'confirm_new_pin': '999999',
-        }, format='json')
-        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_same_pin_rejected(self):
-        """new_pin == current_pin → 400."""
-        resp = self.client.post(self.URL, {
-            'current_pin': self.pin, 'new_pin': self.pin, 'confirm_new_pin': self.pin,
-        }, format='json')
-        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_invalid_pin_format_rejected(self):
-        """Non-numeric or too-short new_pin → 400."""
-        resp = self.client.post(self.URL, {
-            'current_pin': self.pin, 'new_pin': 'abc', 'confirm_new_pin': 'abc',
-        }, format='json')
-        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN, resp.data)
+        self.assertEqual(resp.data.get('code'), 'pin_change_disabled')
 
     def test_unauthenticated_rejected(self):
         """No token → not authenticated → 401 or 403."""
@@ -446,15 +346,6 @@ class EmployeeChangePinTest(TestCase):
         self.assertIn(resp.status_code, [
             status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN,
         ])
-
-    def test_pin_not_leaked_in_any_response(self):
-        """change-pin responses never contain login_code_hash."""
-        resp = self.client.post(self.URL, {
-            'current_pin': self.pin, 'new_pin': '654321', 'confirm_new_pin': '654321',
-        }, format='json')
-        self.assertNotIn('login_code_hash', resp.data)
-        self.assertNotIn('current_pin', resp.data)
-        self.assertNotIn('new_pin', resp.data)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -491,29 +382,13 @@ class PinChangeEnforcementTest(TestCase):
         resp = self.client.get('/api/v1/pos/health/')
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
-    def test_change_pin_allowed_on_whitelist(self):
-        """/auth/employee-change-pin/ → accessible when must_change_pin=True."""
+    def test_change_pin_returns_403_even_on_whitelist(self):
+        """/auth/employee-change-pin/ → 403 pin_change_disabled (endpoint disabled)."""
         resp = self.client.post('/api/v1/auth/employee-change-pin/', {
             'current_pin': '111222', 'new_pin': '333444', 'confirm_new_pin': '333444',
         }, format='json')
-        self.assertEqual(resp.status_code, status.HTTP_200_OK)
-
-    def test_after_pin_change_capabilities_unlocked(self):
-        """
-        After successful PIN change, must_change_pin=False and
-        /pos/capabilities/ becomes accessible.
-        """
-        # Change PIN to clear the flag
-        self.client.post('/api/v1/auth/employee-change-pin/', {
-            'current_pin': '111222', 'new_pin': '999888', 'confirm_new_pin': '999888',
-        }, format='json')
-        self.employee.refresh_from_db()
-        self.assertFalse(self.employee.must_change_pin)
-
-        # Re-authenticate with updated employee state
-        new_client = _employee_client(self.employee, self.biz)
-        resp = new_client.get('/api/v1/pos/capabilities/')
-        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(resp.data.get('code'), 'pin_change_disabled')
 
     def test_must_change_pin_false_allows_capabilities(self):
         """Baseline: employee with must_change_pin=False can access /capabilities/."""
@@ -677,6 +552,69 @@ class LoginHardeningTest(TestCase):
         # Must NOT reveal that only the PIN was wrong (vs employee not found)
         error_text = str(resp.data).lower()
         self.assertNotIn('not found', error_text)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# G. Employee creation / reset PIN → must_change_pin always False
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class EmployeePinNeverForcedTest(TestCase):
+    """
+    Verify that PIN self-change is fully disabled:
+    - New employees are created with must_change_pin=False
+    - PIN reset sets must_change_pin=False
+    - Login after creation does NOT require PIN change
+    """
+
+    def setUp(self):
+        self.biz = _make_business('PinNeverForcedBiz')
+        self.user = User.objects.create_user(
+            username='owner_pnf@test.com', email='owner_pnf@test.com', password='pass1234!',
+        )
+        Membership.objects.create(user=self.user, business=self.biz, role='owner')
+
+    def _owner_client(self) -> APIClient:
+        client = APIClient()
+        from rest_framework_simplejwt.tokens import AccessToken
+        token = str(AccessToken.for_user(self.user))
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+        return client
+
+    def test_created_employee_must_change_pin_false(self):
+        """Employees created via admin API have must_change_pin=False."""
+        client = self._owner_client()
+        resp = client.post(f'/api/v1/owner/access/employees/?business_id={self.biz.pk}', {
+            'first_name': 'New', 'last_name': 'Emp',
+            'employee_code': 'EMP-NF01',
+            'role_type': 'cashier',
+            'credential_type': 'pin',
+            'pin': '5555',
+        }, format='json')
+        if resp.status_code == status.HTTP_201_CREATED:
+            emp = EmployeeProfile.objects.get(employee_code='EMP-NF01', business=self.biz)
+            self.assertFalse(emp.must_change_pin)
+
+    def test_login_after_creation_no_pin_change_required(self):
+        """Newly created employee can login and must_change_pin is False."""
+        emp = _make_employee(self.biz, code='EMP-NF02', pin='9999', must_change_pin=False)
+        resp = APIClient().post('/api/v1/auth/employee-login/', {
+            'business_id': self.biz.pk,
+            'employee_code': 'EMP-NF02',
+            'pin': '9999',
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertFalse(resp.data.get('must_change_pin', True))
+
+    def test_change_pin_endpoint_always_returns_403(self):
+        """The change-pin endpoint returns 403 regardless of must_change_pin state."""
+        emp = _make_employee(self.biz, code='EMP-NF03', pin='8888', must_change_pin=False)
+        client = _employee_client(emp, self.biz)
+        resp = client.post('/api/v1/auth/employee-change-pin/', {
+            'current_pin': '8888', 'new_pin': '7777', 'confirm_new_pin': '7777',
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(resp.data.get('code'), 'pin_change_disabled')
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

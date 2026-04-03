@@ -120,11 +120,12 @@ class TestSeatLimitSafety(TestCase):
         self.owner = User.objects.create_user(username='owner', email='owner@test.com', password='p')
         self.business = Business.objects.create(name="Biz")
         Membership.objects.create(user=self.owner, business=self.business, role='owner')
-        
-        # Create Subscription and force a small limit
-        self.sub = Subscription.objects.create(business=self.business, max_seats=2)
-        
-        # Owner takes 1 seat
+
+        # Legacy subscription: max_seats=1 means 1 non-owner user allowed
+        # (owner is excluded from seat count by V2-first rules)
+        self.sub = Subscription.objects.create(business=self.business, max_seats=1)
+
+        # Owner exists but does not count toward seat limit
         self.assertEqual(Membership.objects.filter(business=self.business).count(), 1)
 
     def test_add_member_within_limit(self):

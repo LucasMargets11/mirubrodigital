@@ -25,6 +25,11 @@ class AccountProfile(models.Model):
         PENDING_EMAIL_VERIFICATION = 'pending_email_verification', 'Pendiente de verificación'
         SUSPENDED                = 'suspended',                 'Suspendido'
 
+    # ── Account mode (secondary users only) ───────────────────────────
+    class AccountMode(models.TextChoices):
+        OWNER_MANAGED = 'owner_managed', 'Administrada por el propietario'
+        PERSONAL      = 'personal',      'Personal'
+
     # ── Platform internal roles (backoffice admin) ────────────────────────
     class InternalRole(models.TextChoices):
         SUPERADMIN    = 'superadmin',    'Super Admin'
@@ -71,6 +76,18 @@ class AccountProfile(models.Model):
         help_text='List of SHA-256 hashed single-use recovery codes.',
     )
     mfa_enrolled_at = models.DateTimeField(null=True, blank=True)
+
+    # ── Account mode & forced password change ─────────────────────────────
+    account_mode = models.CharField(
+        max_length=16,
+        choices=AccountMode.choices,
+        default=AccountMode.OWNER_MANAGED,
+        help_text='owner_managed: credential control by owner. personal: user self-service.',
+    )
+    must_change_password = models.BooleanField(
+        default=False,
+        help_text='True when a personal-mode user must change password on next login.',
+    )
 
     # Verification token (SHA-256 hash; plaintext sent once in email link)
     email_verification_token_hash   = models.CharField(max_length=64, null=True, blank=True, db_index=True)
@@ -151,6 +168,16 @@ class AccountProfile(models.Model):
         self.save(update_fields=['password_reset_token_hash', 'password_reset_token_created_at', 'updated_at'])
         return True
 
+    # ── Account-mode helpers ───────────────────────────────────────────────
+
+    def can_change_password(self) -> bool:
+        """True if the user is allowed to self-change their password."""
+        return self.account_mode == self.AccountMode.PERSONAL
+
+    def can_self_reset(self) -> bool:
+        """True if the user may request a password-reset email."""
+        return self.account_mode == self.AccountMode.PERSONAL and bool(self.user.email)
+
     def __str__(self) -> str:
         return f"AccountProfile({self.user_id}, verified={self.email_verified})"
 
@@ -225,48 +252,62 @@ class Membership(models.Model):
 
 from django.db.models.signals import pre_save
 from django.dispatch import receiver
-from rest_framework.exceptions import ValidationError
+from django.core.exceptions import ValidationError as DjangoValidationError
 
 @receiver(pre_save, sender=Membership)
 def check_seat_limit(sender, instance, raw=False, **kwargs):
     if raw or instance.pk: 
         return
+
+    # Owner membership never consumes a seat — skip entirely.
+    if instance.role == 'owner':
+        return
         
     business = instance.business
-    # Resolve HQ: avoid circular import if business logic is complex, 
-    # but here we just need to follow relation.
-    # Note: 'business' field might not be loaded if set by ID.
-    # Safe guard:
     if not business:
         return
 
     # Restrict menu_qr service roles
     menu_qr_allowed_roles = {'owner', 'manager', 'staff', 'viewer'}
     if getattr(business, 'default_service', None) == 'menu_qr' and instance.role not in menu_qr_allowed_roles:
-      raise ValidationError("Este rol no está disponible para el servicio de Menú QR.")
+      raise DjangoValidationError("Este rol no está disponible para el servicio de Menú QR.")
 
     # Helper to find HQ
     hq = business.parent if getattr(business, 'parent', None) else business
-    
-    # We use select_related in the query if possible, but here we are in a signal.
-    # We just want to prevent obvious violations. Race conditions are handled in service.
-    
-    sub = getattr(hq, 'subscription', None)
-    if not sub:
-        return
-        
-    max_seats = getattr(sub, 'max_seats', 0)
-    if max_seats <= 0:
-        return 
-        
     family_ids = [hq.id] + list(hq.branches.values_list('id', flat=True))
-    
-    # Exclude self if somehow this is run (it is pre_save create, so self is not in DB yet)
-    # Using count() here is subject to race conditions, but serves as a second line of defense.
-    current_count = Membership.objects.filter(business__id__in=family_ids).count()
-    
-    if current_count >= max_seats:
-        raise ValidationError(f"Límite de usuarios ({max_seats}) alcanzado para la cuenta {hq.name}.")
+
+    # ── V2-first subscription resolution ──────────────────────────────
+    from apps.billing.runtime import resolve_subscription
+    from apps.billing.plans import get_seat_limit
+
+    resolved = resolve_subscription(hq)
+
+    # No active subscription → block member creation
+    if not resolved.access_granted:
+        raise DjangoValidationError(
+            'No tenés una suscripción activa. '
+            'Activá un plan para poder agregar usuarios.'
+        )
+
+    if resolved.source == 'v2':
+        max_seats = get_seat_limit(resolved.plan)
+    elif resolved.source == 'legacy':
+        max_seats = resolved.legacy_sub.max_seats if resolved.legacy_sub else 0
+    else:
+        max_seats = 0  # Unreachable after access_granted gate
+
+    if max_seats > 0:
+        # Count only secondary users (exclude owner)
+        current_count = Membership.objects.filter(
+            business__id__in=family_ids,
+        ).exclude(
+            role='owner',
+        ).count()
+
+        if current_count >= max_seats:
+            raise DjangoValidationError(
+                f'Límite de usuarios ({max_seats}) alcanzado para la cuenta {hq.name}.'
+            )
 
 
 class AccessAuditLog(models.Model):
@@ -293,6 +334,9 @@ class AccessAuditLog(models.Model):
         # ── Contraseñas / acceso admin ────────────────────────────────────
         ('PASSWORD_RESET',              'Password Reset'),
         ('PASSWORD_RESET_CONFIRMED',    'Password Reset Confirmed'),
+        ('PASSWORD_RESET_REQUESTED',    'Password Reset Requested'),
+        ('PASSWORD_CHANGED',            'Password Changed (Self-Service)'),
+        ('PASSWORD_FORCE_CHANGED',      'Password Force Changed (First Login)'),
         ('EMAIL_VERIFICATION_SENT',     'Email Verification Sent'),
         ('EMAIL_VERIFIED',              'Email Verified'),
         # ── Cuentas operativas ────────────────────────────────────────────

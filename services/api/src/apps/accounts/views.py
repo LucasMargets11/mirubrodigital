@@ -140,6 +140,8 @@ def _session_payload(user: User, membership: Membership, memberships: List[Membe
 			'email': user.email,
 			'name': user.get_full_name() or user.get_username(),
 			'email_verified': profile.email_verified if profile else False,
+			'account_mode': profile.account_mode if profile else 'owner_managed',
+			'must_change_password': profile.must_change_password if profile else False,
 		},
 		'memberships': [
 			{
@@ -363,14 +365,7 @@ class VerifyEmailView(APIView):
 		serializer.is_valid(raise_exception=True)
 		token = serializer.validated_data['token']
 
-		profile = (
-			AccountProfile.objects
-			.select_related('user')
-			.filter(email_verification_token_hash__isnull=False)
-			.first()
-		)
-		# We must find the profile by trying all with a set hash — but hashing first
-		# avoids full-table scan because we indexed the hash column.
+		# Look up the profile by hashed token (indexed column; avoids full-table scan).
 		from apps.accounts.models import AccountProfile as AP
 		import hashlib
 		token_hash = hashlib.sha256(token.encode()).hexdigest()
@@ -459,6 +454,15 @@ class ForgotPasswordView(APIView):
 		try:
 			user = User.objects.get(email__iexact=email, is_active=True)
 			profile, _ = AccountProfile.objects.get_or_create(user=user)
+
+			# Owner-managed accounts cannot self-reset — return the same
+			# anti-enumeration response without generating a token.
+			if not profile.can_self_reset():
+				return Response({
+					'status': 'ok',
+					'message': 'Si el email está registrado, recibirás un enlace para restablecer tu contraseña.',
+				})
+
 			token = profile.generate_password_reset_token()
 			EmailService.send_password_reset_email(user, token)
 
@@ -467,7 +471,7 @@ class ForgotPasswordView(APIView):
 				membership = user.memberships.filter(role='owner').select_related('business').first()
 				if membership:
 					AccessAuditLog.objects.create(
-						action='PASSWORD_RESET_CONFIRMED',  # "requested" intent
+						action='PASSWORD_RESET_REQUESTED',
 						actor=user,
 						target_user=user,
 						business=membership.business,
@@ -526,9 +530,21 @@ class ResetPasswordView(APIView):
 				status=status.HTTP_400_BAD_REQUEST,
 			)
 
+		# Only personal accounts may self-reset via token
+		if profile.account_mode != AccountProfile.AccountMode.PERSONAL:
+			return Response(
+				{'detail': 'Tu cuenta es gestionada por el administrador. Contactá al dueño del negocio.'},
+				status=status.HTTP_403_FORBIDDEN,
+			)
+
 		user = profile.user
 		user.set_password(new_password)
 		user.save(update_fields=['password'])
+
+		# Clear must_change_password after successful self-reset
+		if profile.must_change_password:
+			profile.must_change_password = False
+			profile.save(update_fields=['must_change_password'])
 
 		# Audit
 		try:
@@ -547,4 +563,153 @@ class ResetPasswordView(APIView):
 			logger.exception("[ResetPasswordView] Audit log failed for user=%s", user.pk)
 
 		return Response({'status': 'ok', 'message': 'Tu contraseña fue restablecida exitosamente.'})
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Authenticated Password Change (personal accounts)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class ChangePasswordView(APIView):
+	"""
+	POST /api/v1/auth/change-password/
+	Body: { "current_password": "...", "new_password": "..." }
+
+	Allows personal-mode users to change their own password.
+	Owner-managed accounts are rejected.
+	"""
+	permission_classes = [IsAuthenticated]
+
+	def post(self, request: Request) -> Response:
+		current_password = request.data.get('current_password', '')
+		new_password = request.data.get('new_password', '')
+
+		if not current_password or not new_password:
+			return Response(
+				{'detail': 'current_password y new_password son requeridos.'},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		if len(new_password) < 8:
+			return Response(
+				{'detail': 'La nueva contraseña debe tener al menos 8 caracteres.'},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		user = request.user
+		profile = AccountProfile.objects.filter(user=user).first()
+
+		if not profile or not profile.can_change_password():
+			return Response(
+				{'detail': 'Tu cuenta es gestionada por el administrador. No podés cambiar la contraseña.'},
+				status=status.HTTP_403_FORBIDDEN,
+			)
+
+		if not user.check_password(current_password):
+			return Response(
+				{'detail': 'La contraseña actual es incorrecta.'},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		user.set_password(new_password)
+		user.save(update_fields=['password'])
+
+		# Clear must_change_password
+		if profile.must_change_password:
+			profile.must_change_password = False
+			profile.save(update_fields=['must_change_password'])
+
+		# Re-issue tokens so the user stays logged in
+		refresh = RefreshToken.for_user(user)
+		response = Response({'status': 'ok', 'message': 'Contraseña actualizada exitosamente.'})
+		_set_auth_cookies(response, refresh)
+
+		# Audit
+		try:
+			membership = user.memberships.select_related('business').first()
+			if membership:
+				AccessAuditLog.objects.create(
+					action='PASSWORD_CHANGED',
+					actor=user,
+					target_user=user,
+					business=membership.business,
+					details={'source': 'self_change'},
+					ip_address=_get_client_ip(request),
+					user_agent=request.META.get('HTTP_USER_AGENT', '')[:500],
+				)
+		except Exception:
+			logger.exception("[ChangePasswordView] Audit log failed for user=%s", user.pk)
+
+		return response
+
+
+class ForceChangePasswordView(APIView):
+	"""
+	POST /api/v1/auth/force-change-password/
+	Body: { "current_password": "...", "new_password": "..." }
+
+	Used when must_change_password=True. The user is forced to change their
+	password on the next login. Same logic as ChangePasswordView but
+	requires must_change_password flag to be set.
+	"""
+	permission_classes = [IsAuthenticated]
+
+	def post(self, request: Request) -> Response:
+		current_password = request.data.get('current_password', '')
+		new_password = request.data.get('new_password', '')
+
+		if not current_password or not new_password:
+			return Response(
+				{'detail': 'current_password y new_password son requeridos.'},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		if len(new_password) < 8:
+			return Response(
+				{'detail': 'La nueva contraseña debe tener al menos 8 caracteres.'},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		user = request.user
+		profile = AccountProfile.objects.filter(user=user).first()
+
+		if not profile or not profile.must_change_password:
+			return Response(
+				{'detail': 'No se requiere cambio de contraseña.'},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		if not user.check_password(current_password):
+			return Response(
+				{'detail': 'La contraseña actual es incorrecta.'},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		user.set_password(new_password)
+		user.save(update_fields=['password'])
+
+		profile.must_change_password = False
+		profile.save(update_fields=['must_change_password'])
+
+		# Re-issue tokens
+		refresh = RefreshToken.for_user(user)
+		response = Response({'status': 'ok', 'message': 'Contraseña actualizada exitosamente.'})
+		_set_auth_cookies(response, refresh)
+
+		# Audit
+		try:
+			membership = user.memberships.select_related('business').first()
+			if membership:
+				AccessAuditLog.objects.create(
+					action='PASSWORD_FORCE_CHANGED',
+					actor=user,
+					target_user=user,
+					business=membership.business,
+					details={'source': 'force_change'},
+					ip_address=_get_client_ip(request),
+					user_agent=request.META.get('HTTP_USER_AGENT', '')[:500],
+				)
+		except Exception:
+			logger.exception("[ForceChangePasswordView] Audit log failed for user=%s", user.pk)
+
+		return response
 

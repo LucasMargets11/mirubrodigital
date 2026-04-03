@@ -18,6 +18,17 @@ Test blocks:
      B1. Returns active products for the employee's business.
      B2. Search filter works (name icontains).
      B3. Invalid token is rejected.
+
+  C. Split payment — POST /api/v1/pos/sales/ with payments array.
+     C1. Single payment via payments array → 201, Payment record created.
+     C2. Two payments (split) → 201, two Payment records.
+     C3. Sum less than total → 400.
+     C4. Sum greater than total → 400.
+     C5. Negative amount → 400.
+     C6. Cash payment with open session impacts session (Payment.session set).
+     C7. Transfer payment does not add cash expected total.
+     C8. Atomicity: if payments validation fails, no sale/stock created.
+     C9. Legacy single payment_method still works (backward compat).
 """
 from __future__ import annotations
 
@@ -35,8 +46,9 @@ from django.conf import settings
 
 from apps.accounts.models import AccessAuditLog, EmployeeProfile
 from apps.business.models import Business, CommercialSettings
-from apps.cash.models import CashSession
+from apps.cash.models import CashSession, Payment
 from apps.catalog.models import Product
+from apps.inventory.models import StockMovement
 from apps.sales.models import Sale
 
 User = get_user_model()
@@ -289,3 +301,164 @@ class PosCatalogProductsTests(TestCase):
         client.credentials(HTTP_X_EMPLOYEE_TOKEN='bad-token')
         resp = client.get(URL_PRODUCTS)
         self.assertIn(resp.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
+
+
+# ── C. Split payment ──────────────────────────────────────────────────────────
+
+
+class PosSplitPaymentTests(TestCase):
+    """Tests for the split payment feature (payments array in POST /api/v1/pos/sales/)."""
+
+    def setUp(self):
+        self.business = _make_business(name='SplitPayBiz')
+        self.employee = _make_employee(self.business, code='EMP-SP01')
+        self.product = _make_product(self.business, name='Hamburguesa', price='150.00')
+        self.client = _employee_client(self.employee, self.business)
+        self._ensure_settings()
+
+    def _ensure_settings(self):
+        cs, _ = CommercialSettings.objects.get_or_create(business=self.business)
+        cs.block_sales_if_no_open_cash_session = False
+        cs.require_customer_for_sales = False
+        cs.save()
+
+    def _split_payload(self, payments, quantity=1):
+        return {
+            'items': [{'product_id': str(self.product.pk), 'quantity': quantity}],
+            'payments': payments,
+        }
+
+    # C1 —————————————————————————————————————————————————————————————————————
+
+    def test_C1_single_payment_via_payments_array(self):
+        payload = self._split_payload([
+            {'method': 'cash', 'amount': '150.00'},
+        ])
+        resp = self.client.post(URL_SALES, payload, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        sale_id = resp.json()['sale']['id']
+        sale = Sale.objects.get(pk=sale_id)
+        self.assertEqual(sale.total, Decimal('150.00'))
+        self.assertEqual(sale.payment_method, 'cash')
+        payments = Payment.objects.filter(sale=sale)
+        self.assertEqual(payments.count(), 1)
+        self.assertEqual(payments.first().method, 'cash')
+        self.assertEqual(payments.first().amount, Decimal('150.00'))
+
+    # C2 —————————————————————————————————————————————————————————————————————
+
+    def test_C2_two_payments_split(self):
+        # Product is 150 x 2 = 300
+        payload = self._split_payload([
+            {'method': 'cash', 'amount': '100.00'},
+            {'method': 'transfer', 'amount': '200.00', 'reference': 'Op 456'},
+        ], quantity=2)
+        resp = self.client.post(URL_SALES, payload, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        sale = Sale.objects.get(pk=resp.json()['sale']['id'])
+        self.assertEqual(sale.total, Decimal('300.00'))
+        payments = Payment.objects.filter(sale=sale).order_by('amount')
+        self.assertEqual(payments.count(), 2)
+        cash_pay = payments.get(method='cash')
+        self.assertEqual(cash_pay.amount, Decimal('100.00'))
+        transfer_pay = payments.get(method='transfer')
+        self.assertEqual(transfer_pay.amount, Decimal('200.00'))
+        self.assertEqual(transfer_pay.reference, 'Op 456')
+        # Primary payment_method on sale should be the largest = transfer
+        self.assertEqual(sale.payment_method, 'transfer')
+
+    # C3 —————————————————————————————————————————————————————————————————————
+
+    def test_C3_sum_less_than_total_rejected(self):
+        payload = self._split_payload([
+            {'method': 'cash', 'amount': '100.00'},
+        ])
+        resp = self.client.post(URL_SALES, payload, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    # C4 —————————————————————————————————————————————————————————————————————
+
+    def test_C4_sum_greater_than_total_rejected(self):
+        payload = self._split_payload([
+            {'method': 'cash', 'amount': '200.00'},
+        ])
+        resp = self.client.post(URL_SALES, payload, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    # C5 —————————————————————————————————————————————————————————————————————
+
+    def test_C5_negative_amount_rejected(self):
+        payload = self._split_payload([
+            {'method': 'cash', 'amount': '-50.00'},
+            {'method': 'transfer', 'amount': '200.00'},
+        ])
+        resp = self.client.post(URL_SALES, payload, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    # C6 —————————————————————————————————————————————————————————————————————
+
+    def test_C6_cash_payment_with_session_links_correctly(self):
+        session = _make_open_session(self.employee, self.business)
+        payload = self._split_payload([
+            {'method': 'cash', 'amount': '150.00'},
+        ])
+        resp = self.client.post(URL_SALES, payload, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        payment = Payment.objects.get(sale_id=resp.json()['sale']['id'])
+        self.assertEqual(payment.session_id, session.pk)
+
+    # C7 —————————————————————————————————————————————————————————————————————
+
+    def test_C7_transfer_does_not_impact_cash_expected(self):
+        from apps.cash.services import compute_session_totals
+        session = _make_open_session(self.employee, self.business)
+        # Sale with split: 50 cash + 100 transfer = 150
+        payload = self._split_payload([
+            {'method': 'cash', 'amount': '50.00'},
+            {'method': 'transfer', 'amount': '100.00'},
+        ])
+        resp = self.client.post(URL_SALES, payload, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        totals = compute_session_totals(session)
+        # Cash expected = opening (500) + cash payments (50) = 550
+        self.assertEqual(totals['cash_expected_total'], Decimal('550.00'))
+        # Total payments = 150
+        self.assertEqual(totals['payments_total'], Decimal('150.00'))
+        # Cash-only payments = 50
+        self.assertEqual(totals['cash_payments_total'], Decimal('50.00'))
+
+    # C8 —————————————————————————————————————————————————————————————————————
+
+    def test_C8_atomicity_no_stock_deducted_on_payment_failure(self):
+        from apps.inventory.models import StockRecord
+        from apps.inventory.services import ensure_stock_record
+        # Ensure stock record exists and note the initial quantity
+        stock = ensure_stock_record(self.business, self.product)
+        initial_qty = stock.quantity
+        # Wrong total — sum doesn't match
+        payload = self._split_payload([
+            {'method': 'cash', 'amount': '999.00'},
+        ])
+        resp = self.client.post(URL_SALES, payload, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        # Stock should NOT have changed
+        stock.refresh_from_db()
+        self.assertEqual(stock.quantity, initial_qty)
+        # No sale should have been created
+        self.assertEqual(Sale.objects.filter(business=self.business).count(), 0)
+
+    # C9 —————————————————————————————————————————————————————————————————————
+
+    def test_C9_legacy_payment_method_still_works(self):
+        """Old-style payload without payments array still creates a sale."""
+        payload = {
+            'payment_method': 'cash',
+            'items': [{'product_id': str(self.product.pk), 'quantity': 1}],
+        }
+        resp = self.client.post(URL_SALES, payload, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        sale = Sale.objects.get(pk=resp.json()['sale']['id'])
+        self.assertEqual(sale.payment_method, 'cash')
+        self.assertEqual(sale.total, Decimal('150.00'))
+        # No Payment records should be created for legacy flow
+        self.assertEqual(Payment.objects.filter(sale=sale).count(), 0)

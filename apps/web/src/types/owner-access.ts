@@ -32,6 +32,7 @@ export interface UserAccount {
   is_active: boolean;
   has_usable_password: boolean;
   membership_status?: 'active' | 'suspended' | 'inactive';
+  account_mode: 'owner_managed' | 'personal';
   date_joined: string;
   last_login: string | null;
 }
@@ -105,6 +106,27 @@ export interface CreateMemberPayload {
   password: string;
   role: string;
   email?: string;
+  account_mode: 'owner_managed' | 'personal';
+  force_password_change: boolean;
+}
+
+export interface SeatInfo {
+  current: number;
+  source: string;
+  access_granted: boolean;
+  max?: number;
+  limit?: number;
+  plan?: string;
+}
+
+/** Normalize limit from whichever field the backend sends. */
+export function getEffectiveLimit(s: SeatInfo): number {
+  return s.limit ?? s.max ?? 0;
+}
+
+export interface AccountsListResponse {
+  accounts: UserAccount[];
+  seat_info: SeatInfo;
 }
 
 export interface CreateMemberResponse {

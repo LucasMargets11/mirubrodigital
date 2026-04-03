@@ -49,7 +49,7 @@ logger = logging.getLogger(__name__)
 User = get_user_model()
 
 # ── Service type validation ────────────────────────────────────────────────────
-VALID_SERVICE_TYPES = frozenset(['gestion', 'restaurante', 'menu_qr'])
+VALID_SERVICE_TYPES = frozenset(['gestion', 'restaurante', 'menu_qr', 'qr_reviews'])
 
 # ── Onboarding step computation ────────────────────────────────────────────────
 

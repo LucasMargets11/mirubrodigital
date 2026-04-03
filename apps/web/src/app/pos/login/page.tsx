@@ -3,7 +3,7 @@
 /**
  * Operative employee login page — /pos/login
  *
- * Fields: business_id (number), employee_code (string), pin (string)
+ * Fields: business_code (slug), employee_code (string), pin (string)
  * On success: context.login() stores token + hydrates session.
  * If must_change_pin: layout guard redirects to /pos/change-pin automatically.
  * Otherwise: redirects to /pos/terminal.
@@ -18,7 +18,7 @@ export default function PosLoginPage() {
   const { login, session } = useEmployeeSession();
   const router = useRouter();
 
-  const [businessId, setBusinessId] = useState('');
+  const [businessCode, setBusinessCode] = useState('');
   const [employeeCode, setEmployeeCode] = useState('');
   const [pin, setPin] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -31,7 +31,7 @@ export default function PosLoginPage() {
 
     try {
       await login({
-        business_id: parseInt(businessId, 10),
+        business_code: businessCode.trim().toLowerCase(),
         employee_code: employeeCode.trim(),
         pin,
       });
@@ -68,19 +68,18 @@ export default function PosLoginPage() {
         <form onSubmit={handleSubmit} className="space-y-4" noValidate>
           <div>
             <label
-              htmlFor="business_id"
+              htmlFor="business_code"
               className="block text-sm font-medium text-gray-700"
             >
-              ID de negocio
+              Código de negocio
             </label>
             <input
-              id="business_id"
-              type="number"
+              id="business_code"
+              type="text"
               required
-              min={1}
-              value={businessId}
-              onChange={(e) => setBusinessId(e.target.value)}
-              placeholder="123"
+              value={businessCode}
+              onChange={(e) => setBusinessCode(e.target.value)}
+              placeholder="mi-negocio"
               className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
               disabled={isLoading}
               autoComplete="off"

@@ -329,6 +329,47 @@ class Command(BaseCommand):
              if menu_modules.get(c) or premium_menu_mods.get(c)]
         )
 
+        # -------------------------------------------------------------------
+        # QR de Reseñas — standalone product
+        # -------------------------------------------------------------------
+        qr_reviews_mods_data = [
+            ('qr_reviews_core', 'Configuración de Reseñas', 'Google Place ID y enlace de reseñas.', 'operation', 0, True),
+            ('qr_reviews_qr_gen', 'Generador de QR', 'Generación de QR y link público para reseñas.', 'insights', 0, True),
+        ]
+        qr_reviews_modules = {}
+        for code, name, desc, cat, price, is_core in qr_reviews_mods_data:
+            mod, _ = Module.objects.update_or_create(
+                code=code,
+                defaults={
+                    'name': name,
+                    'description': desc,
+                    'category': cat,
+                    'price_monthly': price,
+                    'price_yearly': 0,
+                    'is_core': is_core,
+                    'vertical': 'qr_reviews',
+                }
+            )
+            qr_reviews_modules[code] = mod
+
+        # PROVISIONAL PRICING — subject to commercial decision.
+        # Single source of truth for QR de Reseñas pricing is this bundle seed.
+        # Frontend reads this via /api/v1/billing/bundles/?vertical=qr_reviews.
+        b_qr_reviews, _ = Bundle.objects.update_or_create(
+            code='qr_reviews',
+            defaults={
+                'name': 'QR de Reseñas',
+                'description': 'QR y enlace público para recopilar reseñas de Google.',
+                'vertical': 'qr_reviews',
+                'pricing_mode': 'fixed_price',
+                'fixed_price_monthly': 4900,    # PROVISIONAL: ARS $49/mes
+                'fixed_price_yearly': 47040,    # PROVISIONAL: ARS $49 * 12 * 0.80
+                'is_default_recommended': True,
+                'badge': '',
+            }
+        )
+        b_qr_reviews.modules.set(list(qr_reviews_modules.values()))
+
         # Plans for checkout flow
         # These codes MUST match Bundle.code values — checkout_session_service.start_checkout()
         # looks up Plan by code, and plan/page.tsx sends Bundle.code as plan_code.
@@ -346,6 +387,8 @@ class Command(BaseCommand):
             ('menu_qr_basico',          'QR Básico — Menú QR',               Decimal('29.00'),   'menu_qr'),
             ('menu_qr_visual',          'QR Visual — Menú QR',               Decimal('59.00'),   'menu_qr'),
             ('menu_qr_marca',           'QR Marca — Menú QR',                Decimal('99.00'),   'menu_qr'),
+            # QR de Reseñas — PROVISIONAL PRICING
+            ('qr_reviews',              'QR de Reseñas',                     Decimal('49.00'),   'qr_reviews'),
             # Legacy (kept for backward compat with existing checkout sessions)
             ('menu_qr_monthly',         'Menú QR Online Mensual',            Decimal('49.00'),   'menu_qr'),
             ('menu_qr_yearly',          'Menú QR Online Anual',              Decimal('529.00'),  'menu_qr'),

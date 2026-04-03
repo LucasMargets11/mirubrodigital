@@ -19,6 +19,13 @@ const ROLE_OPTIONS: { value: string; label: string }[] = [
     { value: 'analyst', label: 'Analyst' },
 ];
 
+/** Roles that default to 'personal' account mode. */
+const PERSONAL_DEFAULT_ROLES = new Set(['admin', 'manager', 'analyst']);
+
+function getRecommendedMode(role: string): 'owner_managed' | 'personal' {
+    return PERSONAL_DEFAULT_ROLES.has(role) ? 'personal' : 'owner_managed';
+}
+
 export function CreateMemberModal({ isOpen, onClose }: CreateMemberModalProps) {
     const [firstName, setFirstName] = useState('');
     const [lastName, setLastName] = useState('');
@@ -26,9 +33,27 @@ export function CreateMemberModal({ isOpen, onClose }: CreateMemberModalProps) {
     const [password, setPassword] = useState('');
     const [role, setRole] = useState('staff');
     const [email, setEmail] = useState('');
+    const [accountMode, setAccountMode] = useState<'owner_managed' | 'personal'>('owner_managed');
+    const [forcePasswordChange, setForcePasswordChange] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [createdInfo, setCreatedInfo] = useState<{ username: string; fullName: string; role: string } | null>(null);
+
+    if (!isOpen) return null;
+
+    const handleRoleChange = (newRole: string) => {
+        setRole(newRole);
+        const recommended = getRecommendedMode(newRole);
+        setAccountMode(recommended);
+        setForcePasswordChange(recommended === 'personal');
+    };
+
+    const handleAccountModeChange = (mode: 'owner_managed' | 'personal') => {
+        setAccountMode(mode);
+        if (mode === 'owner_managed') {
+            setForcePasswordChange(false);
+        }
+    };
 
     if (!isOpen) return null;
 
@@ -44,6 +69,8 @@ export function CreateMemberModal({ isOpen, onClose }: CreateMemberModalProps) {
                 username: username.trim(),
                 password,
                 role,
+                account_mode: accountMode,
+                force_password_change: accountMode === 'personal' ? forcePasswordChange : false,
                 ...(email.trim() ? { email: email.trim() } : {}),
             });
             setCreatedInfo({
@@ -65,6 +92,8 @@ export function CreateMemberModal({ isOpen, onClose }: CreateMemberModalProps) {
         setPassword('');
         setRole('staff');
         setEmail('');
+        setAccountMode('owner_managed');
+        setForcePasswordChange(false);
         setError(null);
         setCreatedInfo(null);
         onClose(!!createdInfo);
@@ -201,7 +230,7 @@ export function CreateMemberModal({ isOpen, onClose }: CreateMemberModalProps) {
                                 </label>
                                 <select
                                     value={role}
-                                    onChange={(e) => setRole(e.target.value)}
+                                    onChange={(e) => handleRoleChange(e.target.value)}
                                     className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                                 >
                                     {ROLE_OPTIONS.map((opt) => (
@@ -211,6 +240,56 @@ export function CreateMemberModal({ isOpen, onClose }: CreateMemberModalProps) {
                                     ))}
                                 </select>
                             </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700">
+                                    Modo de cuenta
+                                </label>
+                                <div className="mt-1 flex gap-3">
+                                    <label className={`flex-1 cursor-pointer rounded-lg border px-3 py-2 text-center text-sm transition-colors ${accountMode === 'owner_managed' ? 'border-blue-500 bg-blue-50 text-blue-700 font-medium' : 'border-slate-300 text-slate-600 hover:bg-slate-50'}`}>
+                                        <input
+                                            type="radio"
+                                            name="account_mode"
+                                            value="owner_managed"
+                                            checked={accountMode === 'owner_managed'}
+                                            onChange={() => handleAccountModeChange('owner_managed')}
+                                            className="sr-only"
+                                        />
+                                        Administrada
+                                    </label>
+                                    <label className={`flex-1 cursor-pointer rounded-lg border px-3 py-2 text-center text-sm transition-colors ${accountMode === 'personal' ? 'border-blue-500 bg-blue-50 text-blue-700 font-medium' : 'border-slate-300 text-slate-600 hover:bg-slate-50'}`}>
+                                        <input
+                                            type="radio"
+                                            name="account_mode"
+                                            value="personal"
+                                            checked={accountMode === 'personal'}
+                                            onChange={() => handleAccountModeChange('personal')}
+                                            className="sr-only"
+                                        />
+                                        Personal
+                                    </label>
+                                </div>
+                                <p className="mt-1 text-xs text-slate-500">
+                                    {accountMode === 'owner_managed'
+                                        ? 'Vos gestionás la contraseña. El usuario no puede cambiarla.'
+                                        : 'El usuario gestiona su propia contraseña y puede recuperarla por email.'}
+                                </p>
+                            </div>
+
+                            {accountMode === 'personal' && (
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        type="checkbox"
+                                        id="force_password_change"
+                                        checked={forcePasswordChange}
+                                        onChange={(e) => setForcePasswordChange(e.target.checked)}
+                                        className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                    />
+                                    <label htmlFor="force_password_change" className="text-sm text-slate-700">
+                                        Forzar cambio de contraseña en el primer inicio de sesión
+                                    </label>
+                                </div>
+                            )}
 
                             <div>
                                 <label className="block text-sm font-medium text-slate-700">
