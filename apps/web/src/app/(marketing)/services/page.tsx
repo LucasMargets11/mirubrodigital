@@ -1,11 +1,11 @@
 import Link from 'next/link';
-import { type LucideIcon, BarChart3, Boxes, Check, ChefHat, FileText, Image, Layers, ListChecks, Map, Palette, QrCode, RefreshCw, ShieldCheck, ShoppingBag, Smartphone, Wallet } from 'lucide-react';
+import { type LucideIcon, BarChart3, Boxes, Check, ChefHat, FileText, Image, Layers, ListChecks, Map, MessageSquareHeart, Palette, QrCode, RefreshCw, ShieldCheck, ShoppingBag, Smartphone, Star, Wallet } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 
-type ServiceVertical = 'commercial' | 'restaurant' | 'menu_qr';
+type ServiceVertical = 'commercial' | 'restaurant' | 'menu_qr' | 'qr_resenas';
 
 type FeatureCardData = {
     title: string;
@@ -25,7 +25,15 @@ type ServiceConfig = {
 const SERVICE_QUERY: Record<ServiceVertical, string> = {
     commercial: 'commerce',
     restaurant: 'restaurant',
-    menu_qr: 'menu_qr'
+    menu_qr: 'menu_qr',
+    qr_resenas: 'menu_qr'
+};
+
+const SERVICE_ANCHOR: Record<ServiceVertical, string> = {
+    commercial: 'gestion-comercial',
+    restaurant: 'restaurante',
+    menu_qr: 'carta-online',
+    qr_resenas: 'qr-resenas'
 };
 
 const SERVICES: ServiceConfig[] = [
@@ -123,6 +131,31 @@ const SERVICES: ServiceConfig[] = [
                 className: 'lg:col-span-2'
             }
         ]
+    },
+    {
+        id: 'qr_resenas',
+        title: 'QR de Reseñas',
+        description: 'Impulsá la reputación de tu negocio con un QR que lleva directo a tus reseñas de Google — sin fricciones, sin apps.',
+        features: [
+            {
+                title: 'QR directo a Google',
+                description: 'Un escaneo y tu cliente ya está dejando su opinión.',
+                bullets: ['Link directo a Google Reviews', 'QR descargable en alta resolución', 'Sin pasos intermedios'],
+                icon: QrCode
+            },
+            {
+                title: 'Más reseñas positivas',
+                description: 'Facilitá el proceso para que más clientes opinen.',
+                bullets: ['Flujo optimizado para móvil', 'Visible en mesas, mostrador o delivery', 'Aumentá tu rating de Google'],
+                icon: Star
+            },
+            {
+                title: 'Panel de seguimiento',
+                description: 'Visualizá el impacto de tus reseñas desde tu panel.',
+                bullets: ['Historial de escaneos', 'Métricas de uso', 'Gestión multi-sucursal'],
+                icon: MessageSquareHeart
+            }
+        ]
     }
 ];
 
@@ -154,7 +187,7 @@ type ServiceSectionProps = {
 
 function ServiceSection({ service }: ServiceSectionProps) {
     return (
-        <section className="w-full rounded-2xl border border-slate-200 bg-white p-5 shadow-md shadow-slate-100/50 ring-1 ring-slate-100 transition-shadow md:p-6 lg:p-7">
+        <section id={SERVICE_ANCHOR[service.id]} className="w-full scroll-mt-24 rounded-2xl border border-slate-200 bg-white p-5 shadow-md shadow-slate-100/50 ring-1 ring-slate-100 transition-shadow md:p-6 lg:p-7">
             <div className="flex flex-col gap-6 lg:grid lg:grid-cols-[340px_1fr] lg:gap-8 lg:items-start">
                 <div className="space-y-4">
                     <div className="space-y-2">

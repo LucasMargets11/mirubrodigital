@@ -69,7 +69,7 @@ export const SERVICES: ServiceItem[] = [
             'Personalización total de marca',
         ],
         ctaLabel: 'Ver demo',
-        ctaHref: '/menu',
+        ctaHref: '/carta',
     },
     {
         id: 'facturacion',
@@ -83,7 +83,7 @@ export const SERVICES: ServiceItem[] = [
             'Centro de costos y gastos',
         ],
         ctaLabel: 'Conocer más',
-        ctaHref: '/facturacion',
+        ctaHref: '/gestion',
     },
 ];
 

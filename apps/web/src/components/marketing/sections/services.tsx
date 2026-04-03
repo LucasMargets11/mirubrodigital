@@ -46,7 +46,7 @@ const SOLUTIONS_CARDS = [
             'Opción de propina digital'
         ],
         ctaLabel: 'Ver Menú QR',
-        ctaHref: '/menu',
+        ctaHref: '/carta',
     }
 ];
 

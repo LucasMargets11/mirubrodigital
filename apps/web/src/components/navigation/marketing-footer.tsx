@@ -88,9 +88,9 @@ export function MarketingFooter() {
                     <nav aria-label="Navegación del footer">
                         <div className="grid grid-cols-2 gap-x-10 gap-y-8 sm:gap-x-16 lg:grid-cols-3 lg:gap-x-20">
                             <FooterSection title="Productos">
-                                <FooterLink href="/services#commercial">Gestión Comercial</FooterLink>
-                                <FooterLink href="/services#menu_qr">Menú QR Online</FooterLink>
-                                <FooterLink href="/services#qr_reviews">QR para reseñas</FooterLink>
+                                <FooterLink href="/gestion">Gestión Comercial</FooterLink>
+                                <FooterLink href="/carta">Carta Online</FooterLink>
+                                <FooterLink href="/resenas">QR de Reseñas</FooterLink>
                             </FooterSection>
 
                             <FooterSection title="Recursos">

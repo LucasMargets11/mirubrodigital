@@ -8,7 +8,7 @@ export default function MarketingLayout({ children }: { children: ReactNode }) {
             <MarketingNav />
 
             {/* Main takes remaining space, compensates for fixed header with responsive padding */}
-            <main className="flex-1 flex flex-col pt-14 lg:pt-16">
+            <main className="flex-1 flex flex-col pt-20 lg:pt-24">
                 {children}
             </main>
 

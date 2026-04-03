@@ -7,14 +7,13 @@ import Image from 'next/image';
 import type { Route } from 'next';
 import { Menu, X, ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { SiteContainer } from '@/components/layout/site-container';
 import { useScrollDirection } from '@/hooks/use-scroll-direction';
 
 const marketingLinks = [
-    { href: '/pricing', label: 'Precios' },
-    { href: '/services', label: 'Servicios' },
+    { href: '/gestion', label: 'Gestión Comercial' },
+    { href: '/carta', label: 'Carta Online' },
+    { href: '/resenas', label: 'QR de Reseñas' },
     { href: '/blog', label: 'Blog' },
-    { href: '/soporte', label: 'Soporte' },
 ];
 
 export function MarketingNav() {
@@ -46,16 +45,16 @@ export function MarketingNav() {
                     "fixed top-0 inset-x-0 z-50 w-full transition-all duration-300 ease-in-out border-b",
                     isHidden ? "-translate-y-full" : "translate-y-0",
                     showBackground
-                        ? "bg-white border-zinc-100 py-3 shadow-sm" 
-                        : "bg-transparent border-transparent py-5"
+                        ? "bg-white/95 backdrop-blur-xl border-zinc-200/60 py-3.5 lg:py-4 shadow-[0_1px_3px_0_rgb(0,0,0,0.04)]" 
+                        : "bg-transparent border-transparent py-5 lg:py-6"
                 )}
             >
-                <SiteContainer>
+                <div className="mx-auto w-full max-w-[1400px] px-6 lg:px-12">
                     <div className="flex items-center justify-between relative z-50">
                         {/* Logo */}
                         <Link 
                             href="/" 
-                            className="flex items-center gap-2.5 group relative z-50"
+                            className="flex items-center gap-3 group relative z-50"
                             onClick={(e) => {
                                 setIsOpen(false);
                                 if (pathname === '/') {
@@ -65,45 +64,53 @@ export function MarketingNav() {
                             }}
                             aria-label="Ir al inicio"
                         >
-                            <div className="relative w-8 h-8 lg:w-9 lg:h-9 transition-transform duration-300 group-hover:scale-105">
+                            <div className="relative w-9 h-9 lg:w-10 lg:h-10 transition-transform duration-300 group-hover:scale-105">
                                 <Image 
                                     src="/logo/rubroicono.png" 
                                     alt="Mirubro Logo" 
                                     fill
                                     className="object-contain"
-                                    sizes="(max-width: 768px) 32px, 36px"
+                                    sizes="(max-width: 768px) 36px, 40px"
                                 />
                             </div>
-                            <span className="text-xl lg:text-2xl font-display font-semibold text-zinc-950 tracking-tight">
+                            <span className="text-[1.35rem] lg:text-[1.6rem] font-display font-bold text-zinc-950 tracking-tight">
                                 MiRubro
                             </span>
                         </Link>
 
                         {/* Desktop Navigation */}
-                        <nav className="hidden md:flex items-center gap-8">
-                            <div className="flex items-center gap-6">
+                        <nav className="hidden lg:flex items-center gap-10">
+                            <div className="flex items-center gap-7">
                                 {marketingLinks.map((link) => (
                                     <Link 
                                         key={link.href} 
                                         href={link.href as Route} 
-                                        className="text-sm font-medium text-zinc-600 hover:text-brand-600 transition-colors"
+                                        className="text-[0.8125rem] font-semibold text-zinc-600 hover:text-zinc-900 transition-colors whitespace-nowrap"
                                     >
                                         {link.label}
                                     </Link>
                                 ))}
                             </div>
-                            
-                            <Link 
-                                href="/entrar" 
-                                className="inline-flex items-center justify-center px-5 py-2.5 text-sm font-semibold text-white transition-all bg-zinc-900 rounded-full hover:bg-zinc-800 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-zinc-900/20"
-                            >
-                                Ingresar
-                            </Link>
+
+                            <div className="flex items-center gap-6">
+                                <Link 
+                                    href="/entrar" 
+                                    className="text-[0.8125rem] font-semibold text-zinc-500 hover:text-zinc-800 transition-colors whitespace-nowrap"
+                                >
+                                    Ingresar
+                                </Link>
+                                <Link 
+                                    href="/entrar" 
+                                    className="inline-flex items-center justify-center px-6 py-2.5 text-sm font-bold text-white transition-all bg-zinc-900 rounded-full hover:bg-zinc-800 shadow-sm hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-zinc-900/20 whitespace-nowrap"
+                                >
+                                    Empezar
+                                </Link>
+                            </div>
                         </nav>
 
                         {/* Mobile Toggle Button */}
                         <button
-                            className="md:hidden p-2 -mr-2 text-zinc-800 hover:bg-zinc-100 rounded-full transition-colors"
+                            className="lg:hidden p-2 -mr-2 text-zinc-800 hover:bg-zinc-100 rounded-full transition-colors"
                             onClick={() => setIsOpen(!isOpen)}
                             aria-label={isOpen ? "Cerrar menú" : "Abrir menú"}
                             aria-expanded={isOpen}
@@ -115,13 +122,13 @@ export function MarketingNav() {
                             )}
                         </button>
                     </div>
-                </SiteContainer>
+                </div>
             </header>
 
             {/* Mobile Menu Overlay */}
             <div
                 className={cn(
-                    "fixed inset-0 z-40 bg-white flex flex-col md:hidden transition-all duration-300 ease-in-out",
+                    "fixed inset-0 z-40 bg-white flex flex-col lg:hidden transition-all duration-300 ease-in-out",
                     isOpen 
                         ? "opacity-100 translate-y-0 pointer-events-auto" 
                         : "opacity-0 -translate-y-4 pointer-events-none"
@@ -143,11 +150,18 @@ export function MarketingNav() {
                         ))}
                     </div>
                     
-                    <div className="mt-auto pt-6">
+                    <div className="mt-auto pt-6 space-y-3">
                         <Link 
                             href="/entrar" 
                             onClick={() => setIsOpen(false)}
                             className="flex items-center justify-center w-full h-14 bg-zinc-900 text-white rounded-xl font-bold text-lg shadow-lg hover:bg-zinc-800 active:scale-[0.98] transition-all"
+                        >
+                            Empezar
+                        </Link>
+                        <Link 
+                            href="/entrar" 
+                            onClick={() => setIsOpen(false)}
+                            className="flex items-center justify-center w-full h-14 border border-zinc-200 text-zinc-700 rounded-xl font-semibold text-lg hover:bg-zinc-50 active:scale-[0.98] transition-all"
                         >
                             Ingresar a mi cuenta
                         </Link>

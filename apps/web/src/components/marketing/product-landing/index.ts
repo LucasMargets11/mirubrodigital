@@ -1,0 +1,10 @@
+export { ProductHero } from './product-hero';
+export { ProductDemo } from './product-demo';
+export { ProductBenefits } from './product-benefits';
+export { ProductSteps } from './product-steps';
+export { ProductFeatures } from './product-features';
+export { ProductPricing } from './product-pricing';
+export { ProductFinalCta } from './product-final-cta';
+export { GestionPricingSection } from './gestion-pricing-section';
+export { CartaPricingSection } from './carta-pricing-section';
+export { ResenasPricingSection } from './resenas-pricing-section';
