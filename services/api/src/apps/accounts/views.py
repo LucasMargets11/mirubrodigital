@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import ipaddress
 from typing import Dict, List
 
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from rest_framework import serializers, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
@@ -19,16 +20,26 @@ from apps.accounts.access import (
 	list_user_memberships,
 	select_membership,
 )
+from apps.accounts import auth_rate_limiter
+from apps.accounts import security_events
 from apps.accounts.models import AccessAuditLog, AccountProfile
 from apps.accounts.rbac import permissions_for_service
 from apps.accounts.services import EmailService
+from apps.accounts.tasks import send_verification_email_task
+from apps.accounts.throttles import (
+    ForgotPasswordThrottle,
+    LoginThrottle,
+    RefreshTokenThrottle,
+    RegisterThrottle,
+    ResetPasswordThrottle,
+    VerifyEmailThrottle,
+)
 from apps.business.context import build_business_context
 from apps.business.models import Business, Subscription, BusinessPlan
 from apps.business.service_catalog import serialize_catalog
 from .models import Membership
 from .serializers import (
     ForgotPasswordSerializer,
-    LoginSerializer,
     RegisterSerializer,
     ResetPasswordSerializer,
     VerifyEmailSerializer,
@@ -192,6 +203,7 @@ def _session_payload(user: User, membership: Membership, memberships: List[Membe
 class LoginView(APIView):
 	permission_classes = [AllowAny]
 	authentication_classes: list = []
+	throttle_classes = [LoginThrottle]
 
 	def post(self, request: Request) -> Response:
 		# Accept either email or username field for backward compatibility.
@@ -205,25 +217,49 @@ class LoginView(APIView):
 		if not identifier or not password:
 			return Response({'detail': 'Credenciales inválidas'}, status=status.HTTP_400_BAD_REQUEST)
 
+		# ── 3D rate limiter (IP + identifier + combo) ──────────────────
+		client_ip = _get_client_ip(request)
+		rl_result = auth_rate_limiter.check_rate_limit(client_ip, identifier)
+		if not rl_result.allowed:
+			security_events.ratelimit_triggered(ip=client_ip, email=identifier, reason=rl_result.reason)
+			return Response(
+				{'detail': rl_result.reason},
+				status=status.HTTP_429_TOO_MANY_REQUESTS,
+				headers={'Retry-After': str(rl_result.retry_after)},
+			)
+
 		# Use custom backend which tries email first, then username.
 		authenticated_user = authenticate(request=request, username=identifier, password=password)
 		if authenticated_user is None:
+			auth_rate_limiter.record_failed_attempt(client_ip, identifier)
+			security_events.login_failed(email=identifier, ip=client_ip)
 			return Response({'detail': 'Credenciales inválidas'}, status=status.HTTP_400_BAD_REQUEST)
 
 		if not authenticated_user.is_active:
-			return Response({'detail': 'Usuario inactivo'}, status=status.HTTP_400_BAD_REQUEST)
+			auth_rate_limiter.record_failed_attempt(client_ip, identifier)
+			security_events.login_failed(email=identifier, ip=client_ip, reason='inactive_user')
+			return Response({'detail': 'Credenciales inválidas'}, status=status.HTTP_400_BAD_REQUEST)
 
+		auth_rate_limiter.reset_on_success(client_ip, identifier)
 		membership = _ensure_membership(authenticated_user)
 		refresh = RefreshToken.for_user(authenticated_user)
 		response = Response({'status': 'ok', 'onboarding': membership.business.status == 'onboarding'})
 		_set_auth_cookies(response, refresh)
 		_set_business_cookie(response, membership.business_id)
+		security_events.login_success(user_id=authenticated_user.pk, email=authenticated_user.email, ip=client_ip)
 		return response
 
 
 class RegisterView(APIView):
 	permission_classes = [AllowAny]
 	authentication_classes: list = []
+	throttle_classes = [RegisterThrottle]
+
+	# Anti-enumeration: both branches return 201 with the same shape.
+	_SAFE_RESPONSE = {
+		'status': 'created',
+		'message': 'Revisa tu email para verificar tu cuenta.',
+	}
 
 	def post(self, request: Request) -> Response:
 		serializer = RegisterSerializer(data=request.data)
@@ -231,32 +267,40 @@ class RegisterView(APIView):
 		email = serializer.validated_data['email'].lower()
 		password = serializer.validated_data['password']
 
-		# Verificar si el usuario ya existe
+		# Anti-enumeration: if the email already exists, return the exact
+		# same HTTP status and payload as a successful registration.  No
+		# verification email is sent (the existing user is not affected).
 		if User.objects.filter(email__iexact=email).exists():
-			return Response({'detail': 'El email ya está registrado'}, status=status.HTTP_400_BAD_REQUEST)
+			logger.info('[RegisterView] Suppressed duplicate registration for email=%s', email)
+			return Response(self._SAFE_RESPONSE, status=status.HTTP_201_CREATED)
 
-		# Crear usuario
-		user = User.objects.create_user(
-			username=email,
-			email=email,
-			password=password,
-		)
+		try:
+			with transaction.atomic():
+				user = User.objects.create_user(
+					username=email,
+					email=email,
+					password=password,
+				)
 
-		# Ensure AccountProfile exists (signal creates it, but be defensive)
-		profile, _ = AccountProfile.objects.get_or_create(user=user)
+				# Ensure AccountProfile exists (signal creates it, but be defensive)
+				profile, _ = AccountProfile.objects.get_or_create(user=user)
 
-		# Generate verification token and send email (non-blocking — failure is logged)
-		token = profile.generate_verification_token()
-		email_sent = EmailService.send_verification_email(user, token)
+				# Generate token inside atomic so it's committed with the user.
+				token = profile.generate_verification_token()
+				# Enqueue Celery task after commit — no sync work in the request.
+				# This closes the timing side-channel: both the "existing email"
+				# and "new user" paths return immediately with the same cost.
+				transaction.on_commit(
+					lambda: send_verification_email_task.delay(user.id, token)
+				)
+		except IntegrityError:
+			# Concurrent request created the same user between our exists()
+			# check and create_user(). Return the safe response to maintain
+			# anti-enumeration and avoid 500.
+			logger.info('[RegisterView] IntegrityError (race) for email=%s', email)
+			return Response(self._SAFE_RESPONSE, status=status.HTTP_201_CREATED)
 
-		return Response({
-			'status': 'created',
-			'user': {
-				'id': user.id,
-				'email': user.email,
-			},
-			'verification_email_sent': email_sent,
-		}, status=status.HTTP_201_CREATED)
+		return Response(self._SAFE_RESPONSE, status=status.HTTP_201_CREATED)
 
 
 
@@ -264,7 +308,20 @@ class LogoutView(APIView):
 	permission_classes = [AllowAny]
 	authentication_classes: list = []
 
-	def post(self, _request: Request) -> Response:
+	def post(self, request: Request) -> Response:
+		# Revoke the refresh token server-side BEFORE clearing cookies.
+		# Gracefully handles: no cookie, expired token, already-blacklisted token.
+		raw_refresh = request.COOKIES.get('refresh_token')
+		user_id = None
+		if raw_refresh:
+			try:
+				token = RefreshToken(raw_refresh)
+				user_id = token.get('user_id')
+				token.blacklist()
+			except TokenError:
+				pass
+
+		security_events.logout_success(user_id=user_id, ip=_get_client_ip(request))
 		response = Response({'status': 'logged_out'})
 		_clear_session_cookies(response)
 		return response
@@ -273,10 +330,13 @@ class LogoutView(APIView):
 class RefreshView(APIView):
 	permission_classes = [AllowAny]
 	authentication_classes: list = []
+	throttle_classes = [RefreshTokenThrottle]
 
 	def post(self, request: Request) -> Response:
+		client_ip = _get_client_ip(request)
 		raw_refresh = request.COOKIES.get('refresh_token')
 		if not raw_refresh:
+			security_events.refresh_failed(ip=client_ip, reason='missing_cookie')
 			response = Response({'detail': 'Refresh token faltante'}, status=status.HTTP_401_UNAUTHORIZED)
 			_clear_session_cookies(response)
 			return response
@@ -285,13 +345,26 @@ class RefreshView(APIView):
 			refresh = RefreshToken(raw_refresh)
 			user = User.objects.get(id=refresh['user_id'])
 		except (TokenError, User.DoesNotExist, KeyError):
+			security_events.refresh_failed(ip=client_ip, reason='invalid_token')
 			response = Response({'detail': 'Refresh token inválido'}, status=status.HTTP_401_UNAUTHORIZED)
 			_clear_session_cookies(response)
 			return response
 
+		# Blacklist the old refresh token so it cannot be replayed.
+		# This manual call IS required: our view uses RefreshToken.for_user()
+		# to issue a new token, which bypasses SimpleJWT's native rotation
+		# path (set_jti/set_exp on the same token object).  The native
+		# BLACKLIST_AFTER_ROTATION only fires inside TokenRefreshSerializer,
+		# which we don't use because we read tokens from httpOnly cookies.
+		try:
+			refresh.blacklist()
+		except TokenError:
+			pass
+
 		new_refresh = RefreshToken.for_user(user)
 		response = Response({'status': 'refreshed'})
 		_set_auth_cookies(response, new_refresh)
+		security_events.refresh_success(user_id=user.pk, ip=client_ip)
 		return response
 
 
@@ -341,11 +414,45 @@ class SwitchBusinessView(APIView):
 # Email Verification
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _normalize_xff_entry(raw: str) -> str:
+	"""Normalize an IP extracted from X-Forwarded-For (strip port, brackets)."""
+	raw = raw.strip()
+	if raw.startswith('['):
+		bracket_end = raw.find(']')
+		return raw[1:bracket_end] if bracket_end != -1 else raw[1:]
+	if raw.count(':') == 1:
+		return raw.rsplit(':', 1)[0]
+	return raw
+
+
 def _get_client_ip(request: Request) -> str:
-	x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-	if x_forwarded_for:
-		return x_forwarded_for.split(',')[0].strip()
-	return request.META.get('REMOTE_ADDR', '')
+	"""
+	Extract the real client IP from behind trusted reverse proxies.
+
+	Counts from the RIGHT of X-Forwarded-For by TRUSTED_PROXY_DEPTH.
+	The leftmost entry is client-controlled and MUST NOT be trusted.
+	Falls back to REMOTE_ADDR when XFF is absent or malformed.
+	"""
+	depth = getattr(settings, 'TRUSTED_PROXY_DEPTH', 1)
+	xff = request.META.get('HTTP_X_FORWARDED_FOR')
+	if xff:
+		parts = [p.strip() for p in xff.split(',')]
+		if len(parts) >= depth:
+			raw = parts[-depth]
+			ip_str = _normalize_xff_entry(raw)
+			try:
+				ipaddress.ip_address(ip_str)
+				return ip_str
+			except ValueError:
+				logger.warning(
+					'Invalid IP in X-Forwarded-For at depth -%d: %r', depth, raw,
+				)
+		else:
+			logger.warning(
+				'X-Forwarded-For has %d entries but TRUSTED_PROXY_DEPTH=%d; '
+				'falling back to REMOTE_ADDR', len(parts), depth,
+			)
+	return request.META.get('REMOTE_ADDR', '127.0.0.1')
 
 
 class VerifyEmailView(APIView):
@@ -359,6 +466,7 @@ class VerifyEmailView(APIView):
 	"""
 	permission_classes = [AllowAny]
 	authentication_classes: list = []
+	throttle_classes = [VerifyEmailThrottle]
 
 	def post(self, request: Request) -> Response:
 		serializer = VerifyEmailSerializer(data=request.data)
@@ -444,6 +552,7 @@ class ForgotPasswordView(APIView):
 	"""
 	permission_classes = [AllowAny]
 	authentication_classes: list = []
+	throttle_classes = [ForgotPasswordThrottle]
 
 	def post(self, request: Request) -> Response:
 		serializer = ForgotPasswordSerializer(data=request.data)
@@ -502,6 +611,7 @@ class ResetPasswordView(APIView):
 	"""
 	permission_classes = [AllowAny]
 	authentication_classes: list = []
+	throttle_classes = [ResetPasswordThrottle]
 
 	def post(self, request: Request) -> Response:
 		serializer = ResetPasswordSerializer(data=request.data)

@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation';
+import type { Route } from 'next';
 
 import { getSession } from '@/lib/auth';
 import { ReviewConfigClient } from './review-config-client';
@@ -10,9 +11,9 @@ export default async function ResenasConfiguracionPage() {
         redirect('/entrar');
     }
 
-    const canManage = session.permissions?.manage_menu ?? false;
+    const canManage = session.permissions?.manage_reviews ?? false;
     if (!canManage) {
-        redirect('/app/resenas');
+        redirect('/app/resenas' as Route);
     }
 
     return <ReviewConfigClient />;

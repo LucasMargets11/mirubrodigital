@@ -33,7 +33,7 @@ export type PlanItem = {
     ctaLabel: string;
 };
 
-export const HERO_PROOF_POINTS = ['Sin tarjeta', 'Multi-tenant', 'Setup en minutos'];
+export const HERO_PROOF_POINTS = ['Sin tarjeta', 'Inicia en minutos', 'Multi sucursales'];
 
 export const TRUST_LOGOS = ['Manzana Group', 'La Pizza', 'Retail Hub', 'Foodtruck Co.', 'Bar Central', 'Mercado 24/7'];
 

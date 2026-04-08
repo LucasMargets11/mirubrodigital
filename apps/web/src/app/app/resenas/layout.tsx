@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 
 import { getSession } from '@/lib/auth';
 import type { Session } from '@/lib/auth/types';
+import { ResenasNav } from './resenas-nav';
 
 export default async function ResenasLayout({ children }: { children: ReactNode }) {
     const session = await getSession();
@@ -19,6 +20,9 @@ export default async function ResenasLayout({ children }: { children: ReactNode 
     }
 
     return (
-        <section className="space-y-6">{children}</section>
+        <section className="space-y-6">
+            <ResenasNav />
+            {children}
+        </section>
     );
 }

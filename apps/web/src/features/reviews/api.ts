@@ -1,32 +1,49 @@
-import { apiGet, apiPatch } from '@/lib/api/client';
-import type { MenuEngagementSettings, MenuEngagementSettingsPayload } from '@/features/menu/types';
+import { apiGet, apiPatch, apiPost } from '@/lib/api/client';
+import type {
+    ReviewConfig,
+    ReviewConfigPayload,
+    ReviewQrResponse,
+    Review,
+    ReviewStats,
+    ReviewSubmitPayload,
+    ReviewSubmitResponse,
+} from './types';
 
-// Reuse existing engagement settings endpoint — QR Reviews users have manage_menu permission
+/* ── Private (dashboard) endpoints ─────────────────────────── */
+
 export function getReviewSettings() {
-    return apiGet<MenuEngagementSettings>('/api/v1/menu/engagement/');
+    return apiGet<ReviewConfig>('/api/v1/reviews/config/');
 }
 
-export function updateReviewSettings(payload: MenuEngagementSettingsPayload) {
-    return apiPatch<MenuEngagementSettings>('/api/v1/menu/engagement/', payload);
+export function updateReviewSettings(payload: ReviewConfigPayload) {
+    return apiPatch<ReviewConfig>('/api/v1/reviews/config/', payload);
 }
-
-export type ReviewQrResponse = {
-    business_id: number;
-    slug: string;
-    public_url: string;
-    qr_svg: string;
-    generated_at: string;
-};
 
 export function getReviewQrCode() {
     return apiGet<ReviewQrResponse>('/api/v1/reviews/qr/');
 }
 
-export type PublicReviewData = {
-    business_name: string;
-    review_url: string;
-};
+export function getReviewStats() {
+    return apiGet<ReviewStats>('/api/v1/reviews/stats/');
+}
 
-export function getPublicReviewData(slug: string) {
-    return apiGet<PublicReviewData>(`/api/v1/menu/public/reviews/${slug}/`);
+export function getReviews(params?: { status?: string; rating?: string; rating_min?: string; rating_max?: string; ordering?: string }) {
+    const qs = new URLSearchParams();
+    if (params?.status) qs.set('status', params.status);
+    if (params?.rating) qs.set('rating', params.rating);
+    if (params?.rating_min) qs.set('rating_min', params.rating_min);
+    if (params?.rating_max) qs.set('rating_max', params.rating_max);
+    if (params?.ordering) qs.set('ordering', params.ordering);
+    const query = qs.toString();
+    return apiGet<Review[]>(`/api/v1/reviews/${query ? `?${query}` : ''}`);
+}
+
+export function updateReviewStatus(id: string, status: string) {
+    return apiPatch<Review>(`/api/v1/reviews/${id}/`, { status });
+}
+
+/* ── Public endpoints ──────────────────────────────────────── */
+
+export function submitPublicReview(slug: string, payload: ReviewSubmitPayload) {
+    return apiPost<ReviewSubmitResponse>(`/api/v1/reviews/public/${slug}/submit/`, payload);
 }

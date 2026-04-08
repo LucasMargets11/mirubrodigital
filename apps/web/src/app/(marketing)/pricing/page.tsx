@@ -8,10 +8,11 @@ import { GestionComercialPlanBuilder, type GcSubscribeConfig } from '@/features/
 import { GestionComercialComparisonTable } from '@/features/billing/components/GestionComercialComparisonTable';
 import { MenuQrPlanBuilder, type MenuQrSubscribeConfig } from '@/features/billing/components/MenuQrPlanBuilder';
 import { MenuQrComparisonTable, type QrProState } from '@/features/billing/components/MenuQrComparisonTable';
+import { QrReviewsPlanBuilder, type QrReviewsSubscribeConfig } from '@/features/billing/components/QrReviewsPlanBuilder';
 import type { ProModule } from '@/features/billing/data/menu-qr-catalog';
 import type { BillingVertical, Bundle, QuoteResponse } from '@/features/billing/types';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { QrCode, Store, UtensilsCrossed, type LucideIcon } from 'lucide-react';
+import { QrCode, Store, UtensilsCrossed, Star, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 type VerticalOption = BillingVertical;
@@ -46,6 +47,13 @@ const SERVICE_OPTIONS: ServiceOption[] = [
         icon: QrCode,
         queryValue: 'menu_qr',
         description: 'Carta digital editable y branding'
+    },
+    {
+        key: 'qr_reviews',
+        label: 'QR de Reseñas',
+        icon: Star,
+        queryValue: 'qr_reviews',
+        description: 'Más reseñas positivas en Google'
     }
 ];
 
@@ -136,6 +144,15 @@ export default function PricingPage() {
         router.push(`/subscribe?${params.toString()}`);
     };
 
+    const handleSubscribeQrReviews = (config: QrReviewsSubscribeConfig) => {
+        const params = new URLSearchParams({
+            plan_code: config.planCode,
+            billing_period: billingPeriod,
+            vertical,
+        });
+        router.push(`/subscribe?${params.toString()}`);
+    };
+
     return (
         <div className="bg-white min-h-screen">
             <div className="py-20 px-6 max-w-6xl mx-auto">
@@ -209,7 +226,14 @@ export default function PricingPage() {
                 />
             )}
 
-            {mode === 'packs' && vertical !== 'menu_qr' && vertical !== 'commercial' && (
+            {mode === 'packs' && vertical === 'qr_reviews' && (
+                <QrReviewsPlanBuilder
+                    billingPeriod={billingPeriod}
+                    onSubscribe={handleSubscribeQrReviews}
+                />
+            )}
+
+            {mode === 'packs' && vertical !== 'menu_qr' && vertical !== 'commercial' && vertical !== 'qr_reviews' && (
                 <PlansBundles
                     vertical={vertical}
                     billingPeriod={billingPeriod}
@@ -253,7 +277,7 @@ type ServiceSelectorCardsProps = {
 function ServiceSelectorCards({ value, onChange, options }: ServiceSelectorCardsProps) {
     return (
         <div className="w-full flex justify-center">
-            <div className="grid w-full max-w-2xl grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="grid w-full max-w-4xl grid-cols-1 gap-4 sm:grid-cols-3">
                 {options.map((service) => (
                     <ServiceCardOption
                         key={service.key}

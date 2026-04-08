@@ -9,7 +9,15 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR.parent / '.env')
 
 SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'unsafe-secret')
-DEBUG = os.getenv('DJANGO_DEBUG', 'True').lower() == 'true'
+DEBUG = os.getenv('DJANGO_DEBUG', 'False').lower() == 'true'
+
+if not DEBUG and SECRET_KEY == 'unsafe-secret':
+    from django.core.exceptions import ImproperlyConfigured
+    raise ImproperlyConfigured(
+        'DJANGO_SECRET_KEY must be set in production. '
+        'Generate one with: python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"'
+    )
+
 ALLOWED_HOSTS = [host.strip() for host in os.getenv('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1,mirubro-api').split(',') if host]
 
 # Dynamically add the ngrok/tunnel host to ALLOWED_HOSTS and CORS so Django
@@ -31,6 +39,7 @@ INSTALLED_APPS = [
   'django.contrib.staticfiles',
   'rest_framework',
   'rest_framework_simplejwt',
+  'rest_framework_simplejwt.token_blacklist',
   'drf_spectacular',
   'corsheaders',
   'apps.accounts',
@@ -44,6 +53,7 @@ INSTALLED_APPS = [
   'apps.cash',
   'apps.reports',
   'apps.menu',
+  'apps.reviews',
   'apps.resto',
   'apps.billing',
   'apps.treasury',
@@ -54,6 +64,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
   'corsheaders.middleware.CorsMiddleware',
   'django.middleware.security.SecurityMiddleware',
+  'config.middleware.CSPReportOnlyMiddleware',
   'django.contrib.sessions.middleware.SessionMiddleware',
   'django.middleware.common.CommonMiddleware',
   'django.middleware.csrf.CsrfViewMiddleware',
@@ -97,8 +108,14 @@ DATABASES = {
     'PASSWORD': os.getenv('POSTGRES_PASSWORD', 'mirubro'),
     'HOST': os.getenv('POSTGRES_HOST', 'postgres'),
     'PORT': os.getenv('POSTGRES_PORT', '5432'),
+    'CONN_MAX_AGE': int(os.getenv('CONN_MAX_AGE', '600')),
   }
 }
+
+PASSWORD_HASHERS = [
+    'django.contrib.auth.hashers.Argon2PasswordHasher',
+    'django.contrib.auth.hashers.PBKDF2PasswordHasher',
+]
 
 AUTH_PASSWORD_VALIDATORS = [
   {
@@ -133,7 +150,8 @@ CORS_ALLOWED_ORIGINS = [
 
 # Also allow the ngrok/tunnel origin so browser-to-API calls work when
 # accessing the frontend through the tunnel in DEV.
-if _BASE_PUBLIC_URL and 'xxxx' not in _BASE_PUBLIC_URL.lower():
+# Gated behind DEBUG to prevent accidental CORS opening in production.
+if DEBUG and _BASE_PUBLIC_URL and 'xxxx' not in _BASE_PUBLIC_URL.lower():
     # Strip trailing slash for CORS match
     _cors_origin = _BASE_PUBLIC_URL.rstrip('/')
     if _cors_origin not in CORS_ALLOWED_ORIGINS:
@@ -150,6 +168,10 @@ REST_FRAMEWORK = {
     'rest_framework.permissions.IsAuthenticatedOrReadOnly',
   ],
   'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+  # NUM_PROXIES: tells DRF's get_ident() to count from the RIGHT of
+  # X-Forwarded-For by this many positions, matching TRUSTED_PROXY_DEPTH.
+  # Without this, DRF throttles use the leftmost (spoofable) XFF entry.
+  'NUM_PROXIES': int(os.getenv('TRUSTED_PROXY_DEPTH', '1')),
   # Throttle rates for sensitive operative endpoints.
   # Throttle classes are applied per-view (not globally).
   'DEFAULT_THROTTLE_RATES': {
@@ -176,7 +198,7 @@ SIMPLE_JWT = {
   'ACCESS_TOKEN_LIFETIME': timedelta(minutes=ACCESS_TOKEN_MINUTES),
   'REFRESH_TOKEN_LIFETIME': timedelta(days=REFRESH_TOKEN_DAYS),
   'ROTATE_REFRESH_TOKENS': True,
-  'BLACKLIST_AFTER_ROTATION': False,
+  'BLACKLIST_AFTER_ROTATION': True,
   'ALGORITHM': 'HS256',
   'SIGNING_KEY': SECRET_KEY,
   'AUTH_HEADER_TYPES': ('Bearer',),
@@ -233,6 +255,11 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'blog.publish_scheduled_posts',
         # Every 5 minutes — check for scheduled blog posts to publish.
         'schedule': crontab(minute='*/5'),
+    },
+    'jwt-flush-expired-tokens': {
+        'task': 'accounts.flush_expired_tokens',
+        # Daily at 03:00 — purge expired blacklisted tokens to prevent table bloat.
+        'schedule': crontab(hour='3', minute='0'),
     },
 }
 
@@ -298,6 +325,11 @@ ROLLOUT_FLAGS = {
 # are emitted at INFO level.  Set DJANGO_LOG_LEVEL=DEBUG in .env for verbose output.
 _LOG_LEVEL = os.getenv('DJANGO_LOG_LEVEL', 'INFO').upper()
 
+# In production (DEBUG=False), emit JSON-structured logs so they can be parsed
+# by CloudWatch / ELK / any log aggregator.  In dev, keep the human-readable
+# format so developers can read the console output.
+_LOG_FORMAT = os.getenv('LOG_FORMAT', 'json' if not DEBUG else 'text').lower()
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -307,11 +339,21 @@ LOGGING = {
             'style': '{',
             'datefmt': '%Y-%m-%d %H:%M:%S',
         },
+        'json': {
+            '()': 'pythonjsonlogger.json.JsonFormatter',
+            'format': '%(asctime)s %(levelname)s %(name)s %(message)s',
+            'datefmt': '%Y-%m-%dT%H:%M:%S%z',
+            'rename_fields': {
+                'asctime': 'timestamp',
+                'levelname': 'level',
+                'name': 'logger',
+            },
+        },
     },
     'handlers': {
         'console': {
             'class': 'logging.StreamHandler',
-            'formatter': 'verbose',
+            'formatter': 'json' if _LOG_FORMAT == 'json' else 'verbose',
         },
     },
     'root': {
@@ -319,6 +361,12 @@ LOGGING = {
         'level': _LOG_LEVEL,
     },
     'loggers': {
+        # Security / auth events — always INFO so auth telemetry is captured.
+        'apps.accounts.security': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
         # Billing subsystems — always INFO in staging so key events are visible
         'apps.billing': {
             'handlers': ['console'],
@@ -438,4 +486,29 @@ REST_FRAMEWORK['DEFAULT_THROTTLE_RATES'].update({
     'admin_auth': os.getenv('ADMIN_AUTH_THROTTLE_RATE', '30/minute'),
     'admin_mfa': os.getenv('ADMIN_MFA_THROTTLE_RATE', '10/minute'),
 })
+
+# ── DRF throttle scopes for public auth endpoints ───────────────────────────
+REST_FRAMEWORK['DEFAULT_THROTTLE_RATES'].update({
+    'auth_login':          os.getenv('AUTH_LOGIN_THROTTLE_RATE', '15/minute'),
+    'auth_register':       os.getenv('AUTH_REGISTER_THROTTLE_RATE', '5/minute'),
+    'auth_forgot_password': os.getenv('AUTH_FORGOT_PASSWORD_THROTTLE_RATE', '5/minute'),
+    'auth_reset_password':  os.getenv('AUTH_RESET_PASSWORD_THROTTLE_RATE', '5/minute'),
+    'auth_verify_email':    os.getenv('AUTH_VERIFY_EMAIL_THROTTLE_RATE', '5/minute'),
+    'auth_refresh':         os.getenv('AUTH_REFRESH_THROTTLE_RATE', '30/minute'),
+})
+
+# ── Owner/public login 3D rate limiting ──────────────────────────────────────
+# All values configurable via env to allow tuning without redeploy.
+
+AUTH_LOGIN_IP_IDENT_MAX_ATTEMPTS    = int(os.getenv('AUTH_LOGIN_IP_IDENT_MAX_ATTEMPTS', '10'))
+AUTH_LOGIN_IP_IDENT_WINDOW_SECONDS  = int(os.getenv('AUTH_LOGIN_IP_IDENT_WINDOW_SECONDS', str(15 * 60)))
+AUTH_LOGIN_IP_IDENT_COOLDOWN_SECONDS = int(os.getenv('AUTH_LOGIN_IP_IDENT_COOLDOWN_SECONDS', str(15 * 60)))
+
+AUTH_LOGIN_IDENT_MAX_ATTEMPTS       = int(os.getenv('AUTH_LOGIN_IDENT_MAX_ATTEMPTS', '20'))
+AUTH_LOGIN_IDENT_WINDOW_SECONDS     = int(os.getenv('AUTH_LOGIN_IDENT_WINDOW_SECONDS', str(30 * 60)))
+AUTH_LOGIN_IDENT_COOLDOWN_SECONDS   = int(os.getenv('AUTH_LOGIN_IDENT_COOLDOWN_SECONDS', str(30 * 60)))
+
+AUTH_LOGIN_IP_MAX_ATTEMPTS          = int(os.getenv('AUTH_LOGIN_IP_MAX_ATTEMPTS', '50'))
+AUTH_LOGIN_IP_WINDOW_SECONDS        = int(os.getenv('AUTH_LOGIN_IP_WINDOW_SECONDS', str(10 * 60)))
+AUTH_LOGIN_IP_COOLDOWN_SECONDS      = int(os.getenv('AUTH_LOGIN_IP_COOLDOWN_SECONDS', str(10 * 60)))
 

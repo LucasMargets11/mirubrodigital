@@ -20,11 +20,17 @@ export function HeroSection() {
                         
                         {/* Heading */}
                         <div className="space-y-6">
-                            <h1 className="font-display font-bold text-slate-900 tracking-tight leading-[1.05]"
-                                style={{ fontSize: 'clamp(2.5rem, 4.5vw, 4.25rem)' }}>
-                                Centraliza tus operaciones <br className="hidden lg:block" />
-                                <span className="text-brand-600 relative inline-block">
-                                    en una sola plataforma
+                            <h1 className="font-display font-bold text-slate-900 tracking-tight leading-[1.05]">
+                                <span style={{ fontSize: 'clamp(2.5rem, 4.5vw, 4.25rem)' }}>
+                                    Centraliza tus{' '}
+                                    <br className="hidden lg:block" />
+                                    operaciones{' '}
+                                    <br className="hidden lg:block" />
+                                    en una sola
+                                </span>
+                                <br />
+                                <span className="text-brand-600 relative inline-block tracking-tight" style={{ fontSize: 'clamp(3.25rem, 6vw, 5.5rem)' }}>
+                                    plataforma
                                     <svg className="absolute w-full h-3 -bottom-1 left-0 text-brand-200 -z-10" viewBox="0 0 100 10" preserveAspectRatio="none">
                                         <path d="M0 5 Q 50 10 100 5" stroke="currentColor" strokeWidth="8" fill="none" opacity="0.6" />
                                     </svg>
@@ -32,14 +38,13 @@ export function HeroSection() {
                             </h1>
                             <p className="text-lg text-slate-600 leading-relaxed max-w-lg font-normal"
                                style={{ fontSize: 'clamp(1rem, 1.15vw, 1.125rem)' }}>
-                                Gestión integral de cajas, stock, menú digital y reportes en tiempo real. 
-                                Elimina el caos operativo y toma el control total de tu negocio.
+                                Todo lo que necesitás para vender mejor, ordenar tu negocio y potenciar tu crecimiento: gestión comercial, carta online, reseñas QR y reportes en tiempo real.
                             </p>
                         </div>
 
                         {/* CTAs */}
                         <div className="flex flex-col sm:flex-row gap-4 pt-2">
-                            <Button asChild size="lg" className="h-12 px-8 text-base shadow-lg shadow-brand-500/25 hover:shadow-brand-500/40 transition-all hover:-translate-y-0.5 font-semibold bg-brand-600 hover:bg-brand-500">
+                            <Button asChild size="lg" className="h-12 px-8 text-base text-white shadow-lg shadow-brand-500/25 hover:shadow-brand-500/40 transition-all font-semibold bg-brand-600 hover:bg-brand-500">
                                 <Link href="/entrar">
                                     Comenzar ahora
                                     <ArrowRight className="ml-2 h-4 w-4" />
@@ -47,7 +52,7 @@ export function HeroSection() {
                             </Button>
                             <Button asChild variant="outline" size="lg" className="h-12 px-8 text-base border-slate-200 hover:bg-slate-50 text-slate-700 hover:text-slate-900 bg-transparent">
                                 <Link href="/pricing">
-                                    Ver demostración
+                                    Ver Precios
                                 </Link>
                             </Button>
                         </div>

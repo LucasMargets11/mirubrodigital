@@ -94,7 +94,7 @@ export function MarketingFooter() {
                             </FooterSection>
 
                             <FooterSection title="Recursos">
-                                <FooterLink href="/pricing">Planes</FooterLink>
+                                <FooterLink href="/pricing">Precios</FooterLink>
                                 <FooterLink href="/contacto">Contacto</FooterLink>
                                 <FooterLink href="/soporte">Soporte</FooterLink>
                                 <FooterLink href="/preguntas-frecuentes">Preguntas frecuentes</FooterLink>

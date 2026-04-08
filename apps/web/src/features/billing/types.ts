@@ -1,4 +1,4 @@
-export type BillingVertical = 'commercial' | 'restaurant' | 'menu_qr';
+export type BillingVertical = 'commercial' | 'restaurant' | 'menu_qr' | 'qr_reviews';
 
 export interface Module {
   code: string;

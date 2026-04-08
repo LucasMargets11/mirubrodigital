@@ -2,6 +2,7 @@
 
 import { useRef } from 'react';
 import { motion, useScroll, useTransform } from 'framer-motion';
+import Link from 'next/link';
 import { Layers, Settings, TrendingUp, LucideIcon, ArrowRight, CheckCircle2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -113,10 +114,13 @@ export function ExpandingPanelSection() {
                         viewport={{ once: true }}
                         className="mt-24 text-center"
                     >
-                        <button className="group inline-flex items-center gap-2 px-8 py-4 bg-white text-black rounded-full font-bold text-lg hover:bg-gray-100 transition-colors">
+                        <Link
+                            href="/pricing"
+                            className="group inline-flex items-center gap-2 px-8 py-4 bg-white text-black rounded-full font-bold text-lg hover:bg-gray-100 transition-colors"
+                        >
                             Empezar ahora
                             <ArrowRight className="w-5 h-5 transition-transform group-hover:translate-x-1" />
-                        </button>
+                        </Link>
                     </motion.div>
 
                 </div>

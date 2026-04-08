@@ -24,7 +24,6 @@ from .views import (
     PublicMenuConfigView,
     PublicMenuBySlugView,
     PublicMenuResolveView,
-    PublicReviewRedirectView,
     PublicTipCreatePreferenceView,
     PublicTipStatusView,
     PublicTipVerifyView,
@@ -62,8 +61,6 @@ urlpatterns = [
     # ── Public: menu by slug ───────────────────────────────────────────────
     path('public/slug/<slug:slug>/', PublicMenuBySlugView.as_view(), name='public-by-slug'),
     path('public/resolve/<uuid:public_id>/', PublicMenuResolveView.as_view(), name='public-resolve'),
-    # ── Public: review redirect (QR de Reseñas) ──────────────────────────
-    path('public/reviews/<slug:slug>/', PublicReviewRedirectView.as_view(), name='public-review-redirect'),
     # ── Public: tips (Fase 2) ─────────────────────────────────────────────
     path('public/slug/<slug:slug>/tips/create-preference/', PublicTipCreatePreferenceView.as_view(), name='public-tip-create'),
     path('public/tips/<uuid:tip_id>/status/', PublicTipStatusView.as_view(), name='public-tip-status'),

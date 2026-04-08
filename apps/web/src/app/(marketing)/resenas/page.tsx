@@ -19,19 +19,21 @@ import {
     Shield,
     Eye,
     MapPin,
+    Filter,
 } from 'lucide-react';
+import { PRODUCT, PRODUCT_BENEFITS } from '@/features/reviews/product';
 
 const SITE_URL = 'https://www.mirubro.com';
 
 export const metadata: Metadata = {
-    title: 'QR de Reseñas — Más reseñas en Google | Mi Rubro',
+    title: 'QR de Reseñas — Más reseñas en Google + feedback interno | Mi Rubro',
     description:
-        'Generá un QR que lleva directo a tus reseñas de Google. Más opiniones positivas, mejor posicionamiento, cero fricción.',
+        'Un QR inteligente que filtra: las opiniones altas van directo a Google y las bajas quedan como feedback privado para que mejores tu servicio.',
     alternates: { canonical: `${SITE_URL}/resenas` },
     openGraph: {
         title: 'QR de Reseñas | Mi Rubro',
         description:
-            'Un QR que lleva directo a tus reseñas de Google. Sin apps, sin fricciones.',
+            'Un QR inteligente que lleva las buenas opiniones a Google y captura el feedback privado para tu negocio.',
         url: `${SITE_URL}/resenas`,
         siteName: 'Mirubro',
         type: 'website',
@@ -46,13 +48,13 @@ export default function ResenasPage() {
             <ProductHero
                 label="QR de Reseñas"
                 title="Más reseñas en Google,"
-                titleAccent="sin esfuerzo."
-                subtitle="Un QR que tus clientes escanean y en un tap ya están dejando su opinión. Más reseñas, mejor rating, más clientes."
+                titleAccent="menos quejas públicas."
+                subtitle="Un QR que tus clientes escanean para dejar su opinión. Las buenas van a Google. Las malas quedan como feedback privado para vos."
                 ctaHref="/entrar"
-                ctaLabel="Crear mi QR gratis"
-                secondaryHref="/pricing?service=menu_qr"
+                ctaLabel="Compartir mi QR"
+                secondaryHref="#planes-resenas"
                 secondaryLabel="Ver planes"
-                proofPoints={['Gratis para empezar', 'Link directo a Google', 'Sin apps intermedias']}
+                proofPoints={['Filtro inteligente', 'Desde $25.000/mes', 'Sin apps intermedias']}
                 mockup={<ResenasMockup />}
             />
 
@@ -60,39 +62,39 @@ export default function ResenasPage() {
             <ProductDemo
                 label="Flujo real"
                 title="Así funciona para tu cliente"
-                subtitle="Escanea → abre Google → deja su reseña. En menos de 30 segundos."
+                subtitle="Escanea → califica → el sistema decide: Google o feedback privado. En menos de 30 segundos."
             >
                 <DemoFlow />
             </ProductDemo>
 
             {/* 3 ── Beneficios ── */}
             <ProductBenefits
-                label="Impacto"
-                title="¿Por qué importan las reseñas?"
+                label="Resultados"
+                title="¿Qué lográs con QR de Reseñas?"
                 benefits={[
                     {
-                        title: 'Mejor ranking en Google',
+                        title: 'Aumentá tus reseñas en Google',
                         description:
                             'Más reseñas recientes mejoran tu posición en Google Maps y búsquedas locales.',
                         icon: TrendingUp,
                     },
                     {
-                        title: 'Confianza al instante',
+                        title: 'Convertí clientes en recomendaciones',
                         description:
-                            'Los clientes eligen negocios con buenas reseñas. Tu reputación trabaja por vos.',
+                            'Los clientes satisfechos dejan su opinión en Google. Tu reputación trabaja por vos.',
                         icon: Shield,
                     },
                     {
-                        title: 'Cero fricción',
+                        title: 'Detectá problemas antes de que se publiquen',
                         description:
-                            'Sin apps, sin formularios, sin pasos extras. Escanean y opinan.',
-                        icon: Zap,
+                            'Las opiniones bajas quedan como feedback privado. Mejorá sin exposición pública.',
+                        icon: Eye,
                     },
                     {
-                        title: 'Feedback real',
+                        title: 'Cero fricción para el cliente',
                         description:
-                            'Entendé qué les gusta a tus clientes y qué podés mejorar.',
-                        icon: Eye,
+                            'Sin apps, sin formularios. Escanean el QR y opinan en segundos.',
+                        icon: Zap,
                     },
                 ]}
             />
@@ -105,17 +107,17 @@ export default function ResenasPage() {
                     {
                         title: 'Conectá tu negocio',
                         description:
-                            'Ingresá el link de tu ficha de Google My Business y listo.',
+                            'Ingresá el link de tu ficha de Google y definí el umbral de redirección (ej: ≥4★ → Google).',
                     },
                     {
                         title: 'Descargá el QR',
                         description:
-                            'Generamos un QR en alta resolución listo para imprimir.',
+                            'Generamos un QR en alta resolución listo para imprimir o compartir digitalmente.',
                     },
                     {
                         title: 'Ubicalo en tu local',
                         description:
-                            'Mesas, mostrador, delivery, stickers — donde tus clientes lo vean.',
+                            'Mesas, mostrador, delivery — tus clientes opinan y el sistema filtra automáticamente.',
                     },
                 ]}
             />
@@ -126,9 +128,15 @@ export default function ResenasPage() {
                 title="Simple, poderoso, sin vueltas"
                 features={[
                     {
-                        title: 'QR directo a Google',
+                        title: 'Filtrado inteligente',
                         description:
-                            'Un escaneo y tu cliente ya está en la pantalla de reseñas. Sin intermediarios.',
+                            'Las calificaciones altas van a Google y las bajas quedan como feedback privado. Vos definís el umbral.',
+                        icon: Filter,
+                    },
+                    {
+                        title: 'QR con redirección automática',
+                        description:
+                            'Un escaneo y tu cliente ya está opinando. El sistema decide el destino según su calificación.',
                         icon: QrCode,
                     },
                     {
@@ -138,9 +146,9 @@ export default function ResenasPage() {
                         icon: Smartphone,
                     },
                     {
-                        title: 'Métricas de escaneo',
+                        title: 'Analítica de conversión',
                         description:
-                            'Visualizá cuántos escaneos recibís y medí el impacto en tus reseñas.',
+                            'Visualizá escaneos, conversión, distribución de estrellas y pipeline operativo.',
                         icon: BarChart3,
                     },
                     {
@@ -148,12 +156,6 @@ export default function ResenasPage() {
                         description:
                             'Generá QRs diferentes para cada sucursal o punto de atención.',
                         icon: MapPin,
-                    },
-                    {
-                        title: 'Rating promedio',
-                        description:
-                            'Seguí la evolución de tu rating de Google desde el panel de Mi Rubro.',
-                        icon: Star,
                     },
                     {
                         title: 'Reputación en piloto automático',
@@ -170,9 +172,9 @@ export default function ResenasPage() {
             {/* 7 ── CTA final ── */}
             <ProductFinalCta
                 title="Tu reputación empieza con un QR"
-                subtitle="Creá tu código, imprimilo y empezá a sumar reseñas hoy mismo."
+                subtitle="Compartí tu QR con tus clientes y empezá a sumar reseñas hoy mismo."
                 ctaHref="/entrar"
-                ctaLabel="Crear mi QR"
+                ctaLabel="Compartir mi QR"
                 secondaryHref="/contacto"
                 secondaryLabel="Consultar"
             />
@@ -208,8 +210,9 @@ function ResenasMockup() {
 function DemoFlow() {
     const steps = [
         { label: 'Escanea el QR', icon: QrCode },
-        { label: 'Abre Google', icon: Star },
-        { label: 'Deja su reseña', icon: MessageSquareHeart },
+        { label: 'Califica y opina', icon: Star },
+        { label: 'Filtrado inteligente', icon: Filter },
+        { label: 'Google o feedback', icon: MessageSquareHeart },
     ];
 
     return (

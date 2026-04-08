@@ -2,11 +2,11 @@
 # AWS WAF WebACL — Admin Login Hardening
 # ═══════════════════════════════════════════════════════════════════════════════
 #
-# Attached to the ALB. Protects /api/v1/platform-admin/auth/* with:
-#   1. IP rate limiting           (100 req / 5 min per IP)
-#   2. Geographic restriction     (optional — see geo_match_statement)
-#   3. AWS Managed Rules          (Core Rule Set + Known Bad Inputs)
-#   4. Blanket rate limit         (2000 req / 5 min global)
+# Attached to the ALB. Protects auth and admin endpoints with:
+#   1. Public auth rate limiting   (100 req / 5 min per IP on /api/v1/auth/)
+#   2. Admin login rate limiting   (100 req / 5 min per IP on /api/v1/platform-admin/auth/)
+#   3. AWS Managed Rules           (Core Rule Set + Known Bad Inputs)
+#   4. Blanket rate limit          (2000 req / 5 min global)
 
 resource "aws_wafv2_web_acl" "admin" {
   name        = "${var.project_name}-admin-waf"
@@ -17,7 +17,52 @@ resource "aws_wafv2_web_acl" "admin" {
     allow {}
   }
 
-  # ── Rule 1: Admin login IP rate limit ─────────────────────────────────────
+  # ── Rule 1: Public auth endpoints rate limit ───────────────────────────────
+  # Tighter limit for /api/v1/auth/ (login, register, forgot-password, etc.)
+  # Applied BEFORE the admin rule because priority is lower number = higher.
+  rule {
+    name     = "public-auth-ip-rate-limit"
+    priority = 5
+
+    action {
+      block {
+        custom_response {
+          response_code = 429
+        }
+      }
+    }
+
+    statement {
+      rate_based_statement {
+        limit              = 100  # 100 requests per 5 minutes per IP
+        aggregate_key_type = "IP"
+
+        scope_down_statement {
+          byte_match_statement {
+            search_string         = "/api/v1/auth/"
+            positional_constraint = "STARTS_WITH"
+
+            field_to_match {
+              uri_path {}
+            }
+
+            text_transformation {
+              priority = 0
+              type     = "LOWERCASE"
+            }
+          }
+        }
+      }
+    }
+
+    visibility_config {
+      sampled_requests_enabled   = true
+      cloudwatch_metrics_enabled = true
+      metric_name                = "${var.project_name}-public-auth-ip-rate"
+    }
+  }
+
+  # ── Rule 2: Admin login IP rate limit ─────────────────────────────────────
   rule {
     name     = "admin-login-ip-rate-limit"
     priority = 10
@@ -56,7 +101,7 @@ resource "aws_wafv2_web_acl" "admin" {
     }
   }
 
-  # ── Rule 2: AWS Managed Rules — Core Rule Set ────────────────────────────
+  # ── Rule 3: AWS Managed Rules — Core Rule Set ────────────────────────────
   rule {
     name     = "aws-managed-core-rule-set"
     priority = 20
@@ -79,7 +124,7 @@ resource "aws_wafv2_web_acl" "admin" {
     }
   }
 
-  # ── Rule 3: AWS Managed Rules — Known Bad Inputs ─────────────────────────
+  # ── Rule 4: AWS Managed Rules — Known Bad Inputs ─────────────────────────
   rule {
     name     = "aws-managed-known-bad-inputs"
     priority = 30
@@ -102,7 +147,7 @@ resource "aws_wafv2_web_acl" "admin" {
     }
   }
 
-  # ── Rule 4: Global rate limit (all paths) ───────────────────────────────
+  # ── Rule 5: Global rate limit (all paths) ───────────────────────────────
   rule {
     name     = "global-rate-limit"
     priority = 40

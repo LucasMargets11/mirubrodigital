@@ -171,8 +171,9 @@ const NAV_CONFIG: Record<string, NavGroup[]> = {
             title: 'QR de Reseñas',
             items: [
                 { href: '/app/resenas', label: 'Inicio' },
-                { href: '/app/resenas/configuracion', label: 'Configuración', permissionKey: 'manage_menu' },
-                { href: '/app/resenas/qr', label: 'Mi QR', permissionKey: 'manage_menu' },
+                { href: '/app/resenas/configuracion', label: 'Configuración', permissionKey: 'manage_reviews' },
+                { href: '/app/resenas/qr', label: 'Mi QR', permissionKey: 'manage_reviews' },
+                { href: '/app/resenas/feedback', label: 'Feedback', permissionKey: 'manage_reviews' },
             ],
         },
         {

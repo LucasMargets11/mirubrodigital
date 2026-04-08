@@ -85,7 +85,7 @@ MENU_QR_PERMISSIONS: Set[str] = {
 }
 
 QR_REVIEWS_PERMISSIONS: Set[str] = {
-  'manage_menu',        # Reuse: needed for engagement settings endpoint
+  'manage_reviews',     # Standalone reviews permission
   'manage_settings',
   'manage_users',
 }
@@ -239,9 +239,10 @@ SERVICE_ROLE_PERMISSIONS: Dict[str, Dict[str, Set[str]]] = {
   },
   'qr_reviews': {
     'owner': set(QR_REVIEWS_PERMISSIONS),
+    'admin': set(QR_REVIEWS_PERMISSIONS),
     'manager': QR_REVIEWS_PERMISSIONS - {'manage_users'},
     'viewer': {
-      'manage_menu',    # read-only access to engagement settings
+      'manage_reviews',  # read-only access to review config
     },
   },
 }
