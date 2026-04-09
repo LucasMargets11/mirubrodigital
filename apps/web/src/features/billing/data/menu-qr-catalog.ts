@@ -18,6 +18,11 @@
 // ---------------------------------------------------------------------------
 
 import type { FeatureAvailability } from './gestion-comercial-catalog';
+import {
+  QR_LITE, QR_PRO, QR_PREMIUM,
+  ADDON_QR_REVIEWS, ADDON_QR_TIPS,
+  formatPrice,
+} from '@/lib/pricing';
 
 /** Extiende FeatureAvailability con valor especial para PRO seleccionable */
 export type QrFeatureAvailability = FeatureAvailability | 'conditional';
@@ -79,27 +84,27 @@ export interface QrAddonEntry {
 export const QR_PLANS: QrPlanEntry[] = [
   {
     plan: 'lite',
-    label: 'Lite',
-    priceMonthly: 18000,
-    priceYearly: 172800,
+    label: QR_LITE.name,
+    priceMonthly: QR_LITE.priceMonthly,
+    priceYearly: QR_LITE.priceYearly,
     description: 'Carta digital básica con branding. Ideal para empezar.',
     ctaLabel: 'Empezar con Lite',
   },
   {
     plan: 'pro',
-    label: 'Pro',
+    label: QR_PRO.name,
     badge: 'Recomendado',
-    priceMonthly: 30000,
-    priceYearly: 288000,
+    priceMonthly: QR_PRO.priceMonthly,
+    priceYearly: QR_PRO.priceYearly,
     description: 'Imágenes, analítica avanzada y 1 módulo de engagement a elección.',
     ctaLabel: 'Elegir Pro',
     isRecommended: true,
   },
   {
     plan: 'premium',
-    label: 'Premium',
-    priceMonthly: 55000,
-    priceYearly: 528000,
+    label: QR_PREMIUM.name,
+    priceMonthly: QR_PREMIUM.priceMonthly,
+    priceYearly: QR_PREMIUM.priceYearly,
     description: 'Todo incluido: reseñas, propinas, imágenes, dominio y multi-sucursal.',
     ctaLabel: 'Ir a Premium',
   },
@@ -111,19 +116,19 @@ export const QR_PLANS: QrPlanEntry[] = [
 
 export const QR_ADDONS: QrAddonEntry[] = [
   {
-    code: 'menu_qr_addon_reviews',
-    title: 'Reseñas de Google',
+    code: ADDON_QR_REVIEWS.code,
+    title: ADDON_QR_REVIEWS.name,
     description: 'Agrega el CTA de reseñas si elegiste Propina como módulo incluido.',
-    pricing: { monthly: '$12.000/mes', yearly: '$115.200/año' },
+    pricing: { monthly: `${formatPrice(ADDON_QR_REVIEWS.priceMonthly)}/mes`, yearly: `${formatPrice(ADDON_QR_REVIEWS.priceYearly)}/año` },
     availableFor: ['pro'],
     includedIn: ['premium'],
     featureKey: 'menu_qr_reviews',
   },
   {
-    code: 'menu_qr_addon_tips',
-    title: 'Propinas (Mercado Pago)',
+    code: ADDON_QR_TIPS.code,
+    title: ADDON_QR_TIPS.name,
     description: 'Agrega el CTA de propinas si elegiste Reseñas como módulo incluido.',
-    pricing: { monthly: '$12.000/mes', yearly: '$115.200/año' },
+    pricing: { monthly: `${formatPrice(ADDON_QR_TIPS.priceMonthly)}/mes`, yearly: `${formatPrice(ADDON_QR_TIPS.priceYearly)}/año` },
     availableFor: ['pro'],
     includedIn: ['premium'],
     featureKey: 'menu_qr_tips',
@@ -280,13 +285,4 @@ export function getQrCatalogCategories(): QrFeatureCategory[] {
     }
   }
   return result;
-}
-
-/** ARS prices formatted */
-export function formatArsPrice(cents: number): string {
-  return new Intl.NumberFormat('es-AR', {
-    style: 'currency',
-    currency: 'ARS',
-    maximumFractionDigits: 0,
-  }).format(cents);
 }

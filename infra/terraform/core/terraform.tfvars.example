@@ -1,0 +1,27 @@
+# ── Core Infrastructure — Example values ─────────────────────────────────────
+# Copy to terraform.tfvars and fill in real values before running terraform.
+# NEVER commit terraform.tfvars (it contains secrets).
+
+aws_region  = "us-east-1"
+environment = "staging"
+
+# VPC
+vpc_cidr           = "10.0.0.0/16"
+availability_zones = ["us-east-1a", "us-east-1b"]
+
+# RDS PostgreSQL
+rds_instance_class    = "db.t3.micro"
+rds_allocated_storage = 20
+rds_multi_az          = false           # true for production
+db_name               = "mirubro"
+db_username           = "mirubro"
+db_password           = ""              # Set a strong password, never commit
+
+# ElastiCache Redis
+elasticache_node_type = "cache.t4g.micro"
+
+# ECR repositories (4 services)
+ecr_repo_names = ["mirubro-api", "mirubro-web", "mirubro-celery-worker", "mirubro-celery-beat"]
+
+# Domain (informational)
+domain_name = "mirubro.com"

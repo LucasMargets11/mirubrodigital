@@ -6,10 +6,10 @@ import {
   QR_PLANS,
   QR_ADDONS,
   PRO_MODULE_OPTIONS,
-  formatArsPrice,
   type QrPlanEntry,
   type ProModule,
 } from '../data/menu-qr-catalog';
+import { formatPrice } from '@/lib/pricing';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -161,7 +161,7 @@ function ProModuleSelector({
               <span className="font-semibold text-brand-700">{otherModuleOption.label}</span>
             </p>
             <p className="text-[11px] text-slate-500">
-              +{formatArsPrice(ADDON_PRICE_MONTHLY)}/mes
+              +{formatPrice(ADDON_PRICE_MONTHLY)}/mes
             </p>
           </div>
           <button
@@ -238,7 +238,7 @@ function PlanCard({
         <div className="mb-6">
           <div className="flex items-baseline">
             <span className="text-4xl font-bold text-slate-900">
-              {formatArsPrice(totalPrice)}
+              {formatPrice(totalPrice)}
             </span>
             <span className="text-slate-500 text-sm ml-2">
               / {billingPeriod === 'yearly' ? 'año' : 'mes'}

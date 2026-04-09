@@ -246,3 +246,78 @@ export async function getBlogSitemapEntries(): Promise<
         return [];
     }
 }
+
+// ── ISR-safe public fetchers (no cookies → no forced dynamic) ────────────────
+//
+// These use plain fetch() with next.revalidate instead of serverApiFetch
+// (which calls cookies() and opts the route into dynamic rendering).
+// Safe to use from static/ISR pages like the marketing home.
+
+const BLOG_REVALIDATE_SECONDS = 3600; // 1 hour
+
+function getInternalApiUrl(): string {
+    return (
+        process.env.API_INTERNAL_URL ??
+        process.env.INTERNAL_API_URL ??
+        process.env.NEXT_PUBLIC_API_URL ??
+        'http://localhost:8000'
+    );
+}
+
+/**
+ * Fetch blog listing without auth — ISR-safe (no cookies).
+ * Used by BlogResourcesSection on the home page and /blog listing.
+ */
+export async function getBlogListingCached(opts?: {
+    category?: string;
+    page?: number;
+}): Promise<{
+    posts: BlogPost[];
+    total: number;
+    page: number;
+    totalPages: number;
+}> {
+    const params = new URLSearchParams();
+    if (opts?.category) params.set('category', opts.category);
+    if (opts?.page && opts.page > 1) params.set('page', String(opts.page));
+
+    try {
+        const res = await fetch(
+            `${getInternalApiUrl()}/api/v1/blog/posts/?${params.toString()}`,
+            {
+                headers: { 'Content-Type': 'application/json' },
+                next: { revalidate: BLOG_REVALIDATE_SECONDS },
+            }
+        );
+        if (!res.ok) throw new Error(`API ${res.status}`);
+        const data: ApiPostList = await res.json();
+        return {
+            posts: data.results.map(mapSummaryToPost),
+            total: data.total,
+            page: data.page,
+            totalPages: data.total_pages,
+        };
+    } catch {
+        return { posts: [], total: 0, page: 1, totalPages: 1 };
+    }
+}
+
+/**
+ * Fetch blog categories without auth — ISR-safe (no cookies).
+ */
+export async function getBlogCategoriesCached(): Promise<BlogCategory[]> {
+    try {
+        const res = await fetch(
+            `${getInternalApiUrl()}/api/v1/blog/categories/`,
+            {
+                headers: { 'Content-Type': 'application/json' },
+                next: { revalidate: BLOG_REVALIDATE_SECONDS },
+            }
+        );
+        if (!res.ok) throw new Error(`API ${res.status}`);
+        const data: ApiCategoryList = await res.json();
+        return data.results;
+    } catch {
+        return [];
+    }
+}

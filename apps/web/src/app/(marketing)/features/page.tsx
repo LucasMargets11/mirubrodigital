@@ -1,3 +1,27 @@
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = {
+    title: 'Funciones — Mirubro',
+    description:
+        'Operaciones multi-tenant, workflows composables y observabilidad activa. Diseñado para equipos modernos que buscan escalar sin duplicar infraestructura.',
+    alternates: { canonical: 'https://www.mirubro.com/features' },
+    openGraph: {
+        title: 'Funciones — Mirubro',
+        description:
+            'Operaciones multi-tenant, workflows composables y observabilidad activa. Diseñado para equipos modernos.',
+        url: 'https://www.mirubro.com/features',
+        siteName: 'Mirubro',
+        type: 'website',
+        locale: 'es_AR',
+    },
+    twitter: {
+        card: 'summary_large_image',
+        title: 'Funciones — Mirubro',
+        description:
+            'Operaciones multi-tenant, workflows composables y observabilidad activa. Diseñado para equipos modernos.',
+    },
+};
+
 const features = [
     {
         title: 'Operaciones multi-tenant',

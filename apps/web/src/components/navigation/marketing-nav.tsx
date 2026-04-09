@@ -168,7 +168,7 @@ export function MarketingNav() {
                         </Link>
                         
                         <div className="mt-8 text-center border-t border-zinc-50 pt-6">
-                            <p className="text-sm text-zinc-400">
+                            <p className="text-sm text-zinc-500">
                                 © {new Date().getFullYear()} MiRubro Digital
                             </p>
                         </div>

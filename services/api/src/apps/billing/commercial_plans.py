@@ -1,12 +1,21 @@
 """
 Configuración centralizada de planes de Gestión Comercial.
 Única fuente de verdad para precios, límites y características.
+
+Pricing delegated to canonical_pricing.py (reads generated/pricing.json).
+All prices are ARS pesos integers — NOT centavos.
 """
 from typing import TypedDict, List, Optional
 
+from apps.billing.canonical_pricing import (
+    plan_price,
+    addon_price,
+    extra_price,
+)
+
 
 class PlanPricing(TypedDict):
-    monthly: int  # En centavos
+    monthly: int  # ARS pesos enteros (e.g. 36000 = $36.000)
     yearly: int
 
 
@@ -37,26 +46,26 @@ class PlanConfig(TypedDict):
     is_custom: bool  # True para ENTERPRISE
 
 
-# Precios de recursos extras
+# Precios de recursos extras — delegado a canónico
 BRANCH_EXTRA_PRICING: PlanPricing = {
-    'monthly': 5000,  # $50/mes por sucursal extra (en centavos)
-    'yearly': 48000,  # $480/año (descuento 20%)
+    'monthly': extra_price('extra_branch', 'monthly'),  # 12000 ($12.000/mes)
+    'yearly': extra_price('extra_branch', 'yearly'),     # 115200
 }
 
 SEAT_EXTRA_PRICING: PlanPricing = {
-    'monthly': 500,  # $5/mes por usuario extra
-    'yearly': 4800,  # $48/año (descuento 20%)
+    'monthly': extra_price('extra_user', 'monthly'),  # 5000 ($5.000/mes)
+    'yearly': extra_price('extra_user', 'yearly'),     # 48000
 }
 
-# Configuración de Add-ons
+# Configuración de Add-ons — precios delegados a canónico
 ADDONS: List[AddonConfig] = [
     {
         'code': 'crm',
         'name': 'Gestión de Clientes (CRM)',
         'description': 'CRM básico con historial de compras y segmentación',
         'pricing': {
-            'monthly': 2000,  # $20/mes
-            'yearly': 19200,  # $192/año (descuento 20%)
+            'monthly': addon_price('crm', 'monthly'),    # 8000 ($8.000/mes)
+            'yearly': addon_price('crm', 'yearly'),       # 76800
         },
         'availability': ['starter'],  # Solo STARTER puede comprarlo
         'included_in': ['pro', 'business', 'enterprise'],
@@ -66,23 +75,23 @@ ADDONS: List[AddonConfig] = [
         'name': 'Facturación Electrónica',
         'description': 'Emisión de facturas válidas (AFIP, SAT, etc.)',
         'pricing': {
-            'monthly': 15000,  # $150/mes
-            'yearly': 144000,  # $1440/año (descuento 20%)
+            'monthly': addon_price('invoicing', 'monthly'),  # 15000 ($15.000/mes)
+            'yearly': addon_price('invoicing', 'yearly'),     # 144000
         },
         'availability': ['starter'],  # Solo STARTER puede comprarlo
         'included_in': ['pro', 'business', 'enterprise'],  # Incluido en PRO+
     },
 ]
 
-# Configuración de Planes
+# Configuración de Planes — precios delegados a canónico
 PLANS: List[PlanConfig] = [
     {
         'code': 'starter',
         'name': 'Starter',
         'description': 'Para emprendedores y pequeños negocios',
         'pricing': {
-            'monthly': 9900,  # $99/mes
-            'yearly': 95000,  # $950/año (~20% descuento)
+            'monthly': plan_price('gestion_start', 'monthly'),  # 36000
+            'yearly': plan_price('gestion_start', 'yearly'),     # 345600
         },
         'limits': {
             'branches_included': 1,
@@ -106,8 +115,8 @@ PLANS: List[PlanConfig] = [
         'name': 'PRO',
         'description': 'Para negocios establecidos con operación completa',
         'pricing': {
-            'monthly': 29900,  # $299/mes
-            'yearly': 287000,  # $2870/año (~20% descuento)
+            'monthly': plan_price('gestion_pro', 'monthly'),  # 50000
+            'yearly': plan_price('gestion_pro', 'yearly'),     # 480000
         },
         'limits': {
             'branches_included': 1,
@@ -135,8 +144,8 @@ PLANS: List[PlanConfig] = [
         'name': 'BUSINESS',
         'description': 'Para empresas multi-sucursal',
         'pricing': {
-            'monthly': 49900,  # $499/mes
-            'yearly': 479000,  # $4790/año (~20% descuento)
+            'monthly': plan_price('gestion_business', 'monthly'),  # 75000
+            'yearly': plan_price('gestion_business', 'yearly'),     # 720000
         },
         'limits': {
             'branches_included': 5,
@@ -160,8 +169,8 @@ PLANS: List[PlanConfig] = [
         'name': 'ENTERPRISE',
         'description': 'Solución personalizada para grandes empresas',
         'pricing': {
-            'monthly': 0,  # Custom pricing
-            'yearly': 0,
+            'monthly': plan_price('gestion_enterprise', 'monthly'),  # 0 (custom)
+            'yearly': plan_price('gestion_enterprise', 'yearly'),     # 0
         },
         'limits': {
             'branches_included': 999,  # Prácticamente ilimitado

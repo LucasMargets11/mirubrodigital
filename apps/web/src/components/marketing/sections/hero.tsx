@@ -105,7 +105,7 @@ export function HeroSection() {
                                 </div>
                                 {/* Overlay Label (Remove when real image is used) */}
                                 <div className="absolute inset-0 flex items-center justify-center bg-white/40 backdrop-blur-[1px]">
-                                    <p className="text-slate-400 text-sm font-medium uppercase tracking-widest border border-slate-200 px-4 py-2 rounded bg-white shadow-sm">
+                                    <p className="text-slate-500 text-sm font-medium uppercase tracking-widest border border-slate-200 px-4 py-2 rounded bg-white shadow-sm">
                                         Dashboard Principal
                                     </p>
                                 </div>
@@ -143,7 +143,7 @@ export function HeroSection() {
                                     <div className="w-full flex-1 bg-slate-50 rounded-lg"></div>
                                 </div>
                                 <div className="absolute bottom-4 left-0 right-0 text-center">
-                                    <span className="text-[8px] text-slate-400 font-bold uppercase">Mobile App</span>
+                                    <span className="text-[8px] text-slate-500 font-bold uppercase">Mobile App</span>
                                 </div>
                              </div>
                         </div>

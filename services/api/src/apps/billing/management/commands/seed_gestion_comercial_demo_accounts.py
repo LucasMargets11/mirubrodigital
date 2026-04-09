@@ -80,8 +80,8 @@ class Command(BaseCommand):
             bundle_list = bundle_list[:3]
         
         for idx, bundle in enumerate(bundle_list, 1):
-            price = bundle.fixed_price_monthly / 100 if bundle.fixed_price_monthly else 0
-            self.stdout.write(f"   {idx}. {bundle.name} ({bundle.code}) - ${price:.2f}/mes")
+            price = bundle.fixed_price_monthly if bundle.fixed_price_monthly else 0
+            self.stdout.write(f"   {idx}. {bundle.name} ({bundle.code}) - ${price:,}/mes")
         
         return bundle_list
 
@@ -296,14 +296,14 @@ class Command(BaseCommand):
         self.stdout.write("=" * 80)
         
         for idx, account in enumerate(accounts, 1):
-            price = account['subscription'].bundle.fixed_price_monthly / 100 if account['subscription'].bundle.fixed_price_monthly else 0
+            price = account['subscription'].bundle.fixed_price_monthly if account['subscription'].bundle.fixed_price_monthly else 0
             
             self.stdout.write(f"\n{idx}. Plan: {account['bundle_name']} ({account['bundle_code']})")
             self.stdout.write(f"   📧 Email:     {account['email']}")
             self.stdout.write(f"   🔑 Password:  {account['password']}")
             self.stdout.write(f"   🏢 Negocio:   {account['business_name']}")
             self.stdout.write(f"   � Legacy:    {account['legacy_plan']}")
-            self.stdout.write(f"   �💰 Precio:    ${price:.2f}/mes")
+            self.stdout.write(f"   💰 Precio:    ${price:,}/mes")
             self.stdout.write(f"   📦 Módulos:   {account['subscription'].selected_modules.count()} incluidos")
         
         self.stdout.write("\n" + "=" * 80)

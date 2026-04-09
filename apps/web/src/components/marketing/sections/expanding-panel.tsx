@@ -1,9 +1,8 @@
 'use client';
 
-import { useRef } from 'react';
-import { motion, useScroll, useTransform } from 'framer-motion';
+import { useRef, useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { Layers, Settings, TrendingUp, LucideIcon, ArrowRight, CheckCircle2 } from 'lucide-react';
+import { Layers, Settings, TrendingUp, type LucideIcon, ArrowRight, CheckCircle2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /**
@@ -37,55 +36,131 @@ const STEPS: Feature[] = [
   }
 ];
 
+// ── Lightweight scroll-progress hook ─────────────────────────────────────────
+// Replaces framer-motion useScroll + useTransform with ~20 lines of vanilla JS.
+// Matches offset: ["start end", "center center"].
+
+function useScrollExpand(ref: React.RefObject<HTMLElement | null>) {
+    const [progress, setProgress] = useState(0);
+
+    useEffect(() => {
+        const el = ref.current;
+        if (!el) return;
+
+        let ticking = false;
+        const update = () => {
+            const rect = el.getBoundingClientRect();
+            const vh = window.innerHeight;
+            // progress 0 → element top at viewport bottom
+            // progress 1 → element center at viewport center
+            const startPos = vh;
+            const endPos = vh / 2 - rect.height / 2;
+            const range = startPos - endPos;
+            const raw = range > 0 ? (startPos - rect.top) / range : 0;
+            setProgress(Math.max(0, Math.min(1, raw)));
+            ticking = false;
+        };
+
+        const onScroll = () => {
+            if (!ticking) {
+                ticking = true;
+                requestAnimationFrame(update);
+            }
+        };
+
+        window.addEventListener('scroll', onScroll, { passive: true });
+        update();
+        return () => window.removeEventListener('scroll', onScroll);
+    }, [ref]);
+
+    return progress;
+}
+
+// ── Fade-in wrapper (IntersectionObserver, replaces motion whileInView) ──────
+
+function FadeIn({
+    children,
+    className,
+    delay = 0,
+    rootMargin = '0px',
+    threshold = 0.1,
+}: {
+    children: ReactNode;
+    className?: string;
+    delay?: number;
+    rootMargin?: string;
+    threshold?: number;
+}) {
+    const ref = useRef<HTMLDivElement>(null);
+    const [visible, setVisible] = useState(false);
+
+    useEffect(() => {
+        const el = ref.current;
+        if (!el) return;
+        const observer = new IntersectionObserver(
+            ([entry]) => {
+                if (entry?.isIntersecting) {
+                    setVisible(true);
+                    observer.disconnect();
+                }
+            },
+            { threshold, rootMargin }
+        );
+        observer.observe(el);
+        return () => observer.disconnect();
+    }, [threshold, rootMargin]);
+
+    return (
+        <div
+            ref={ref}
+            className={className}
+            style={{
+                opacity: visible ? 1 : 0,
+                transform: visible ? 'translateY(0)' : 'translateY(2.5rem)',
+                transition: `opacity 0.7s ease-out ${delay}ms, transform 0.7s ease-out ${delay}ms`,
+            }}
+        >
+            {children}
+        </div>
+    );
+}
+
 /**
  * ExpandingPanelSection
- * 
- * Componente visual que presenta un panel negro expandible al hacer scroll.
- * Contiene una guía de 3 pasos para empezar con MiRubro.
+ *
+ * Scroll-driven expanding panel — now powered by a lightweight scroll listener
+ * and CSS transitions instead of framer-motion (~50 KB savings).
  */
 export function ExpandingPanelSection() {
     const containerRef = useRef<HTMLElement>(null);
+    const progress = useScrollExpand(containerRef);
 
-    const { scrollYProgress } = useScroll({
-        target: containerRef,
-        offset: ["start end", "center center"], 
-    });
-
-    // Transformaciones de expansión
-    // Se completan al 50% del scroll para que la sensación de expansión sea mucho más rápida (2x)
-    const width = useTransform(scrollYProgress, [0, 0.5], ["90vw", "98vw"]);
-    const opacity = useTransform(scrollYProgress, [0, 0.2], [0.5, 1]);
-    const y = useTransform(scrollYProgress, [0, 0.5], [100, 0]);
-    const borderRadius = useTransform(scrollYProgress, [0, 0.5], ["2rem", "2rem"]);
+    // Map scroll progress to visual transforms (matching original sub-ranges)
+    const expandP = Math.min(1, progress / 0.5);   // [0→0.5] maps to [0→1]
+    const opacityP = Math.min(1, progress / 0.2);   // [0→0.2] maps to [0→1]
 
     return (
-        <section 
-            ref={containerRef} 
+        <section
+            ref={containerRef}
             className="py-24 md:py-32 overflow-hidden bg-white flex flex-col items-center justify-center min-h-screen"
         >
-            <motion.div
-                style={{ 
-                    width, 
-                    opacity,
-                    y,
-                    borderRadius
-                }}
+            <div
                 className="relative bg-black shadow-2xl overflow-hidden mx-auto will-change-transform flex flex-col"
+                style={{
+                    width: `${90 + expandP * 8}vw`,
+                    opacity: 0.5 + opacityP * 0.5,
+                    transform: `translateY(${100 - expandP * 100}px)`,
+                    borderRadius: '2rem',
+                }}
             >
                 {/* Fondo con gradiente sutil para dar profundidad */}
                 <div className="absolute inset-0 bg-gradient-to-br from-zinc-900 via-black to-zinc-900 opacity-50 z-0 pointer-events-none" />
-                
+
                 {/* Contenido Principal */}
                 <div className="relative z-10 w-full max-w-7xl mx-auto px-6 py-16 md:px-12 md:py-24">
-                    
+
                     {/* Header del Panel */}
-                    <motion.div 
-                        initial={{ opacity: 0, y: 20 }}
-                        whileInView={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.8, delay: 0.2 }}
-                        viewport={{ once: true }}
-                        className="text-center mb-16 md:mb-24 max-w-3xl mx-auto"
-                    >
+                    <FadeIn className="text-center mb-16 md:mb-24 max-w-3xl mx-auto" delay={200}>
                         <h2 className="text-3xl md:text-5xl font-bold text-white tracking-tight mb-6">
                             Una forma más simple de poner en orden tu negocio
                         </h2>
@@ -93,27 +168,21 @@ export function ExpandingPanelSection() {
                         <p className="text-lg md:text-xl text-zinc-400 leading-relaxed">
                             MiRubro te acompaña desde la elección inicial hasta la puesta en marcha del sistema, para que empieces a trabajar con más organización y menos fricción.
                         </p>
-                    </motion.div>
+                    </FadeIn>
 
                     {/* Features Grid */}
                     <div className="space-y-24 md:space-y-32">
                         {STEPS.map((step, index) => (
-                            <StepBlock 
-                                key={index} 
-                                feature={step} 
-                                index={index} 
+                            <StepBlock
+                                key={index}
+                                feature={step}
+                                index={index}
                             />
                         ))}
                     </div>
 
                     {/* Footer CTA */}
-                    <motion.div 
-                        initial={{ opacity: 0 }}
-                        whileInView={{ opacity: 1 }}
-                        transition={{ duration: 0.5, delay: 0.4 }}
-                        viewport={{ once: true }}
-                        className="mt-24 text-center"
-                    >
+                    <FadeIn className="mt-24 text-center" delay={400}>
                         <Link
                             href="/pricing"
                             className="group inline-flex items-center gap-2 px-8 py-4 bg-white text-black rounded-full font-bold text-lg hover:bg-gray-100 transition-colors"
@@ -121,26 +190,39 @@ export function ExpandingPanelSection() {
                             Empezar ahora
                             <ArrowRight className="w-5 h-5 transition-transform group-hover:translate-x-1" />
                         </Link>
-                    </motion.div>
+                    </FadeIn>
 
                 </div>
-            </motion.div>
+            </div>
         </section>
     );
 }
 
 function StepBlock({ feature, index }: { feature: Feature; index: number }) {
     const isEven = index % 2 === 0;
+    const visualRef = useRef<HTMLDivElement>(null);
+    const [active, setActive] = useState(false);
+
+    // Viewport-aware activation (mirrors framer-motion margin: "-20% 0px -20% 0px")
+    useEffect(() => {
+        const el = visualRef.current;
+        if (!el) return;
+        const observer = new IntersectionObserver(
+            ([entry]) => setActive(!!entry?.isIntersecting),
+            { threshold: 0.4, rootMargin: '-20% 0px -20% 0px' }
+        );
+        observer.observe(el);
+        return () => observer.disconnect();
+    }, []);
+
+    const Icon = feature.icon;
 
     return (
-        <motion.div 
-            initial={{ opacity: 0, y: 40 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7, ease: "easeOut", delay: index * 0.1 }}
-            viewport={{ once: true, margin: "-100px" }}
+        <FadeIn
             className="grid grid-cols-1 md:grid-cols-2 gap-12 md:gap-24 items-center"
+            delay={index * 100}
         >
-            {/* 
+            {/*
                 TEXT COLUMN
                 En Desktop: Si es par (0, 2), va a la izquierda (orden natural).
                 Si es impar (1), va a la derecha (order-2).
@@ -154,94 +236,60 @@ function StepBlock({ feature, index }: { feature: Feature; index: number }) {
                     <span className="w-2 h-2 rounded-full bg-brand-500 animate-pulse" />
                     {feature.stepLabel}
                 </div>
-                
+
                 <h3 className="text-3xl md:text-4xl font-bold text-white leading-tight">
                     {feature.title}
                 </h3>
-                
+
                 <p className="text-lg md:text-xl text-zinc-400 leading-relaxed max-w-lg">
                     {feature.description}
                 </p>
 
-                {/* Optional details list if needed, kept for structure but simplified */}
+                {/* Optional details list */}
                 <ul className="space-y-3 pt-4 border-t border-zinc-800/50 mt-6">
-                    <motion.li 
-                        className="flex items-start gap-3 text-zinc-500"
-                        initial="idle"
-                        whileInView="active"
-                        viewport={{ margin: "-20% 0px -20% 0px" }}
-                        variants={{
-                            idle: { opacity: 0.7 },
-                            active: { opacity: 1 }
-                        }}
-                    >
-                       <motion.div
-                            variants={{
-                                idle: { color: "rgb(82 82 91)" }, // zinc-600
-                                active: { color: "#6366f1" } // brand-500
-                            }}
-                            className="mt-1"
-                       >
-                            <CheckCircle2 className="w-5 h-5 transition-colors" />
-                       </motion.div>
-                       <span className="text-sm md:text-base">Proceso guiado y soporte continuo.</span>
-                    </motion.li>
+                    <li className="flex items-start gap-3 text-zinc-500" style={{ opacity: active ? 1 : 0.7, transition: 'opacity 0.5s ease' }}>
+                        <div className={cn("mt-1 transition-colors duration-500", active ? "text-[#6366f1]" : "text-zinc-600")}>
+                            <CheckCircle2 className="w-5 h-5" />
+                        </div>
+                        <span className="text-sm md:text-base">Proceso guiado y soporte continuo.</span>
+                    </li>
                 </ul>
             </div>
 
-            {/* 
+            {/*
                 VISUAL COLUMN
-                Reemplazamos efectos hover por variants "active" que se disparan
-                cuando el elemento entra en la zona principal del viewport.
+                Border, glow, and icon scale activated by IntersectionObserver.
             */}
-            <motion.div 
+            <div
+                ref={visualRef}
                 className={cn(
-                    "relative aspect-square md:aspect-[4/3] w-full rounded-2xl md:rounded-3xl overflow-hidden bg-zinc-900 border flex items-center justify-center p-8 transition-colors",
-                    !isEven && "md:order-1"
+                    "relative aspect-square md:aspect-[4/3] w-full rounded-2xl md:rounded-3xl overflow-hidden bg-zinc-900 border flex items-center justify-center p-8 transition-all duration-500",
+                    !isEven && "md:order-1",
+                    active ? "border-zinc-700" : "border-zinc-800/50"
                 )}
-                initial="idle"
-                whileInView="active"
-                viewport={{ margin: "-20% 0px -20% 0px", amount: 0.4 }}
-                variants={{
-                    idle: { borderColor: "rgba(39, 39, 42, 0.5)" }, // zinc-800/50
-                    active: { borderColor: "rgba(63, 63, 70, 1)" }  // zinc-700
-                }}
-                transition={{ duration: 0.5 }}
             >
-                {/* Decorative background elements - Se ilumina al hacer foco */}
-                <motion.div 
-                    className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-zinc-800/30 via-transparent to-transparent" 
-                    variants={{
-                        idle: { opacity: 0 },
-                        active: { opacity: 1 }
-                    }}
-                    transition={{ duration: 0.7 }}
+                {/* Decorative background glow */}
+                <div
+                    className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-zinc-800/30 via-transparent to-transparent transition-opacity duration-700"
+                    style={{ opacity: active ? 1 : 0 }}
                 />
-                
-                {/* Icon Container - Escala y Color al hacer foco */}
-                <motion.div 
-                    className="relative z-10 p-8 rounded-full bg-black/40 backdrop-blur-sm border transition-all"
-                    variants={{
-                        idle: { 
-                            borderColor: "rgb(39 39 42)", // zinc-800
-                            color: "rgb(212 212 216)", // zinc-300
-                            scale: 1
-                        },
-                        active: { 
-                            borderColor: "rgba(99, 102, 241, 0.3)", // brand-500/30
-                            color: "#6366f1", // brand-500
-                            scale: 1.1
-                        }
-                    }}
-                    transition={{ duration: 0.5 }}
+
+                {/* Icon Container */}
+                <div
+                    className={cn(
+                        "relative z-10 p-8 rounded-full bg-black/40 backdrop-blur-sm border transition-all duration-500",
+                        active
+                            ? "border-[rgba(99,102,241,0.3)] text-[#6366f1] scale-110"
+                            : "border-zinc-800 text-zinc-300 scale-100"
+                    )}
                 >
-                    <feature.icon strokeWidth={1.5} className="w-24 h-24 md:w-32 md:h-32" />
-                </motion.div>
+                    <Icon strokeWidth={1.5} className="w-24 h-24 md:w-32 md:h-32" />
+                </div>
 
                 {/* Corner accents */}
                 <div className="absolute top-0 left-0 w-20 h-20 bg-gradient-to-br from-white/5 to-transparent rounded-tl-3xl opacity-50" />
                 <div className="absolute bottom-0 right-0 w-20 h-20 bg-gradient-to-tl from-white/5 to-transparent rounded-br-3xl opacity-50" />
-            </motion.div>
-        </motion.div>
+            </div>
+        </FadeIn>
     );
 }

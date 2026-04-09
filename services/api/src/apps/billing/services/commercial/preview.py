@@ -1,6 +1,8 @@
 """
 Preview service for calculating subscription changes.
 Handles plan upgrades/downgrades, addon changes, and resource adjustments.
+
+All prices are in ARS pesos integers (NOT centavos).
 """
 from typing import Optional, TypedDict, List
 from decimal import Decimal
@@ -13,6 +15,7 @@ from apps.billing.commercial_plans import (
     SEAT_EXTRA_PRICING,
     ADDONS,
 )
+from apps.billing.canonical_pricing import assert_not_centavos
 from apps.billing.services.commercial.limits import get_branch_limits, validate_branch_creation
 
 
@@ -20,8 +23,8 @@ class LineItem(TypedDict):
     """Represents a single line item in the preview."""
     description: str
     quantity: int
-    unit_price: int  # in centavos
-    total: int       # in centavos
+    unit_price: int  # ARS pesos enteros
+    total: int       # ARS pesos enteros
     is_recurring: bool
 
 
@@ -34,9 +37,9 @@ class ValidationError(TypedDict):
 class PreviewResult(TypedDict):
     """Result of a subscription change preview."""
     line_items: List[LineItem]
-    subtotal: int  # in centavos
-    total_now: int  # Amount to pay now (upgrades, prorated, etc.)
-    total_recurring: int  # Amount for next billing cycle
+    subtotal: int  # ARS pesos enteros
+    total_now: int  # Amount to pay now (upgrades, prorated, etc.) — ARS pesos
+    total_recurring: int  # Amount for next billing cycle — ARS pesos
     requires_checkout: bool
     is_upgrade: bool
     is_downgrade: bool
@@ -136,9 +139,13 @@ def preview_subscription_change(
             'change_summary': 'Cambio inválido'
         }
     
-    # Get pricing based on billing cycle
+    # Get pricing based on billing cycle (ARS pesos enteros)
     cycle = 'yearly' if billing_cycle == 'yearly' else 'monthly'
     plan_price = new_plan['pricing'][cycle]
+    
+    # Guard: reject values that look like centavos
+    if not new_plan.get('is_custom'):
+        assert_not_centavos(plan_price, f"plan:{new_plan_code}:{cycle}")
     
     # Add plan line item
     line_items.append({

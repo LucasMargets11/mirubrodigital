@@ -1,7 +1,12 @@
 const isDev = process.env.NODE_ENV === 'development';
 
+// Production API hostname for next/image remote patterns.
+// Set API_HOSTNAME in the build environment (e.g. "api.mirubro.com").
+const apiHostname = process.env.API_HOSTNAME || '';
+
 const nextConfig = {
   reactStrictMode: true,
+  output: 'standalone',
   images: {
     // Allow SVG images from the public directory (used for blog covers).
     dangerouslyAllowSVG: true,
@@ -17,11 +22,25 @@ const nextConfig = {
         protocol: 'https',
         hostname: 'images.unsplash.com',
       },
-      {
-        protocol: 'http',
-        hostname: 'localhost',
-        port: '8000',
-      },
+      // Production API hostname (set via API_HOSTNAME env var at build time)
+      ...(apiHostname
+        ? [
+            {
+              protocol: 'https',
+              hostname: apiHostname,
+            },
+          ]
+        : []),
+      // Dev-only: local API server
+      ...(isDev
+        ? [
+            {
+              protocol: 'http',
+              hostname: 'localhost',
+              port: '8000',
+            },
+          ]
+        : []),
       // Internal Docker Compose hostname – only used during SSR image optimisation,
       // never sent to the browser (buildMediaUrl rewrites it to the public URL first).
       ...(isDev

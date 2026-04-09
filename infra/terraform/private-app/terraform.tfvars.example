@@ -1,0 +1,49 @@
+# ── Private Application Layer — Example values ───────────────────────────────
+# Copy to terraform.tfvars and fill in real values before running terraform.
+# NEVER commit terraform.tfvars (it contains secrets).
+
+aws_region  = "us-east-1"
+environment = "staging"
+
+# Container images (set after pushing to ECR repos created by core/base)
+api_image = ""    # e.g. 123456789.dkr.ecr.us-east-1.amazonaws.com/mirubro-api:v1.0.0
+web_image = ""    # e.g. 123456789.dkr.ecr.us-east-1.amazonaws.com/mirubro-web:v1.0.0
+
+# ECS task sizing
+api_cpu              = 256    # 0.25 vCPU
+api_memory           = 512
+web_cpu              = 256
+web_memory           = 512
+celery_worker_cpu    = 256
+celery_worker_memory = 512
+celery_beat_cpu      = 256
+celery_beat_memory   = 256
+
+# ECS service desired counts
+api_desired_count           = 1
+web_desired_count           = 1
+celery_worker_desired_count = 1
+
+# Auto scaling limits
+api_min_count = 1
+api_max_count = 3
+web_min_count = 1
+web_max_count = 3
+
+# Secrets — set strong values, never commit
+django_secret_key  = ""   # python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
+db_password        = ""   # Must match the password set in core/terraform.tfvars
+mfa_encryption_key = ""   # python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+mp_access_token    = ""   # MercadoPago production access token
+mp_webhook_secret  = ""   # MercadoPago webhook signature secret
+
+# Database username (must match core/terraform.tfvars db_username)
+db_username = "mirubro"
+
+# Application config
+django_allowed_hosts = "api.mirubro.com,www.mirubro.com"
+cors_allowed_origins = "https://www.mirubro.com"
+domain_name          = "mirubro.com"
+
+# CloudWatch
+log_retention_days = 14   # 30 or 90 for production

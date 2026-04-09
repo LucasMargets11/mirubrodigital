@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation'
+import type { Metadata } from 'next'
 import { getServerApiBaseUrl } from '@/lib/api-url'
 import { PublicMenuLayout } from '@/components/public-menu/menu-layout'
 import { MenuCategory, MenuConfig } from '@/components/public-menu/types'
@@ -8,6 +9,11 @@ import type { PublicMenuEngagement, PublicMenuLayoutBlock } from '@/features/men
 // the latest values on every request (no stale CTA visibility issues).
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
+
+// Public menus are blocked in robots.txt but add explicit noindex as a safety net.
+export const metadata: Metadata = {
+    robots: { index: false, follow: false },
+}
 
 type MenuData = {
   config: {

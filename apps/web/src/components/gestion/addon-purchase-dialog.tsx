@@ -5,16 +5,13 @@ import { Loader2, AlertCircle, CheckCircle, Sparkles, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import type { AddonInfo, CommercialSubscription } from '@/types/billing';
+import { formatPrice } from '@/lib/pricing';
 
 interface AddonPurchaseDialogProps {
     addon: AddonInfo;
     subscription: CommercialSubscription;
     onClose: () => void;
     onConfirm: (addonCode: string, billingCycle: 'monthly' | 'yearly') => Promise<void>;
-}
-
-function formatPrice(cents: number): string {
-    return `$${(cents / 100).toFixed(0)}`;
 }
 
 export function AddonPurchaseDialog({

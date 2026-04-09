@@ -39,11 +39,45 @@ export const metadata: Metadata = {
         type: 'website',
         locale: 'es_AR',
     },
+    twitter: {
+        card: 'summary_large_image',
+        title: 'QR de Reseñas | Mi Rubro',
+        description:
+            'Un QR inteligente que filtra opiniones: las altas a Google, las bajas como feedback privado.',
+    },
 };
 
 export default function ResenasPage() {
     return (
         <>
+            {/* JSON-LD: SoftwareApplication */}
+            <script
+                type="application/ld+json"
+                dangerouslySetInnerHTML={{
+                    __html: JSON.stringify({
+                        '@context': 'https://schema.org',
+                        '@type': 'SoftwareApplication',
+                        name: 'Mirubro QR de Reseñas',
+                        description:
+                            'Un QR inteligente que filtra: las opiniones altas van directo a Google y las bajas quedan como feedback privado para que mejores tu servicio.',
+                        url: `${SITE_URL}/resenas`,
+                        applicationCategory: 'BusinessApplication',
+                        operatingSystem: 'Web',
+                        offers: {
+                            '@type': 'Offer',
+                            price: '0',
+                            priceCurrency: 'ARS',
+                            description: 'Prueba gratuita disponible',
+                        },
+                        publisher: {
+                            '@type': 'Organization',
+                            name: 'Mirubro',
+                            url: SITE_URL,
+                        },
+                    }),
+                }}
+            />
+
             {/* 1 ── Hero ── */}
             <ProductHero
                 label="QR de Reseñas"

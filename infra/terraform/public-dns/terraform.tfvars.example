@@ -1,0 +1,10 @@
+# ── Public DNS & Certificates — Example values ───────────────────────────────
+# Copy to terraform.tfvars before applying.
+
+aws_region   = "us-east-1"
+environment  = "staging"
+project_name = "mirubro"
+
+# Domain
+domain_name         = "mirubro.com"
+canonical_subdomain = "www"

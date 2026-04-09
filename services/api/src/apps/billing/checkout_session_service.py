@@ -247,13 +247,21 @@ def _create_mp_plan_for_session(
     webhook traceability.
     """
     from .mp_service import MercadoPagoService
+    from .canonical_pricing import assert_not_centavos, get_plan as get_canonical_plan
 
     mp = MercadoPagoService()
+
+    # Guard: Plan.price must be in ARS pesos (not centavos).
+    # Only enforced for plans present in the canonical pricing catalogue.
+    # Restaurant / legacy plans are NOT yet canonical — skip guard to avoid
+    # blocking their checkout flow (tracked as TODO Deploy 4).
+    if get_canonical_plan(plan.code) is not None:
+        assert_not_centavos(int(plan.price), f"Plan.price:{plan.code}")
 
     auto_recurring = {
         "frequency": plan.frequency,
         "frequency_type": plan.frequency_type,
-        "transaction_amount": float(plan.price),
+        "transaction_amount": float(plan.price),  # ARS pesos → MP float
         "currency_id": plan.currency,
     }
 

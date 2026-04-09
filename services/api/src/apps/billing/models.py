@@ -87,8 +87,8 @@ class Module(models.Model):
     category = models.CharField(max_length=32, choices=CATEGORY_CHOICES)
     vertical = models.CharField(max_length=32, choices=VERTICAL_CHOICES)
     
-    price_monthly = models.IntegerField(help_text="Price in cents")
-    price_yearly = models.IntegerField(help_text="Price in cents", null=True, blank=True)
+    price_monthly = models.IntegerField(help_text="Price in ARS pesos (integer)")
+    price_yearly = models.IntegerField(help_text="Price in ARS pesos (integer)", null=True, blank=True)
     
     is_core = models.BooleanField(default=False)
     requires = models.ManyToManyField('self', blank=True, symmetrical=False)
@@ -118,8 +118,8 @@ class Bundle(models.Model):
     modules = models.ManyToManyField(Module, related_name='bundles')
     
     pricing_mode = models.CharField(max_length=32, choices=PRICING_MODE_CHOICES)
-    fixed_price_monthly = models.IntegerField(null=True, blank=True, help_text="Override price in cents")
-    fixed_price_yearly = models.IntegerField(null=True, blank=True, help_text="Override price in cents")
+    fixed_price_monthly = models.IntegerField(null=True, blank=True, help_text="Override price in ARS pesos (integer)")
+    fixed_price_yearly = models.IntegerField(null=True, blank=True, help_text="Override price in ARS pesos (integer)")
     discount_percent = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     
     is_default_recommended = models.BooleanField(default=False)
@@ -224,7 +224,7 @@ class PendingSubscriptionChange(models.Model):
     
     # Pricing snapshot
     line_items = models.JSONField(default=list, help_text="List of line items with description, quantity, unit_price, total")
-    total_amount = models.IntegerField(help_text="Total amount in centavos")
+    total_amount = models.IntegerField(help_text="Total amount in ARS pesos (integer)")
     
     # Payment tracking
     requires_checkout = models.BooleanField(default=False)

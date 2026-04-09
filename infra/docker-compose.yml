@@ -30,6 +30,7 @@ services:
   api:
     build:
       context: ../services/api
+      target: dev
     container_name: mirubro-api
     command: >-
       sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
@@ -37,6 +38,7 @@ services:
       - ../services/api/.env
     volumes:
       - ../services/api:/app
+      - ../generated:/app/generated:ro
     ports:
       - '8000:8000'
     depends_on:
@@ -48,7 +50,9 @@ services:
   web:
     build:
       context: ../apps/web
+      target: deps
     container_name: mirubro-web
+    command: npm run dev
     env_file:
       - ../apps/web/.env
     environment:
@@ -67,12 +71,14 @@ services:
   celery-worker:
     build:
       context: ../services/api
+      target: dev
     container_name: mirubro-celery-worker
     command: celery -A config worker -l info -Q celery --concurrency=2
     env_file:
       - ../services/api/.env
     volumes:
       - ../services/api:/app
+      - ../generated:/app/generated:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -84,12 +90,14 @@ services:
   celery-beat:
     build:
       context: ../services/api
+      target: dev
     container_name: mirubro-celery-beat
     command: celery -A config beat -l info --pidfile=/tmp/celerybeat.pid
     env_file:
       - ../services/api/.env
     volumes:
       - ../services/api:/app
+      - ../generated:/app/generated:ro
     depends_on:
       postgres:
         condition: service_healthy

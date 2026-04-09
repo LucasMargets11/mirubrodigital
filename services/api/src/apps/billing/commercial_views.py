@@ -456,13 +456,13 @@ class CommercialCheckoutView(APIView):
                     "[CommercialCheckoutView] SubscriptionV2 ensure failed (non-fatal): %s", _exc,
                 )
 
-            # Preparar items para MercadoPago
+            # Preparar items para MercadoPago (prices already in ARS pesos)
             mp_items = []
             for item in preview['line_items']:
                 mp_items.append({
                     'title': item['description'],
                     'quantity': item['quantity'],
-                    'unit_price': item['unit_price'] / 100.0,  # Convert centavos to pesos
+                    'unit_price': float(item['unit_price']),  # ARS pesos → MP float
                     'currency_id': 'ARS',
                 })
             
@@ -688,7 +688,7 @@ class AddonCheckoutView(APIView):
             mp_items = [{
                 'title': f"{addon_config['name']} - {billing_cycle.capitalize()}",
                 'quantity': 1,
-                'unit_price': price / 100.0,  # Convert centavos to pesos
+                'unit_price': float(price),  # ARS pesos → MP float
                 'currency_id': 'ARS',
             }]
             

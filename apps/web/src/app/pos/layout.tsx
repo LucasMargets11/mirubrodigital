@@ -13,6 +13,7 @@
 import { useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { EmployeeSessionProvider, useEmployeeSession } from '@/features/pos/context';
+import { Providers } from '@/app/providers';
 
 function PosGuard({ children }: { children: React.ReactNode }) {
   const { session } = useEmployeeSession();
@@ -53,8 +54,10 @@ function PosGuard({ children }: { children: React.ReactNode }) {
 
 export default function PosLayout({ children }: { children: React.ReactNode }) {
   return (
-    <EmployeeSessionProvider>
-      <PosGuard>{children}</PosGuard>
-    </EmployeeSessionProvider>
+    <Providers>
+      <EmployeeSessionProvider>
+        <PosGuard>{children}</PosGuard>
+      </EmployeeSessionProvider>
+    </Providers>
   );
 }

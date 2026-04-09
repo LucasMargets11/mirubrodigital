@@ -12,10 +12,10 @@ import {
     QR_PLANS,
     QR_FEATURE_CATALOG,
     QR_ADDONS,
-    formatArsPrice,
     type QrPlanEntry,
     type QrFeatureAvailability,
 } from '@/features/billing/data/menu-qr-catalog';
+import { formatPrice } from '@/lib/pricing';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -207,7 +207,7 @@ function PlanCard({
                 {/* Price */}
                 <div className="mb-5">
                     <span className="text-3xl font-bold text-slate-900">
-                        {formatArsPrice(price)}
+                        {formatPrice(price)}
                     </span>
                     <span className="text-sm text-slate-500 ml-1.5">
                         / {billingPeriod === 'yearly' ? 'año' : 'mes'}

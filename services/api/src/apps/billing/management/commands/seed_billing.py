@@ -2,6 +2,9 @@ from decimal import Decimal
 
 from django.core.management.base import BaseCommand
 from apps.billing.models import Module, Bundle, Promotion, Plan
+from apps.billing.canonical_pricing import (
+    plan_price, addon_price, extra_price, price_to_decimal,
+)
 
 class Command(BaseCommand):
     help = 'Seeds billing modules and bundles'
@@ -65,8 +68,8 @@ class Command(BaseCommand):
                 'description': 'Plan inicial para emprendedores. 1 sucursal, funcionalidades esenciales.',
                 'vertical': 'commercial',
                 'pricing_mode': 'fixed_price',
-                'fixed_price_monthly': 9900,  # $99
-                'fixed_price_yearly': 95040,  # $99 * 12 * 0.8 (20% descuento anual)
+                'fixed_price_monthly': plan_price('gestion_start', 'monthly'),   # 36000
+                'fixed_price_yearly': plan_price('gestion_start', 'yearly'),     # 345600
                 'is_default_recommended': False,
                 'badge': ''
             }
@@ -87,8 +90,8 @@ class Command(BaseCommand):
                 'description': 'Gestión profesional con tesorería y finanzas. Hasta 3 sucursales.',
                 'vertical': 'commercial',
                 'pricing_mode': 'fixed_price',
-                'fixed_price_monthly': 29900,  # $299
-                'fixed_price_yearly': 287040,  # $299 * 12 * 0.8
+                'fixed_price_monthly': plan_price('gestion_pro', 'monthly'),   # 50000
+                'fixed_price_yearly': plan_price('gestion_pro', 'yearly'),     # 480000
                 'is_default_recommended': True,
                 'badge': 'Recomendado'
             }
@@ -108,8 +111,8 @@ class Command(BaseCommand):
                 'description': 'Solución completa con facturación electrónica. Hasta 5 sucursales incluidas.',
                 'vertical': 'commercial',
                 'pricing_mode': 'fixed_price',
-                'fixed_price_monthly': 49900,  # $499
-                'fixed_price_yearly': 479040,  # $499 * 12 * 0.8
+                'fixed_price_monthly': plan_price('gestion_business', 'monthly'),  # 75000
+                'fixed_price_yearly': plan_price('gestion_business', 'yearly'),    # 720000
                 'is_default_recommended': False,
                 'badge': 'Completo'
             }
@@ -146,7 +149,7 @@ class Command(BaseCommand):
                 'name': 'Resto Startup',
                 'vertical': 'restaurant',
                 'pricing_mode': 'fixed_price',
-                'fixed_price_monthly': 2500,
+                'fixed_price_monthly': 2500,  # TODO Deploy 4: migrate to canonical pesos
                 'is_default_recommended': False
             }
         )
@@ -183,8 +186,8 @@ class Command(BaseCommand):
                 'description': 'Gestión completa del salón, cocina y carta digital con QR incluido.',
                 'vertical': 'restaurant',
                 'pricing_mode': 'fixed_price',
-                'fixed_price_monthly': 14900,   # $149/mes
-                'fixed_price_yearly': 143040,   # $149 * 12 * 0.8 (20% desc. anual)
+                'fixed_price_monthly': 14900,   # TODO Deploy 4: migrate to canonical pesos
+                'fixed_price_yearly': 143040,   # TODO Deploy 4: migrate to canonical pesos
                 'is_default_recommended': True,
                 'badge': 'Completo',
             }
@@ -218,6 +221,7 @@ class Command(BaseCommand):
             menu_modules[code] = mod
 
         # Legacy bundle — keep for backwards compatibility (existing subscriptions reference it)
+        # TODO Deploy 4: review if still needed or can be removed
         menu_bundle, _ = Bundle.objects.update_or_create(
             code='menu_qr_online',
             defaults={
@@ -225,7 +229,7 @@ class Command(BaseCommand):
                 'description': 'Carta digital con QR y branding básico.',
                 'vertical': 'menu_qr',
                 'pricing_mode': 'fixed_price',
-                'fixed_price_monthly': 4900,
+                'fixed_price_monthly': 4900,   # Legacy — not canonical
                 'fixed_price_yearly': 4900 * 10,
                 'is_default_recommended': False,
                 'badge': '',
@@ -279,8 +283,8 @@ class Command(BaseCommand):
                 'description': 'Carta digital con QR, branding básico. Sin imágenes por producto.',
                 'vertical': 'menu_qr',
                 'pricing_mode': 'fixed_price',
-                'fixed_price_monthly': 2900,   # $29/mes
-                'fixed_price_yearly': 27840,   # $29 * 12 * 0.8
+                'fixed_price_monthly': plan_price('menu_qr_basico', 'monthly'),  # 18000
+                'fixed_price_yearly': plan_price('menu_qr_basico', 'yearly'),    # 172800
                 'is_default_recommended': False,
                 'badge': '',
             }
@@ -298,8 +302,8 @@ class Command(BaseCommand):
                 'description': 'Carta visual con imágenes por producto y branding completo.',
                 'vertical': 'menu_qr',
                 'pricing_mode': 'fixed_price',
-                'fixed_price_monthly': 5900,   # $59/mes
-                'fixed_price_yearly': 56640,   # $59 * 12 * 0.8
+                'fixed_price_monthly': plan_price('menu_qr_visual', 'monthly'),  # 30000
+                'fixed_price_yearly': plan_price('menu_qr_visual', 'yearly'),    # 288000
                 'is_default_recommended': True,
                 'badge': 'Popular',
             }
@@ -318,8 +322,8 @@ class Command(BaseCommand):
                 'description': 'Carta premium con imágenes, dominio personalizado y sin branding de Mirubro.',
                 'vertical': 'menu_qr',
                 'pricing_mode': 'fixed_price',
-                'fixed_price_monthly': 9900,   # $99/mes
-                'fixed_price_yearly': 95040,   # $99 * 12 * 0.8
+                'fixed_price_monthly': plan_price('menu_qr_marca', 'monthly'),  # 55000
+                'fixed_price_yearly': plan_price('menu_qr_marca', 'yearly'),    # 528000
                 'is_default_recommended': False,
                 'badge': 'Completo',
             }
@@ -362,8 +366,8 @@ class Command(BaseCommand):
                 'description': 'QR y enlace público para recopilar reseñas de Google.',
                 'vertical': 'qr_reviews',
                 'pricing_mode': 'fixed_price',
-                'fixed_price_monthly': 4900,    # PROVISIONAL: ARS $49/mes
-                'fixed_price_yearly': 47040,    # PROVISIONAL: ARS $49 * 12 * 0.80
+                'fixed_price_monthly': plan_price('qr_reviews_base', 'monthly'),  # 25000
+                'fixed_price_yearly': plan_price('qr_reviews_base', 'yearly'),    # 240000
                 'is_default_recommended': True,
                 'badge': '',
             }
@@ -373,25 +377,22 @@ class Command(BaseCommand):
         # Plans for checkout flow
         # These codes MUST match Bundle.code values — checkout_session_service.start_checkout()
         # looks up Plan by code, and plan/page.tsx sends Bundle.code as plan_code.
-        # Price is the full ARS amount sent to MP as auto_recurring.transaction_amount.
-        # (Bundle.fixed_price_monthly stores the same value in centavos: divide by 100 for pesos)
+        # Price is the full ARS pesos amount sent to MP as auto_recurring.transaction_amount.
+        # All values derived from canonical_pricing (generated/pricing.json).
         PLAN_SEEDS = [
-            # Gestión Comercial
-            ('gestion_start',           'Starter — Gestión Comercial',       Decimal('99.00'),   'commercial'),
-            ('gestion_pro',             'Pro — Gestión Comercial',           Decimal('299.00'),  'commercial'),
-            ('gestion_business',        'Business — Gestión Comercial',      Decimal('499.00'),  'commercial'),
-            # Restaurante
+            # Gestión Comercial (canonical)
+            ('gestion_start',           'Starter — Gestión Comercial',       price_to_decimal(plan_price('gestion_start')),    'commercial'),
+            ('gestion_pro',             'Pro — Gestión Comercial',           price_to_decimal(plan_price('gestion_pro')),      'commercial'),
+            ('gestion_business',        'Business — Gestión Comercial',      price_to_decimal(plan_price('gestion_business')), 'commercial'),
+            # Restaurante (not yet in canonical — TODO Deploy 4)
             ('resto_basic',             'Startup — Restaurante',             Decimal('25.00'),   'restaurant'),
             ('restaurante_inteligente', 'Inteligente — Restaurante',         Decimal('149.00'),  'restaurant'),
-            # Menú QR
-            ('menu_qr_basico',          'QR Básico — Menú QR',               Decimal('29.00'),   'menu_qr'),
-            ('menu_qr_visual',          'QR Visual — Menú QR',               Decimal('59.00'),   'menu_qr'),
-            ('menu_qr_marca',           'QR Marca — Menú QR',                Decimal('99.00'),   'menu_qr'),
-            # QR de Reseñas — PROVISIONAL PRICING
-            ('qr_reviews',              'QR de Reseñas',                     Decimal('49.00'),   'qr_reviews'),
-            # Legacy (kept for backward compat with existing checkout sessions)
-            ('menu_qr_monthly',         'Menú QR Online Mensual',            Decimal('49.00'),   'menu_qr'),
-            ('menu_qr_yearly',          'Menú QR Online Anual',              Decimal('529.00'),  'menu_qr'),
+            # Menú QR (canonical)
+            ('menu_qr_basico',          'QR Básico — Menú QR',               price_to_decimal(plan_price('menu_qr_basico')),   'menu_qr'),
+            ('menu_qr_visual',          'QR Visual — Menú QR',               price_to_decimal(plan_price('menu_qr_visual')),   'menu_qr'),
+            ('menu_qr_marca',           'QR Marca — Menú QR',                price_to_decimal(plan_price('menu_qr_marca')),    'menu_qr'),
+            # QR de Reseñas (canonical)
+            ('qr_reviews',              'QR de Reseñas',                     price_to_decimal(plan_price('qr_reviews_base')),  'qr_reviews'),
         ]
         for code, name, price, _vertical in PLAN_SEEDS:
             Plan.objects.update_or_create(

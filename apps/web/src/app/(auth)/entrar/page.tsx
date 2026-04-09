@@ -1,5 +1,13 @@
 import { Suspense } from 'react';
+import type { Metadata } from 'next';
 import { AuthForm } from '@/components/auth/auth-form';
+
+export const metadata: Metadata = {
+    title: 'Ingresar — Mirubro',
+    description:
+        'Accedé a tu panel de gestión. Ingresá con tu email y contraseña o creá una cuenta nueva en segundos.',
+    robots: { index: false, follow: true },
+};
 
 /**
  * Login/Signup page

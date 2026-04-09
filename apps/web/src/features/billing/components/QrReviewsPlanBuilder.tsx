@@ -1,6 +1,6 @@
 'use client';
 
-import { formatArsPrice } from '../data/menu-qr-catalog';
+import { REVIEWS_BASE, REVIEWS_PRO, formatPrice } from '@/lib/pricing';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -27,24 +27,24 @@ interface QrReviewsPlanBuilderProps {
 }
 
 // ---------------------------------------------------------------------------
-// Plan data
+// Plan data — derived from canonical lib/pricing
 // ---------------------------------------------------------------------------
 
 const QR_REVIEWS_PLANS: QrReviewsPlanEntry[] = [
     {
         plan: 'reviews_base',
-        label: 'QR Reseñas',
+        label: REVIEWS_BASE.name,
         description: 'Lo esencial para empezar a sumar reseñas.',
-        priceMonthly: 25000,
-        priceYearly: 240000,
+        priceMonthly: REVIEWS_BASE.priceMonthly,
+        priceYearly: REVIEWS_BASE.priceYearly,
         ctaLabel: 'Activar QR de Reseñas',
     },
     {
         plan: 'reviews_pro',
-        label: 'Reseñas Pro',
+        label: REVIEWS_PRO.name,
         description: 'Todo lo que necesitás para dominar tu reputación.',
-        priceMonthly: 35000,
-        priceYearly: 336000,
+        priceMonthly: REVIEWS_PRO.priceMonthly,
+        priceYearly: REVIEWS_PRO.priceYearly,
         badge: '⭐ Recomendado',
         isRecommended: true,
         ctaLabel: 'Activar Reseñas Pro',
@@ -120,7 +120,7 @@ function PlanCard({
                 <div className="mb-6">
                     <div className="flex items-baseline">
                         <span className="text-4xl font-bold text-slate-900">
-                            {formatArsPrice(price)}
+                            {formatPrice(price)}
                         </span>
                         <span className="text-slate-500 text-sm ml-2">
                             / {billingPeriod === 'yearly' ? 'año' : 'mes'}

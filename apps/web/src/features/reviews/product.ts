@@ -55,12 +55,13 @@ export const SMART_FILTER = {
 /* ── Plans — PricingCardData format (reuses ProductPricing) ── */
 
 import type { PricingCardData } from '@/components/marketing/product-landing/product-pricing';
+import { REVIEWS_BASE, REVIEWS_PRO, formatPrice } from '@/lib/pricing';
 
 export const REVIEW_PRICING_CARDS: PricingCardData[] = [
     {
-        name: 'QR Reseñas',
+        name: REVIEWS_BASE.name,
         tagline: 'Lo esencial para empezar a sumar reseñas.',
-        price: '$25.000',
+        price: formatPrice(REVIEWS_BASE.priceMonthly),
         period: '/mes',
         highlights: [
             'QR listo para compartir',
@@ -73,9 +74,9 @@ export const REVIEW_PRICING_CARDS: PricingCardData[] = [
         ctaLabel: 'Activar QR de Reseñas',
     },
     {
-        name: 'Reseñas Pro',
+        name: REVIEWS_PRO.name,
         tagline: 'Todo lo que necesitás para dominar tu reputación.',
-        price: '$35.000',
+        price: formatPrice(REVIEWS_PRO.priceMonthly),
         period: '/mes',
         highlights: [
             'QR listo para compartir',

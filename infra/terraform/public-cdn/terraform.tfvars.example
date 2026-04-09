@@ -1,0 +1,16 @@
+# ── Public CDN & Distribution — Example values ───────────────────────────────
+
+aws_region  = "us-east-1"
+environment = "staging"
+
+# Domain
+domain_name         = "mirubro.com"
+canonical_subdomain = "www"
+
+# CloudFront
+cloudfront_price_class = "PriceClass_100"   # NA + EU (covers LATAM)
+cloudfront_default_ttl = 300                # 5 minutes for marketing pages
+
+# WAF rate limits (requests per IP per 5 minutes)
+waf_rate_limit_global = 1000
+waf_rate_limit_menu   = 200

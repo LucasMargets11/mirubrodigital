@@ -1,10 +1,12 @@
 "use client";
 
-import { Calendar } from 'lucide-react';
-import { useMemo } from 'react';
+import { Calendar, HelpCircle } from 'lucide-react';
+import { useMemo, useState } from 'react';
 
 import { usePendingQuotesSummary, useSalesTodaySummary } from '@/features/gestion/hooks';
 import { useCashSummary } from '@/features/cash/hooks';
+import { useEntitlements } from '@/features/gestion/hooks';
+import { HelpModal, normalizeGestionPlan } from '@/features/help';
 import type { InventorySummaryStats } from '@/features/gestion/types';
 
 
@@ -26,6 +28,9 @@ export function ExecutiveHeader({
     const salesQuery = useSalesTodaySummary(canViewSales);
     const quotesQuery = usePendingQuotesSummary(canViewQuotes);
     const cashQuery = useCashSummary(undefined, canViewCash);
+    const { plan: rawPlan } = useEntitlements();
+    const resolvedPlan = normalizeGestionPlan(rawPlan);
+    const [helpOpen, setHelpOpen] = useState(false);
 
     // Adapting to actual hook return type { count: number }
     const pendingQuotes = quotesQuery.data?.count ?? 0;
@@ -78,7 +83,21 @@ export function ExecutiveHeader({
                     <span>Hoy</span>
                 </div>
                 {/* Future: Add date range picker here */}
+                <button
+                    type="button"
+                    onClick={() => setHelpOpen(true)}
+                    className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 shadow-sm transition hover:border-brand-300 hover:text-brand-700"
+                >
+                    <HelpCircle className="h-4 w-4" />
+                    <span>Ayuda</span>
+                </button>
             </div>
+
+            <HelpModal
+                open={helpOpen}
+                onClose={() => setHelpOpen(false)}
+                plan={resolvedPlan}
+            />
         </div>
     );
 }

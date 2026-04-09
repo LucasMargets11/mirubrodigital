@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { ArrowRight, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { SiteContainer } from '@/components/layout/site-container';
-import { getBlogListing, getBlogCategories } from '@/app/(marketing)/blog/_api';
+import { getBlogListingCached, getBlogCategoriesCached } from '@/app/(marketing)/blog/_api';
 import type { BlogPost } from '@/app/(marketing)/blog/_types';
 
 // Helper to format date
@@ -68,7 +68,7 @@ function FeaturedPostCard({ post, cats, priority = false }: { post: BlogPost; ca
                     </p>
                     
                     <div className="flex items-center justify-between mt-auto">
-                        <div className="flex items-center gap-3 text-xs font-medium text-slate-400">
+                        <div className="flex items-center gap-3 text-xs font-medium text-slate-500">
                             <span className="uppercase tracking-wider text-brand-600 font-bold">{post.sourceLabel}</span>
                             <span className="h-1 w-1 rounded-full bg-slate-300" />
                             <time dateTime={post.date}>{formatDate(post.date)}</time>
@@ -112,7 +112,7 @@ function EditorialPostListItem({ post, cats }: { post: BlogPost; cats: Array<{ s
                 </h4>
 
                 {/* Metadatos */}
-                <div className="flex items-center gap-2 text-[10px] sm:text-xs font-medium text-slate-400 uppercase tracking-wide">
+                <div className="flex items-center gap-2 text-[10px] sm:text-xs font-medium text-slate-500 uppercase tracking-wide">
                     <span>Artículo</span>
                     <span className="text-slate-300">•</span>
                     <time dateTime={post.date}>
@@ -182,8 +182,8 @@ function splitHomePosts(allPosts: BlogPost[]) {
 // Main Section Component (async — fetches from CMS)
 export async function BlogResourcesSection() {
     const [listing, cats] = await Promise.all([
-        getBlogListing({ page: 1 }),
-        getBlogCategories(),
+        getBlogListingCached({ page: 1 }),
+        getBlogCategoriesCached(),
     ]);
 
     if (!listing.posts.length) return null;

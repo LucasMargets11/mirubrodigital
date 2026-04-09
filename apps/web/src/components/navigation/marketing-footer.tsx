@@ -91,10 +91,12 @@ export function MarketingFooter() {
                                 <FooterLink href="/gestion">Gestión Comercial</FooterLink>
                                 <FooterLink href="/carta">Carta Online</FooterLink>
                                 <FooterLink href="/resenas">QR de Reseñas</FooterLink>
+                                <FooterLink href="/services">Todos los servicios</FooterLink>
                             </FooterSection>
 
                             <FooterSection title="Recursos">
                                 <FooterLink href="/pricing">Precios</FooterLink>
+                                <FooterLink href="/features">Funciones</FooterLink>
                                 <FooterLink href="/contacto">Contacto</FooterLink>
                                 <FooterLink href="/soporte">Soporte</FooterLink>
                                 <FooterLink href="/preguntas-frecuentes">Preguntas frecuentes</FooterLink>
@@ -112,10 +114,10 @@ export function MarketingFooter() {
 
                 {/* Franja inferior — copyright + VIZION */}
                 <div className="mt-16 flex flex-col items-center gap-3 border-t border-slate-100 pt-8 sm:flex-row sm:justify-between sm:gap-0">
-                    <p className="text-xs text-slate-400">
+                    <p className="text-xs text-slate-500">
                         © {year} MiRubro Digital. Todos los derechos reservados.
                     </p>
-                    <p className="text-xs text-slate-400">
+                    <p className="text-xs text-slate-500">
                         Desarrollado por{' '}
                         <a
                             href="https://estudiovizion.com"

@@ -58,7 +58,7 @@ def _make_user(email='user@test.com'):
 def _make_plan(code='pro', **kwargs):
     defaults = dict(
         name='Pro Plan',
-        price=999,
+        price=50000,  # ARS pesos (canonical Pro = 50000)
         currency='ARS',
         billing_cycle='monthly',
         plan_status='active',

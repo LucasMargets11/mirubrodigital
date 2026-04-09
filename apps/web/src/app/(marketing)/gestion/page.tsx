@@ -39,11 +39,45 @@ export const metadata: Metadata = {
         type: 'website',
         locale: 'es_AR',
     },
+    twitter: {
+        card: 'summary_large_image',
+        title: 'Gestión Comercial | Mi Rubro',
+        description:
+            'Controlá ventas, inventario, caja y facturación desde una sola plataforma.',
+    },
 };
 
 export default function GestionPage() {
     return (
         <>
+            {/* JSON-LD: SoftwareApplication */}
+            <script
+                type="application/ld+json"
+                dangerouslySetInnerHTML={{
+                    __html: JSON.stringify({
+                        '@context': 'https://schema.org',
+                        '@type': 'SoftwareApplication',
+                        name: 'Mirubro Gestión Comercial',
+                        description:
+                            'Controlá ventas, inventario, caja y facturación desde una sola plataforma. Diseñada para comercios que necesitan orden y visibilidad real.',
+                        url: `${SITE_URL}/gestion`,
+                        applicationCategory: 'BusinessApplication',
+                        operatingSystem: 'Web',
+                        offers: {
+                            '@type': 'Offer',
+                            price: '0',
+                            priceCurrency: 'ARS',
+                            description: 'Prueba gratuita disponible',
+                        },
+                        publisher: {
+                            '@type': 'Organization',
+                            name: 'Mirubro',
+                            url: SITE_URL,
+                        },
+                    }),
+                }}
+            />
+
             {/* 1 ── Hero ── */}
             <ProductHero
                 label="Gestión Comercial"

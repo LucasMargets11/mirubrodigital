@@ -1,0 +1,164 @@
+{
+  "version": "2026-04-09",
+  "unit": "ARS_pesos_integer",
+  "plans": [
+    {
+      "code": "gestion_start",
+      "vertical": "commercial",
+      "name": "Starter",
+      "price_monthly": 36000,
+      "price_yearly": 345600,
+      "is_custom": false
+    },
+    {
+      "code": "gestion_pro",
+      "vertical": "commercial",
+      "name": "Pro",
+      "price_monthly": 50000,
+      "price_yearly": 480000,
+      "is_custom": false
+    },
+    {
+      "code": "gestion_business",
+      "vertical": "commercial",
+      "name": "Business",
+      "price_monthly": 75000,
+      "price_yearly": 720000,
+      "is_custom": false
+    },
+    {
+      "code": "gestion_enterprise",
+      "vertical": "commercial",
+      "name": "Enterprise",
+      "price_monthly": 0,
+      "price_yearly": 0,
+      "is_custom": true
+    },
+    {
+      "code": "menu_qr_basico",
+      "vertical": "menu_qr",
+      "name": "Lite",
+      "price_monthly": 18000,
+      "price_yearly": 172800,
+      "is_custom": false
+    },
+    {
+      "code": "menu_qr_visual",
+      "vertical": "menu_qr",
+      "name": "Pro",
+      "price_monthly": 30000,
+      "price_yearly": 288000,
+      "is_custom": false
+    },
+    {
+      "code": "menu_qr_marca",
+      "vertical": "menu_qr",
+      "name": "Premium",
+      "price_monthly": 55000,
+      "price_yearly": 528000,
+      "is_custom": false
+    },
+    {
+      "code": "qr_reviews_base",
+      "vertical": "qr_reviews",
+      "name": "QR Reseñas",
+      "price_monthly": 25000,
+      "price_yearly": 240000,
+      "is_custom": false
+    },
+    {
+      "code": "qr_reviews_pro",
+      "vertical": "qr_reviews",
+      "name": "Reseñas Pro",
+      "price_monthly": 35000,
+      "price_yearly": 336000,
+      "is_custom": false
+    }
+  ],
+  "addons": [
+    {
+      "code": "crm",
+      "vertical": "commercial",
+      "name": "CRM / Gestión de clientes",
+      "description": "Historial de compras, segmentación de clientes y saldos pendientes.",
+      "price_monthly": 8000,
+      "price_yearly": 76800,
+      "available_for": [
+        "gestion_start"
+      ],
+      "included_in": [
+        "gestion_pro",
+        "gestion_business",
+        "gestion_enterprise"
+      ]
+    },
+    {
+      "code": "invoicing",
+      "vertical": "commercial",
+      "name": "Facturación Electrónica",
+      "description": "Emisión de facturas fiscales válidas (AFIP, SAT, etc.).",
+      "price_monthly": 15000,
+      "price_yearly": 144000,
+      "available_for": [
+        "gestion_start"
+      ],
+      "included_in": [
+        "gestion_pro",
+        "gestion_business",
+        "gestion_enterprise"
+      ]
+    },
+    {
+      "code": "menu_qr_addon_reviews",
+      "vertical": "menu_qr",
+      "name": "Reseñas de Google",
+      "description": "CTA de reseñas en carta pública.",
+      "price_monthly": 12000,
+      "price_yearly": 115200,
+      "available_for": [
+        "menu_qr_visual"
+      ],
+      "included_in": [
+        "menu_qr_marca"
+      ]
+    },
+    {
+      "code": "menu_qr_addon_tips",
+      "vertical": "menu_qr",
+      "name": "Propinas (Mercado Pago)",
+      "description": "CTA de propinas en carta pública.",
+      "price_monthly": 12000,
+      "price_yearly": 115200,
+      "available_for": [
+        "menu_qr_visual"
+      ],
+      "included_in": [
+        "menu_qr_marca"
+      ]
+    }
+  ],
+  "extras": [
+    {
+      "code": "extra_branch",
+      "vertical": "commercial",
+      "name": "Sucursal adicional",
+      "price_monthly": 12000,
+      "price_yearly": 115200,
+      "available_for": [
+        "gestion_pro",
+        "gestion_business"
+      ]
+    },
+    {
+      "code": "extra_user",
+      "vertical": "commercial",
+      "name": "Usuario adicional",
+      "price_monthly": 5000,
+      "price_yearly": 48000,
+      "available_for": [
+        "gestion_pro",
+        "gestion_business"
+      ]
+    }
+  ]
+}

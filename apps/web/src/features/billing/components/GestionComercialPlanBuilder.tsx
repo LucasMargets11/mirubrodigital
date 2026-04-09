@@ -6,7 +6,7 @@ import {
   GC_PLAN_META,
   type GcPlanEntry,
 } from '../data/gestion-comercial-catalog';
-import { formatArsPrice } from '../data/menu-qr-catalog';
+import { formatPrice } from '@/lib/pricing';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -76,7 +76,7 @@ function PlanCard({
         <div className="mb-6">
           <div className="flex items-baseline">
             <span className="text-4xl font-bold text-slate-900">
-              {formatArsPrice(billingPeriod === 'yearly' ? plan.priceYearly : plan.priceMonthly)}
+              {formatPrice(billingPeriod === 'yearly' ? plan.priceYearly : plan.priceMonthly)}
             </span>
             <span className="text-slate-500 text-sm ml-2">
               / {billingPeriod === 'yearly' ? 'año' : 'mes'}

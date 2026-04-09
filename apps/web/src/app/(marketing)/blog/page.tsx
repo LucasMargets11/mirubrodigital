@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { BlogFeaturedHero } from './_components/BlogFeaturedHero';
 import { BlogGrid } from './_components/BlogGrid';
-import { getBlogListing, getBlogCategories } from './_api';
+import { getBlogListingCached, getBlogCategoriesCached } from './_api';
 
 const SITE_URL = 'https://www.mirubro.com';
 const BLOG_URL = `${SITE_URL}/blog`;
@@ -69,8 +69,8 @@ export default async function BlogPage({ searchParams }: BlogPageProps) {
     const currentPage = Math.max(1, parseInt(pageParam ?? '1', 10) || 1);
 
     const [listing, categories] = await Promise.all([
-        getBlogListing({ category: categoria, page: currentPage }),
-        getBlogCategories(),
+        getBlogListingCached({ category: categoria, page: currentPage }),
+        getBlogCategoriesCached(),
     ]);
 
     const { posts, totalPages } = listing;

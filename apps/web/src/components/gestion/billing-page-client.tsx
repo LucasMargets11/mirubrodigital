@@ -8,10 +8,7 @@ import { BillingActions } from '@/components/gestion/billing-actions';
 import { AddonPurchaseDialog } from '@/components/gestion/addon-purchase-dialog';
 import { checkoutAddonPurchase } from '@/services/billing';
 import { Button } from '@/components/ui/button';
-
-function formatPrice(cents: number): string {
-    return `$${(cents / 100).toFixed(0)}`;
-}
+import { formatPrice } from '@/lib/pricing';
 
 interface BillingPageClientProps {
     subscription: CommercialSubscription;

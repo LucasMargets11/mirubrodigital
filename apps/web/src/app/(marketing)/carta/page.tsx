@@ -39,11 +39,45 @@ export const metadata: Metadata = {
         type: 'website',
         locale: 'es_AR',
     },
+    twitter: {
+        card: 'summary_large_image',
+        title: 'Carta Online — Menú Digital QR | Mi Rubro',
+        description:
+            'Publicá tu carta digital con QR propio, fotos HD y branding personalizado.',
+    },
 };
 
 export default function CartaPage() {
     return (
         <>
+            {/* JSON-LD: SoftwareApplication */}
+            <script
+                type="application/ld+json"
+                dangerouslySetInnerHTML={{
+                    __html: JSON.stringify({
+                        '@context': 'https://schema.org',
+                        '@type': 'SoftwareApplication',
+                        name: 'Mirubro Carta Online',
+                        description:
+                            'Publicá tu carta digital con QR propio, fotos HD y branding personalizado. Sin apps, sin comisiones, siempre actualizada.',
+                        url: `${SITE_URL}/carta`,
+                        applicationCategory: 'BusinessApplication',
+                        operatingSystem: 'Web',
+                        offers: {
+                            '@type': 'Offer',
+                            price: '0',
+                            priceCurrency: 'ARS',
+                            description: 'Prueba gratuita disponible',
+                        },
+                        publisher: {
+                            '@type': 'Organization',
+                            name: 'Mirubro',
+                            url: SITE_URL,
+                        },
+                    }),
+                }}
+            />
+
             {/* 1 ── Hero ── */}
             <ProductHero
                 label="Carta Online"

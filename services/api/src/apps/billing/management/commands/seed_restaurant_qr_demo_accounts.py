@@ -99,8 +99,8 @@ class Command(BaseCommand):
             )
 
         for code, bundle in bundles.items():
-            price = (bundle.fixed_price_monthly or 0) / 100
-            self.stdout.write(f"   ✓ {bundle.name} ({code}) – ${price:.2f}/mes")
+            price = bundle.fixed_price_monthly or 0
+            self.stdout.write(f"   ✓ {bundle.name} ({code}) – ${price:,}/mes")
 
         return bundles
 
@@ -244,7 +244,7 @@ class Command(BaseCommand):
 
         for idx, account in enumerate(accounts, 1):
             price = (
-                account['subscription'].bundle.fixed_price_monthly / 100
+                account['subscription'].bundle.fixed_price_monthly
                 if account['subscription'].bundle and account['subscription'].bundle.fixed_price_monthly
                 else 0
             )
@@ -254,7 +254,7 @@ class Command(BaseCommand):
             self.stdout.write(f"   🏢 Negocio:   {account['business_name']}")
             self.stdout.write(f"   🗂️  Servicio:  {account['default_service']}")
             self.stdout.write(f"   📋 Legacy:    {account['legacy_plan']}")
-            self.stdout.write(f"   💰 Precio:    ${price:.2f}/mes")
+            self.stdout.write(f"   💰 Precio:    ${price:,}/mes")
             self.stdout.write(f"   📦 Módulos:   {account['subscription'].selected_modules.count()} incluidos")
 
         self.stdout.write("\n" + "=" * 80)

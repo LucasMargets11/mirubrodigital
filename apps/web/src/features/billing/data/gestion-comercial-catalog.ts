@@ -2,6 +2,8 @@
  * Catálogo de funcionalidades de Gestión Comercial
  *
  * Single source of truth para la tabla comparativa de planes.
+ * Prices derived from canonical lib/pricing — do NOT hardcode here.
+ *
  * Sincronizado con:
  *   - services/api/src/apps/business/entitlements.py
  *   - services/api/src/apps/billing/commercial_plans.py
@@ -12,6 +14,12 @@
  *   not_included   → — No incluido
  *   custom         → ⭐ Custom / Ilimitado (Enterprise)
  */
+import {
+  GC_STARTER, GC_PRO, GC_BUSINESS,
+  ADDON_CRM, ADDON_INVOICING,
+  EXTRA_BRANCH, EXTRA_USER,
+  formatPrice,
+} from '@/lib/pricing';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -328,17 +336,17 @@ export const FEATURE_CATALOG: FeatureEntry[] = [
 export const ADDONS: AddonEntry[] = [
   {
     code: 'crm',
-    title: 'CRM / Gestión de clientes',
-    description: 'Historial de compras, segmentación de clientes y saldos pendientes.',
-    pricing: { monthly: '$8.000/mes', yearly: '$76.800/año' },
+    title: ADDON_CRM.name,
+    description: ADDON_CRM.description,
+    pricing: { monthly: `${formatPrice(ADDON_CRM.priceMonthly)}/mes`, yearly: `${formatPrice(ADDON_CRM.priceYearly)}/año` },
     availableFor: ['start'],
     includedIn: ['pro', 'business', 'enterprise'],
   },
   {
     code: 'invoicing',
-    title: 'Facturación Electrónica',
-    description: 'Emisión de facturas fiscales válidas (AFIP, SAT, etc.).',
-    pricing: { monthly: '$15.000/mes', yearly: '$144.000/año' },
+    title: ADDON_INVOICING.name,
+    description: ADDON_INVOICING.description,
+    pricing: { monthly: `${formatPrice(ADDON_INVOICING.priceMonthly)}/mes`, yearly: `${formatPrice(ADDON_INVOICING.priceYearly)}/año` },
     availableFor: ['start'],
     includedIn: ['pro', 'business', 'enterprise'],
   },
@@ -350,15 +358,15 @@ export const ADDONS: AddonEntry[] = [
 
 export const EXTRAS: ExtraEntry[] = [
   {
-    code: 'extra_branch',
-    title: 'Sucursal adicional',
-    pricing: { monthly: '$12.000/mes', yearly: '$115.200/año' },
+    code: EXTRA_BRANCH.code,
+    title: EXTRA_BRANCH.name,
+    pricing: { monthly: `${formatPrice(EXTRA_BRANCH.priceMonthly)}/mes`, yearly: `${formatPrice(EXTRA_BRANCH.priceYearly)}/año` },
     availableFor: ['pro', 'business'],
   },
   {
-    code: 'extra_user',
-    title: 'Usuario adicional',
-    pricing: { monthly: '$5.000/mes', yearly: '$48.000/año' },
+    code: EXTRA_USER.code,
+    title: EXTRA_USER.name,
+    pricing: { monthly: `${formatPrice(EXTRA_USER.priceMonthly)}/mes`, yearly: `${formatPrice(EXTRA_USER.priceYearly)}/año` },
     availableFor: ['pro', 'business'],
   },
 ];
@@ -370,27 +378,27 @@ export const EXTRAS: ExtraEntry[] = [
 export const GC_PLANS: GcPlanEntry[] = [
   {
     plan: 'start',
-    label: 'Starter',
-    priceMonthly: 36000,
-    priceYearly: 345600,
+    label: GC_STARTER.name,
+    priceMonthly: GC_STARTER.priceMonthly,
+    priceYearly: GC_STARTER.priceYearly,
     description: 'Gestión básica de productos, inventario y ventas. Ideal para empezar.',
     ctaLabel: 'Empezar con Starter',
   },
   {
     plan: 'pro',
-    label: 'Pro',
+    label: GC_PRO.name,
     badge: 'Recomendado',
-    priceMonthly: 50000,
-    priceYearly: 480000,
+    priceMonthly: GC_PRO.priceMonthly,
+    priceYearly: GC_PRO.priceYearly,
     description: 'Operación completa con caja, clientes, reportes y tesorería.',
     ctaLabel: 'Elegir Pro',
     isRecommended: true,
   },
   {
     plan: 'business',
-    label: 'Business',
-    priceMonthly: 75000,
-    priceYearly: 720000,
+    label: GC_BUSINESS.name,
+    priceMonthly: GC_BUSINESS.priceMonthly,
+    priceYearly: GC_BUSINESS.priceYearly,
     description: 'Multi-sucursal, facturación incluida y reportes consolidados.',
     ctaLabel: 'Ir a Business',
   },

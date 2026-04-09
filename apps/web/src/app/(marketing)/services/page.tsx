@@ -1,8 +1,31 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { type LucideIcon, BarChart3, Boxes, Check, ChefHat, FileText, Image, Layers, ListChecks, Map, MessageSquareHeart, Palette, QrCode, RefreshCw, ShieldCheck, ShoppingBag, Smartphone, Star, Wallet } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+
+export const metadata: Metadata = {
+    title: 'Servicios — Mirubro',
+    description:
+        'Gestión Comercial, Menú QR Online y QR de Reseñas. Descubrí los módulos disponibles para cada vertical de tu negocio.',
+    alternates: { canonical: 'https://www.mirubro.com/services' },
+    openGraph: {
+        title: 'Servicios — Mirubro',
+        description:
+            'Gestión Comercial, Menú QR Online y QR de Reseñas. Módulos para cada vertical de tu negocio.',
+        url: 'https://www.mirubro.com/services',
+        siteName: 'Mirubro',
+        type: 'website',
+        locale: 'es_AR',
+    },
+    twitter: {
+        card: 'summary_large_image',
+        title: 'Servicios — Mirubro',
+        description:
+            'Gestión Comercial, Menú QR Online y QR de Reseñas. Módulos para cada vertical de tu negocio.',
+    },
+};
 
 
 type ServiceVertical = 'commercial' | 'restaurant' | 'menu_qr' | 'qr_resenas';

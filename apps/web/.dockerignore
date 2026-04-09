@@ -4,6 +4,7 @@ node_modules
 .gitignore
 README.md
 .env*.local
+.env
 .vercel
 *.log
 npm-debug.log*

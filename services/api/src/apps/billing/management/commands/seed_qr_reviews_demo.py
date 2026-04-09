@@ -89,7 +89,7 @@ class Command(BaseCommand):
                 f"❌ Bundle '{BUNDLE_CODE}' no existe.\n"
                 "   Ejecuta primero: python manage.py seed_billing"
             )
-        price = (bundle.fixed_price_monthly or 0) / 100
+        price = bundle.fixed_price_monthly or 0
         mods = bundle.modules.count()
         self.stdout.write(f"   ✓ {bundle.name} ({BUNDLE_CODE}) – ${price:.0f}/mes – {mods} módulos")
         return bundle

@@ -7,16 +7,17 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { previewSubscriptionChange } from '@/services/billing';
 import type { CommercialSubscription, PreviewChangeResponse, PreviewChangeRequest } from '@/types/billing';
+import {
+    ADDON_CRM, ADDON_INVOICING,
+    EXTRA_BRANCH, EXTRA_USER,
+    formatPrice,
+} from '@/lib/pricing';
 
 interface PlanChangeDialogProps {
     currentSubscription: CommercialSubscription;
     targetPlanCode: string;
     onClose: () => void;
     onConfirm: (preview: PreviewChangeResponse, config: PreviewChangeRequest) => void;
-}
-
-function formatPrice(cents: number): string {
-    return `$${(cents / 100).toFixed(0)}`;
 }
 
 export function PlanChangeDialog({
@@ -203,7 +204,7 @@ export function PlanChangeDialog({
                                             <div className="text-xs text-slate-600">Gestión de clientes y ventas</div>
                                         </div>
                                         <div className="text-sm font-semibold text-slate-900">
-                                            $20/mes
+                                            {formatPrice(ADDON_CRM.priceMonthly)}/mes
                                         </div>
                                     </label>
                                     <label className="flex items-center gap-3 rounded-lg border border-slate-200 p-3 hover:bg-slate-50 cursor-pointer">
@@ -218,7 +219,7 @@ export function PlanChangeDialog({
                                             <div className="text-xs text-slate-600">Emisión de facturas electrónicas</div>
                                         </div>
                                         <div className="text-sm font-semibold text-slate-900">
-                                            $150/mes
+                                            {formatPrice(ADDON_INVOICING.priceMonthly)}/mes
                                         </div>
                                     </label>
                                 </div>
@@ -250,7 +251,7 @@ export function PlanChangeDialog({
                                         >
                                             +
                                         </button>
-                                        <span className="text-sm text-slate-600">× $50/mes</span>
+                                        <span className="text-sm text-slate-600">× {formatPrice(EXTRA_BRANCH.priceMonthly)}/mes</span>
                                     </div>
                                 </div>
                                 <div>
@@ -277,7 +278,7 @@ export function PlanChangeDialog({
                                         >
                                             +
                                         </button>
-                                        <span className="text-sm text-slate-600">× $5/mes</span>
+                                        <span className="text-sm text-slate-600">× {formatPrice(EXTRA_USER.priceMonthly)}/mes</span>
                                     </div>
                                 </div>
                             </div>

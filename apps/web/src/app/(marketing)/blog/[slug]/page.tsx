@@ -37,6 +37,11 @@ export async function generateMetadata({ params }: BlogPostPageProps): Promise<M
             ? `${SITE_URL}${post.coverImageUrl}`
             : post.coverImageUrl;
 
+    // SVG images are not supported by Facebook/LinkedIn OG crawlers.
+    // When the resolved image is SVG, omit it so the file-convention
+    // opengraph-image.tsx generates a compatible PNG fallback.
+    const isSvg = ogImage?.toLowerCase().endsWith('.svg');
+
     return {
         title: `${title} | Mirubro`,
         description,
@@ -49,7 +54,7 @@ export async function generateMetadata({ params }: BlogPostPageProps): Promise<M
             type: 'article',
             publishedTime: post.date,
             authors: ['Mirubro'],
-            images: ogImage
+            images: ogImage && !isSvg
                 ? [{ url: ogImage, width: 900, alt: post.title }]
                 : undefined,
             locale: 'es_AR',
@@ -58,7 +63,7 @@ export async function generateMetadata({ params }: BlogPostPageProps): Promise<M
             card: 'summary_large_image',
             title: post.ogTitle ?? title,
             description: post.ogDescription ?? description,
-            images: ogImage ? [ogImage] : undefined,
+            images: ogImage && !isSvg ? [ogImage] : undefined,
         },
     };
 }

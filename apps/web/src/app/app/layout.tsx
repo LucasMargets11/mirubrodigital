@@ -3,6 +3,7 @@ import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 
 import { AppShell } from '@/components/app/app-shell';
+import { Providers } from '@/app/providers';
 import { getSession } from '@/lib/auth';
 import type { Session } from '@/lib/auth/types';
 
@@ -40,6 +41,13 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     const resolvedSession = session as Session;
     const sub = resolvedSession.subscription;
     const businessStatus = resolvedSession.current?.business?.status;
+
+    // Guard: if the session is malformed (e.g. cold-start partial API response)
+    // treat as no-subscription and redirect to plans. Prevents TypeError on
+    // sub.access_allowed when subscription is undefined.
+    if (!sub) {
+        redirect('/app/planes');
+    }
 
     // Force password change guard — must run before billing checks.
     // Users with must_change_password=true are redirected to the auth-layout
@@ -89,8 +97,12 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     // the user has not completed service selection or activated a plan.
     // Skip AppShell entirely for /app/onboarding/* — the nested layout owns the UX.
     if (pathname.startsWith('/app/onboarding')) {
-        return <>{children}</>;
+        return <Providers>{children}</Providers>;
     }
 
-    return <AppShell session={resolvedSession}>{children}</AppShell>;
+    return (
+        <Providers>
+            <AppShell session={resolvedSession}>{children}</AppShell>
+        </Providers>
+    );
 }

@@ -6,6 +6,10 @@ import { Check, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import type { CommercialSubscription } from '@/types/billing';
+import {
+    GC_STARTER, GC_PRO, GC_BUSINESS, GC_ENTERPRISE,
+    formatPrice,
+} from '@/lib/pricing';
 
 interface PlanConfig {
     code: string;
@@ -24,9 +28,9 @@ interface PlanConfig {
 const PLANS: PlanConfig[] = [
     {
         code: 'starter',
-        name: 'Starter',
-        price_monthly: 9900,
-        price_yearly: 95000,
+        name: GC_STARTER.name,
+        price_monthly: GC_STARTER.priceMonthly,
+        price_yearly: GC_STARTER.priceYearly,
         description: 'Para emprendimientos que comienzan',
         features: [
             '1 sucursal',
@@ -41,9 +45,9 @@ const PLANS: PlanConfig[] = [
     },
     {
         code: 'pro',
-        name: 'Pro',
-        price_monthly: 29900,
-        price_yearly: 287000,
+        name: GC_PRO.name,
+        price_monthly: GC_PRO.priceMonthly,
+        price_yearly: GC_PRO.priceYearly,
         description: 'Para negocios en crecimiento',
         features: [
             'Hasta 3 sucursales',
@@ -60,9 +64,9 @@ const PLANS: PlanConfig[] = [
     },
     {
         code: 'business',
-        name: 'Business',
-        price_monthly: 49900,
-        price_yearly: 479000,
+        name: GC_BUSINESS.name,
+        price_monthly: GC_BUSINESS.priceMonthly,
+        price_yearly: GC_BUSINESS.priceYearly,
         description: 'Para empresas establecidas',
         features: [
             'Sucursales ilimitadas',
@@ -78,9 +82,9 @@ const PLANS: PlanConfig[] = [
     },
     {
         code: 'enterprise',
-        name: 'Enterprise',
-        price_monthly: 0,
-        price_yearly: 0,
+        name: GC_ENTERPRISE.name,
+        price_monthly: GC_ENTERPRISE.priceMonthly,
+        price_yearly: GC_ENTERPRISE.priceYearly,
         description: 'Soluciones personalizadas',
         features: [
             'Todo ilimitado',
@@ -99,10 +103,6 @@ const PLANS: PlanConfig[] = [
 interface PlanComparisonProps {
     currentSubscription: CommercialSubscription;
     onSelectPlan: (planCode: string) => void;
-}
-
-function formatPrice(cents: number): string {
-    return `$${(cents / 100).toFixed(0)}`;
 }
 
 export function PlanComparison({ currentSubscription, onSelectPlan }: PlanComparisonProps) {
