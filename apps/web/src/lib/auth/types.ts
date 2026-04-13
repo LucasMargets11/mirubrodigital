@@ -49,6 +49,12 @@ export type Session = {
     account_mode: 'owner_managed' | 'personal';
     /** Whether the user must change their password before accessing the app. */
     must_change_password: boolean;
+    /** Method used for initial registration ('email' | 'google'). */
+    auth_provider?: 'email' | 'google';
+    /** Whether the user has linked a Google account. */
+    has_google_linked?: boolean;
+    /** Whether the user has a usable password set. */
+    has_password?: boolean;
   };
   memberships: MembershipSummary[];
   current: {

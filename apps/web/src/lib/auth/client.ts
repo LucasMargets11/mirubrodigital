@@ -136,3 +136,24 @@ export async function resendVerification(): Promise<AuthResult> {
     return { success: false, message: 'Error de red' };
   }
 }
+
+// ── Google OAuth ────────────────────────────────────────────────────────────
+
+type GoogleAuthResult = AuthResult & { onboarding?: boolean };
+
+export async function googleAuth(credential: string): Promise<GoogleAuthResult> {
+  try {
+    const response = await request('/api/v1/auth/google/', { credential });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      return { success: false, message: payload?.detail ?? 'No pudimos autenticar con Google' };
+    }
+    const data = await response.json().catch(() => ({}));
+    return {
+      success: true,
+      onboarding: data?.onboarding ?? false,
+    };
+  } catch {
+    return { success: false, message: 'Error de red al autenticar con Google' };
+  }
+}

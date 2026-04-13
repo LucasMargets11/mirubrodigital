@@ -1,6 +1,7 @@
 from django.urls import path
 
 from .views import (
+    GoogleAuthView,
     LoginView,
     LogoutView,
     MeView,
@@ -30,6 +31,8 @@ urlpatterns = [
     # Email verification
     path('verify-email/', VerifyEmailView.as_view(), name='auth-verify-email'),
     path('resend-verification/', ResendVerificationView.as_view(), name='auth-resend-verification'),
+    # Google OAuth
+    path('google/', GoogleAuthView.as_view(), name='auth-google'),
     # Self-service password recovery
     path('forgot-password/', ForgotPasswordView.as_view(), name='auth-forgot-password'),
     path('reset-password/', ResetPasswordView.as_view(), name='auth-reset-password'),

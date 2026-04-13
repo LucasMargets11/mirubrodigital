@@ -17,6 +17,7 @@ cryptography>=42.0,<44.0
 django-redis>=5.4,<6.0
 argon2-cffi>=23.1,<24.0
 python-json-logger>=3.2,<4.0
+google-auth>=2.29,<3.0
 # Sprint 3: document processing pipeline
 pyzbar>=0.1.9
 pytesseract>=0.3.10

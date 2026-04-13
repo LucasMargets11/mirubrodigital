@@ -5,7 +5,7 @@ import { AuthForm } from '@/components/auth/auth-form';
 export const metadata: Metadata = {
     title: 'Ingresar — Mirubro',
     description:
-        'Accedé a tu panel de gestión. Ingresá con tu email y contraseña o creá una cuenta nueva en segundos.',
+        'Gestioná tu negocio desde un solo lugar. Ingresá con Google o con tu email.',
     robots: { index: false, follow: true },
 };
 
@@ -25,18 +25,15 @@ export default function EntrarPage() {
                 <div className="mx-auto max-w-7xl px-6 lg:px-10">
                     <div className="grid gap-10 lg:grid-cols-2 lg:gap-16 items-center">
                         <div className="max-w-xl space-y-4">
-                            <p className="text-sm font-semibold uppercase tracking-wide text-brand-500">Autenticación segura</p>
-                            <h1 className="text-4xl font-display font-bold text-slate-900">Accedé a tu panel</h1>
-                            <p className="text-lg text-slate-600">
-                                Ingresá con tu email y contraseña para gestionar tu negocio.
-                            </p>
-                            <p className="text-base text-slate-500">
-                                ¿No tenés cuenta? Creala en segundos y comenzá a usar todas las funcionalidades de la plataforma.
+                            <p className="text-sm font-semibold uppercase tracking-wider text-brand-500">Plataforma de gestión</p>
+                            <h1 className="text-4xl font-display font-bold tracking-tight text-slate-900 lg:text-5xl">Ingresá a MiRubro</h1>
+                            <p className="text-lg leading-relaxed text-slate-600">
+                                Gestioná tu negocio desde un solo lugar. Ingresá con Google o con tu email.
                             </p>
                         </div>
                         <div className="w-full">
                             <div className="w-full max-w-[520px] mx-auto lg:ml-auto lg:mr-0">
-                                <div className="rounded-3xl border border-slate-200 bg-white/80 p-8 shadow-xl shadow-brand-500/5">
+                                <div className="rounded-2xl border border-slate-200/60 bg-white px-8 py-8 sm:px-10 sm:py-9 shadow-xl shadow-slate-900/[0.04]">
                                     <Suspense>
                                         <AuthForm />
                                     </Suspense>

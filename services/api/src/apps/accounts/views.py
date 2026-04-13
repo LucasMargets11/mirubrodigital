@@ -28,6 +28,7 @@ from apps.accounts.services import EmailService
 from apps.accounts.tasks import send_verification_email_task
 from apps.accounts.throttles import (
     ForgotPasswordThrottle,
+    GoogleAuthThrottle,
     LoginThrottle,
     RefreshTokenThrottle,
     RegisterThrottle,
@@ -153,6 +154,9 @@ def _session_payload(user: User, membership: Membership, memberships: List[Membe
 			'email_verified': profile.email_verified if profile else False,
 			'account_mode': profile.account_mode if profile else 'owner_managed',
 			'must_change_password': profile.must_change_password if profile else False,
+			'auth_provider': profile.auth_provider if profile else 'email',
+			'has_google_linked': bool(profile.google_sub) if profile else False,
+			'has_password': user.has_usable_password(),
 		},
 		'memberships': [
 			{
@@ -518,7 +522,7 @@ class ResendVerificationView(APIView):
 	"""
 	POST /api/v1/auth/resend-verification/
 	Requires authentication (user must be logged in).
-	Generates a new verification token and resends the email.
+	Generates a new verification token and resends the email via Celery.
 	"""
 	permission_classes = [IsAuthenticated]
 
@@ -530,12 +534,139 @@ class ResendVerificationView(APIView):
 			return Response({'detail': 'El email ya está verificado.'}, status=status.HTTP_400_BAD_REQUEST)
 
 		token = profile.generate_verification_token()
-		sent = EmailService.send_verification_email(user, token)
+		send_verification_email_task.delay(user.id, token)
 
 		return Response({
-			'status': 'sent' if sent else 'queued',
-			'message': 'Se envió un nuevo correo de verificación.' if sent else 'Verificación solicitada.',
+			'status': 'queued',
+			'message': 'Se envió un nuevo correo de verificación.',
 		})
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Google OAuth
+# ─────────────────────────────────────────────────────────────────────────────
+
+class GoogleAuthView(APIView):
+	"""
+	POST /api/v1/auth/google/
+	Body: { "credential": "<Google ID token>" }
+
+	Validates the ID token via google-auth, then:
+	  1. Lookup by google_sub → login.
+	  2. Lookup by email + link google_sub → login.
+	  3. No user → create with auth_provider='google', email_verified=True, no password.
+	  4. email_verified=false from Google → reject 400.
+	  5. Inactive user → reject 403.
+	Emits JWT cookies identical to LoginView.
+	"""
+	permission_classes = [AllowAny]
+	authentication_classes: list = []
+	throttle_classes = [GoogleAuthThrottle]
+
+	def post(self, request: Request) -> Response:
+		credential = (request.data.get('credential') or '').strip()
+		if not credential:
+			return Response(
+				{'detail': 'Token de Google requerido.'},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		from apps.accounts.google_oauth_service import GoogleOAuthService
+
+		result = GoogleOAuthService.verify_token(credential)
+		if not result.valid:
+			return Response(
+				{'detail': 'Token de Google inválido o expirado.'},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		payload = result.payload
+
+		# Google must have verified the email
+		if not payload.email_verified:
+			return Response(
+				{'detail': 'El email de Google no está verificado.'},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		client_ip = _get_client_ip(request)
+		is_new_user = False
+		user = None
+
+		# 1. Lookup by google_sub (fastest, unique index)
+		try:
+			profile = AccountProfile.objects.select_related('user').get(google_sub=payload.sub)
+			user = profile.user
+		except AccountProfile.DoesNotExist:
+			pass
+
+		# 2. Lookup by email and link google_sub
+		if user is None:
+			try:
+				user = User.objects.get(email__iexact=payload.email)
+				profile, _ = AccountProfile.objects.get_or_create(user=user)
+				if not profile.google_sub:
+					profile.google_sub = payload.sub
+					update_fields = ['google_sub']
+					if not profile.email_verified:
+						profile.email_verified = True
+						update_fields.append('email_verified')
+					profile.save(update_fields=update_fields)
+					logger.info('[GoogleAuthView] Linked google_sub=%s to existing user=%s', payload.sub, user.pk)
+			except User.DoesNotExist:
+				user = None
+
+		# 3. Create new user
+		if user is None:
+			is_new_user = True
+			try:
+				with transaction.atomic():
+					user = User.objects.create_user(
+						username=payload.email,
+						email=payload.email,
+						first_name=payload.given_name[:30] if payload.given_name else '',
+						last_name=payload.family_name[:150] if payload.family_name else '',
+					)
+					user.set_unusable_password()
+					user.save(update_fields=['password'])
+
+					profile, _ = AccountProfile.objects.get_or_create(user=user)
+					profile.auth_provider = 'google'
+					profile.google_sub = payload.sub
+					profile.email_verified = True
+					profile.save(update_fields=['auth_provider', 'google_sub', 'email_verified'])
+			except IntegrityError:
+				# Race condition: concurrent request created the user.
+				logger.info('[GoogleAuthView] IntegrityError (race) for email=%s, falling back to login', payload.email)
+				user = User.objects.get(email__iexact=payload.email)
+				profile, _ = AccountProfile.objects.get_or_create(user=user)
+				if not profile.google_sub:
+					profile.google_sub = payload.sub
+					profile.save(update_fields=['google_sub'])
+				is_new_user = False
+
+			logger.info('[GoogleAuthView] Created new user=%s via Google OAuth', user.pk)
+
+		# 4. Check active
+		if not user.is_active:
+			return Response(
+				{'detail': 'Cuenta suspendida.'},
+				status=status.HTTP_403_FORBIDDEN,
+			)
+
+		# 5. Common path: ensure membership + emit cookies
+		membership = _ensure_membership(user)
+		refresh = RefreshToken.for_user(user)
+
+		response = Response({
+			'status': 'ok',
+			'onboarding': membership.business.status == 'onboarding',
+			'is_new_user': is_new_user,
+		})
+		_set_auth_cookies(response, refresh)
+		_set_business_cookie(response, membership.business_id)
+		security_events.login_success(user_id=user.pk, email=user.email, ip=client_ip)
+		return response
 
 
 # ─────────────────────────────────────────────────────────────────────────────

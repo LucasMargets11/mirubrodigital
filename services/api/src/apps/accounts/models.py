@@ -77,6 +77,25 @@ class AccountProfile(models.Model):
     )
     mfa_enrolled_at = models.DateTimeField(null=True, blank=True)
 
+    # ── Auth provider metadata ────────────────────────────────────────────
+    class AuthProvider(models.TextChoices):
+        EMAIL  = 'email',  'Email + Password'
+        OTP    = 'otp',    'Email OTP'
+        GOOGLE = 'google', 'Google OAuth'
+
+    auth_provider = models.CharField(
+        max_length=16,
+        choices=AuthProvider.choices,
+        default=AuthProvider.EMAIL,
+        help_text='Method used for initial registration. Informational — does not restrict login.',
+    )
+    google_sub = models.CharField(
+        max_length=255,
+        null=True, blank=True,
+        unique=True, db_index=True,
+        help_text='Google OAuth `sub` claim. Unique per Google account. NULL if never linked.',
+    )
+
     # ── Account mode & forced password change ─────────────────────────────
     account_mode = models.CharField(
         max_length=16,

@@ -178,6 +178,15 @@ REST_FRAMEWORK = {
   'DEFAULT_THROTTLE_RATES': {
     'employee_login':      '10/minute',
     'employee_change_pin': '5/minute',
+    # Public auth endpoints — each has a dedicated FailOpenAnonThrottle subclass.
+    'auth_login':            '20/minute',
+    'auth_register':         '5/minute',
+    'auth_forgot_password':  '5/minute',
+    'auth_reset_password':   '5/minute',
+    'auth_verify_email':     '5/minute',
+    'auth_refresh':          '30/minute',
+    # Google OAuth
+    'auth_google':           '10/minute',
   },
 }
 
@@ -194,6 +203,9 @@ AUTH_COOKIE_SAMESITE = os.getenv('COOKIE_SAMESITE', 'Lax')
 AUTH_COOKIE_PATH = '/'
 AUTH_COOKIE_ACCESS_MAX_AGE = int(os.getenv('ACCESS_TOKEN_MAX_AGE_SECONDS', str(ACCESS_TOKEN_MINUTES * 60)))
 AUTH_COOKIE_REFRESH_MAX_AGE = int(os.getenv('REFRESH_TOKEN_MAX_AGE_SECONDS', str(REFRESH_TOKEN_DAYS * 24 * 60 * 60)))
+
+# ── Google OAuth ─────────────────────────────────────────────────────────────
+GOOGLE_OAUTH_CLIENT_ID = os.getenv('GOOGLE_OAUTH_CLIENT_ID', '')
 
 SIMPLE_JWT = {
   'ACCESS_TOKEN_LIFETIME': timedelta(minutes=ACCESS_TOKEN_MINUTES),

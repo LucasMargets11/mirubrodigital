@@ -108,3 +108,11 @@ class RefreshTokenThrottle(FailOpenAnonThrottle):
     refresh transparently on every page load.
     """
     scope = 'auth_refresh'
+
+
+class GoogleAuthThrottle(FailOpenAnonThrottle):
+    """IP-based throttle for POST /api/v1/auth/google/.
+
+    Default: 10/minute — generous for normal use, caps token-replay attacks.
+    """
+    scope = 'auth_google'
