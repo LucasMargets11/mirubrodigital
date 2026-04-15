@@ -498,6 +498,7 @@ export function MenuClient({ canManage, canImport, canExport, canUploadImages }:
                         Cada cambio impacta en <a href="/app/orders" className="font-semibold text-amber-600">Órdenes</a> y en el tablero de cocina.
                     </p>
                 </div>
+{/* Kitchen integration notice */}
             </header>
 
             <div className="grid gap-6 lg:grid-cols-[320px,1fr]">
@@ -734,6 +735,7 @@ export function MenuClient({ canManage, canImport, canExport, canUploadImages }:
                                                 src={item.image_url}
                                                 alt={item.name}
                                                 fill
+                                                unoptimized
                                                 className="object-cover"
                                                 sizes="(max-width: 768px) 100vw, 50vw"
                                             />
@@ -794,12 +796,12 @@ export function MenuClient({ canManage, canImport, canExport, canUploadImages }:
                                                         : 'Subir imagen'}
                                                 </button>
                                             ) : (
-                                                <span className="text-xs italic text-slate-400">
-                                                    Imágenes disponibles en{' '}
-                                                    <a href="/app/planes" className="text-amber-600 underline">
-                                                        QR Visual
-                                                    </a>
-                                                </span>
+                                                <a
+                                                    href="/app/planes"
+                                                    className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700 transition hover:bg-amber-100"
+                                                >
+                                                    📷 Subir imágenes · Mejorar plan
+                                                </a>
                                             )}
                                             {item.image_url ? (
                                                 <button

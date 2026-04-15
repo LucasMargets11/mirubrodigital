@@ -26,6 +26,7 @@ from rest_framework.views import APIView
 from apps.accounts.permissions import HasBusinessMembership, HasPermission
 from apps.billing.permissions import CheckFeatureAccess
 from apps.business.service_policy import require_service
+from rest_framework.throttling import ScopedRateThrottle
 from .importer import MenuImportError, apply_menu_import, export_menu_to_workbook
 from .qr_entitlements import resolve_menu_qr_flags, get_subscription_for_business
 from .models import (
@@ -65,6 +66,10 @@ from .serializers import (
 import logging
 logger = logging.getLogger(__name__)
 
+# Businesses with these statuses are visible on public pages.
+# trialing/active/past_due keep the page up; everything else returns 404.
+PUBLISHABLE_STATUSES = frozenset({'active', 'trialing', 'past_due'})
+
 
 class MenuCategoryListCreateView(generics.ListCreateAPIView):
     serializer_class = MenuCategorySerializer
@@ -102,6 +107,60 @@ class MenuCategoryDetailView(generics.RetrieveUpdateDestroyAPIView):
             .annotate(item_count=Count('items'))
             .order_by('position', 'name')
         )
+
+
+class MenuCategoryImageView(APIView):
+    """
+    POST   /api/v1/menu/categories/<uuid>/image/  — Upload or replace category image.
+    DELETE /api/v1/menu/categories/<uuid>/image/  — Remove category image.
+
+    Reuses the same 'menu_item_images' billing feature gate as item images.
+    """
+    parser_classes = [MultiPartParser]
+    permission_classes = [
+        IsAuthenticated,
+        HasBusinessMembership,
+        HasPermission,
+        CheckFeatureAccess,
+    ]
+    permission_map = {
+        'POST': 'manage_menu',
+        'DELETE': 'manage_menu',
+    }
+    required_feature = 'menu_item_images'
+
+    def _get_category(self, request, pk):
+        business = getattr(request, 'business')
+        return get_object_or_404(MenuCategory, pk=pk, business=business)
+
+    def post(self, request, pk):
+        category = self._get_category(request, pk)
+        serializer = MenuItemImageUploadSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        uploaded_file = serializer.validated_data['file']
+        if category.image:
+            category.image.delete(save=False)
+
+        category.image = uploaded_file
+        category.image_updated_at = timezone.now()
+        category.save(update_fields=['image', 'image_updated_at'])
+
+        url = category.image.url
+        if url.startswith('/'):
+            url = request.build_absolute_uri(url)
+        return Response({'image_url': url}, status=status.HTTP_200_OK)
+
+    def delete(self, request, pk):
+        category = self._get_category(request, pk)
+        if not category.image:
+            return Response({'detail': 'Esta categoría no tiene imagen.'}, status=status.HTTP_404_NOT_FOUND)
+
+        category.image.delete(save=False)
+        category.image = None
+        category.image_updated_at = None
+        category.save(update_fields=['image', 'image_updated_at'])
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class MenuItemListCreateView(generics.ListCreateAPIView):
@@ -394,6 +453,8 @@ class MenuBrandingSettingsView(generics.RetrieveUpdateAPIView):
 
 class PublicMenuBySlugView(APIView):
     permission_classes = []
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'public_menu'
 
     def get(self, request, slug):
         config = get_object_or_404(
@@ -401,9 +462,11 @@ class PublicMenuBySlugView(APIView):
             slug=slug,
             enabled=True,
         )
+        if config.business.status not in PUBLISHABLE_STATUSES:
+            return Response(status=status.HTTP_404_NOT_FOUND)
         branding = ensure_menu_branding(config.business)
         items_qs = (
-            MenuItem.objects.filter(business=config.business)
+            MenuItem.objects.filter(business=config.business, is_available=True)
             .order_by('position', 'name')
         )
         categories = (
@@ -445,7 +508,6 @@ class PublicMenuBySlugView(APIView):
 
         return Response({
             'business': {
-                'id': config.business_id,
                 'name': config.business.name,
             },
             'slug': config.slug,
@@ -460,9 +522,17 @@ class PublicMenuBySlugView(APIView):
 
 class PublicMenuResolveView(APIView):
     permission_classes = []
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'public_menu'
 
     def get(self, request, public_id):
-        config = get_object_or_404(PublicMenuConfig, public_id=public_id, enabled=True)
+        config = get_object_or_404(
+            PublicMenuConfig.objects.select_related('business'),
+            public_id=public_id,
+            enabled=True,
+        )
+        if config.business.status not in PUBLISHABLE_STATUSES:
+            return Response(status=status.HTTP_404_NOT_FOUND)
         return Response({"slug": config.slug})
 
 
@@ -984,6 +1054,8 @@ class PublicTipCreatePreferenceView(APIView):
 class PublicTipStatusView(APIView):
     """GET /api/v1/menu/public/tips/{tip_id}/status/ — public tip status polling."""
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'public_tips'
 
     def get(self, request, tip_id):
         tip = get_object_or_404(TipTransaction, id=tip_id)
@@ -1008,6 +1080,8 @@ class PublicTipVerifyView(APIView):
     Also accepts `collection_id` as fallback (MP sometimes uses that param name).
     """
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'public_tips'
 
     # MP status → TipTransaction status
     _STATUS_MAP = {

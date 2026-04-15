@@ -21,6 +21,8 @@ class MenuCategory(models.Model):
     business = models.ForeignKey('business.Business', related_name='menu_categories', on_delete=models.CASCADE)
     name = models.CharField(max_length=120)
     description = models.TextField(blank=True)
+    image = models.ImageField(upload_to='menu/categories/', blank=True, null=True)
+    image_updated_at = models.DateTimeField(null=True, blank=True)
     position = models.PositiveIntegerField(default=0)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -38,6 +40,12 @@ class MenuCategory(models.Model):
 
     def __str__(self) -> str:  # pragma: no cover - representational helper
         return f"Categoria · {self.name} ({self.business_id})"
+
+    @property
+    def image_url_value(self) -> str | None:
+        if self.image:
+            return self.image.url
+        return None
 
 
 class MenuItem(models.Model):

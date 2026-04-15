@@ -119,6 +119,16 @@ export function deleteMenuItemImage(itemId: string) {
     return apiDelete<void>(`/api/v1/menu/items/${itemId}/image/`);
 }
 
+export function uploadMenuCategoryImage(categoryId: string, file: File) {
+    const formData = new FormData();
+    formData.append('file', file);
+    return apiPost<{ image_url: string }>(`/api/v1/menu/categories/${categoryId}/image/`, formData);
+}
+
+export function deleteMenuCategoryImage(categoryId: string) {
+    return apiDelete<void>(`/api/v1/menu/categories/${categoryId}/image/`);
+}
+
 // ---------------------------------------------------------------------------
 // Engagement: tips + reviews (admin panel)
 // ---------------------------------------------------------------------------

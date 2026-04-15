@@ -274,6 +274,11 @@ CELERY_BEAT_SCHEDULE = {
         # Daily at 03:00 — purge expired blacklisted tokens to prevent table bloat.
         'schedule': crontab(hour='3', minute='0'),
     },
+    'reviews-send-weekly-digest': {
+        'task': 'reviews.send_weekly_digest',
+        # Mondays at 12:00 UTC (09:00 ART) — weekly feedback digest.
+        'schedule': crontab(hour='12', minute='0', day_of_week='1'),
+    },
 }
 
 REPORTS_LOW_STOCK_THRESHOLD_DEFAULT = Decimal(os.getenv('REPORTS_LOW_STOCK_THRESHOLD_DEFAULT', '5'))
@@ -401,6 +406,12 @@ LOGGING = {
             'level': 'INFO',
             'propagate': False,
         },
+        # Reviews subsystem — always INFO so operational events are visible.
+        'apps.reviews': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
         # Celery internals
         'celery': {
             'handlers': ['console'],
@@ -509,6 +520,10 @@ REST_FRAMEWORK['DEFAULT_THROTTLE_RATES'].update({
     'auth_reset_password':  os.getenv('AUTH_RESET_PASSWORD_THROTTLE_RATE', '5/minute'),
     'auth_verify_email':    os.getenv('AUTH_VERIFY_EMAIL_THROTTLE_RATE', '5/minute'),
     'auth_refresh':         os.getenv('AUTH_REFRESH_THROTTLE_RATE', '30/minute'),
+    # Public-facing endpoints (menu, reviews, tips)
+    'public_menu':          os.getenv('PUBLIC_MENU_THROTTLE_RATE', '120/minute'),
+    'public_reviews':       os.getenv('PUBLIC_REVIEWS_THROTTLE_RATE', '60/minute'),
+    'public_tips':          os.getenv('PUBLIC_TIPS_THROTTLE_RATE', '60/minute'),
 })
 
 # ── Owner/public login 3D rate limiting ──────────────────────────────────────

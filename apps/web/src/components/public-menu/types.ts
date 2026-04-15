@@ -13,6 +13,7 @@ export interface MenuCategory {
     id: number | string;
     name: string;
     description?: string;
+    image_url?: string | null;
     items: MenuItem[];
 }
 

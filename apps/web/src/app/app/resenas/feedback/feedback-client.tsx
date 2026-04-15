@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { getReviews, updateReviewStatus } from '@/features/reviews/api';
-import type { Review, ReviewStatus } from '@/features/reviews/types';
+import { getReviews, updateReviewStatus, getReviewSettings, getReviewStats, activateReviewsTrial } from '@/features/reviews/api';
+import type { Review, ReviewStatus, ReviewConfig, ReviewStats } from '@/features/reviews/types';
+import { UpgradeToProButton } from '@/features/reviews/upgrade-to-pro-button';
 
 const STATUS_LABELS: Record<ReviewStatus, string> = {
     new: 'Nuevo',
@@ -33,6 +34,21 @@ export function FeedbackClient() {
     const [filterStatus, setFilterStatus] = useState<string>('');
     const [filterRating, setFilterRating] = useState<string>('');
     const [ordering, setOrdering] = useState('-created_at');
+    const [config, setConfig] = useState<ReviewConfig | null>(null);
+    const [configLoading, setConfigLoading] = useState(true);
+    const [activatingTrial, setActivatingTrial] = useState(false);
+    const [transitioningId, setTransitioningId] = useState<string | null>(null);
+    const [cardErrors, setCardErrors] = useState<Record<string, string>>({});
+    const [stats, setStats] = useState<ReviewStats | null>(null);
+
+    useEffect(() => {
+        Promise.all([
+            getReviewSettings().catch(() => null),
+            getReviewStats().catch(() => null),
+        ])
+            .then(([c, s]) => { setConfig(c); setStats(s); })
+            .finally(() => setConfigLoading(false));
+    }, []);
 
     const fetchReviews = useCallback(async () => {
         setLoading(true);
@@ -56,11 +72,28 @@ export function FeedbackClient() {
     }, [fetchReviews]);
 
     async function handleStatusChange(id: string, newStatus: ReviewStatus) {
+        setTransitioningId(id);
+        setCardErrors((prev) => { const next = { ...prev }; delete next[id]; return next; });
         try {
             const updated = await updateReviewStatus(id, newStatus);
             setReviews((prev) => prev.map((r) => (r.id === id ? updated : r)));
+            window.dispatchEvent(new CustomEvent('reviews-updated'));
         } catch {
-            setError('Error al actualizar el estado.');
+            setCardErrors((prev) => ({ ...prev, [id]: 'Error al actualizar el estado.' }));
+        } finally {
+            setTransitioningId(null);
+        }
+    }
+
+    async function handleActivateTrial() {
+        setActivatingTrial(true);
+        try {
+            const updated = await activateReviewsTrial();
+            setConfig(updated);
+        } catch {
+            setError('No se pudo activar el período de prueba.');
+        } finally {
+            setActivatingTrial(false);
         }
     }
 
@@ -100,7 +133,62 @@ export function FeedbackClient() {
                 </p>
             </header>
 
-            {/* Filters */}
+            {/* ── Gating: smart_filter not available ─────────── */}
+            {!configLoading && config && !config.smart_filter_allowed && (() => {
+                const isPostTrial = config.trial_used && !config.trial_active;
+                const feedbackCount = stats?.negative_reviews ?? 0;
+
+                return (
+                <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center space-y-4 shadow-sm">
+                    <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-slate-100">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            {isPostTrial
+                                ? <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                : <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                            }
+                        </svg>
+                    </div>
+                    {isPostTrial ? (
+                        <>
+                            <h2 className="text-lg font-bold text-slate-900">Tu período de prueba finalizó</h2>
+                            <p className="text-sm text-slate-500 max-w-sm mx-auto">
+                                El filtro inteligente ya no está activo y tu QR volvió al modo Directo.
+                                {feedbackCount > 0 && (
+                                    <> Las <span className="font-semibold text-slate-700">{feedbackCount} opinión{feedbackCount === 1 ? '' : 'es'}</span> que capturaste durante la prueba siguen guardadas.</>
+                                )}
+                                {' '}Activá el plan Pro para recuperar el feedback privado.
+                            </p>
+                        </>
+                    ) : (
+                        <>
+                            <h2 className="text-lg font-bold text-slate-900">Feedback disponible con el Filtro Inteligente</h2>
+                            <p className="text-sm text-slate-500 max-w-sm mx-auto">
+                                El módulo de feedback recopila reseñas internas cuando el filtro inteligente está activo.
+                                {config.trial_available
+                                    ? ' Activá la prueba gratuita de 7 días para empezar.'
+                                    : ' Upgrade a Pro para recibir y gestionar opiniones de tus clientes.'
+                                }
+                            </p>
+                        </>
+                    )}
+                    {config.trial_available ? (
+                        <button
+                            onClick={handleActivateTrial}
+                            disabled={activatingTrial}
+                            className="inline-block rounded-full bg-indigo-600 px-5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 transition-colors disabled:opacity-50"
+                        >
+                            {activatingTrial ? 'Activando…' : 'Activar prueba gratuita'}
+                        </button>
+                    ) : (
+                        <UpgradeToProButton />
+                    )}
+                </div>
+                );
+            })()}
+
+            {/* ── Main content (only when accessible) ────────── */}
+            {(configLoading || !config || config.smart_filter_allowed) && (
+            <>
             <div className="flex flex-wrap gap-3">
                 <select
                     value={filterStatus}
@@ -194,15 +282,22 @@ export function FeedbackClient() {
                                     <button
                                         key={target}
                                         onClick={() => handleStatusChange(review.id, target)}
-                                        className="rounded-full border border-slate-300 px-3 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors"
+                                        disabled={transitioningId === review.id}
+                                        className="rounded-full border border-slate-300 px-3 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-wait"
                                     >
-                                        {label}
+                                        {transitioningId === review.id ? 'Guardando…' : label}
                                     </button>
                                 ))}
                             </div>
+
+                            {cardErrors[review.id] && (
+                                <p className="text-xs text-red-600">{cardErrors[review.id]}</p>
+                            )}
                         </div>
                     ))}
                 </div>
+            )}
+            </>
             )}
         </>
     );

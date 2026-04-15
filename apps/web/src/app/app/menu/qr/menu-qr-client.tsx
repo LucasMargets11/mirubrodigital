@@ -11,6 +11,18 @@ interface Props {
     businessName: string;
 }
 
+/**
+ * Normalise any QR value (data-URI, raw base64, or raw SVG) into a
+ * renderable data-URI suitable for an <img src>.
+ */
+function normalizeQrSrc(value?: string | null): string {
+    if (!value) return '';
+    const trimmed = value.trim();
+    if (trimmed.startsWith('data:image/')) return trimmed;
+    if (trimmed.startsWith('<svg')) return `data:image/svg+xml;utf8,${encodeURIComponent(trimmed)}`;
+    return `data:image/svg+xml;base64,${trimmed}`;
+}
+
 export function MenuQrPageClient({ businessId, businessName }: Props) {
     const { data, isLoading, isError, refetch, isFetching } = useMenuQrCode(businessId);
     const [copied, setCopied] = useState(false);
@@ -24,7 +36,10 @@ export function MenuQrPageClient({ businessId, businessName }: Props) {
 
     function downloadSvg() {
         if (!data?.qr_svg) return;
-        const blob = new Blob([atob(data.qr_svg)], { type: 'image/svg+xml' });
+        const src = normalizeQrSrc(data.qr_svg);
+        const base64 = src.includes(',') ? src.split(',')[1] : src;
+        if (!base64) return;
+        const blob = new Blob([atob(base64)], { type: 'image/svg+xml' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -61,7 +76,7 @@ export function MenuQrPageClient({ businessId, businessName }: Props) {
                     <div className="flex flex-col items-center gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
                         {data.qr_svg && (
                             <img
-                                src={`data:image/svg+xml;base64,${data.qr_svg}`}
+                                src={normalizeQrSrc(data.qr_svg)}
                                 alt="Código QR del menú"
                                 className="h-56 w-56 rounded-xl"
                             />
@@ -113,13 +128,13 @@ export function MenuQrPageClient({ businessId, businessName }: Props) {
                                 Ver menú en línea ↗
                             </a>
                             <Link
-                                href={'/app/menu/preview' as Route}
+                                href={'/app/carta/publicacion' as Route}
                                 className="rounded-full border border-slate-300 px-4 py-2.5 text-center text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
                             >
                                 Vista previa completa
                             </Link>
                             <Link
-                                href="/app/settings/online-menu"
+                                href="/app/carta/apariencia"
                                 className="rounded-full border border-slate-300 px-4 py-2.5 text-center text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
                             >
                                 Personalizar branding

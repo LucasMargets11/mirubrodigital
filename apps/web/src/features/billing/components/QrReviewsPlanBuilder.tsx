@@ -34,15 +34,15 @@ const QR_REVIEWS_PLANS: QrReviewsPlanEntry[] = [
     {
         plan: 'reviews_base',
         label: REVIEWS_BASE.name,
-        description: 'Lo esencial para empezar a sumar reseñas.',
+        description: 'Generá reseñas en Google de forma simple.',
         priceMonthly: REVIEWS_BASE.priceMonthly,
         priceYearly: REVIEWS_BASE.priceYearly,
-        ctaLabel: 'Activar QR de Reseñas',
+        ctaLabel: 'Activar Reseñas Base',
     },
     {
         plan: 'reviews_pro',
         label: REVIEWS_PRO.name,
-        description: 'Todo lo que necesitás para dominar tu reputación.',
+        description: 'Elegí qué llega a Google y qué queda como feedback privado.',
         priceMonthly: REVIEWS_PRO.priceMonthly,
         priceYearly: REVIEWS_PRO.priceYearly,
         badge: '⭐ Recomendado',
@@ -55,25 +55,20 @@ const PLAN_KEY_FEATURES: Record<string, string[]> = {
     reviews_base: [
         'QR listo para compartir',
         'Recepción de reseñas',
-        'Redirección a Google',
-        'Feedback interno',
-        'Gestión de estados',
+        'Redirección directa a Google',
     ],
     reviews_pro: [
-        'QR listo para compartir',
-        'Recepción de reseñas',
-        'Redirección a Google',
-        'Feedback interno',
+        'Todo lo de Base',
+        'Filtro inteligente por calificación',
+        'Feedback privado automático',
         'Gestión de estados',
-        'Filtro inteligente (híbrido)',
         'Analytics avanzadas',
-        'Métricas de conversión',
     ],
 };
 
 const PLAN_META: Record<string, { highlight: string }> = {
-    reviews_base: { highlight: 'Ideal para empezar' },
-    reviews_pro: { highlight: 'Filtro inteligente incluido' },
+    reviews_base: { highlight: 'Reseñas en Google, simple y directo' },
+    reviews_pro: { highlight: 'Filtrá qué llega a Google' },
 };
 
 // ---------------------------------------------------------------------------

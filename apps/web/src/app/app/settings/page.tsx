@@ -5,7 +5,7 @@ export default function SettingsPage() {
         <section className="space-y-6">
             <header>
                 <h1 className="text-2xl font-semibold text-slate-900">Configuración</h1>
-                <p className="text-sm text-slate-500">Administra tenants, usuarios y branding.</p>
+                <p className="text-sm text-slate-500">Administra usuarios, accesos y configuraciones.</p>
             </header>
 
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -63,9 +63,9 @@ export default function SettingsPage() {
                     </div>
                 </Link>
 
-                {/* Menú Online */}
+                {/* Carta Online */}
                 <Link
-                    href="/app/settings/online-menu"
+                    href="/app/carta"
                     className="group rounded-xl border border-slate-200 bg-white p-6 hover:border-blue-300 hover:shadow-md transition-all"
                 >
                     <div className="flex items-start gap-4">
@@ -81,10 +81,10 @@ export default function SettingsPage() {
                         </div>
                         <div className="flex-1">
                             <h3 className="text-sm font-semibold text-slate-900 group-hover:text-blue-700 transition-colors">
-                                Menú Online
+                                Carta Online
                             </h3>
                             <p className="mt-1 text-xs text-slate-500">
-                                Configura tu menú QR y branding
+                                Contenido, apariencia, publicación y QR de tu carta
                             </p>
                         </div>
                     </div>

@@ -24,17 +24,30 @@ type PlanBundle = {
  * Step 2 of the onboarding funnel: plan selection.
  *
  * This is a server component that fetches the available modules/plans for the
- * user's selected service type, then renders plan cards linking to /app/servicios
- * where the existing billing hub handles checkout creation.
+ * user's selected service type, then renders plan cards linking to checkout.
+ *
+ * If ?plan_code is present in URL params (forwarded from /pricing → /subscribe
+ * → onboarding), skip this page entirely and go straight to checkout.
  *
  * If service_type is not set yet (user navigated here directly), redirect back
  * to step 1.
  */
-export default async function OnboardingPlanPage() {
+type Props = {
+    searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+};
+
+export default async function OnboardingPlanPage({ searchParams }: Props) {
+    const params = await searchParams;
     const session = await getSession();
 
     if (!session) {
         redirect('/entrar');
+    }
+
+    // ── Plan pre-selected from URL — skip to checkout ─────────────────────
+    const preselectedPlan = params.plan_code ? String(params.plan_code) : '';
+    if (preselectedPlan) {
+        redirect((`${CHECKOUT_ROUTE}?plan=${encodeURIComponent(preselectedPlan)}`) as never);
     }
 
     // If service_type not yet selected, bounce back to step 1.

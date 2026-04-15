@@ -143,10 +143,11 @@ class PublicReviewSubmitTests(APITestCase):
     def setUp(self):
         from django.core.cache import cache
         cache.clear()
-        self.biz = _create_business()
+        self.biz = _create_business(plan='qr_reviews_pro')
         self.config = ReviewConfig.objects.create(
             business=self.biz,
             enabled=True,
+            mode='smart_filter',
             google_place_id='ChIJtest123',
             redirect_threshold=4,
             thank_you_message='Gracias!',
@@ -469,6 +470,34 @@ class ReviewStatusTransitionTests(APITestCase):
         resp = self.client.patch(f'/api/v1/reviews/{review.id}/', {'status': 'read'}, format='json')
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_full_pipeline_traversal(self):
+        """Walk the full cycle: new → read → contacted → resolved → read (reopen)."""
+        review = self._create_review('new')
+        for expected in ('read', 'contacted', 'resolved', 'read'):
+            resp = self.client.patch(
+                f'/api/v1/reviews/{review.id}/',
+                {'status': expected},
+                format='json',
+            )
+            self.assertEqual(resp.status_code, status.HTTP_200_OK)
+            self.assertEqual(resp.data['status'], expected)
+            review.refresh_from_db()
+            self.assertEqual(review.status, expected)
+
+    def test_stats_reflect_status_change(self):
+        """Stats endpoint counts must update after a status transition."""
+        review = self._create_review('new')
+        stats_before = self.client.get('/api/v1/reviews/stats/').data
+        self.assertEqual(stats_before['new_reviews'], 1)
+
+        self.client.patch(
+            f'/api/v1/reviews/{review.id}/',
+            {'status': 'read'},
+            format='json',
+        )
+        stats_after = self.client.get('/api/v1/reviews/stats/').data
+        self.assertEqual(stats_after['new_reviews'], 0)
+
 
 # ---------------------------------------------------------------------------
 # Phase 3: Route resolution tests
@@ -689,3 +718,143 @@ class ReviewStatsViewTests(APITestCase):
         anon = APIClient()
         resp = anon.get('/api/v1/reviews/stats/')
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_stats_uses_config_threshold(self):
+        """Positive/negative counts respect the configured redirect_threshold."""
+        # Set threshold to 3 (≥3 = positive, <3 = negative)
+        ReviewConfig.objects.create(business=self.biz, enabled=True, redirect_threshold=3)
+        Review.objects.create(business=self.biz, rating=5)
+        Review.objects.create(business=self.biz, rating=3)
+        Review.objects.create(business=self.biz, rating=2)
+        Review.objects.create(business=self.biz, rating=1)
+
+        resp = self.client.get('/api/v1/reviews/stats/')
+        self.assertEqual(resp.data['positive_reviews'], 2)  # 5, 3
+        self.assertEqual(resp.data['negative_reviews'], 2)  # 2, 1
+        self.assertEqual(resp.data['redirect_threshold'], 3)
+
+    def test_stats_includes_effective_mode(self):
+        """Stats response includes effective_mode from config."""
+        ReviewConfig.objects.create(business=self.biz, enabled=True)
+        resp = self.client.get('/api/v1/reviews/stats/')
+        self.assertIn('effective_mode', resp.data)
+        self.assertEqual(resp.data['effective_mode'], 'direct')
+
+
+# ---------------------------------------------------------------------------
+# Bloque 5: Defense-in-depth — direct mode submit rejection
+# ---------------------------------------------------------------------------
+
+class DirectModeSubmitTests(APITestCase):
+    """POST /submit/ in direct mode always redirects, never creates Review."""
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.biz = _create_business(slug='direct-biz')
+        self.config = ReviewConfig.objects.create(
+            business=self.biz,
+            enabled=True,
+            google_place_id='ChIJdirect',
+            redirect_threshold=4,
+            mode='direct',
+        )
+
+    def test_low_rating_direct_mode_redirects(self):
+        """Even low ratings redirect in direct mode — no Review created."""
+        resp = self.client.post('/api/v1/reviews/public/direct-biz/submit/', {'rating': 1})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data['action'], 'redirect')
+        self.assertEqual(Review.objects.count(), 0)
+
+    def test_high_rating_direct_mode_redirects(self):
+        """High ratings redirect as expected."""
+        resp = self.client.post('/api/v1/reviews/public/direct-biz/submit/', {'rating': 5})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data['action'], 'redirect')
+        self.assertEqual(Review.objects.count(), 0)
+
+    def test_boundary_rating_direct_mode_redirects(self):
+        """Threshold boundary rating also redirects in direct mode."""
+        resp = self.client.post('/api/v1/reviews/public/direct-biz/submit/', {'rating': 4})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data['action'], 'redirect')
+        self.assertEqual(Review.objects.count(), 0)
+
+
+# ---------------------------------------------------------------------------
+# Bloque 6: Trial activation
+# ---------------------------------------------------------------------------
+
+class ActivateTrialTests(APITestCase):
+    """POST /api/v1/reviews/trial/activate/ — 7-day smart-filter trial."""
+
+    def setUp(self):
+        self.biz = _create_business(slug='trial-biz')
+        self.user = _auth_client(self.client, self.biz)
+
+    def test_activate_trial_happy_path(self):
+        """Base plan business can activate trial once."""
+        resp = self.client.post('/api/v1/reviews/trial/activate/')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertTrue(resp.data['trial_active'])
+        self.assertTrue(resp.data['trial_used'])
+        self.assertIsNotNone(resp.data['trial_ends_at'])
+        self.assertEqual(resp.data['mode'], 'smart_filter')
+        self.assertEqual(resp.data['effective_mode'], 'smart_filter')
+
+        # Verify DB
+        config = ReviewConfig.objects.get(business=self.biz)
+        self.assertTrue(config.trial_used)
+        self.assertIsNotNone(config.trial_ends_at)
+        self.assertEqual(config.mode, 'smart_filter')
+
+    def test_activate_trial_sets_7_day_duration(self):
+        """Trial ends_at is ~7 days from now."""
+        from django.utils import timezone
+        from datetime import timedelta
+
+        before = timezone.now()
+        resp = self.client.post('/api/v1/reviews/trial/activate/')
+        after = timezone.now()
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        config = ReviewConfig.objects.get(business=self.biz)
+        self.assertGreaterEqual(config.trial_ends_at, before + timedelta(days=7) - timedelta(seconds=1))
+        self.assertLessEqual(config.trial_ends_at, after + timedelta(days=7) + timedelta(seconds=1))
+
+    def test_trial_already_used_returns_409(self):
+        """Cannot activate trial twice."""
+        ReviewConfig.objects.create(business=self.biz, trial_used=True)
+        resp = self.client.post('/api/v1/reviews/trial/activate/')
+        self.assertEqual(resp.status_code, status.HTTP_409_CONFLICT)
+        self.assertIn('ya fue utilizado', resp.data['detail'])
+
+    def test_pro_plan_returns_409(self):
+        """Pro businesses cannot activate trial."""
+        pro_biz = _create_business(slug='pro-biz', plan='qr_reviews_pro')
+        _auth_client(self.client, pro_biz)
+        resp = self.client.post('/api/v1/reviews/trial/activate/')
+        self.assertEqual(resp.status_code, status.HTTP_409_CONFLICT)
+        self.assertIn('Pro', resp.data['detail'])
+
+    def test_trial_requires_auth(self):
+        """Anonymous users cannot activate trial."""
+        self.client.logout()
+        from rest_framework.test import APIClient
+        anon = APIClient()
+        resp = anon.post('/api/v1/reviews/trial/activate/')
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_trial_creates_config_if_missing(self):
+        """If ReviewConfig doesn't exist yet, it's auto-created."""
+        self.assertFalse(ReviewConfig.objects.filter(business=self.biz).exists())
+        resp = self.client.post('/api/v1/reviews/trial/activate/')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertTrue(ReviewConfig.objects.filter(business=self.biz).exists())
+
+    def test_trial_idempotent_rejection(self):
+        """Second activation attempt after first succeeds returns 409."""
+        self.client.post('/api/v1/reviews/trial/activate/')
+        resp = self.client.post('/api/v1/reviews/trial/activate/')
+        self.assertEqual(resp.status_code, status.HTTP_409_CONFLICT)

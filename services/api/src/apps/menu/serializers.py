@@ -33,11 +33,20 @@ class TagListField(serializers.ListField):
 
 class MenuCategorySerializer(serializers.ModelSerializer):
     item_count = serializers.IntegerField(read_only=True)
+    image_url = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = MenuCategory
-        fields = ['id', 'name', 'description', 'position', 'is_active', 'item_count']
-        read_only_fields = ['id', 'item_count']
+        fields = ['id', 'name', 'description', 'position', 'is_active', 'item_count', 'image_url']
+        read_only_fields = ['id', 'item_count', 'image_url']
+
+    def get_image_url(self, instance: MenuCategory) -> str | None:
+        url = instance.image_url_value
+        if url:
+            request = self.context.get('request')
+            if request and url.startswith('/'):
+                return request.build_absolute_uri(url)
+        return url
 
 
 class MenuItemBaseSerializer(serializers.ModelSerializer):
@@ -158,10 +167,19 @@ class MenuStructureItemSerializer(serializers.ModelSerializer):
 
 class MenuStructureCategorySerializer(serializers.ModelSerializer):
     items = MenuStructureItemSerializer(many=True, read_only=True)
+    image_url = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = MenuCategory
-        fields = ['id', 'name', 'description', 'position', 'items']
+        fields = ['id', 'name', 'description', 'position', 'items', 'image_url']
+
+    def get_image_url(self, instance: MenuCategory) -> str | None:
+        url = instance.image_url_value
+        if url:
+            request = self.context.get('request') if hasattr(self, 'context') else None
+            if request and url.startswith('/'):
+                return request.build_absolute_uri(url)
+        return url
 
 
 class MenuImportUploadSerializer(serializers.Serializer):
@@ -242,7 +260,6 @@ class PublicMenuItemSerializer(serializers.ModelSerializer):
             'price',
             'is_available',
             'tags',
-            'sku',
             'image_url',
         ]
 
@@ -257,10 +274,19 @@ class PublicMenuItemSerializer(serializers.ModelSerializer):
 
 class PublicMenuCategorySerializer(serializers.ModelSerializer):
     items = serializers.SerializerMethodField()
+    image_url = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = MenuCategory
-        fields = ['id', 'name', 'description', 'position', 'items']
+        fields = ['id', 'name', 'description', 'position', 'items', 'image_url']
+
+    def get_image_url(self, instance: MenuCategory) -> str | None:
+        url = instance.image_url_value
+        if url:
+            request = self.context.get('request')
+            if request and url.startswith('/'):
+                return request.build_absolute_uri(url)
+        return url
 
     def get_items(self, obj):
         # We show all items to indicate availability status
@@ -431,10 +457,19 @@ class MenuLayoutBlockCategorySerializer(serializers.ModelSerializer):
     category_id = serializers.UUIDField(source='category.id', read_only=True)
     category_name = serializers.CharField(source='category.name', read_only=True)
     is_active = serializers.BooleanField(source='category.is_active', read_only=True)
+    image_url = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = MenuLayoutBlockCategory
-        fields = ['category_id', 'category_name', 'is_active', 'position']
+        fields = ['category_id', 'category_name', 'is_active', 'position', 'image_url']
+
+    def get_image_url(self, obj) -> str | None:
+        url = obj.category.image_url_value
+        if url:
+            request = self.context.get('request') if hasattr(self, 'context') else None
+            if request and url.startswith('/'):
+                return request.build_absolute_uri(url)
+        return url
 
 
 class MenuLayoutBlockSerializer(serializers.ModelSerializer):
@@ -509,11 +544,20 @@ class PublicMenuLayoutBlockCategorySerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(source='category.id')
     name = serializers.CharField(source='category.name')
     description = serializers.CharField(source='category.description')
+    image_url = serializers.SerializerMethodField(read_only=True)
     items = serializers.SerializerMethodField()
 
     class Meta:
         model = MenuLayoutBlockCategory
-        fields = ['id', 'name', 'description', 'items']
+        fields = ['id', 'name', 'description', 'image_url', 'items']
+
+    def get_image_url(self, obj) -> str | None:
+        url = obj.category.image_url_value
+        if url:
+            request = self.context.get('request')
+            if request and url.startswith('/'):
+                return request.build_absolute_uri(url)
+        return url
 
     def get_items(self, obj):
         # .all() hits the prefetch cache set in PublicMenuBySlugView

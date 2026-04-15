@@ -13,10 +13,10 @@ import type { Session } from '@/lib/auth/types';
 
 const MENU_QR_ALLOWED_PATHS = [
     '/app',
+    '/app/carta',
+    // Legacy paths kept for backward-compat during server redirects
     '/app/menu',
-    '/app/menu/branding',
-    '/app/menu/qr',
-    '/app/menu/preview',
+    '/app/settings/online-menu',
     '/app/servicios',
     '/app/planes',
     '/app/settings',

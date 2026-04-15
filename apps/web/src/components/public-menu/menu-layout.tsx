@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { MenuCategory, MenuConfig } from "./types";
 import { MenuCategorySection } from "./category-section";
 import { MenuBrandHeader } from "./brand-header";
@@ -252,25 +252,158 @@ function StickyCTABar({
     );
 }
 
-// ─── Block Navigation (mobile chips) ─────────────────────────────────────────
+// ─── Block Navigation (desktop chips + mobile category carousel) ─────────────
 function BlockNavChips({ blocks, accentColor }: { blocks: PublicMenuLayoutBlock[]; accentColor: string }) {
-    if (blocks.length <= 1) return null;
+    const scrollRef = useRef<HTMLDivElement>(null);
+    const [activeId, setActiveId] = useState<string | null>(null);
+    // Track whether a programmatic scroll (tap on category) is in progress.
+    // While true we suppress observer-driven carousel auto-centering to avoid
+    // the "page jumps back to carousel" bug.
+    const isProgrammaticScroll = useRef(false);
+
+    if (blocks.length <= 1 && blocks.every((b) => b.categories.length <= 1)) return null;
+
+    // Flatten all categories across blocks for the mobile carousel
+    const allCategories = blocks.flatMap((block) =>
+        block.categories.map((cat) => ({ ...cat, blockId: block.id }))
+    );
+    const hasAnyImage = allCategories.some((c) => !!c.image_url);
+
+    // Intersection observer to highlight the active category in the carousel
+    useEffect(() => {
+        if (typeof IntersectionObserver === 'undefined') return;
+        const ids = allCategories.map((c) => `cat-${c.id}`);
+        const elements = ids.map((id) => document.getElementById(id)).filter(Boolean) as HTMLElement[];
+        if (elements.length === 0) return;
+
+        const observer = new IntersectionObserver(
+            (entries) => {
+                for (const entry of entries) {
+                    if (entry.isIntersecting) {
+                        setActiveId(entry.target.id);
+                        break;
+                    }
+                }
+            },
+            { rootMargin: '-20% 0px -60% 0px', threshold: 0 }
+        );
+        elements.forEach((el) => observer.observe(el));
+        return () => observer.disconnect();
+    }, [blocks]);
+
+    // Auto-center the active carousel chip — but ONLY horizontally within the
+    // scrollable container.  Never call scrollIntoView (which can move the
+    // *page* vertically).  Also skip during programmatic scroll to avoid the
+    // observer → state → scroll → observer feedback loop.
+    useEffect(() => {
+        if (!activeId || !scrollRef.current || isProgrammaticScroll.current) return;
+        const container = scrollRef.current;
+        const btn = container.querySelector(`[data-cat-nav="${activeId}"]`) as HTMLElement | null;
+        if (!btn) return;
+
+        // Pure horizontal scroll — no vertical side-effects.
+        const scrollLeft = btn.offsetLeft - container.offsetWidth / 2 + btn.offsetWidth / 2;
+        container.scrollTo({ left: scrollLeft, behavior: 'smooth' });
+    }, [activeId]);
+
+    // Navigate to a category section when tapped.
+    const handleCategoryTap = useCallback((catId: string) => {
+        const target = document.getElementById(catId);
+        if (!target) return;
+
+        // Mark programmatic scroll so the observer doesn't trigger
+        // carousel auto-centering while the page is still animating.
+        isProgrammaticScroll.current = true;
+
+        // Use window.scrollTo with a manual offset so the section lands
+        // below the sticky nav instead of behind it.
+        const navHeight = scrollRef.current?.closest('nav')?.offsetHeight ?? 72;
+        const top = target.getBoundingClientRect().top + window.scrollY - navHeight - 8;
+        window.scrollTo({ top, behavior: 'smooth' });
+
+        // Release the lock after the smooth scroll finishes (≈500 ms).
+        setTimeout(() => { isProgrammaticScroll.current = false; }, 600);
+    }, []);
+
     return (
         <nav
             aria-label="Secciones de la carta"
-            className="sticky top-0 z-30 flex gap-2 overflow-x-auto py-2 -mx-6 px-6 lg:-mx-12 lg:px-12 2xl:-mx-16 2xl:px-16 bg-[var(--menu-bg)] border-b border-[var(--menu-divider)] mb-8"
-            style={{ scrollbarWidth: 'none' }}
+            className="sticky top-0 z-30 -mx-6 px-6 lg:-mx-12 lg:px-12 2xl:-mx-16 2xl:px-16 bg-[var(--menu-bg)] border-b border-[var(--menu-divider)] mb-8"
         >
-            {blocks.map((block) => (
-                <a
-                    key={block.id}
-                    href={`#block-${block.id}`}
-                    className="whitespace-nowrap flex-shrink-0 rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors hover:opacity-80"
-                    style={{ borderColor: accentColor, color: accentColor }}
-                >
-                    {block.badge_text ? `${block.title} · ${block.badge_text}` : block.title}
-                </a>
-            ))}
+            {/* Desktop: block-level chips (hidden on mobile) */}
+            <div
+                className="hidden lg:flex gap-2 overflow-x-auto py-2"
+                style={{ scrollbarWidth: 'none' }}
+            >
+                {blocks.map((block) => (
+                    <a
+                        key={block.id}
+                        href={`#block-${block.id}`}
+                        className="whitespace-nowrap flex-shrink-0 rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors hover:opacity-80"
+                        style={{ borderColor: accentColor, color: accentColor }}
+                    >
+                        {block.badge_text ? `${block.title} \u00b7 ${block.badge_text}` : block.title}
+                    </a>
+                ))}
+            </div>
+
+            {/* Mobile: category-level carousel (hidden on desktop) */}
+            <div
+                ref={scrollRef}
+                className="flex lg:hidden gap-3 overflow-x-auto py-3"
+                style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y' }}
+            >
+                {allCategories.map((cat) => {
+                    const isActive = activeId === `cat-${cat.id}`;
+                    return (
+                        <button
+                            key={cat.id}
+                            type="button"
+                            data-cat-nav={`cat-${cat.id}`}
+                            className="flex-shrink-0 flex-grow-0 appearance-none text-left"
+                            style={{ flexBasis: 'calc(50% - 0.375rem)', minWidth: 'calc(50% - 0.375rem)' }}
+                            onClick={() => handleCategoryTap(`cat-${cat.id}`)}
+                        >
+                            <div
+                                className={`relative rounded-2xl overflow-hidden border-2 transition-all ${
+                                    isActive
+                                        ? 'border-[var(--menu-accent)] shadow-lg shadow-[var(--menu-accent)]/20'
+                                        : 'border-[var(--menu-divider)] opacity-60'
+                                }`}
+                            >
+                                {/* Image area */}
+                                <div className="aspect-[4/3] w-full">
+                                    {cat.image_url ? (
+                                        <img
+                                            src={buildMediaUrl(cat.image_url) ?? undefined}
+                                            alt={cat.name}
+                                            className="h-full w-full object-cover"
+                                            loading="lazy"
+                                        />
+                                    ) : (
+                                        <div
+                                            className="h-full w-full flex items-center justify-center text-3xl font-bold text-[var(--menu-muted)]"
+                                            style={{ background: `linear-gradient(135deg, ${accentColor}22, ${accentColor}08)` }}
+                                        >
+                                            {cat.name.charAt(0).toUpperCase()}
+                                        </div>
+                                    )}
+                                </div>
+                                {/* Label overlay */}
+                                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-3 pb-2.5 pt-6">
+                                    <span
+                                        className={`block text-xs font-semibold leading-snug truncate ${
+                                            isActive ? 'text-white' : 'text-white/90'
+                                        }`}
+                                    >
+                                        {cat.name}
+                                    </span>
+                                </div>
+                            </div>
+                        </button>
+                    );
+                })}
+            </div>
         </nav>
     );
 }
@@ -291,32 +424,12 @@ function BlockSection({ block }: { block: PublicMenuLayoutBlock }) {
 
     return (
         <section id={`block-${block.id}`} className="mb-16 scroll-mt-20">
-            {/* Block Header */}
-            <div className="mb-8 flex items-center gap-4">
-                <div className="flex flex-col gap-1">
-                    <h2
-                        className="font-bold uppercase tracking-widest text-[var(--menu-text)] font-[family-name:var(--menu-font-heading)] opacity-40"
-                        style={{ fontSize: 'calc(var(--menu-size-body) * 0.75)' }}
-                    >
-                        {block.title}
-                    </h2>
-                    {block.badge_text && (
-                        <span
-                            className="inline-block rounded-full border px-2.5 py-0.5 text-[11px] font-semibold"
-                            style={{ borderColor: 'var(--menu-accent)', color: 'var(--menu-accent)' }}
-                        >
-                            {block.badge_text}
-                        </span>
-                    )}
-                </div>
-                <div className="h-px flex-1 bg-[var(--menu-divider)] opacity-30" />
-            </div>
-
             {/* Categories in columns */}
             <div className={menuBlockColumnsClass(block.columns_desktop, block.columns_tablet, block.layout)}>
                 {visibleCategories.map((cat) => (
                     <MenuCategorySection
                         key={cat.id}
+                        id={`cat-${cat.id}`}
                         category={cat as any}          /* shape is compatible */
                     />
                 ))}

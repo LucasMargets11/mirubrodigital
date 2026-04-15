@@ -3,6 +3,7 @@ from django.urls import path
 from .views import (
     MenuBrandingSettingsView,
     MenuCategoryDetailView,
+    MenuCategoryImageView,
     MenuCategoryListCreateView,
     MenuEngagementSettingsView,
     MenuEngagementQRUploadView,
@@ -35,6 +36,7 @@ urlpatterns = [
     # ── Admin: categories & items ──────────────────────────────────────────
     path('categories/', MenuCategoryListCreateView.as_view(), name='category-list'),
     path('categories/<uuid:pk>/', MenuCategoryDetailView.as_view(), name='category-detail'),
+    path('categories/<uuid:pk>/image/', MenuCategoryImageView.as_view(), name='category-image'),
     path('items/', MenuItemListCreateView.as_view(), name='item-list'),
     path('items/<uuid:pk>/', MenuItemDetailView.as_view(), name='item-detail'),
     path('items/<uuid:pk>/image/', MenuItemImageView.as_view(), name='item-image'),

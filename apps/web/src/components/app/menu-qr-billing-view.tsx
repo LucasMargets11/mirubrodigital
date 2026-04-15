@@ -1,18 +1,6 @@
 import Link from 'next/link';
 import type { Route } from 'next';
-
-const SERVICE_LABELS: Record<string, string> = {
-    menu_qr: 'Menú QR Online',
-    restaurante: 'Restaurante Inteligente',
-};
-
-const PLAN_LABELS: Record<string, string> = {
-    menu_qr: 'Menú QR Online',
-    plus: 'Restaurante Inteligente (Business)',
-    business: 'Restaurante Inteligente (Business)',
-    starter: 'Restaurante Inteligente (Starter)',
-    start: 'Restaurante Inteligente (Starter)',
-};
+import { serviceDisplayName, planDisplayName } from '@/lib/services';
 
 const STATUS_LABELS: Record<string, { label: string; className: string }> = {
     active: { label: 'Activo', className: 'bg-green-100 text-green-800' },
@@ -29,8 +17,8 @@ interface Props {
 }
 
 export function MenuQrBillingView({ service, plan, status, businessName }: Props) {
-    const serviceLabel = SERVICE_LABELS[service] ?? service;
-    const planLabel = PLAN_LABELS[plan] ?? plan;
+    const serviceLabel = serviceDisplayName(service);
+    const planLabel = planDisplayName(plan);
     const statusInfo = STATUS_LABELS[status] ?? { label: status, className: 'bg-slate-100 text-slate-600' };
     const pricingHref = `/pricing${service === 'menu_qr' ? '?service=menu_qr' : '?service=restaurante'}`;
 

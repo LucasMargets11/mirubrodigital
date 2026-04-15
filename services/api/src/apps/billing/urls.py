@@ -19,6 +19,7 @@ from .cancellation_views import (
     CancelSubscriptionView,
     UndoCancelSubscriptionView,
 )
+from .reviews_views import ReviewsUpgradeView, ReviewsDowngradeView
 
 router = DefaultRouter()
 router.register(r'', BillingViewSet, basename='billing')
@@ -39,5 +40,7 @@ urlpatterns = [
     path('subscription-status/', SubscriptionStatusView.as_view(), name='subscription-status'),
     path('cancel-subscription/', CancelSubscriptionView.as_view(), name='cancel-subscription'),
     path('undo-cancel/', UndoCancelSubscriptionView.as_view(), name='undo-cancel'),
+    path('reviews/upgrade/', ReviewsUpgradeView.as_view(), name='reviews-upgrade'),
+    path('reviews/downgrade/', ReviewsDowngradeView.as_view(), name='reviews-downgrade'),
 ] + router.urls
 

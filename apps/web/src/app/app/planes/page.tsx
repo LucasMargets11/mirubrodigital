@@ -2,32 +2,13 @@ import { redirect } from 'next/navigation';
 import Link from 'next/link';
 
 import { getSession } from '@/lib/auth';
-
-const SERVICE_LABELS: Record<string, string> = {
-    menu_qr: 'Menú QR Online',
-    menu_qr_visual: 'Menú QR Visual',
-    menu_qr_marca: 'Menú QR Marca',
-    restaurante: 'Restaurante Inteligente',
-    gestion: 'Gestión Comercial',
-};
-
-const PLAN_LABELS: Record<string, string> = {
-    menu_qr: 'Básico',
-    menu_qr_visual: 'Visual',
-    menu_qr_marca: 'Marca',
-    restaurante: 'Restaurante',
-    starter: 'Starter',
-    start: 'Starter',
-    plus: 'Business',
-    pro: 'Pro',
-    business: 'Business',
-    enterprise: 'Enterprise',
-};
+import { serviceDisplayName, planDisplayName } from '@/lib/services';
 
 const SERVICE_PRICING_HREF: Record<string, string> = {
     menu_qr: '/pricing?service=menu_qr',
     restaurante: '/pricing?service=restaurante',
     gestion: '/pricing',
+    qr_reviews: '/pricing?service=qr_reviews',
 };
 
 export default async function PlansPage() {
@@ -48,8 +29,10 @@ export default async function PlansPage() {
     const accessAllowed = session.subscription?.access_allowed ?? false;
     const reasonCode = session.subscription?.reason_code ?? 'no_subscription';
     // For QR tiers, derive service label from the plan code so Visual/Marca show their own name
-    const serviceLabel = SERVICE_LABELS[plan] ?? SERVICE_LABELS[service] ?? service;
-    const planLabel = PLAN_LABELS[plan] ?? plan;
+    const serviceLabel = serviceDisplayName(plan) !== plan
+        ? serviceDisplayName(plan)
+        : serviceDisplayName(service);
+    const planLabel = planDisplayName(plan);
     const pricingHref = SERVICE_PRICING_HREF[service] ?? '/pricing';
     const isActive = accessAllowed;
 

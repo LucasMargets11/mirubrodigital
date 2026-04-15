@@ -78,7 +78,7 @@ export const QR_PREMIUM: PlanDef = {
 export const REVIEWS_BASE: PlanDef = {
   code: 'qr_reviews_base',
   vertical: 'qr_reviews',
-  name: 'QR Reseñas',
+  name: 'Reseñas Base',
   priceMonthly: 25000,
   priceYearly: 240000,
 };
@@ -87,8 +87,8 @@ export const REVIEWS_PRO: PlanDef = {
   code: 'qr_reviews_pro',
   vertical: 'qr_reviews',
   name: 'Reseñas Pro',
-  priceMonthly: 35000,
-  priceYearly: 336000,
+  priceMonthly: 40000,
+  priceYearly: 384000,
 };
 
 // ── Aggregate ─────────────────────────────────────────────────────

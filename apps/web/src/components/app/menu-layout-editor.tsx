@@ -11,6 +11,8 @@ import {
     reorderMenuLayoutBlocks,
     applyMenuLayoutPreset,
     listMenuCategories,
+    uploadMenuCategoryImage,
+    deleteMenuCategoryImage,
 } from '@/features/menu/api';
 import type { MenuLayoutBlock, MenuLayoutBlockPayload, MenuCategory } from '@/features/menu/types';
 
@@ -32,15 +34,18 @@ interface BlockFormProps {
     assignedCategoryIds: Set<string>; // IDs already used by OTHER blocks
     onSave: (data: MenuLayoutBlockPayload) => Promise<void>;
     onCancel: () => void;
+    canUploadImages?: boolean;
+    onCategoryImageChange?: (categoryId: string, imageUrl: string | null) => void;
 }
 
-function BlockForm({ block, allCategories, assignedCategoryIds, onSave, onCancel }: BlockFormProps) {
+function BlockForm({ block, allCategories, assignedCategoryIds, onSave, onCancel, canUploadImages, onCategoryImageChange }: BlockFormProps) {
     const [title, setTitle] = useState(block.title ?? '');
     const [layout, setLayout] = useState<'stack' | 'grid'>(block.layout ?? 'stack');
     const [colsDesktop, setColsDesktop] = useState(block.columns_desktop ?? 3);
     const [colsTablet, setColsTablet] = useState(block.columns_tablet ?? 2);
     const [badgeText, setBadgeText] = useState(block.badge_text ?? '');
     const [saving, setSaving] = useState(false);
+    const [uploadingImageFor, setUploadingImageFor] = useState<string | null>(null);
 
     // Selected category IDs in order
     const initialCatIds = (block.block_categories ?? []).map((bc) => bc.category_id);
@@ -185,9 +190,61 @@ function BlockForm({ block, allCategories, assignedCategoryIds, onSave, onCancel
                         {selectedCats.map((cat, idx) => (
                             <div
                                 key={cat.id}
-                                className="flex items-center justify-between gap-2 rounded-md bg-white px-2 py-1 shadow-sm"
+                                className="flex items-center gap-2 rounded-md bg-white px-2 py-1.5 shadow-sm"
                             >
-                                <span className="min-w-0 truncate text-xs font-medium">{cat.name}</span>
+                                {/* Category image thumbnail */}
+                                {canUploadImages && (
+                                    <div className="relative h-9 w-9 shrink-0 rounded border bg-slate-100 overflow-hidden group">
+                                        {cat.image_url ? (
+                                            <>
+                                                <img src={cat.image_url} alt="" className="h-full w-full object-cover" />
+                                                <button
+                                                    onClick={async () => {
+                                                        setUploadingImageFor(cat.id);
+                                                        try {
+                                                            await deleteMenuCategoryImage(cat.id);
+                                                            onCategoryImageChange?.(cat.id, null);
+                                                        } catch { /* noop */ }
+                                                        finally { setUploadingImageFor(null); }
+                                                    }}
+                                                    disabled={uploadingImageFor === cat.id}
+                                                    className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity text-white text-[10px] font-medium"
+                                                    title="Quitar imagen"
+                                                >
+                                                    ✕
+                                                </button>
+                                            </>
+                                        ) : (
+                                            <label className="flex h-full w-full cursor-pointer items-center justify-center text-slate-400 hover:bg-slate-200 transition-colors" title="Subir imagen">
+                                                {uploadingImageFor === cat.id ? (
+                                                    <span className="text-[9px]">…</span>
+                                                ) : (
+                                                    <span className="text-sm">📷</span>
+                                                )}
+                                                <input
+                                                    type="file"
+                                                    accept="image/png,image/jpeg,image/webp"
+                                                    className="hidden"
+                                                    disabled={uploadingImageFor === cat.id}
+                                                    onChange={async (e) => {
+                                                        const file = e.target.files?.[0];
+                                                        if (!file) return;
+                                                        setUploadingImageFor(cat.id);
+                                                        try {
+                                                            const res = await uploadMenuCategoryImage(cat.id, file);
+                                                            onCategoryImageChange?.(cat.id, res.image_url);
+                                                        } catch { /* noop */ }
+                                                        finally {
+                                                            setUploadingImageFor(null);
+                                                            e.target.value = '';
+                                                        }
+                                                    }}
+                                                />
+                                            </label>
+                                        )}
+                                    </div>
+                                )}
+                                <span className="min-w-0 flex-1 truncate text-xs font-medium">{cat.name}</span>
                                 <div className="flex shrink-0 items-center gap-1">
                                     <button
                                         onClick={() => moveCat(cat.id, -1)}
@@ -248,7 +305,11 @@ function BlockForm({ block, allCategories, assignedCategoryIds, onSave, onCancel
 
 // ─── Main component ────────────────────────────────────────────────────────────
 
-export function MenuLayoutEditor() {
+interface MenuLayoutEditorProps {
+    canUploadImages?: boolean;
+}
+
+export function MenuLayoutEditor({ canUploadImages = false }: MenuLayoutEditorProps) {
     const [blocks, setBlocks] = useState<MenuLayoutBlock[]>([]);
     const [categories, setCategories] = useState<MenuCategory[]>([]);
     const [loading, setLoading] = useState(true);
@@ -349,6 +410,12 @@ export function MenuLayoutEditor() {
         }
     }
 
+    function handleCategoryImageChange(categoryId: string, imageUrl: string | null) {
+        setCategories((prev) =>
+            prev.map((c) => (c.id === categoryId ? { ...c, image_url: imageUrl } : c))
+        );
+    }
+
     if (loading) {
         return <div className="py-6 text-center text-sm text-slate-500">Cargando estructura…</div>;
     }
@@ -404,6 +471,8 @@ export function MenuLayoutEditor() {
                     assignedCategoryIds={assignedIdsExcluding(undefined)}
                     onSave={handleSaveBlock}
                     onCancel={() => setEditingBlock(null)}
+                    canUploadImages={canUploadImages}
+                    onCategoryImageChange={handleCategoryImageChange}
                 />
             )}
 
@@ -439,6 +508,8 @@ export function MenuLayoutEditor() {
                                 assignedCategoryIds={assignedIdsExcluding(block.id)}
                                 onSave={handleSaveBlock}
                                 onCancel={() => setEditingBlock(null)}
+                                canUploadImages={canUploadImages}
+                                onCategoryImageChange={handleCategoryImageChange}
                             />
                         );
                     }

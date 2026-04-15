@@ -1,9 +1,9 @@
 import { redirect } from 'next/navigation';
 
 /**
- * /app/menu/branding → redirects to the full online-menu branding settings page.
- * The branding editor already lives at /app/settings/online-menu.
+ * /app/menu/branding → redirects to the canonical /app/carta/apariencia.
+ * Legacy route kept for backward-compatible deep links.
  */
 export default function MenuBrandingRedirectPage() {
-    redirect('/app/settings/online-menu');
+    redirect('/app/carta/apariencia');
 }

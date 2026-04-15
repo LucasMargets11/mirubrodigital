@@ -1,18 +1,20 @@
 /**
- * /subscribe — Punto de entrada público para selección de plan por usuarios no autenticados.
- *
- * Este era un formulario legacy de registro+suscripción en un solo paso que quedó
- * huérfano (importaba `@/components/ui/input` y `@/components/ui/label` que no existen).
+ * /subscribe — Punto de entrada para selección de plan.
  *
  * Flujo correcto:
  *   /pricing → selecciona plan → /subscribe?plan_code=X&billing_period=Y&vertical=Z
- *   → (este redirect) → /entrar?next=/app/onboarding?plan_code=X&billing_period=Y&vertical=Z
- *   → login/register → /app/onboarding (smart router) → checkout
  *
- * Los parámetros del plan quedan preservados en el param `next` para que después
- * del login el usuario sea enviado al onboarding con el contexto correcto.
+ * Dependiendo del estado de autenticación:
+ *   - Sin sesión → /entrar?next=/app/onboarding?plan_code=X&billing_period=Y&vertical=Z
+ *   - Sesión + business en onboarding → /app/onboarding?plan_code=X&...  (skip entrar)
+ *   - Sesión + business activo → /app/servicios  (billing hub, ya tiene suscripción)
+ *
+ * Los parámetros del plan quedan preservados para que el onboarding
+ * pueda pre-seleccionar servicio y plan sin fricción.
  */
 import { redirect } from 'next/navigation';
+
+import { getSession } from '@/lib/auth';
 
 type Props = {
     searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
@@ -35,6 +37,23 @@ export default async function SubscribePage({ searchParams }: Props) {
         ? `/app/onboarding?${onboardingParams.toString()}`
         : '/app/onboarding';
 
+    // ── Shortcut para usuarios ya autenticados ────────────────────────────
+    const session = await getSession();
+
+    if (session) {
+        const businessStatus = session.current?.business?.status;
+
+        if (businessStatus && businessStatus !== 'onboarding') {
+            // Business ya activo — no puede re-onboardear.
+            // Enviar al billing hub donde puede gestionar su plan.
+            redirect('/app/servicios' as never);
+        }
+
+        // Business en onboarding — ir directo sin pasar por /entrar.
+        redirect(nextPath as never);
+    }
+
+    // ── Sin sesión — flujo estándar: login/register primero ───────────────
     const entrarParams = new URLSearchParams({ next: nextPath });
     redirect(`/entrar?${entrarParams.toString()}`);
 }

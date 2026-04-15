@@ -5,6 +5,11 @@ import { notFound } from 'next/navigation';
 import { getServerApiBaseUrl } from '@/lib/api-url';
 import type { PublicReviewConfig } from '@/features/reviews/types';
 import { ReviewFlowClient } from './review-flow-client';
+import { ReviewLandingClient } from './review-landing-client';
+
+// Fresh data on every request — config, threshold, redirect target can change.
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
 
 type Props = {
     params: Promise<{ slug: string }>;
@@ -37,6 +42,10 @@ export default async function ReviewLandingPage({ params }: Props) {
 
     if (!data || !data.enabled) {
         notFound();
+    }
+
+    if (data.effective_mode === 'direct') {
+        return <ReviewLandingClient config={data} />;
     }
 
     return <ReviewFlowClient slug={slug} config={data} />;

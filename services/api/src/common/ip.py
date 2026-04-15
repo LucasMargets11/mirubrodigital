@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import hashlib
 
+from django.conf import settings
+
 
 def hash_ip(request) -> str:
     """
@@ -16,6 +18,7 @@ def hash_ip(request) -> str:
 
     Checks ``X-Forwarded-For`` first (first entry), then falls back to
     ``REMOTE_ADDR``.  Never stores the raw IP.
+    Uses a salt derived from SECRET_KEY to prevent rainbow-table reversal.
 
     Returns:
         Hex-encoded SHA-256 hash of the IP address.
@@ -25,4 +28,5 @@ def hash_ip(request) -> str:
         ip = forwarded.split(',')[0].strip()
     else:
         ip = request.META.get('REMOTE_ADDR', '0.0.0.0')
-    return hashlib.sha256(ip.encode()).hexdigest()
+    salt = getattr(settings, 'SECRET_KEY', '')[:16]
+    return hashlib.sha256(f"{salt}:{ip}".encode()).hexdigest()

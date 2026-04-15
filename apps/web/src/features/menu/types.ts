@@ -5,6 +5,7 @@ export type MenuCategory = {
     position: number;
     is_active: boolean;
     item_count: number;
+    image_url: string | null;
 };
 
 export type MenuCategoryPayload = {
@@ -60,17 +61,17 @@ export type PublicMenuConfig = {
   updated_at: string
 }
 
-export type PublicMenuItem = Pick<MenuItem, 'id' | 'name' | 'description' | 'price' | 'is_available' | 'tags' | 'sku'> & {
+export type PublicMenuItem = Pick<MenuItem, 'id' | 'name' | 'description' | 'price' | 'is_available' | 'tags'> & {
   image_url: string | null
 }
 
 export type PublicMenuCategory = Pick<MenuCategory, 'id' | 'name' | 'description' | 'position'> & {
   items: PublicMenuItem[]
+  image_url?: string | null
 }
 
 export type PublicMenuResponse = {
     business: {
-        id: number
         name: string
     }
     slug: string
@@ -243,6 +244,7 @@ export type LayoutBlockCategory = {
     category_name: string;
     is_active: boolean;
     position: number;
+    image_url?: string | null;
 };
 
 /** Admin read/write model for a single layout block */
@@ -267,6 +269,7 @@ export type PublicLayoutBlockCategory = {
     id: string;
     name: string;
     description: string;
+    image_url?: string | null;
     items: PublicMenuItem[];
 };
 

@@ -19,6 +19,10 @@ import { serverApiFetch } from '@/lib/api/server';
  *   checkout_pending  → /app/onboarding/checkout?plan=<code>  (MP payment + polling)
  *   done              → /app                         (already active — leave funnel)
  *
+ * Incoming searchParams (plan_code, billing_period, vertical) are forwarded
+ * to each sub-step so the user doesn't have to re-select what was already
+ * chosen on the pricing page.
+ *
  * Fallback (error / no business): /app/onboarding/servicio (safe default).
  *
  * The parent onboarding/layout.tsx already validates the session and redirects
@@ -36,6 +40,10 @@ type OnboardingStatus = {
     can_proceed: boolean;
 };
 
+type Props = {
+    searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+};
+
 // Route constants — avoid typed-route literal checks on pages whose types
 // haven't been regenerated yet by the Next.js compilation step.
 const ROUTE_SERVICIO      = '/app/onboarding/servicio'   as never;
@@ -43,7 +51,20 @@ const ROUTE_PLAN          = '/app/onboarding/plan'       as never;
 const ROUTE_CHECKOUT_BASE = '/app/onboarding/checkout'   as never;
 const ROUTE_APP           = '/app'                       as never;
 
-export default async function OnboardingIndexPage() {
+/** Build a query-string suffix from the incoming plan params, or '' if empty. */
+function buildForwardedQuery(raw: { [key: string]: string | string[] | undefined }): string {
+    const keep = ['plan_code', 'billing_period', 'vertical'] as const;
+    const qs = new URLSearchParams();
+    for (const k of keep) {
+        const v = raw[k];
+        if (v) qs.set(k, String(v));
+    }
+    const s = qs.toString();
+    return s ? `?${s}` : '';
+}
+
+export default async function OnboardingIndexPage({ searchParams }: Props) {
+    const params = await searchParams;
     const session = await getSession();
 
     if (!session) {
@@ -59,10 +80,11 @@ export default async function OnboardingIndexPage() {
 
     if (!onboardingStatus) {
         // Cannot determine step — send to step 1 as safe default.
-        redirect(ROUTE_SERVICIO);
+        redirect((`/app/onboarding/servicio${buildForwardedQuery(params)}`) as never);
     }
 
     const { step, pending_plan_code } = onboardingStatus;
+    const fwd = buildForwardedQuery(params);
 
     switch (step) {
         case 'done':
@@ -81,11 +103,16 @@ export default async function OnboardingIndexPage() {
 
         case 'plan_selection':
             // Service selected — user needs to pick a plan.
-            redirect(ROUTE_PLAN);
+            // If incoming params include plan_code, forward to checkout directly
+            // (user already chose on the pricing page).
+            if (params.plan_code) {
+                redirect((`/app/onboarding/checkout?plan=${encodeURIComponent(String(params.plan_code))}`) as never);
+            }
+            redirect((`/app/onboarding/plan${fwd}`) as never);
 
         case 'no_service_type':
         default:
             // No service selected yet — start at step 1.
-            redirect(ROUTE_SERVICIO);
+            redirect((`/app/onboarding/servicio${fwd}`) as never);
     }
 }

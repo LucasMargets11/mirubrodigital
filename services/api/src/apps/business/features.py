@@ -144,6 +144,12 @@ PLAN_FEATURES: Dict[str, Iterable[str]] = {
   'qr_reviews': (
     'qr_reviews_core',      # Main product access flag
   ),
+  'qr_reviews_base': (
+    'qr_reviews_core',
+  ),
+  'qr_reviews_pro': (
+    'qr_reviews_core',
+  ),
 }
 
 

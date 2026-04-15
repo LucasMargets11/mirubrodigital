@@ -4,12 +4,7 @@ import { useMemo, useState, useTransition } from 'react';
 import { Menu } from 'lucide-react';
 
 import { logout } from '@/lib/auth/client';
-
-const SERVICE_LABELS: Record<string, string> = {
-    gestion: 'Gestión Comercial',
-    restaurante: 'Restaurante Inteligente',
-    menu_qr: 'Menú QR Online',
-};
+import { serviceDisplayName } from '@/lib/services';
 
 type TopbarProps = {
     userName: string;
@@ -48,7 +43,7 @@ export function Topbar({ userName, role, businessName, subscriptionStatus, servi
     };
 
     const statusLabel = subscriptionStatus === 'active' ? 'Plan activo' : 'Plan pendiente';
-    const serviceLabel = SERVICE_LABELS[service] ?? service;
+    const serviceLabel = serviceDisplayName(service);
 
     return (
         <header className="flex items-center justify-between border-b border-slate-200 bg-white/80 px-6 py-4 backdrop-blur">

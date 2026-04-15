@@ -5,6 +5,11 @@ import uuid
 from django.db import models
 
 
+class ReviewMode(models.TextChoices):
+    DIRECT = 'direct', 'Directo'
+    SMART_FILTER = 'smart_filter', 'Filtro inteligente'
+
+
 class ReviewConfig(models.Model):
     """Per-business configuration for the QR de Reseñas product."""
 
@@ -15,6 +20,9 @@ class ReviewConfig(models.Model):
     )
     enabled = models.BooleanField(default=False)
     google_place_id = models.CharField(max_length=255, blank=True, default='')
+    google_place_name = models.CharField(max_length=255, blank=True, default='')
+    google_place_formatted_address = models.CharField(max_length=500, blank=True, default='')
+    google_place_updated_at = models.DateTimeField(null=True, blank=True)
     google_review_url = models.URLField(blank=True, default='')
     custom_redirect_url = models.URLField(blank=True, default='')
     redirect_threshold = models.PositiveSmallIntegerField(
@@ -27,6 +35,21 @@ class ReviewConfig(models.Model):
         blank=True,
         default='¡Gracias por tu opinión!',
     )
+    mode = models.CharField(
+        max_length=16,
+        choices=ReviewMode.choices,
+        default=ReviewMode.DIRECT,
+        help_text='direct = all reviews redirect to Google; smart_filter = route by rating.',
+    )
+    trial_ends_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text='When the smart-filter trial expires. NULL = no trial started.',
+    )
+    trial_used = models.BooleanField(
+        default=False,
+        help_text='True once the 7-day smart-filter trial has been consumed.',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -36,6 +59,20 @@ class ReviewConfig(models.Model):
 
     def __str__(self) -> str:
         return f"ReviewConfig · {self.business_id}"
+
+    @property
+    def effective_mode(self) -> str:
+        """Runtime mode considering plan entitlements and trial status.
+
+        If ``mode`` is ``smart_filter`` but the business no longer has access
+        (e.g. trial expired, plan downgraded), this falls back to ``direct``
+        without requiring a migration or cleanup job.
+        """
+        if self.mode == ReviewMode.SMART_FILTER:
+            from .entitlements import smart_filter_allowed
+            if not smart_filter_allowed(self.business):
+                return ReviewMode.DIRECT
+        return self.mode
 
     @property
     def redirect_url(self) -> str | None:
@@ -108,11 +145,14 @@ class ReviewVisit(models.Model):
         related_name='review_visits',
         on_delete=models.CASCADE,
     )
+    ip_hash = models.CharField(max_length=64, blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         indexes = [
             models.Index(fields=['business', '-created_at']),
+            models.Index(fields=['business', 'ip_hash', '-created_at'],
+                         name='reviewvisit_biz_ip_created'),
         ]
 
     def __str__(self) -> str:

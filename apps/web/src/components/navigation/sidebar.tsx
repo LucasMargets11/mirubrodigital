@@ -8,14 +8,8 @@ import { ChevronDown, ChevronRight, LogOut } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import { logout } from '@/lib/auth/client';
+import { serviceDisplayName, planDisplayName } from '@/lib/services';
 import type { FeatureFlags, PermissionMap } from '@/lib/auth/types';
-
-const SERVICE_LABELS: Record<string, string> = {
-    gestion: 'Gestión Comercial',
-    restaurante: 'Restaurante Inteligente',
-    menu_qr: 'Menú QR Online',
-    qr_reviews: 'QR de Reseñas',
-};
 
 type AppLink = {
     href?: string;
@@ -23,6 +17,7 @@ type AppLink = {
     featureKey?: keyof FeatureFlags;
     permissionKey?: string;
     roleKey?: string;
+    planKey?: string;
     services?: string[];
     children?: AppLink[];
 };
@@ -81,8 +76,8 @@ const NAV_CONFIG: Record<string, NavGroup[]> = {
                         { href: '/app/settings/access', label: 'Roles & Accesos', permissionKey: 'manage_users' },
                         { href: '/app/settings/branches', label: 'Sucursales', permissionKey: 'manage_settings' }, // Access check in page
                         {
-                            href: '/app/settings/online-menu',
-                            label: 'Carta Online',
+                            href: '/app/carta/apariencia',
+                            label: 'Personalización (Carta)',
                             permissionKey: 'manage_settings',
                             featureKey: 'resto_menu',
                         },
@@ -149,10 +144,11 @@ const NAV_CONFIG: Record<string, NavGroup[]> = {
         {
             title: 'Menú QR',
             items: [
-                { href: '/app/menu', label: 'Carta Online', permissionKey: 'view_menu' },
-                { href: '/app/menu/branding', label: 'Branding', permissionKey: 'manage_menu_branding' },
-                { href: '/app/menu/qr', label: 'QR y enlaces', permissionKey: 'view_menu_admin' },
-                { href: '/app/menu/preview', label: 'Preview público', permissionKey: 'view_menu' },
+                { href: '/app/carta', label: 'Contenido', permissionKey: 'view_menu' },
+                { href: '/app/carta/estructura', label: 'Estructura', permissionKey: 'view_menu' },
+                { href: '/app/carta/apariencia', label: 'Apariencia', permissionKey: 'manage_menu_branding' },
+                { href: '/app/carta/publicacion', label: 'Publicación', permissionKey: 'view_menu_admin' },
+                { href: '/app/carta/engagement', label: 'Engagement', permissionKey: 'view_menu' },
             ],
         },
         {
@@ -171,19 +167,23 @@ const NAV_CONFIG: Record<string, NavGroup[]> = {
             title: 'QR de Reseñas',
             items: [
                 { href: '/app/resenas', label: 'Inicio' },
-                { href: '/app/resenas/configuracion', label: 'Configuración', permissionKey: 'manage_reviews' },
                 { href: '/app/resenas/qr', label: 'Mi QR', permissionKey: 'manage_reviews' },
                 { href: '/app/resenas/feedback', label: 'Feedback', permissionKey: 'manage_reviews' },
+                { href: '/app/resenas/analytics', label: 'Analytics', permissionKey: 'manage_reviews', planKey: 'qr_reviews_pro' },
             ],
         },
         {
-            title: 'Cuenta',
+            title: 'Administración',
             items: [
-                { href: '/app/servicios', label: 'Planes y upgrades' },
-                { href: '/app/planes', label: 'Facturación' },
-                { href: '/app/settings', label: 'Configuración' },
-                { href: '/app/settings/access', label: 'Roles & Accesos', permissionKey: 'manage_users' },
-                { href: '/app/soporte', label: 'Soporte', roleKey: 'owner' },
+                { href: '/app/resenas/configuracion', label: 'Configuración', permissionKey: 'manage_reviews' },
+                { href: '/app/settings/access', label: 'Roles y accesos', permissionKey: 'manage_users' },
+                { href: '/app/planes', label: 'Plan y facturación' },
+            ],
+        },
+        {
+            title: '',
+            items: [
+                { href: '/app/soporte', label: 'Soporte' },
             ],
         },
     ],
@@ -315,7 +315,7 @@ function AccountHeader({
         });
     };
 
-    const serviceLabel = SERVICE_LABELS[service] ?? service;
+    const serviceLabel = serviceDisplayName(service);
     const displayRole = role === 'owner' ? 'Dueño' : role === 'manager' ? 'Gerente' : 'Staff';
     const hasIssue = subscriptionStatus !== 'active';
 
@@ -336,7 +336,7 @@ function AccountHeader({
                     </div>
                     {subscriptionPlan && (
                         <span className="shrink-0 rounded-full bg-brand-100 px-2 py-0.5 text-xs font-medium text-brand-700">
-                            {subscriptionPlan}
+                            {planDisplayName(subscriptionPlan)}
                         </span>
                     )}
                 </div>
@@ -497,14 +497,17 @@ export function Sidebar({
                         if (link.roleKey && link.roleKey !== role) {
                             return false;
                         }
+                        if (link.planKey && subscriptionPlan !== link.planKey) {
+                            return false;
+                        }
                         return true;
                     });
 
                     if (visibleLinks.length === 0) return null;
 
                     return (
-                        <div key={section.title} className="space-y-1.5">
-                            <p className="px-3 pb-1 text-[11px] font-bold uppercase tracking-wider text-slate-400/90">{section.title}</p>
+                        <div key={section.title || '_secondary'} className="space-y-1.5">
+                            {section.title && <p className="px-3 pb-1 text-[11px] font-bold uppercase tracking-wider text-slate-400/90">{section.title}</p>}
                             {visibleLinks.map((link) => (
                                 <NavItem key={link.href || link.label} item={link} pathname={pathname} onNavigate={onNavigate} />
                             ))}

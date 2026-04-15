@@ -17,6 +17,8 @@ import {
     updateMenuItem,
     uploadMenuItemImage,
     deleteMenuItemImage,
+    uploadMenuCategoryImage,
+    deleteMenuCategoryImage,
 } from './api';
 import type { MenuCategoryPayload, MenuItemFilters, MenuItemPayload } from './types';
 
@@ -206,6 +208,47 @@ export function useDeleteMenuItemImage() {
                     if (!old) return old;
                     return old.map((item) =>
                         item.id === id ? { ...item, image_url: null } : item,
+                    );
+                },
+            );
+            queryClient.invalidateQueries({ queryKey: menuStructureKey });
+        },
+    });
+}
+
+export function useUploadMenuCategoryImage() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ id, file }: { id: string; file: File }) =>
+            uploadMenuCategoryImage(id, file),
+        onSuccess: (data, variables) => {
+            queryClient.setQueriesData<import('./types').MenuCategory[]>(
+                { queryKey: menuKeys.categories() },
+                (old) => {
+                    if (!old) return old;
+                    return old.map((cat) =>
+                        cat.id === variables.id
+                            ? { ...cat, image_url: data.image_url }
+                            : cat,
+                    );
+                },
+            );
+            queryClient.invalidateQueries({ queryKey: menuStructureKey });
+        },
+    });
+}
+
+export function useDeleteMenuCategoryImage() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (id: string) => deleteMenuCategoryImage(id),
+        onSuccess: (_data, id) => {
+            queryClient.setQueriesData<import('./types').MenuCategory[]>(
+                { queryKey: menuKeys.categories() },
+                (old) => {
+                    if (!old) return old;
+                    return old.map((cat) =>
+                        cat.id === id ? { ...cat, image_url: null } : cat,
                     );
                 },
             );

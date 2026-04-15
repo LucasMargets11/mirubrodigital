@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 
 import { getClientApiBaseUrl } from '@/lib/api-url';
 
@@ -38,12 +39,20 @@ const SERVICE_OPTIONS: ServiceOption[] = [
 /**
  * Step 1 of the onboarding funnel: service type selection.
  *
- * This is a client component because it needs React state for the radio selection
- * and a router.push() call on submit.  The parent layout.tsx is a server component
- * that handles session validation and the onboarding/non-onboarding redirect.
+ * Reads ?vertical from URL (forwarded from /subscribe → /app/onboarding) to
+ * pre-select the matching service, reducing friction.  After selection,
+ * forwards plan_code and billing_period to the plan step.
  */
 export default function OnboardingServicioPage() {
-    const [selected, setSelected] = useState<string>('');
+    const searchParams = useSearchParams();
+    const verticalHint = searchParams.get('vertical') ?? '';
+    const planCode     = searchParams.get('plan_code') ?? '';
+    const billingPeriod = searchParams.get('billing_period') ?? '';
+
+    // Pre-select service from ?vertical when it matches a known option.
+    const initialService = SERVICE_OPTIONS.some(o => o.code === verticalHint) ? verticalHint : '';
+
+    const [selected, setSelected] = useState<string>(initialService);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -73,8 +82,13 @@ export default function OnboardingServicioPage() {
                 return;
             }
 
-            // Step 1 done → step 2: plan selection
-            window.location.assign('/app/onboarding/plan');
+            // Step 1 done → step 2: plan selection.
+            // Forward plan_code / billing_period so the plan page can skip to checkout.
+            const fwd = new URLSearchParams();
+            if (planCode) fwd.set('plan_code', planCode);
+            if (billingPeriod) fwd.set('billing_period', billingPeriod);
+            const qs = fwd.toString();
+            window.location.assign(`/app/onboarding/plan${qs ? `?${qs}` : ''}`);
         } catch {
             setError('Error de red. Verificá tu conexión e intentalo de nuevo.');
         } finally {

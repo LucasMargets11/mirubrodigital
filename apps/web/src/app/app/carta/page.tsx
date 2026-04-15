@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 
 import { getSession } from '@/lib/auth';
+import { canUploadMenuImages } from '@/features/menu/constants';
 
 import { MenuClient } from './menu-client';
 
@@ -23,13 +24,10 @@ export default async function MenuPage() {
     const canManage = session.permissions?.manage_menu ?? false;
     const canImport = session.permissions?.import_menu ?? false;
     const canExport = session.permissions?.export_menu ?? false;
-    // Feature-gated: QR Visual / QR Marca plans have menu_item_images flag.
-    // Fall back to checking the plan code directly in case the features dict
-    // is stale (e.g. Django process loaded old features.py before our changes).
-    const PLANS_WITH_IMAGES = ['menu_qr_visual', 'menu_qr_marca', 'plus', 'business'];
-    const canUploadImages =
-        session.features?.menu_item_images === true ||
-        PLANS_WITH_IMAGES.includes(session.subscription?.plan ?? '');
+    const canUploadImages = canUploadMenuImages(
+        session.features,
+        session.subscription?.plan,
+    );
 
     return (
         <MenuClient

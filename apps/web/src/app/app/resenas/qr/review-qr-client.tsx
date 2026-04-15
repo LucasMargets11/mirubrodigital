@@ -64,8 +64,10 @@ export function ReviewQrClient({ businessName }: Props) {
         warnings.push('Las reseñas están desactivadas. Aunque el QR funciona, tus clientes no podrán dejar opiniones hasta que actives el servicio.');
     }
     if (config && !config.redirect_url) {
-        warnings.push('No tenés una URL de redirección a Google configurada. Las calificaciones altas quedarán como feedback interno.');
+        warnings.push('No tenés una URL de redirección a Google configurada. Las reseñas no se derivarán a Google.');
     }
+
+    const isDirect = data?.effective_mode === 'direct';
 
     return (
         <>
@@ -144,6 +146,25 @@ export function ReviewQrClient({ businessName }: Props) {
                             <h2 className="text-lg font-semibold text-slate-900">¿Cómo funciona?</h2>
                             <p className="mt-1 text-xs text-slate-500">{PRODUCT.tagline}</p>
                         </div>
+
+                        {isDirect ? (
+                        <div className="space-y-3 text-sm text-slate-600">
+                            <div className="flex items-start gap-2">
+                                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-green-100 text-[10px] font-bold text-green-700">1</span>
+                                <div>
+                                    <p className="font-medium text-slate-700">Compartís tu QR</p>
+                                    <p className="text-slate-500">Imprimilo o compartí el link. Tu cliente lo escanea desde el celular.</p>
+                                </div>
+                            </div>
+                            <div className="flex items-start gap-2">
+                                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-green-100 text-[10px] font-bold text-green-700">2</span>
+                                <div>
+                                    <p className="font-medium text-slate-700">Va directo a Google</p>
+                                    <p className="text-slate-500">El QR y el enlace apuntan directamente a la página de reseñas de Google. Sin pantallas intermedias.</p>
+                                </div>
+                            </div>
+                        </div>
+                        ) : (
                         <div className="space-y-3 text-sm text-slate-600">
                             {PRODUCT_FLOW_STEPS.map((step, i) => (
                                 <div key={i} className="flex items-start gap-2">
@@ -155,19 +176,20 @@ export function ReviewQrClient({ businessName }: Props) {
                                 </div>
                             ))}
                         </div>
+                        )}
 
                         <hr className="border-slate-100" />
 
-                        {/* Smart filter */}
+                        {/* Smart filter detail — only in smart_filter mode */}
+                        {config?.effective_mode === 'smart_filter' && (
+                        <>
                         <div className="space-y-2">
                             <h3 className="text-sm font-bold text-slate-800">{SMART_FILTER.headline}</h3>
                             <p className="text-xs text-slate-600">{SMART_FILTER.description}</p>
                             <div className="grid gap-2">
                                 {SMART_FILTER.bullets.map((b) => (
                                     <div key={b.label} className="flex items-center gap-2 rounded-lg bg-indigo-50/50 p-2.5 border border-indigo-100">
-                                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-[10px] font-bold text-indigo-700">
-                                            {b.label.startsWith('≥') ? '★' : '☆'}
-                                        </span>
+                                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-[10px] font-bold text-indigo-700">★</span>
                                         <div className="text-xs">
                                             <p className="font-semibold text-slate-700">{b.label}</p>
                                             <p className="text-slate-500">{b.result}</p>
@@ -178,8 +200,17 @@ export function ReviewQrClient({ businessName }: Props) {
                         </div>
 
                         <hr className="border-slate-100" />
+                        </>
+                        )}
 
-                        <h3 className="text-sm font-semibold text-slate-700">Enlace público</h3>
+                        <h3 className="text-sm font-semibold text-slate-700">
+                            {isDirect ? 'Enlace directo a Google' : 'Enlace público'}
+                        </h3>
+                        {isDirect && (
+                            <p className="text-xs text-green-700">
+                                El QR y este enlace apuntan directamente a Google. Tu cliente no pasa por Mi Rubro.
+                            </p>
+                        )}
                         <div className="flex items-center gap-2">
                             <code className="flex-1 truncate rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-700">
                                 {data.public_url}

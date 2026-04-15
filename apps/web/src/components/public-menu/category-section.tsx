@@ -10,7 +10,7 @@ export function MenuCategorySection({ category, id }: MenuCategorySectionProps) 
     if (!category.items.length) return null;
 
     return (
-        <section id={id} className="mb-12 break-inside-avoid">
+        <section id={id} className="mb-12 break-inside-avoid scroll-mt-20">
             <div className="mb-6 flex items-center gap-4">
                 <h2 
                     className="font-bold uppercase tracking-wide text-[var(--menu-accent)] font-[family-name:var(--menu-font-heading)]"

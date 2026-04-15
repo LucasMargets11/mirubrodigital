@@ -84,6 +84,9 @@ const PLAN_LABELS: Record<string, string> = {
   menu_qr_lite: 'Menú QR Lite',
   menu_qr_pro: 'Menú QR Pro',
   menu_qr_premium: 'Menú QR Premium',
+  qr_reviews: 'Reseñas Base',
+  qr_reviews_base: 'Reseñas Base',
+  qr_reviews_pro: 'Reseñas Pro',
 };
 
 export function planLabel(planCode: string | null): string {

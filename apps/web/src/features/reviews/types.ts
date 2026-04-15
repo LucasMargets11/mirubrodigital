@@ -1,27 +1,46 @@
 /* ── Reviews domain types ─────────────────────────────────── */
 
+export type ReviewMode = 'direct' | 'smart_filter';
+
 /** Private config returned by GET /api/v1/reviews/config/ */
 export interface ReviewConfig {
     enabled: boolean;
     google_place_id: string;
+    google_place_name: string;
+    google_place_formatted_address: string;
+    google_place_updated_at: string | null;
     google_review_url: string;
     custom_redirect_url: string;
     redirect_threshold: number;
     collect_contact: boolean;
     thank_you_message: string;
     redirect_url: string; // read-only computed
+    mode: ReviewMode;
+    effective_mode: ReviewMode;
+    trial_ends_at: string | null;
+    trial_used: boolean;
+    smart_filter_allowed: boolean;
+    is_reviews_pro: boolean;
+    trial_active: boolean;
+    trial_available: boolean;
     updated_at: string;
 }
+
+/** Response from POST /api/v1/reviews/trial/activate/ — returns full ReviewConfig */
+export type TrialActivationResponse = ReviewConfig;
 
 /** Payload accepted by PATCH /api/v1/reviews/config/ */
 export interface ReviewConfigPayload {
     enabled?: boolean;
     google_place_id?: string;
+    google_place_name?: string;
+    google_place_formatted_address?: string;
     google_review_url?: string;
     custom_redirect_url?: string;
     redirect_threshold?: number;
     collect_contact?: boolean;
     thank_you_message?: string;
+    mode?: ReviewMode;
 }
 
 /** Public config returned by GET /api/v1/reviews/public/<slug>/ */
@@ -32,6 +51,11 @@ export interface PublicReviewConfig {
     collect_contact: boolean;
     thank_you_message: string;
     enabled: boolean;
+    mode: ReviewMode;
+    effective_mode: ReviewMode;
+    logo_url: string | null;
+    accent_color: string | null;
+    is_pro: boolean;
 }
 
 /** Payload for POST /api/v1/reviews/public/<slug>/submit/ */
@@ -68,6 +92,7 @@ export interface ReviewQrResponse {
     slug: string;
     public_url: string;
     qr_svg: string;
+    effective_mode: ReviewMode;
     generated_at: string;
 }
 
@@ -90,4 +115,9 @@ export interface ReviewStats {
     recent_reviews: Review[];
     reviews_last_7_days: number;
     reviews_last_30_days: number;
+    visits_last_7_days: number;
+    visits_last_30_days: number;
+    daily_trend: { date: string; count: number }[];
+    redirect_threshold: number;
+    effective_mode: ReviewMode;
 }

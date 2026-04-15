@@ -709,6 +709,7 @@ class MercadoPagoWebhookView(APIView):
 
         from apps.billing.models import PendingSubscriptionChange
         from apps.billing.services.commercial.apply import apply_subscription_change, apply_addon_activation
+        from apps.billing.reviews_views import apply_reviews_plan_upgrade
 
         mp_service = MercadoPagoService()
 
@@ -725,13 +726,14 @@ class MercadoPagoWebhookView(APIView):
 
             is_subscription_change = external_reference.startswith('subscription_change_')
             is_addon_purchase       = external_reference.startswith('addon_purchase_')
+            is_reviews_upgrade      = external_reference.startswith('reviews_upgrade_')
             is_tip                  = external_reference.startswith('TIP-')
 
             if is_tip:
                 self.process_tip_payment(external_reference, payment_status, payment_id)
                 return
 
-            if not (is_subscription_change or is_addon_purchase):
+            if not (is_subscription_change or is_addon_purchase or is_reviews_upgrade):
                 return
 
             pending_change_id = external_reference.split('_')[-1]
@@ -756,6 +758,11 @@ class MercadoPagoWebhookView(APIView):
                             )
                         else:
                             raise ValueError("No addon code found in config_snapshot")
+                    elif is_reviews_upgrade:
+                        apply_reviews_plan_upgrade(
+                            business=pending_change.business,
+                            target_plan_code=pending_change.target_plan_code,
+                        )
                     else:
                         apply_subscription_change(
                             business=pending_change.business,
@@ -768,7 +775,8 @@ class MercadoPagoWebhookView(APIView):
                     pending_change.save()
                     try:
                         biz = pending_change.business
-                        v2 = _resolve_subscriptionv2(biz, biz.default_service)
+                        svc = 'qr_reviews' if is_reviews_upgrade else biz.default_service
+                        v2 = _resolve_subscriptionv2(biz, svc)
                         _create_payment_attempt(v2, billing_event, payment_data, payment_id)
                         if v2:
                             _update_billing_event(billing_event, sub_v2=v2,

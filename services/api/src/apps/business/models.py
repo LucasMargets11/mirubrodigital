@@ -124,6 +124,8 @@ class BusinessPlan(models.TextChoices):
 
   # QR de Reseñas
   QR_REVIEWS = 'qr_reviews', 'QR de Reseñas'
+  QR_REVIEWS_BASE = 'qr_reviews_base', 'Reseñas Base'
+  QR_REVIEWS_PRO = 'qr_reviews_pro', 'Reseñas Pro'
 
   # Legacy plans (mantener para compatibilidad)
   START = 'start', 'Start (Legacy)'

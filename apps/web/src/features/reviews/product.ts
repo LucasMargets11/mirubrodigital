@@ -8,13 +8,39 @@ export const PRODUCT = {
     tagline: 'Más reseñas en Google, menos quejas públicas.',
     description:
         'Un QR que tus clientes escanean para dejar su opinión. ' +
-        'Las buenas van directo a Google. Las malas quedan como feedback privado para vos.',
+        'Las positivas van a Google. Las negativas te llegan como feedback privado.',
 } as const;
 
 /** Dominant CTA — used consistently across all surfaces */
 export const CTA_PRIMARY = {
     label: 'Compartir mi QR',
     href: '/app/resenas/qr',
+} as const;
+
+/** Upgrade CTA — used in post-trial banners, gating cards, config.
+ *  For NON-active users the link goes to the pricing page.
+ *  For ACTIVE users the UpgradeToProButton component calls the API directly. */
+export const CTA_UPGRADE_PRO = {
+    label: 'Ver planes Pro',
+    href: '/pricing?service=qr_reviews',
+} as const;
+
+/** In-place upgrade label for active businesses */
+export const CTA_UPGRADE_PRO_INPLACE = {
+    label: 'Actualizar a Pro',
+    loadingLabel: 'Iniciando pago…',
+} as const;
+
+/** Downgrade label for active Pro businesses */
+export const CTA_DOWNGRADE_TO_BASE = {
+    label: 'Volver a Reseñas Base',
+    loadingLabel: 'Procesando…',
+    confirmTitle: 'Volver a Reseñas Base',
+    confirmMessage:
+        'Al volver a Reseñas Base perderás el acceso al filtro inteligente, ' +
+        'feedback privado y analytics avanzadas. Tus datos se conservan.',
+    confirmButton: 'Confirmar downgrade',
+    cancelButton: 'Cancelar',
 } as const;
 
 export const PRODUCT_BENEFITS = [
@@ -47,8 +73,8 @@ export const SMART_FILTER = {
         'Tu QR tiene un filtro inteligente: las opiniones altas se publican en Google y las bajas quedan como feedback privado. ' +
         'Así protegés tu reputación y mejorás con la crítica real.',
     bullets: [
-        { label: '≥ 4 estrellas', result: 'Se derivan a Google automáticamente' },
-        { label: '≤ 3 estrellas', result: 'Quedan como feedback interno para vos' },
+        { label: 'Por encima del umbral', result: 'Se derivan a Google automáticamente' },
+        { label: 'Por debajo del umbral', result: 'Quedan como feedback interno para vos' },
     ],
 } as const;
 
@@ -60,36 +86,31 @@ import { REVIEWS_BASE, REVIEWS_PRO, formatPrice } from '@/lib/pricing';
 export const REVIEW_PRICING_CARDS: PricingCardData[] = [
     {
         name: REVIEWS_BASE.name,
-        tagline: 'Lo esencial para empezar a sumar reseñas.',
+        tagline: 'Generá reseñas en Google de forma simple.',
         price: formatPrice(REVIEWS_BASE.priceMonthly),
         period: '/mes',
         highlights: [
             'QR listo para compartir',
             'Recepción de reseñas',
-            'Redirección a Google',
-            'Feedback interno',
-            'Gestión de estados',
+            'Redirección directa a Google',
         ],
         ctaHref: '/entrar',
-        ctaLabel: 'Activar QR de Reseñas',
+        ctaLabel: 'Activar Reseñas Base',
     },
     {
         name: REVIEWS_PRO.name,
-        tagline: 'Todo lo que necesitás para dominar tu reputación.',
+        tagline: 'Elegí qué llega a Google y qué queda como feedback privado.',
         price: formatPrice(REVIEWS_PRO.priceMonthly),
         period: '/mes',
         highlights: [
-            'QR listo para compartir',
-            'Recepción de reseñas',
-            'Redirección a Google',
-            'Feedback interno',
+            'Todo lo de Base',
+            'Filtro inteligente por calificación',
+            'Feedback privado automático',
             'Gestión de estados',
-            'Filtro inteligente (híbrido)',
             'Analytics avanzadas',
-            'Métricas de conversión',
         ],
         ctaHref: '/entrar',
-        ctaLabel: 'Actualizar a Pro',
+        ctaLabel: 'Activar Reseñas Pro',
         featured: true,
     },
 ];

@@ -19,6 +19,10 @@ export function updateReviewSettings(payload: ReviewConfigPayload) {
     return apiPatch<ReviewConfig>('/api/v1/reviews/config/', payload);
 }
 
+export function activateReviewsTrial() {
+    return apiPost<ReviewConfig>('/api/v1/reviews/trial/activate/', {});
+}
+
 export function getReviewQrCode() {
     return apiGet<ReviewQrResponse>('/api/v1/reviews/qr/');
 }

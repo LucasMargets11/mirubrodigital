@@ -150,6 +150,7 @@ export function BrandingTab() {
                                         src={horizontalLogoUrl}
                                         alt="Logo horizontal"
                                         fill
+                                        unoptimized
                                         className="object-contain p-2"
                                     />
                                 </div>
@@ -185,7 +186,7 @@ export function BrandingTab() {
 
                             {squareLogoUrl && (
                                 <div className="relative h-24 w-24 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
-                                    <Image src={squareLogoUrl} alt="Logo cuadrado" fill className="object-contain p-2" />
+                                    <Image src={squareLogoUrl} alt="Logo cuadrado" fill unoptimized className="object-contain p-2" />
                                 </div>
                             )}
 
