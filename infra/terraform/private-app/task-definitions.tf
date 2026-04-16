@@ -31,6 +31,9 @@ locals {
     { name = "CACHE_REDIS_URL",      value = local.core.elasticache_redis_url },
     { name = "CORS_ALLOWED_ORIGINS", value = var.cors_allowed_origins },
     { name = "COOKIE_SECURE",        value = "True" },
+    # ── Rollout flags (remediation 2026-04-16) ──────────────────────────────
+    { name = "ROLLOUT_EMAIL_VERIFICATION",      value = "true" },
+    { name = "ROLLOUT_SUBSCRIPTION_ENFORCEMENT", value = "true" },
   ]
 }
 

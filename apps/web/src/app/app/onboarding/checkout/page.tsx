@@ -86,6 +86,8 @@ export default function OnboardingCheckoutPage() {
     const sessionIdRef = useRef<string>('');
     const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const pollCountRef = useRef(0);
+    // Guard: prevent double initiation from React Strict Mode / concurrent effects.
+    const initiatingRef = useRef(false);
 
     // ── Polling helpers ────────────────────────────────────────────────────────
 
@@ -152,6 +154,10 @@ export default function OnboardingCheckoutPage() {
     // ── Checkout initiation ────────────────────────────────────────────────────
 
     async function initiateCheckout(code: string) {
+        // Prevent concurrent calls (React Strict Mode double-mount, user double-click).
+        if (initiatingRef.current) return;
+        initiatingRef.current = true;
+
         try {
             const resp = await fetch(`${API_URL}/api/v1/auth/onboarding/start-checkout/`, {
                 method: 'POST',
@@ -176,6 +182,7 @@ export default function OnboardingCheckoutPage() {
                         'Verificá tu email antes de continuar. ' +
                         'Revisá tu bandeja de entrada y hacé clic en el link que te enviamos.',
                     );
+                    initiatingRef.current = false;
                     return;
                 }
 
@@ -183,6 +190,7 @@ export default function OnboardingCheckoutPage() {
                 setErrorMessage(
                     payload?.detail ?? 'No pudimos iniciar el pago. Intentalo de nuevo.',
                 );
+                initiatingRef.current = false;
                 return;
             }
 
@@ -193,6 +201,7 @@ export default function OnboardingCheckoutPage() {
         } catch {
             setPhase('error');
             setErrorMessage('Error de red. Verificá tu conexión e intentalo de nuevo.');
+            initiatingRef.current = false;
         }
     }
 

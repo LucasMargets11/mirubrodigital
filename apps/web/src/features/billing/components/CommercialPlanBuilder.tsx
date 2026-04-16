@@ -2,6 +2,9 @@ import { useState, useEffect } from 'react';
 import { useBundles } from '../api';
 import { Bundle } from '../types';
 import { Minus, Plus } from 'lucide-react';
+import { formatPrice } from '@/lib/pricing/format';
+import { EXTRA_BRANCH } from '@/lib/pricing/extras';
+import { ADDON_INVOICING } from '@/lib/pricing/addons';
 
 interface CommercialPlanBuilderProps {
   billingPeriod: 'monthly' | 'yearly';
@@ -25,8 +28,8 @@ const PLAN_LIMITS = {
 };
 
 const ADDON_PRICES = {
-  extra_branch: { monthly: 1200000, yearly: 11520000 }, // $12.000/mes (en centavos)
-  invoicing_module: { monthly: 1500000, yearly: 14400000 }, // $15.000/mes (en centavos)
+  extra_branch: { monthly: EXTRA_BRANCH.priceMonthly, yearly: EXTRA_BRANCH.priceYearly },
+  invoicing_module: { monthly: ADDON_INVOICING.priceMonthly, yearly: ADDON_INVOICING.priceYearly },
 };
 
 export function CommercialPlanBuilder({ billingPeriod, onSubscribe, onCancel }: CommercialPlanBuilderProps) {
@@ -149,7 +152,7 @@ export function CommercialPlanBuilder({ billingPeriod, onSubscribe, onCancel }: 
                     )}
                   </div>
                   <p className="text-2xl font-bold text-slate-900">
-                    ${((price || 0) / 100).toFixed(0)}
+                    {formatPrice((price || 0))}
                     <span className="text-sm font-normal text-slate-500">/{billingPeriod === 'monthly' ? 'mes' : 'año'}</span>
                   </p>
                   <p className="text-xs text-slate-600 mt-2">{bundle.description}</p>
@@ -207,7 +210,7 @@ export function CommercialPlanBuilder({ billingPeriod, onSubscribe, onCancel }: 
                     <span className="font-semibold text-brand-600">
                       {branches - limits.includedBranches} sucursal{branches - limits.includedBranches > 1 ? 'es' : ''} adicional{branches - limits.includedBranches > 1 ? 'es' : ''}:
                     </span>
-                    {' '}${(((branches - limits.includedBranches) * ADDON_PRICES.extra_branch[billingPeriod]) / 100).toFixed(0)}
+                    {' '}{formatPrice((branches - limits.includedBranches) * ADDON_PRICES.extra_branch[billingPeriod])}
                     /{billingPeriod === 'monthly' ? 'mes' : 'año'}
                   </p>
                 </div>
@@ -238,7 +241,7 @@ export function CommercialPlanBuilder({ billingPeriod, onSubscribe, onCancel }: 
                       </p>
                     </div>
                     <span className="text-lg font-bold text-slate-900 ml-4">
-                      +${(ADDON_PRICES.invoicing_module[billingPeriod] / 100).toFixed(0)}
+                      +{formatPrice(ADDON_PRICES.invoicing_module[billingPeriod])}
                     </span>
                   </div>
                   {addInvoicing && (
@@ -279,7 +282,7 @@ export function CommercialPlanBuilder({ billingPeriod, onSubscribe, onCancel }: 
             <div>
               <p className="text-sm text-slate-600">Total a pagar</p>
               <p className="text-4xl font-bold text-slate-900">
-                ${(total / 100).toFixed(0)}
+                {formatPrice(total)}
                 <span className="text-lg text-slate-600 font-normal">
                   /{billingPeriod === 'monthly' ? 'mes' : 'año'}
                 </span>

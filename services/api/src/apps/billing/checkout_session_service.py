@@ -42,7 +42,7 @@ from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from django.conf import settings
-from django.db import transaction
+from django.db import transaction, IntegrityError
 from django.utils import timezone
 
 from .models import MpCheckoutSession, Plan
@@ -116,92 +116,120 @@ def start_checkout(
         user.pk, plan_code, tenant_pk=getattr(tenant, 'pk', None)
     )
 
-    with transaction.atomic():
-        # Lock any open session for this (user, tenant, plan) to prevent race conditions.
-        # Filtering by tenant avoids cross-business collisions for users that own
-        # multiple tenants subscribed to the same plan.
-        _open_filter: dict = dict(user=user, plan=plan, status__in=MpCheckoutSession.OPEN_STATUSES)
-        if tenant is not None:
-            _open_filter['tenant'] = tenant
-        else:
-            _open_filter['tenant__isnull'] = True
+    _open_filter: dict = dict(user=user, plan=plan, status__in=MpCheckoutSession.OPEN_STATUSES)
+    if tenant is not None:
+        _open_filter['tenant'] = tenant
+    else:
+        _open_filter['tenant__isnull'] = True
 
-        existing = (
-            MpCheckoutSession.objects
-            .select_for_update()
-            .filter(**_open_filter)
-            .first()
-        )
-
-        if existing:
-            if existing.is_expired():
-                # Expire the stale session so a new one can be created.
-                logger.info(
-                    "[checkout_session] Session %s expired (expires_at=%s) — creating new one. "
-                    "user=%s plan=%s",
-                    existing.id, existing.expires_at, user.pk, plan_code,
-                )
-                existing.status = MpCheckoutSession.Status.EXPIRED
-                existing.save(update_fields=['status', 'updated_at'])
-                # Fall through to create a new session.
-            else:
-                # Reuse the existing open session.
-                existing.last_seen_at = timezone.now()
-                existing.save(update_fields=['last_seen_at', 'updated_at'])
-                logger.info(
-                    "[checkout_session] Reusing existing session %s "
-                    "status=%s plan=%s user=%s",
-                    existing.id, existing.status, plan_code, user.pk,
-                )
-                return {
-                    "checkout_session_id": str(existing.id),
-                    "init_point": existing.provider_checkout_url or '',
-                    "status": existing.status,
-                    "reused": True,
-                }
-
-        # ── Create a new checkout session ─────────────────────────────────────
-        session_external_ref = f"SESS-{uuid.uuid4()}"
-        expires_at = timezone.now() + timedelta(minutes=CHECKOUT_SESSION_TTL_MINUTES)
-
-        session = MpCheckoutSession.objects.create(
-            user=user,
-            tenant=tenant,
-            plan=plan,
-            status=MpCheckoutSession.Status.CREATED,
-            provider_mode=_detect_mode(),
-            idempotency_key=idempotency_key,
-            mp_external_reference=session_external_ref,
-            return_url=_build_return_url(frontend_url),
-            expires_at=expires_at,
-            last_seen_at=timezone.now(),
-        )
-
-        logger.info(
-            "[checkout_session] New session %s created user=%s plan=%s mode=%s",
-            session.id, user.pk, plan_code, session.provider_mode,
-        )
-
-        # ── Create MP ephemeral plan ───────────────────────────────────────────
-        # One plan per checkout session — this is intentional and specified in the design.
-        # The plan ID is the primary correlation key between webhooks and the local session.
-        try:
-            session = _create_mp_plan_for_session(session, plan, frontend_url)
-        except Exception as exc:
-            session.status = MpCheckoutSession.Status.FAILED
-            session.save(update_fields=['status', 'updated_at'])
-            logger.error(
-                "[checkout_session] MP plan creation failed for session=%s: %s",
-                session.id, exc,
+    try:
+        with transaction.atomic():
+            # Lock any open session for this (user, tenant, plan) to prevent race conditions.
+            existing = (
+                MpCheckoutSession.objects
+                .select_for_update()
+                .filter(**_open_filter)
+                .first()
             )
-            raise
 
-    return {
-        "checkout_session_id": str(session.id),
-        "init_point": session.provider_checkout_url or '',
-        "status": session.status,
-        "reused": False,
-    }
+            if existing:
+                if existing.is_expired():
+                    logger.info(
+                        "[checkout_session] Session %s expired (expires_at=%s) — creating new one. "
+                        "user=%s plan=%s",
+                        existing.id, existing.expires_at, user.pk, plan_code,
+                    )
+                    existing.status = MpCheckoutSession.Status.EXPIRED
+                    existing.save(update_fields=['status', 'updated_at'])
+                    # Fall through to create a new session.
+                else:
+                    # Reuse the existing open session.
+                    existing.last_seen_at = timezone.now()
+                    existing.save(update_fields=['last_seen_at', 'updated_at'])
+                    logger.info(
+                        "[checkout_session] Reusing existing session %s "
+                        "status=%s plan=%s user=%s",
+                        existing.id, existing.status, plan_code, user.pk,
+                    )
+                    return {
+                        "checkout_session_id": str(existing.id),
+                        "init_point": existing.provider_checkout_url or '',
+                        "status": existing.status,
+                        "reused": True,
+                    }
+
+            # ── Create a new checkout session ─────────────────────────────────
+            session_external_ref = f"SESS-{uuid.uuid4()}"
+            expires_at = timezone.now() + timedelta(minutes=CHECKOUT_SESSION_TTL_MINUTES)
+
+            session = MpCheckoutSession.objects.create(
+                user=user,
+                tenant=tenant,
+                plan=plan,
+                status=MpCheckoutSession.Status.CREATED,
+                provider_mode=_detect_mode(),
+                idempotency_key=idempotency_key,
+                mp_external_reference=session_external_ref,
+                return_url=_build_return_url(frontend_url),
+                expires_at=expires_at,
+                last_seen_at=timezone.now(),
+            )
+
+            logger.info(
+                "[checkout_session] New session %s created user=%s plan=%s mode=%s",
+                session.id, user.pk, plan_code, session.provider_mode,
+            )
+
+            # ── Create MP ephemeral plan ──────────────────────────────────────
+            try:
+                session = _create_mp_plan_for_session(session, plan, frontend_url)
+            except Exception as exc:
+                session.status = MpCheckoutSession.Status.FAILED
+                session.save(update_fields=['status', 'updated_at'])
+                logger.error(
+                    "[checkout_session] MP plan creation failed for session=%s: %s",
+                    session.id, exc,
+                )
+                raise
+
+        return {
+            "checkout_session_id": str(session.id),
+            "init_point": session.provider_checkout_url or '',
+            "status": session.status,
+            "reused": False,
+        }
+
+    except IntegrityError:
+        # Race condition: two concurrent requests both found no existing session
+        # (SELECT FOR UPDATE locks nothing when no rows match), then both tried
+        # to INSERT.  The loser hits the partial unique constraint
+        # uq_checkout_session_open_per_tenant_user_plan.
+        #
+        # The atomic block has been rolled back.  The winner's session is now
+        # committed and visible.  Fetch it and return — this is the correct
+        # idempotent behaviour.
+        logger.warning(
+            "[checkout_session] IntegrityError on create — concurrent race resolved. "
+            "Fetching winner session. user=%s plan=%s",
+            user.pk, plan_code,
+        )
+        winner = MpCheckoutSession.objects.filter(**_open_filter).first()
+        if winner:
+            logger.info(
+                "[checkout_session] Race resolved — reusing winner session %s "
+                "status=%s plan=%s user=%s",
+                winner.id, winner.status, plan_code, user.pk,
+            )
+            return {
+                "checkout_session_id": str(winner.id),
+                "init_point": winner.provider_checkout_url or '',
+                "status": winner.status,
+                "reused": True,
+            }
+        raise ValueError(
+            "Checkout session race: concurrent insert detected but "
+            "no open session found on retry."
+        )
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -198,7 +198,7 @@ if raw_cookie_domain.lower() in {'', 'localhost', '127.0.0.1'}:
   AUTH_COOKIE_DOMAIN = None
 else:
   AUTH_COOKIE_DOMAIN = raw_cookie_domain
-AUTH_COOKIE_SECURE = os.getenv('COOKIE_SECURE', 'False').lower() == 'true'
+AUTH_COOKIE_SECURE = os.getenv('COOKIE_SECURE', str(not DEBUG)).lower() == 'true'
 AUTH_COOKIE_SAMESITE = os.getenv('COOKIE_SAMESITE', 'Lax')
 AUTH_COOKIE_PATH = '/'
 AUTH_COOKIE_ACCESS_MAX_AGE = int(os.getenv('ACCESS_TOKEN_MAX_AGE_SECONDS', str(ACCESS_TOKEN_MINUTES * 60)))

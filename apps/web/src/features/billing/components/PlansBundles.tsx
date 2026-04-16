@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { QrCode } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import { formatPrice } from '@/lib/pricing/format';
 
 import { useBundles } from '../api';
 import { BillingVertical, Bundle } from '../types';
@@ -65,7 +66,7 @@ export function PlansBundles({ vertical, billingPeriod, onChooseBundle }: PlansB
               <div className="mb-6">
                 <div className="flex items-baseline">
                   <span className="text-4xl font-bold text-slate-900">
-                    ${((price ?? 0) / 100).toFixed(0)}
+                    {formatPrice(price ?? 0)}
                   </span>
                   <span className="text-slate-500 text-sm ml-2">
                     / {billingPeriod === 'monthly' ? 'mes' : 'año'}

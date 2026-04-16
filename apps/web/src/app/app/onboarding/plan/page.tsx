@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 
 import { getSession } from '@/lib/auth';
 import { serverApiFetch } from '@/lib/api/server';
+import { formatPrice } from '@/lib/pricing/format';
 
 // Route constants — string variables avoid typed-routes literal checks on newly
 // created pages whose route types haven't been regenerated yet by the Next.js
@@ -133,8 +134,8 @@ export default async function OnboardingPlanPage({ searchParams }: Props) {
                             </div>
                             <p className="text-xs text-slate-500 mb-4 flex-1">{bundle.description}</p>
                             <p className="text-lg font-bold text-slate-900 mb-1">
-                                ${bundle.fixed_price_monthly != null
-                                    ? (bundle.fixed_price_monthly / 100).toLocaleString('es-AR')
+                                {bundle.fixed_price_monthly != null
+                                    ? formatPrice(bundle.fixed_price_monthly)
                                     : '—'}
                                 <span className="text-xs font-normal text-slate-400">/mes</span>
                             </p>

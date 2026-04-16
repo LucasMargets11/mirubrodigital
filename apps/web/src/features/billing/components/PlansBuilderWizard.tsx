@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useModules, useQuote } from '../api';
 import { BillingVertical, QuoteResponse } from '../types';
+import { formatPrice } from '@/lib/pricing/format';
 
 interface PlansBuilderWizardProps {
   vertical: BillingVertical;
@@ -73,7 +74,7 @@ export function PlansBuilderWizard({ vertical, billingPeriod, onSubscribe, onCan
             <p className="text-xs text-gray-500 mb-2 min-h-[2.5em]">{m.description}</p>
             <div className="flex justify-between items-end">
               <div className="font-mono text-sm font-bold text-gray-700">
-                ${((billingPeriod === 'monthly' ? m.price_monthly : (m.price_yearly || m.price_monthly * 12)) / 100).toFixed(2)}
+                {formatPrice(billingPeriod === 'monthly' ? m.price_monthly : (m.price_yearly || m.price_monthly * 12))}
               </div>
               {m.is_core && <span className="text-xs text-blue-600 font-bold bg-blue-100 px-2 py-0.5 rounded">Incluido</span>}
             </div>
@@ -99,7 +100,7 @@ export function PlansBuilderWizard({ vertical, billingPeriod, onSubscribe, onCan
               <p className="font-bold text-blue-800">¡Ahorrá con un Pack!</p>
               <p className="text-sm text-blue-700 mt-1">
                 Tu selección coincide con el <strong>{quote.suggestion.bundle_name}</strong>.
-                Si cambiás, pagás <strong>${(quote.suggestion.bundle_total / 100).toFixed(2)}</strong> y ahorrás <strong>${(quote.suggestion.savings_amount / 100).toFixed(2)}</strong> ({quote.suggestion.savings_percent}%).
+                Si cambiás, pagás <strong>{formatPrice(quote.suggestion.bundle_total)}</strong> y ahorrás <strong>{formatPrice(quote.suggestion.savings_amount)}</strong> ({quote.suggestion.savings_percent}%).
               </p>
               <button
                 onClick={() => onSubscribe([], quote)} // Logic to switch to bundle? Ideally logic is in parent or handled here by calling diff prop
@@ -115,7 +116,7 @@ export function PlansBuilderWizard({ vertical, billingPeriod, onSubscribe, onCan
               {quote.modules.length} módulos seleccionados
             </div>
             <div className="text-right text-3xl font-bold text-gray-900">
-              ${(quote.total / 100).toFixed(2)}
+              {formatPrice(quote.total)}
             </div>
           </div>
 
