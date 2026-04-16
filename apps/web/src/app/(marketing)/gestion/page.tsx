@@ -8,6 +8,7 @@ import {
     GestionPricingSection,
     ProductFinalCta,
 } from '@/components/marketing/product-landing';
+import NextImage from 'next/image';
 import {
     ShoppingBag,
     Boxes,
@@ -98,7 +99,13 @@ export default function GestionPage() {
                 title="Así se ve tu operación diaria"
                 subtitle="Un panel pensado para que tu equipo venda rápido y vos tengas control total."
             >
-                <DemoDashboard />
+                <NextImage
+                    src="/images/mockupdesktop.png"
+                    alt="Panel de Gestión Comercial Mi Rubro"
+                    fill
+                    className="object-cover object-top"
+                    sizes="(max-width: 768px) 95vw, 960px"
+                />
             </ProductDemo>
 
             {/* 3 ── Beneficios ── */}
@@ -236,17 +243,16 @@ function GestionMockup() {
                 </div>
                 <div className="ml-4 flex-1 h-4 bg-white rounded-md border border-slate-100 max-w-[140px]" />
             </div>
-            {/* Dashboard skeleton */}
-            <div className="p-4 bg-slate-50 h-full flex flex-col gap-3">
-                <div className="h-8 bg-white rounded-lg border border-slate-100 shadow-sm" />
-                <div className="flex gap-3 flex-1">
-                    <div className="w-14 bg-white rounded-lg border border-slate-100 shadow-sm hidden sm:block" />
-                    <div className="flex-1 bg-white rounded-lg border border-slate-100 shadow-sm p-3 grid grid-cols-2 gap-2">
-                        <div className="h-12 bg-brand-50/40 rounded border border-brand-100/30" />
-                        <div className="h-12 bg-brand-50/40 rounded border border-brand-100/30" />
-                        <div className="col-span-2 h-16 bg-slate-50 rounded border border-slate-100" />
-                    </div>
-                </div>
+            {/* Dashboard screenshot */}
+            <div className="relative w-full h-[calc(100%-1.75rem)] overflow-hidden bg-slate-50">
+                <NextImage
+                    src="/images/mockupdesktop.png"
+                    alt="Vista previa del panel de Gestión Comercial Mi Rubro"
+                    fill
+                    className="object-cover object-top"
+                    sizes="(max-width: 768px) 90vw, 448px"
+                    priority
+                />
             </div>
         </div>
     );

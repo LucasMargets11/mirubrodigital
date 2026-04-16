@@ -8,6 +8,7 @@ import {
     CartaPricingSection,
     ProductFinalCta,
 } from '@/components/marketing/product-landing';
+import NextImage from 'next/image';
 import {
     QrCode,
     Palette,
@@ -222,36 +223,21 @@ function CartaMockup() {
     return (
         <div className="w-full max-w-xs mx-auto">
             {/* Phone frame */}
-            <div className="rounded-[2rem] border-[6px] border-slate-800 bg-white shadow-2xl overflow-hidden aspect-[9/16]">
+            <div className="rounded-[2rem] border-[6px] border-slate-800 bg-slate-900 shadow-2xl overflow-hidden aspect-[9/16]">
                 {/* Status bar */}
                 <div className="h-6 bg-slate-800 flex items-center justify-center">
                     <div className="w-16 h-3 bg-slate-700 rounded-full" />
                 </div>
-                {/* Menu content */}
-                <div className="p-4 space-y-3 bg-white h-full">
-                    {/* Header */}
-                    <div className="text-center space-y-1">
-                        <div className="w-10 h-10 mx-auto rounded-full bg-brand-50 border border-brand-100" />
-                        <div className="h-3 w-24 mx-auto bg-slate-200 rounded" />
-                        <div className="h-2 w-16 mx-auto bg-slate-100 rounded" />
-                    </div>
-                    {/* Categories */}
-                    <div className="flex gap-2 overflow-hidden">
-                        {['bg-brand-50 border-brand-200', 'bg-slate-50 border-slate-100', 'bg-slate-50 border-slate-100'].map((cls, i) => (
-                            <div key={i} className={`h-6 flex-1 rounded-full border ${cls}`} />
-                        ))}
-                    </div>
-                    {/* Items */}
-                    {Array.from({ length: 3 }).map((_, i) => (
-                        <div key={i} className="flex gap-3 items-center">
-                            <div className="w-12 h-12 rounded-lg bg-slate-100 flex-shrink-0" />
-                            <div className="flex-1 space-y-1">
-                                <div className="h-2.5 w-20 bg-slate-200 rounded" />
-                                <div className="h-2 w-full bg-slate-100 rounded" />
-                                <div className="h-2.5 w-12 bg-brand-100 rounded" />
-                            </div>
-                        </div>
-                    ))}
+                {/* Screen — imagen de la carta */}
+                <div className="relative w-full h-[calc(100%-1.5rem)] overflow-hidden bg-white">
+                    <NextImage
+                        src="/images/mockuplogo.png"
+                        alt="Vista previa de carta digital Mi Rubro"
+                        fill
+                        className="object-cover object-top"
+                        sizes="(max-width: 768px) 80vw, 320px"
+                        priority
+                    />
                 </div>
             </div>
         </div>
