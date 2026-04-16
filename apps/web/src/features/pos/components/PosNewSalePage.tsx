@@ -119,6 +119,20 @@ export function PosNewSalePage() {
 
   const total = useMemo(() => Math.max(0, subtotal - discountAmount), [subtotal, discountAmount]);
 
+  // Keep the single auto-amount payment line in sync with the sale total.
+  // Triggers on every total change; only writes if there is exactly one line
+  // whose amount was never manually edited (isAutoAmount === true).
+  useEffect(() => {
+    setPaymentLines((prev) => {
+      if (prev.length !== 1) return prev;
+      const line = prev[0]!;
+      if (!line.isAutoAmount) return prev;
+      const next = total > 0 ? total.toFixed(2) : '';
+      if (line.amount === next) return prev;
+      return [{ ...line, amount: next }];
+    });
+  }, [total]);
+
   const cashReceivedNum = parseFloat(cashReceived);
   const hasCashLine = paymentLines.some((l) => l.method === 'efectivo');
   const cashLineTotal = paymentLines
@@ -147,7 +161,7 @@ export function PosNewSalePage() {
   const cashError = useMemo(() => {
     if (!hasCashLine) return '';
     if (!cashReceived || isNaN(cashReceivedNum)) return '';
-    if (cashReceivedNum < cashLineTotal) return 'El monto recibido es menor al total en efectivo.';
+    if (cashReceivedNum < cashLineTotal) return 'El monto ingresado no cubre el cobro en efectivo.';
     return '';
   }, [hasCashLine, cashReceived, cashReceivedNum, cashLineTotal]);
 

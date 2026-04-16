@@ -224,3 +224,24 @@ export interface PosSaleCreateResponse {
     items_count?: number;
   };
 }
+
+// ── POS Session Sales — recent sales list ─────────────────────────────────────
+
+/** Lightweight sale summary returned by GET /api/v1/pos/cash/current/sales/ */
+export interface PosCashSessionSale {
+  id: string;
+  number: number;
+  status: 'completed' | 'cancelled';
+  status_label: string;
+  payment_method: string;
+  payment_method_label: string;
+  total: string;
+  items_count: number;
+  created_at: string;
+}
+
+/** Wrapper returned by GET /api/v1/pos/cash/current/sales/ */
+export interface PosCashCurrentSalesResponse {
+  sales: PosCashSessionSale[];
+  session_id: string | null;
+}

@@ -29,6 +29,7 @@ import type {
 import type {
   PosCashCloseRequest,
   PosCashCurrentMovementsResponse,
+  PosCashCurrentSalesResponse,
   PosCashMovement,
   PosCashMovementRequest,
   PosCashOpenRequest,
@@ -222,6 +223,22 @@ export function posGetCurrentCashMovements(
 ): Promise<PosCashCurrentMovementsResponse> {
   return posFetch<PosCashCurrentMovementsResponse>(
     '/api/v1/pos/cash/current/movements/',
+    token,
+    { method: 'GET' },
+  );
+}
+
+/**
+ * GET /api/v1/pos/cash/current/sales/
+ * Lists recent sales in the employee's current open session, newest first (max 5).
+ * Returns { sales: [], session_id: null } when no session is open.
+ * Throws ApiError 403 if capability 'can_create_sale' is missing.
+ */
+export function posGetCurrentCashSales(
+  token: string,
+): Promise<PosCashCurrentSalesResponse> {
+  return posFetch<PosCashCurrentSalesResponse>(
+    '/api/v1/pos/cash/current/sales/',
     token,
     { method: 'GET' },
   );

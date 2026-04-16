@@ -69,6 +69,25 @@ class PosCashMovementSerializer(serializers.Serializer):
     session_id = serializers.UUIDField()
 
 
+class PosCashSessionSaleSerializer(serializers.Serializer):
+    """Lightweight read-only sale summary for the POS terminal recent-sales list."""
+    id = serializers.UUIDField()
+    number = serializers.IntegerField()
+    status = serializers.CharField()
+    status_label = serializers.CharField(source='get_status_display')
+    payment_method = serializers.CharField()
+    payment_method_label = serializers.CharField(source='get_payment_method_display')
+    total = serializers.DecimalField(max_digits=12, decimal_places=2)
+    items_count = serializers.SerializerMethodField()
+    created_at = serializers.DateTimeField()
+
+    def get_items_count(self, obj) -> int:
+        annotated = getattr(obj, 'items_count', None)
+        if annotated is not None:
+            return int(annotated)
+        return obj.items.count()
+
+
 class PosCashOpenSerializer(serializers.Serializer):
     """Validates and creates a CashSession from an employee POS request."""
     opening_cash_amount = serializers.DecimalField(

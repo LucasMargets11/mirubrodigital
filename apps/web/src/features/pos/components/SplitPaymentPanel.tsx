@@ -19,7 +19,7 @@
  * - Live region for total status
  */
 
-import { useCallback, useId } from 'react';
+import { useCallback, useEffect, useId, useState } from 'react';
 import { formatCurrency } from '@/features/cash/utils';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -37,6 +37,8 @@ export interface PaymentLine {
   method: UiPaymentMethod;
   amount: string;
   reference: string;
+  /** true while the amount was set/updated automatically (not manually edited) */
+  isAutoAmount: boolean;
 }
 
 /** Maps UI payment method → backend Payment.Method choices */
@@ -72,7 +74,7 @@ const PAYMENT_METHOD_OPTIONS: { value: UiPaymentMethod; label: string; icon: str
 
 let lineCounter = 0;
 export function createPaymentLine(amount: string = '', method: UiPaymentMethod = 'efectivo'): PaymentLine {
-  return { id: `pl-${++lineCounter}`, method, amount, reference: '' };
+  return { id: `pl-${++lineCounter}`, method, amount, reference: '', isAutoAmount: !amount };
 }
 
 // ── Props ──────────────────────────────────────────────────────────────────────
@@ -119,11 +121,37 @@ export function SplitPaymentPanel({
   const cashChange = hasCashLine && !isNaN(cashReceivedNum) ? Math.max(0, cashReceivedNum - cashLineTotal) : 0;
   const cashInsufficient = hasCashLine && !isNaN(cashReceivedNum) && cashReceivedNum > 0 && cashReceivedNum < cashLineTotal;
 
+  // ── Cash-change toggle ──────────────────────────────────────────────────
+
+  const [showCashChange, setShowCashChange] = useState(false);
+
+  useEffect(() => {
+    if (!hasCashLine) {
+      setShowCashChange(false);
+      onCashReceivedChange('');
+    }
+  }, [hasCashLine, onCashReceivedChange]);
+
+  const handleToggleCashChange = useCallback(
+    (checked: boolean) => {
+      setShowCashChange(checked);
+      if (!checked) {
+        onCashReceivedChange('');
+      }
+    },
+    [onCashReceivedChange],
+  );
+
   // ── Handlers ────────────────────────────────────────────────────────────
 
   const updateLine = useCallback(
     (lineId: string, updates: Partial<PaymentLine>) => {
-      onLinesChange(lines.map((l) => (l.id === lineId ? { ...l, ...updates } : l)));
+      onLinesChange(lines.map((l) => {
+        if (l.id !== lineId) return l;
+        // When the user edits the amount, mark it as manual
+        const isAmountEdit = 'amount' in updates;
+        return { ...l, ...updates, ...(isAmountEdit ? { isAutoAmount: false } : {}) };
+      }));
     },
     [lines, onLinesChange],
   );
@@ -186,12 +214,12 @@ export function SplitPaymentPanel({
               </div>
 
               {/* Amount */}
-              <div className="w-32">
+              <div className="w-36">
                 <label
                   htmlFor={`${uid}-amount-${line.id}`}
                   className="mb-1 block text-xs font-medium text-slate-500"
                 >
-                  Monto
+                  Monto a cobrar
                 </label>
                 <div className="relative">
                   <span
@@ -261,55 +289,72 @@ export function SplitPaymentPanel({
         + Agregar otro medio de pago
       </button>
 
-      {/* Cash received + vuelto (only when there's an efectivo line) */}
+      {/* Cash: calcular vuelto (only when there's an efectivo line) */}
       {hasCashLine && (
         <div className="mt-4 space-y-3">
-          <div>
-            <label
-              htmlFor={`${uid}-cash-received`}
-              className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500"
-            >
-              Monto recibido en efectivo
-            </label>
-            <div className="relative">
-              <span
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-medium text-slate-400"
-                aria-hidden
-              >
-                $
-              </span>
-              <input
-                id={`${uid}-cash-received`}
-                type="number"
-                min={0}
-                step="any"
-                placeholder={String(cashLineTotal > 0 ? Math.ceil(cashLineTotal) : '')}
-                value={cashReceived}
-                onChange={(e) => onCashReceivedChange(e.target.value)}
-                disabled={disabled}
-                className="w-full rounded-xl border border-slate-200 py-2.5 pl-8 pr-3 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-300 disabled:opacity-60"
-              />
-            </div>
-          </div>
+          <label className="flex cursor-pointer select-none items-center gap-2">
+            <input
+              type="checkbox"
+              checked={showCashChange}
+              onChange={(e) => handleToggleCashChange(e.target.checked)}
+              disabled={disabled}
+              className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-400 disabled:opacity-60"
+            />
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Calcular vuelto
+            </span>
+          </label>
 
-          {/* Vuelto */}
-          {!isNaN(cashReceivedNum) && cashReceivedNum > 0 && !cashInsufficient && cashChange > 0 && (
-            <div
-              className="flex items-center justify-between rounded-xl bg-emerald-50 px-4 py-3"
-              aria-live="polite"
-              aria-atomic="true"
-            >
-              <span className="text-sm font-medium text-emerald-700">Vuelto</span>
-              <span className="text-lg font-bold text-emerald-800 tabular-nums">
-                {formatCurrency(String(cashChange))}
-              </span>
-            </div>
-          )}
+          {showCashChange && (
+            <>
+              <div>
+                <label
+                  htmlFor={`${uid}-cash-received`}
+                  className="mb-1 block text-xs font-medium text-slate-500"
+                >
+                  ¿Con cuánto paga?
+                </label>
+                <div className="relative">
+                  <span
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-medium text-slate-400"
+                    aria-hidden
+                  >
+                    $
+                  </span>
+                  <input
+                    id={`${uid}-cash-received`}
+                    type="number"
+                    min={0}
+                    step="any"
+                    placeholder={String(cashLineTotal > 0 ? Math.ceil(cashLineTotal) : '')}
+                    value={cashReceived}
+                    onChange={(e) => onCashReceivedChange(e.target.value)}
+                    disabled={disabled}
+                    className="w-full rounded-xl border border-slate-200 py-2.5 pl-8 pr-3 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-300 disabled:opacity-60"
+                  />
+                </div>
+              </div>
 
-          {cashInsufficient && (
-            <p className="text-xs text-amber-600" aria-live="polite">
-              El monto recibido es menor al total en efectivo.
-            </p>
+              {/* Vuelto inline */}
+              {!isNaN(cashReceivedNum) && cashReceivedNum > 0 && !cashInsufficient && cashChange > 0 && (
+                <div
+                  className="flex items-center justify-between rounded-xl bg-emerald-50 px-4 py-3"
+                  aria-live="polite"
+                  aria-atomic="true"
+                >
+                  <span className="text-sm font-medium text-emerald-700">Vuelto</span>
+                  <span className="text-lg font-bold text-emerald-800 tabular-nums">
+                    {formatCurrency(String(cashChange))}
+                  </span>
+                </div>
+              )}
+
+              {cashInsufficient && (
+                <p className="text-xs text-amber-600" aria-live="polite">
+                  El monto ingresado no cubre el cobro en efectivo.
+                </p>
+              )}
+            </>
           )}
         </div>
       )}
@@ -330,8 +375,12 @@ export function SplitPaymentPanel({
           <span className="font-bold text-slate-900 tabular-nums">{formatCurrency(String(total))}</span>
         </div>
         <div className="mt-1 flex items-center justify-between text-sm">
-          <span className="font-medium text-slate-600">Pagado</span>
-          <span className="font-bold text-slate-900 tabular-nums">{formatCurrency(String(totalPaid))}</span>
+          <span className={`font-medium ${excess > 0.01 ? 'text-rose-600' : 'text-slate-600'}`}>
+            Cobrado
+          </span>
+          <span className={`font-bold tabular-nums ${excess > 0.01 ? 'text-rose-700' : 'text-slate-900'}`}>
+            {formatCurrency(String(totalPaid))}
+          </span>
         </div>
         {remaining > 0.01 && (
           <div className="mt-1 flex items-center justify-between text-sm">
@@ -340,9 +389,14 @@ export function SplitPaymentPanel({
           </div>
         )}
         {excess > 0.01 && (
+          <p className="mt-0.5 text-xs text-rose-500">
+            Los montos superan el total por {formatCurrency(String(excess))}
+          </p>
+        )}
+        {cashChange > 0 && (
           <div className="mt-1 flex items-center justify-between text-sm">
-            <span className="font-medium text-rose-600">Excedente</span>
-            <span className="font-bold text-rose-700 tabular-nums">{formatCurrency(String(excess))}</span>
+            <span className="font-medium text-emerald-600">Vuelto</span>
+            <span className="font-bold text-emerald-700 tabular-nums">{formatCurrency(String(cashChange))}</span>
           </div>
         )}
         {isExact && (

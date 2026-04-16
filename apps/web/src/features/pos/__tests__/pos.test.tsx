@@ -26,6 +26,7 @@ import {
   isPinChangeRequired,
   isPosAuthError,
   posGetCurrentCashSession,
+  posGetCurrentCashSales,
   posOpenCashSession,
   posCloseCurrentCashSession,
   posCreateCashMovement,
@@ -632,6 +633,83 @@ function makePosProduct(overrides: Partial<PosProduct> = {}): PosProduct {
     ...overrides,
   };
 }
+
+// ── Cash POS API — posGetCurrentCashSales ────────────────────────────────────
+
+describe('Cash POS API — posGetCurrentCashSales', () => {
+  beforeEach(() => { vi.restoreAllMocks(); });
+
+  it('returns sales array when session has sales', async () => {
+    const responseBody = {
+      sales: [
+        {
+          id: 'sale-1',
+          number: 1,
+          status: 'completed',
+          status_label: 'Completada',
+          payment_method: 'cash',
+          payment_method_label: 'Efectivo',
+          total: '300.00',
+          items_count: 2,
+          created_at: '2026-03-09T15:00:00Z',
+        },
+      ],
+      session_id: 'session-uuid-1',
+    };
+
+    vi.spyOn(global, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify(responseBody), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    const result = await posGetCurrentCashSales('test-token');
+    expect(result.sales).toHaveLength(1);
+    expect(result.sales[0].number).toBe(1);
+    expect(result.sales[0].total).toBe('300.00');
+    expect(result.session_id).toBe('session-uuid-1');
+  });
+
+  it('returns empty sales when no session is open', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({ sales: [], session_id: null }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    const result = await posGetCurrentCashSales('test-token');
+    expect(result.sales).toHaveLength(0);
+    expect(result.session_id).toBeNull();
+  });
+
+  it('sends X-Employee-Token header', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({ sales: [], session_id: null }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    await posGetCurrentCashSales('my-token');
+
+    const lastCall = fetchSpy.mock.calls.at(-1)!;
+    expect((lastCall[1]?.headers as Record<string, string>)['X-Employee-Token']).toBe('my-token');
+    expect(lastCall[0]).toContain('/pos/cash/current/sales/');
+  });
+
+  it('throws ApiError 403 when capability missing', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ detail: 'No tenés permiso para ver ventas.', code: 'capability_required' }),
+        { status: 403, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+
+    await expect(posGetCurrentCashSales('tok')).rejects.toMatchObject({ status: 403 });
+  });
+});
 
 // ── 8. usePosCashCurrentSession hook ─────────────────────────────────────────
 

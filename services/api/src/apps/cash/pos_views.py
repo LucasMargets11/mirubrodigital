@@ -10,17 +10,20 @@ Routes
   GET  /api/v1/pos/cash/current/             → get current open session
   POST /api/v1/pos/cash/current/close/       → close current session
   POST /api/v1/pos/cash/current/movements/   → register a cash movement
+  GET  /api/v1/pos/cash/current/sales/       → list recent sales in current session
 
 Capabilities required
 ---------------------
   can_open_cash   → open / close
   can_close_cash  → close
   can_register_cash_movement → movements
+  can_create_sale → view session sales
 """
 from __future__ import annotations
 
 import logging
 
+from django.db.models import Count
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -36,8 +39,10 @@ from .pos_serializers import (
     PosCashMovementCreateSerializer,
     PosCashMovementSerializer,
     PosCashOpenSerializer,
+    PosCashSessionSaleSerializer,
     PosCashSessionSerializer,
 )
+from .services import get_session_sales_queryset
 
 logger = logging.getLogger(__name__)
 
@@ -361,3 +366,53 @@ class PosCashMovementView(APIView):
             {'movement': serializer.to_representation(movement)},
             status=status.HTTP_201_CREATED,
         )
+
+
+class PosCashCurrentSalesView(APIView):
+    """
+    GET /api/v1/pos/cash/current/sales/
+
+    Returns recent sales linked to the employee's current open cash session,
+    ordered by most recent first, limited to 5 results.
+
+    Returns an empty list (not 404) when no session is open.
+
+    Required capability: can_create_sale
+
+    Response 200
+    ------------
+    {
+        "sales": [<PosCashSessionSaleSerializer>],
+        "session_id": "<uuid>" | null
+    }
+
+    Errors
+    ------
+    403 → capability missing / must_change_pin / not authenticated
+    """
+    authentication_classes = [EmployeeTokenAuthentication]
+    permission_classes = [EmployeeIsAuthenticated, PinChangeNotRequired]
+
+    def get(self, request) -> Response:
+        employee = request.employee
+        business = request.business
+
+        if not _check_capability(employee, 'can_create_sale'):
+            return Response(
+                {'detail': 'No tenés permiso para ver ventas.', 'code': 'capability_required'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        session = _get_open_session(employee, business)
+        if session is None:
+            return Response({'sales': [], 'session_id': None})
+
+        sales_qs = (
+            get_session_sales_queryset(session)
+            .annotate(items_count=Count('items'))
+            .order_by('-created_at')[:5]
+        )
+        return Response({
+            'sales': PosCashSessionSaleSerializer(sales_qs, many=True).data,
+            'session_id': str(session.pk),
+        })

@@ -24,6 +24,7 @@ import {
   posCreateSale,
   posGetCategories,
   posGetCurrentCashMovements,
+  posGetCurrentCashSales,
   posGetCurrentCashSession,
   posGetProducts,
   posOpenCashSession,
@@ -32,6 +33,7 @@ import {
 import type {
   PosCashCloseRequest,
   PosCashCurrentMovementsResponse,
+  PosCashCurrentSalesResponse,
   PosCashMovementRequest,
   PosCashOpenRequest,
   PosCashSession,
@@ -55,6 +57,10 @@ export const posCashKeys = {
 
 export const posCashMovementsKeys = {
   current: (token: string | null) => ['pos', 'cash', 'movements', token] as const,
+};
+
+export const posCashSalesKeys = {
+  current: (token: string | null) => ['pos', 'cash', 'sales', token] as const,
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -114,6 +120,31 @@ export function usePosCashCurrentMovements() {
     queryFn: () => {
       if (!token) throw new Error('No hay token de sesión operativa');
       return posGetCurrentCashMovements(token);
+    },
+    enabled,
+    staleTime: 15_000,
+    refetchInterval: 30_000,
+    retry: false,
+  });
+}
+
+// ── Current session sales query ──────────────────────────────────────────────
+
+/**
+ * GET /api/v1/pos/cash/current/sales/
+ *
+ * Returns recent sales for the employee's current open session, newest first (max 5).
+ * Returns an empty array when no session is open (backend returns 200 + []).
+ * Refetches every 30 seconds while mounted.
+ */
+export function usePosCashCurrentSales() {
+  const { token, enabled } = useTokenGuard();
+
+  return useQuery<PosCashCurrentSalesResponse, ApiError>({
+    queryKey: posCashSalesKeys.current(token),
+    queryFn: () => {
+      if (!token) throw new Error('No hay token de sesión operativa');
+      return posGetCurrentCashSales(token);
     },
     enabled,
     staleTime: 15_000,

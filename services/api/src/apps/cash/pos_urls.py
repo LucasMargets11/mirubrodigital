@@ -6,6 +6,7 @@ from django.urls import path
 
 from .pos_views import (
     PosCashCurrentCloseView,
+    PosCashCurrentSalesView,
     PosCashCurrentView,
     PosCashMovementView,
     PosCashOpenView,
@@ -16,4 +17,5 @@ urlpatterns = [
     path('current/',           PosCashCurrentView.as_view(),      name='pos-cash-current'),
     path('current/close/',     PosCashCurrentCloseView.as_view(), name='pos-cash-current-close'),
     path('current/movements/', PosCashMovementView.as_view(),     name='pos-cash-movement-create'),
+    path('current/sales/',     PosCashCurrentSalesView.as_view(), name='pos-cash-current-sales'),
 ]

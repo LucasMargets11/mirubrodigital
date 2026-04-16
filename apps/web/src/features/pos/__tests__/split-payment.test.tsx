@@ -85,10 +85,10 @@ describe('SplitPaymentPanel', () => {
     expect(screen.getByText('Restante')).toBeTruthy();
   });
 
-  it('SP3b: shows excedente when payments over total', () => {
+  it('SP3b: shows excess warning when payments over total', () => {
     const lines = [createPaymentLine('35000', 'efectivo')];
     renderPanel({ lines, total: 30000 });
-    expect(screen.getByText('Excedente')).toBeTruthy();
+    expect(screen.getByText(/Los montos superan el total/)).toBeTruthy();
   });
 
   // ── SP4. Exact match indicator ──────────────────────────────────────────────
@@ -132,5 +132,127 @@ describe('SplitPaymentPanel', () => {
     const newLines = onLinesChange.mock.calls[0]![0] as PaymentLine[];
     expect(newLines).toHaveLength(2);
     expect(newLines[1]!.amount).toBe('20000.00');
+  });
+
+  // ── SP8. Cash change toggle ─────────────────────────────────────────────────
+
+  it('SP8: cash change toggle shows/hides cash received input', () => {
+    const lines = [createPaymentLine('10000', 'efectivo')];
+    renderPanel({ lines, total: 10000 });
+
+    // Toggle exists
+    const toggle = screen.getByRole('checkbox', { name: /calcular vuelto/i });
+    expect(toggle).toBeTruthy();
+
+    // Cash received input NOT visible initially
+    expect(screen.queryByLabelText(/con cuánto paga/i)).toBeNull();
+
+    // Enable toggle
+    fireEvent.click(toggle);
+
+    // Cash received input now visible
+    expect(screen.getByLabelText(/con cuánto paga/i)).toBeTruthy();
+  });
+
+  it('SP8b: disabling toggle clears cash received', () => {
+    const onCashReceivedChange = vi.fn();
+    const lines = [createPaymentLine('10000', 'efectivo')];
+    renderPanel({ lines, total: 10000, onCashReceivedChange });
+
+    const toggle = screen.getByRole('checkbox', { name: /calcular vuelto/i });
+    fireEvent.click(toggle); // on
+    fireEvent.click(toggle); // off
+
+    expect(onCashReceivedChange).toHaveBeenCalledWith('');
+  });
+
+  // ── SP9. Updated labels ─────────────────────────────────────────────────────
+
+  it('SP9: shows "Monto a cobrar" label instead of "Monto"', () => {
+    renderPanel();
+    expect(screen.getByText('Monto a cobrar')).toBeTruthy();
+    expect(screen.queryByText('Monto')).toBeNull();
+  });
+
+  it('SP9b: summary shows "Cobrado" instead of "Pagado"', () => {
+    const lines = [createPaymentLine('30000', 'efectivo')];
+    renderPanel({ lines, total: 30000 });
+    expect(screen.getByText('Cobrado')).toBeTruthy();
+    expect(screen.queryByText('Pagado')).toBeNull();
+  });
+
+  // ── SP10. Summary vuelto ────────────────────────────────────────────────────
+
+  it('SP10: summary shows "Vuelto" row when cash change exists', () => {
+    const lines = [createPaymentLine('30000', 'efectivo')];
+    renderPanel({ lines, total: 30000, cashReceived: '35000' });
+    const vueltoTexts = screen.getAllByText('Vuelto');
+    expect(vueltoTexts.length).toBeGreaterThanOrEqual(1);
+  });
+
+  // ── SP11. Exact payment states ──────────────────────────────────────────────
+
+  it('SP11: shows pago completo with no excess warning for exact payment', () => {
+    const lines = [createPaymentLine('30000', 'efectivo')];
+    renderPanel({ lines, total: 30000 });
+    expect(screen.getByText(/Pago completo/)).toBeTruthy();
+    expect(screen.queryByText(/Los montos superan/)).toBeNull();
+  });
+
+  // ── SP12. Mixed payment exact ───────────────────────────────────────────────
+
+  it('SP12: mixed payment shows pago completo when sum matches total', () => {
+    const lines = [
+      createPaymentLine('10000', 'efectivo'),
+      createPaymentLine('20000', 'transferencia'),
+    ];
+    renderPanel({ lines, total: 30000 });
+    expect(screen.getByText('Cobrado')).toBeTruthy();
+    expect(screen.getByText(/Pago completo/)).toBeTruthy();
+  });
+
+  // ── SP13. isAutoAmount flag ─────────────────────────────────────────────────
+
+  it('SP13: createPaymentLine without amount sets isAutoAmount true', () => {
+    const line = createPaymentLine();
+    expect(line.isAutoAmount).toBe(true);
+    expect(line.amount).toBe('');
+  });
+
+  it('SP13b: createPaymentLine with amount sets isAutoAmount false', () => {
+    const line = createPaymentLine('5000', 'efectivo');
+    expect(line.isAutoAmount).toBe(false);
+    expect(line.amount).toBe('5000');
+  });
+
+  // ── SP14. Editing amount marks line as manual ───────────────────────────────
+
+  it('SP14: editing amount marks line as manual (isAutoAmount false)', () => {
+    const onLinesChange = vi.fn();
+    const line = createPaymentLine();
+    // isAutoAmount starts true
+    expect(line.isAutoAmount).toBe(true);
+    renderPanel({ lines: [line], onLinesChange, total: 10000 });
+
+    // User types into amount input
+    const amountInput = screen.getByPlaceholderText('0');
+    fireEvent.change(amountInput, { target: { value: '5000' } });
+
+    const updated = onLinesChange.mock.calls[0]![0] as PaymentLine[];
+    expect(updated[0]!.amount).toBe('5000');
+    expect(updated[0]!.isAutoAmount).toBe(false);
+  });
+
+  it('SP14b: changing method does not mark amount as manual', () => {
+    const onLinesChange = vi.fn();
+    const line: PaymentLine = { ...createPaymentLine(), amount: '10000', isAutoAmount: true };
+    renderPanel({ lines: [line], onLinesChange, total: 10000 });
+
+    const methodSelect = screen.getByRole('combobox');
+    fireEvent.change(methodSelect, { target: { value: 'transferencia' } });
+
+    const updated = onLinesChange.mock.calls[0]![0] as PaymentLine[];
+    expect(updated[0]!.method).toBe('transferencia');
+    expect(updated[0]!.isAutoAmount).toBe(true);
   });
 });

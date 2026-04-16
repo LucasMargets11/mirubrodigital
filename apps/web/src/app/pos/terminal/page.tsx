@@ -6,62 +6,20 @@
  * Shows:
  * - Employee identity card (name, role, branch)
  * - Cash POS section (open/active session, movements, close)
- * - Capabilities grid (which POS actions are enabled)
+ * - Recent sales for the current cash session
  * - Logout button
  *
  * Only reachable after successful login + no pending PIN change.
  */
 
 import { useEmployeeSession } from '@/features/pos/context';
-import { usePosCapabilities } from '@/features/pos/hooks';
 import { PosCashSection } from '@/features/pos/components/PosCashSection';
-import type { PosCapabilitySet } from '@/types/employees';
-
-// ── Capability labels ─────────────────────────────────────────────────────────
-
-const CAPABILITY_LABELS: Record<keyof PosCapabilitySet, string> = {
-  can_open_pos: 'Abrir POS',
-  can_view_assigned_branch: 'Ver sucursal asignada',
-  can_create_sale: 'Crear venta',
-  can_refund_sale: 'Realizar devolución',
-  can_manage_cash: 'Gestionar caja',
-  can_view_reports: 'Ver reportes',
-  can_manage_employees_pos: 'Gestionar empleados en POS',
-  can_open_cash: 'Abrir sesión de caja',
-  can_close_cash: 'Cerrar sesión de caja',
-  can_register_cash_movement: 'Registrar movimiento de caja',
-};
-
-function CapabilityBadge({
-  label,
-  enabled,
-}: {
-  label: string;
-  enabled: boolean;
-}) {
-  return (
-    <div
-      className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm ${
-        enabled
-          ? 'bg-green-50 text-green-700'
-          : 'bg-gray-50 text-gray-400 line-through'
-      }`}
-    >
-      <span
-        className={`h-2 w-2 shrink-0 rounded-full ${enabled ? 'bg-green-500' : 'bg-gray-300'}`}
-        aria-hidden
-      />
-      {label}
-    </div>
-  );
-}
+import { PosRecentSales } from '@/features/pos/components/PosRecentSales';
 
 // ── Terminal page ─────────────────────────────────────────────────────────────
 
 export default function PosTerminalPage() {
   const { session, logout } = useEmployeeSession();
-  const { capabilities, roleType, isLoading: capsLoading, error: capsError } =
-    usePosCapabilities();
 
   if (session.status !== 'authenticated') {
     // Layout guard should have redirected already; render nothing here
@@ -128,40 +86,9 @@ export default function PosTerminalPage() {
         <PosCashSection />
       </div>
 
-      {/* Capabilities */}
-      <div className="rounded-2xl bg-white p-6 shadow-sm">
-        <h3 className="mb-4 text-sm font-semibold text-gray-700">
-          Permisos operativos
-          {roleType && (
-            <span className="ml-2 font-normal text-gray-400">
-              ({ROLE_LABELS[roleType] ?? roleType})
-            </span>
-          )}
-        </h3>
-
-        {capsLoading && (
-          <p className="text-sm text-gray-400">Cargando permisos…</p>
-        )}
-
-        {capsError && (
-          <p className="text-sm text-red-500">
-            No se pudieron cargar los permisos. Intenta recargar la página.
-          </p>
-        )}
-
-        {capabilities && (
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {(Object.keys(CAPABILITY_LABELS) as Array<keyof PosCapabilitySet>).map(
-              (key) => (
-                <CapabilityBadge
-                  key={key}
-                  label={CAPABILITY_LABELS[key]}
-                  enabled={capabilities[key]}
-                />
-              ),
-            )}
-          </div>
-        )}
+      {/* Recent sales for the current cash session */}
+      <div className="mb-6">
+        <PosRecentSales />
       </div>
     </div>
   );
