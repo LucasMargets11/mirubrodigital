@@ -46,6 +46,35 @@ const CATEGORY_TO_GROUP: Record<string, BroadGroup> = {
 };
 const BROAD_GROUP_ORDER: BroadGroup[] = ['Operación', 'Ventas y Clientes', 'Finanzas', 'Reportes y Datos', 'Control y Escala'];
 
+type GestionEnterprisePlan = {
+    plan: 'enterprise';
+    label: string;
+    description: string;
+    ctaLabel: string;
+    ctaHref: string;
+    highlights: string[];
+};
+
+const GESTION_ENTERPRISE_PLAN: GestionEnterprisePlan = {
+    plan: 'enterprise',
+    label: 'Empresarial',
+    description: 'Solución a medida para operaciones más complejas',
+    ctaLabel: 'Hablar con MiRubro',
+    ctaHref: '/contacto',
+    highlights: [
+        'Implementación según tu operación',
+        'Procesos, permisos y configuración personalizada',
+        'Acompañamiento para necesidades específicas',
+        'Propuesta comercial a medida',
+    ],
+};
+
+type GestionLandingPlan = GcPlanEntry | GestionEnterprisePlan;
+
+function isGestionEnterprisePlan(plan: GestionLandingPlan): plan is GestionEnterprisePlan {
+    return plan.plan === 'enterprise';
+}
+
 /** Group features by broad category, included-first within each group */
 function groupedFeatures() {
     const score = (s: FeatureAvailability) =>
@@ -160,9 +189,44 @@ function PlanCard({
     plan,
     billingPeriod,
 }: {
-    plan: GcPlanEntry;
+    plan: GestionLandingPlan;
     billingPeriod: 'monthly' | 'yearly';
 }) {
+    if (isGestionEnterprisePlan(plan)) {
+        return (
+            <div className="rounded-2xl border bg-white flex flex-col h-full transition-all border-slate-200 shadow-sm hover:shadow-md">
+                <div className="h-full flex flex-col p-6">
+                    <div className="min-h-[24px] mb-2" />
+
+                    <h3 className="text-2xl font-bold text-slate-900 mb-1">{plan.label}</h3>
+                    <p className="text-sm text-slate-500 mb-4 min-h-[40px]">{plan.description}</p>
+
+                    <div className="mb-5">
+                        <span className="text-3xl font-bold text-slate-900">Hablemos</span>
+                    </div>
+
+                    <ul className="space-y-2 flex-1">
+                        {plan.highlights.map((feat) => (
+                            <li key={feat} className="flex items-start gap-2 text-sm text-slate-700">
+                                <Check className="h-4 w-4 mt-0.5 text-green-500 flex-shrink-0" />
+                                {feat}
+                            </li>
+                        ))}
+                    </ul>
+
+                    <div className="mt-6 pt-4">
+                        <Button asChild size="lg" className="w-full bg-slate-100 text-slate-900 hover:bg-slate-200" variant="secondary">
+                            <Link href={plan.ctaHref as Route}>
+                                {plan.ctaLabel}
+                                <ArrowRight className="ml-2 h-4 w-4" />
+                            </Link>
+                        </Button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
     const isRecommended = plan.isRecommended ?? false;
     const price = billingPeriod === 'monthly' ? plan.priceMonthly : plan.priceYearly;
     const meta = GC_PLAN_META[plan.plan];
@@ -408,6 +472,7 @@ function PlanLimitsCards() {
 export function GestionPricingSection() {
     const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>('monthly');
     const [showTable, setShowTable] = useState(false);
+    const landingPlans: GestionLandingPlan[] = [...GC_PLANS, GESTION_ENTERPRISE_PLAN];
 
     return (
         <section className="py-16 lg:py-24" id="planes-gestion">
@@ -457,8 +522,8 @@ export function GestionPricingSection() {
                     </div>
 
                     {/* Plan cards */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-stretch max-w-4xl mx-auto">
-                        {GC_PLANS.map((plan) => (
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 items-stretch max-w-6xl mx-auto">
+                        {landingPlans.map((plan) => (
                             <PlanCard key={plan.plan} plan={plan} billingPeriod={billingPeriod} />
                         ))}
                     </div>

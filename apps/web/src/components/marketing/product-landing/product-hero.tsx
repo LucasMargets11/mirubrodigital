@@ -39,9 +39,9 @@ export function ProductHero({
             </div>
 
             <SiteContainer>
-                <div className="grid gap-12 lg:grid-cols-2 lg:gap-16 items-center">
-                    {/* Text */}
-                    <div className="max-w-xl space-y-6">
+                <div className="grid gap-12 lg:grid-cols-2 lg:gap-16 items-start lg:min-h-[420px]">
+                    {/* Text — always starts from the same vertical position */}
+                    <div className="max-w-xl space-y-6 lg:pt-4">
                         <p className="text-sm font-semibold uppercase tracking-[0.25em] text-brand-600">
                             {label}
                         </p>
@@ -68,7 +68,7 @@ export function ProductHero({
                             <Button
                                 asChild
                                 size="lg"
-                                className="h-12 px-8 text-base shadow-lg shadow-brand-500/25 hover:shadow-brand-500/40 transition-all hover:-translate-y-0.5 font-semibold bg-brand-600 hover:bg-brand-500"
+                                className="h-12 px-8 text-base text-white shadow-lg shadow-brand-500/25 hover:shadow-xl hover:shadow-brand-500/40 transition-shadow font-semibold bg-brand-600 hover:bg-brand-500"
                             >
                                 <Link href={ctaHref as Route}>
                                     {ctaLabel}
@@ -102,8 +102,8 @@ export function ProductHero({
                         )}
                     </div>
 
-                    {/* Mockup */}
-                    <div className="relative w-full flex items-center justify-center lg:justify-end select-none">
+                    {/* Mockup — self-centered; never affects text position */}
+                    <div className="relative w-full flex items-center justify-center lg:justify-end lg:self-center select-none max-h-[480px]">
                         {mockup}
                     </div>
                 </div>

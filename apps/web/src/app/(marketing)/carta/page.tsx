@@ -90,7 +90,17 @@ export default function CartaPage() {
                 secondaryHref="/pricing?service=menu_qr"
                 secondaryLabel="Ver planes"
                 proofPoints={['QR listo al instante', 'Sin comisiones', 'Funciona en cualquier celular']}
-                mockup={<CartaMockup />}
+                mockup={
+                    <NextImage
+                        src="/images/mockcarta.png"
+                        alt="Vista previa de Carta Online Mi Rubro"
+                        width={600}
+                        height={450}
+                        quality={90}
+                        className="w-full max-w-md h-auto"
+                        priority
+                    />
+                }
             />
 
             {/* 2 ── Demo visual ── */}
@@ -219,30 +229,6 @@ export default function CartaPage() {
 
 /* ── Mockups internos ── */
 
-function CartaMockup() {
-    return (
-        <div className="w-full max-w-xs mx-auto">
-            {/* Phone frame */}
-            <div className="rounded-[2rem] border-[6px] border-slate-800 bg-slate-900 shadow-2xl overflow-hidden aspect-[9/16]">
-                {/* Status bar */}
-                <div className="h-6 bg-slate-800 flex items-center justify-center">
-                    <div className="w-16 h-3 bg-slate-700 rounded-full" />
-                </div>
-                {/* Screen — imagen de la carta */}
-                <div className="relative w-full h-[calc(100%-1.5rem)] overflow-hidden bg-white">
-                    <NextImage
-                        src="/images/mockuplogo.png"
-                        alt="Vista previa de carta digital Mi Rubro"
-                        fill
-                        className="object-cover object-top"
-                        sizes="(max-width: 768px) 80vw, 320px"
-                        priority
-                    />
-                </div>
-            </div>
-        </div>
-    );
-}
 
 function DemoMenu() {
     const items = [

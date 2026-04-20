@@ -49,11 +49,13 @@ function GoogleIcon({ className }: { className?: string }) {
 export function AuthForm() {
     const searchParams = useSearchParams();
     const next = searchParams.get('next') ?? undefined;
+    const isGoogleOnlyBeta = process.env.NEXT_PUBLIC_AUTH_BETA_GOOGLE_ONLY === 'true';
 
     const [mode, setMode] = useState<AuthMode>('login');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
+    const [showInternalLogin, setShowInternalLogin] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [successMessage, setSuccessMessage] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -187,6 +189,24 @@ export function AuthForm() {
         }
     };
 
+    const handleInternalLoginSubmit = async (event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+        setError(null);
+        setSuccessMessage(null);
+
+        if (!email || !password) {
+            setError('Completá email/usuario y contraseña');
+            return;
+        }
+
+        setIsSubmitting(true);
+        const result = await login(email, password, next);
+        if (!result.success) {
+            setError(result.message ?? 'Credenciales inválidas');
+            setIsSubmitting(false);
+        }
+    };
+
     const switchMode = (target: AuthMode) => {
         setMode(target);
         setError(null);
@@ -194,169 +214,271 @@ export function AuthForm() {
         setConfirmPassword('');
     };
 
+    const showPasswordUi = !isGoogleOnlyBeta || showInternalLogin;
+
     // ── Render ──────────────────────────────────────────────────────────
+
+    const googleSignIn = (
+        <div ref={googleWrapperRef} className="relative">
+            <button
+                type="button"
+                disabled={isSubmitting}
+                onClick={() => {
+                    if (!googleRendered && !process.env.NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID) {
+                        setError('Acceso con Google no disponible');
+                    }
+                }}
+                className="w-full flex items-center justify-center gap-3 rounded-lg border border-slate-200 bg-white px-6 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:ring-offset-2 disabled:opacity-60"
+            >
+                <GoogleIcon className="h-5 w-5 shrink-0" />
+                Continuar con Google
+            </button>
+
+            <div
+                ref={googleBtnRef}
+                className={cn(
+                    'absolute inset-0 w-full overflow-hidden opacity-0 [&>div]:w-full [&>div]:h-full [&_iframe]:w-full [&_iframe]:h-full',
+                    googleRendered ? 'pointer-events-auto' : 'pointer-events-none',
+                )}
+            />
+        </div>
+    );
 
     return (
         <div className="mx-auto w-full max-w-[400px] space-y-5">
-            {/* ── Tabs ───────────────────────────────────────────────── */}
-            <div className="flex rounded-xl bg-slate-100/80 p-1">
-                <button
-                    type="button"
-                    onClick={() => switchMode('login')}
-                    className={cn(
-                        'flex-1 rounded-lg px-4 py-2.5 text-sm font-medium transition-all',
-                        mode === 'login'
-                            ? 'bg-white text-slate-900 shadow-sm'
-                            : 'text-slate-500 hover:text-slate-700',
+            {isGoogleOnlyBeta && (
+                <>
+                    {googleSignIn}
+
+                    {!showInternalLogin && (
+                        <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-4 py-3">
+                            <p className="text-xs text-slate-600">
+                                ¿Tenés una cuenta interna o demo?
+                            </p>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setShowInternalLogin(true);
+                                    setMode('login');
+                                    setError(null);
+                                    setSuccessMessage(null);
+                                }}
+                                className="mt-2 text-sm font-medium text-slate-700 underline underline-offset-4 hover:text-slate-900"
+                            >
+                                Ingreso interno/demo
+                            </button>
+                        </div>
                     )}
-                >
-                    Ingresar
-                </button>
-                <button
-                    type="button"
-                    onClick={() => switchMode('signup')}
-                    className={cn(
-                        'flex-1 rounded-lg px-4 py-2.5 text-sm font-medium transition-all',
-                        mode === 'signup'
-                            ? 'bg-white text-slate-900 shadow-sm'
-                            : 'text-slate-500 hover:text-slate-700',
+                </>
+            )}
+
+            {showPasswordUi && (
+                <>
+                    {!isGoogleOnlyBeta && (
+                        <div className="flex rounded-xl bg-slate-100/80 p-1">
+                            <button
+                                type="button"
+                                onClick={() => switchMode('login')}
+                                className={cn(
+                                    'flex-1 rounded-lg px-4 py-2.5 text-sm font-medium transition-all',
+                                    mode === 'login'
+                                        ? 'bg-white text-slate-900 shadow-sm'
+                                        : 'text-slate-500 hover:text-slate-700',
+                                )}
+                            >
+                                Ingresar
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => switchMode('signup')}
+                                className={cn(
+                                    'flex-1 rounded-lg px-4 py-2.5 text-sm font-medium transition-all',
+                                    mode === 'signup'
+                                        ? 'bg-white text-slate-900 shadow-sm'
+                                        : 'text-slate-500 hover:text-slate-700',
+                                )}
+                            >
+                                Crear cuenta
+                            </button>
+                        </div>
                     )}
-                >
-                    Crear cuenta
-                </button>
-            </div>
 
-            {/* ── Form ───────────────────────────────────────────────── */}
-            <form onSubmit={handleSubmit} className="space-y-3.5">
-                <div>
-                    <label htmlFor="email" className="block text-sm font-medium text-slate-700">
-                        {mode === 'login' ? 'Email o usuario' : 'Email'}
-                    </label>
-                    <input
-                        id="email"
-                        name="email"
-                        type={mode === 'signup' ? 'email' : 'text'}
-                        required
-                        value={email}
-                        onChange={(event) => setEmail(event.target.value)}
-                        className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
-                        placeholder={mode === 'login' ? 'tu@empresa.com o usuario' : 'tu@empresa.com'}
-                    />
-                </div>
+                    {isGoogleOnlyBeta && (
+                        <form onSubmit={handleInternalLoginSubmit} className="space-y-3.5 rounded-lg border border-slate-200 bg-white p-4">
+                            <div className="flex items-center justify-between">
+                                <p className="text-sm font-medium text-slate-700">Ingreso interno/demo</p>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setShowInternalLogin(false);
+                                        setEmail('');
+                                        setPassword('');
+                                        setError(null);
+                                    }}
+                                    className="text-xs text-slate-500 hover:text-slate-700"
+                                >
+                                    Ocultar
+                                </button>
+                            </div>
 
-                <div>
-                    <label htmlFor="password" className="block text-sm font-medium text-slate-700">
-                        Contraseña
-                    </label>
-                    <input
-                        id="password"
-                        name="password"
-                        type="password"
-                        required
-                        value={password}
-                        onChange={(event) => setPassword(event.target.value)}
-                        className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
-                        placeholder="••••••••"
-                    />
-                </div>
+                            <div>
+                                <label htmlFor="email" className="block text-sm font-medium text-slate-700">
+                                    Email o usuario
+                                </label>
+                                <input
+                                    id="email"
+                                    name="email"
+                                    type="text"
+                                    required
+                                    value={email}
+                                    onChange={(event) => setEmail(event.target.value)}
+                                    className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+                                    placeholder="tu@empresa.com o usuario"
+                                />
+                            </div>
 
-                {mode === 'signup' && (
-                    <div>
-                        <label htmlFor="confirmPassword" className="block text-sm font-medium text-slate-700">
-                            Repetir contraseña
-                        </label>
-                        <input
-                            id="confirmPassword"
-                            name="confirmPassword"
-                            type="password"
-                            required
-                            value={confirmPassword}
-                            onChange={(event) => setConfirmPassword(event.target.value)}
-                            className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
-                            placeholder="••••••••"
-                        />
-                    </div>
-                )}
+                            <div>
+                                <label htmlFor="password" className="block text-sm font-medium text-slate-700">
+                                    Contraseña
+                                </label>
+                                <input
+                                    id="password"
+                                    name="password"
+                                    type="password"
+                                    required
+                                    value={password}
+                                    onChange={(event) => setPassword(event.target.value)}
+                                    className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+                                    placeholder="••••••••"
+                                />
+                            </div>
 
-                {mode === 'login' && (
-                    <div className="flex justify-end">
-                        <a
-                            href="/olvidar-contrasena"
-                            className="text-[13px] text-slate-400 transition-colors hover:text-brand-600"
-                        >
-                            ¿Olvidaste tu contraseña?
-                        </a>
-                    </div>
-                )}
+                            {error && (
+                                <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">
+                                    {error}
+                                </div>
+                            )}
 
-                {error && (
-                    <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">
-                        {error}
-                    </div>
-                )}
-
-                {successMessage && !error && (
-                    <div className="rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-                        {successMessage}
-                    </div>
-                )}
-
-                <button
-                    type="submit"
-                    className="w-full rounded-lg bg-brand-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm shadow-brand-600/20 transition-colors hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:ring-offset-2 disabled:opacity-60"
-                    disabled={isSubmitting}
-                >
-                    {isSubmitting
-                        ? mode === 'login'
-                            ? 'Ingresando...'
-                            : 'Creando cuenta...'
-                        : mode === 'login'
-                          ? 'Ingresar'
-                          : 'Crear cuenta'}
-                </button>
-
-                {mode === 'signup' && (
-                    <p className="text-center text-[13px] text-slate-400">
-                        Te vamos a enviar un correo de verificación
-                    </p>
-                )}
-            </form>
-
-            {/* ── Divider ────────────────────────────────────────────── */}
-            <div className="flex items-center gap-4">
-                <div className="h-px flex-1 bg-slate-200" />
-                <span className="text-[13px] text-slate-400 select-none">
-                    o continuá con
-                </span>
-                <div className="h-px flex-1 bg-slate-200" />
-            </div>
-
-            {/* ── Google Sign-In ──────────────────────────────────────── */}
-            <div ref={googleWrapperRef} className="relative min-h-[44px]">
-                {!googleRendered && (
-                    <button
-                        type="button"
-                        disabled={isSubmitting}
-                        onClick={() => {
-                            if (!process.env.NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID) {
-                                setError('Acceso con Google no disponible');
-                            }
-                        }}
-                        className="w-full flex items-center justify-center gap-3 rounded-lg border border-slate-200 bg-white px-6 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:ring-offset-2 disabled:opacity-60"
-                    >
-                        <GoogleIcon className="h-5 w-5 shrink-0" />
-                        Continuar con Google
-                    </button>
-                )}
-
-                <div
-                    ref={googleBtnRef}
-                    className={cn(
-                        'w-full [&>div]:w-full',
-                        !googleRendered && 'absolute inset-x-0 top-0 opacity-0 pointer-events-none',
+                            <button
+                                type="submit"
+                                className="w-full rounded-lg bg-brand-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm shadow-brand-600/20 transition-colors hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:ring-offset-2 disabled:opacity-60"
+                                disabled={isSubmitting}
+                            >
+                                {isSubmitting ? 'Ingresando...' : 'Ingresar con contraseña'}
+                            </button>
+                        </form>
                     )}
-                />
-            </div>
+
+                    {!isGoogleOnlyBeta && (
+                        <>
+                            <form onSubmit={handleSubmit} className="space-y-3.5">
+                                <div>
+                                    <label htmlFor="email" className="block text-sm font-medium text-slate-700">
+                                        {mode === 'login' ? 'Email o usuario' : 'Email'}
+                                    </label>
+                                    <input
+                                        id="email"
+                                        name="email"
+                                        type={mode === 'signup' ? 'email' : 'text'}
+                                        required
+                                        value={email}
+                                        onChange={(event) => setEmail(event.target.value)}
+                                        className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+                                        placeholder={mode === 'login' ? 'tu@empresa.com o usuario' : 'tu@empresa.com'}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label htmlFor="password" className="block text-sm font-medium text-slate-700">
+                                        Contraseña
+                                    </label>
+                                    <input
+                                        id="password"
+                                        name="password"
+                                        type="password"
+                                        required
+                                        value={password}
+                                        onChange={(event) => setPassword(event.target.value)}
+                                        className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+                                        placeholder="••••••••"
+                                    />
+                                </div>
+
+                                {mode === 'signup' && (
+                                    <div>
+                                        <label htmlFor="confirmPassword" className="block text-sm font-medium text-slate-700">
+                                            Repetir contraseña
+                                        </label>
+                                        <input
+                                            id="confirmPassword"
+                                            name="confirmPassword"
+                                            type="password"
+                                            required
+                                            value={confirmPassword}
+                                            onChange={(event) => setConfirmPassword(event.target.value)}
+                                            className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+                                            placeholder="••••••••"
+                                        />
+                                    </div>
+                                )}
+
+                                {mode === 'login' && (
+                                    <div className="flex justify-end">
+                                        <a
+                                            href="/olvidar-contrasena"
+                                            className="text-[13px] text-slate-400 transition-colors hover:text-brand-600"
+                                        >
+                                            ¿Olvidaste tu contraseña?
+                                        </a>
+                                    </div>
+                                )}
+
+                                {error && (
+                                    <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">
+                                        {error}
+                                    </div>
+                                )}
+
+                                {successMessage && !error && (
+                                    <div className="rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                                        {successMessage}
+                                    </div>
+                                )}
+
+                                <button
+                                    type="submit"
+                                    className="w-full rounded-lg bg-brand-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm shadow-brand-600/20 transition-colors hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:ring-offset-2 disabled:opacity-60"
+                                    disabled={isSubmitting}
+                                >
+                                    {isSubmitting
+                                        ? mode === 'login'
+                                            ? 'Ingresando...'
+                                            : 'Creando cuenta...'
+                                        : mode === 'login'
+                                          ? 'Ingresar'
+                                          : 'Crear cuenta'}
+                                </button>
+
+                                {mode === 'signup' && (
+                                    <p className="text-center text-[13px] text-slate-400">
+                                        Te vamos a enviar un correo de verificación
+                                    </p>
+                                )}
+                            </form>
+
+                            <div className="flex items-center gap-4">
+                                <div className="h-px flex-1 bg-slate-200" />
+                                <span className="text-[13px] text-slate-400 select-none">
+                                    o continuá con
+                                </span>
+                                <div className="h-px flex-1 bg-slate-200" />
+                            </div>
+
+                            {googleSignIn}
+                        </>
+                    )}
+                </>
+            )}
         </div>
     );
 }

@@ -112,6 +112,20 @@ export const REVIEW_PRICING_CARDS: PricingCardData[] = [
         ctaHref: '/entrar',
         ctaLabel: 'Activar Reseñas Pro',
         featured: true,
+        badge: 'Recomendado',
+    },
+    {
+        name: 'Empresarial',
+        tagline: 'Una propuesta personalizada para escalar tu reputación digital',
+        price: 'Hablemos',
+        highlights: [
+            'Implementación adaptada a tu negocio',
+            'Necesidades específicas de atención y reputación',
+            'Acompañamiento comercial personalizado',
+            'Propuesta a medida',
+        ],
+        ctaHref: '/contacto',
+        ctaLabel: 'Hablar con MiRubro',
     },
 ];
 

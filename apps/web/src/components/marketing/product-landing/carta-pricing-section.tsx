@@ -36,6 +36,35 @@ const QR_CATEGORY_TO_GROUP: Record<string, QrBroadGroup> = {
 };
 const QR_BROAD_GROUP_ORDER: QrBroadGroup[] = ['Tu Carta', 'Análitica y Datos', 'Engagement y Escala'];
 
+type CartaEnterprisePlan = {
+    plan: 'enterprise';
+    label: string;
+    description: string;
+    ctaLabel: string;
+    ctaHref: string;
+    highlights: string[];
+};
+
+const CARTA_ENTERPRISE_PLAN: CartaEnterprisePlan = {
+    plan: 'enterprise',
+    label: 'Empresarial',
+    description: 'Una experiencia digital adaptada a tu marca y operación',
+    ctaLabel: 'Hablar con MiRubro',
+    ctaHref: '/contacto',
+    highlights: [
+        'Configuración adaptada a tu negocio',
+        'Necesidades de marca y operación más avanzadas',
+        'Implementación acompañada por MiRubro',
+        'Propuesta a medida',
+    ],
+};
+
+type CartaLandingPlan = QrPlanEntry | CartaEnterprisePlan;
+
+function isCartaEnterprisePlan(plan: CartaLandingPlan): plan is CartaEnterprisePlan {
+    return plan.plan === 'enterprise';
+}
+
 /** Group features by broad category, included-first within each group */
 function groupedQrFeatures() {
     const score = (s: QrFeatureAvailability) =>
@@ -175,9 +204,44 @@ function PlanCard({
     plan,
     billingPeriod,
 }: {
-    plan: QrPlanEntry;
+    plan: CartaLandingPlan;
     billingPeriod: 'monthly' | 'yearly';
 }) {
+    if (isCartaEnterprisePlan(plan)) {
+        return (
+            <div className="rounded-2xl border bg-white flex flex-col h-full transition-all border-slate-200 shadow-sm hover:shadow-md">
+                <div className="h-full flex flex-col p-6">
+                    <div className="min-h-[24px] mb-2" />
+
+                    <h3 className="text-2xl font-bold text-slate-900 mb-1">{plan.label}</h3>
+                    <p className="text-sm text-slate-500 mb-4 min-h-[40px]">{plan.description}</p>
+
+                    <div className="mb-5">
+                        <span className="text-3xl font-bold text-slate-900">Hablemos</span>
+                    </div>
+
+                    <ul className="space-y-2 flex-1 mb-6 border-t border-slate-100 pt-4">
+                        {plan.highlights.map((feat) => (
+                            <li key={feat} className="flex items-start gap-2 text-sm text-slate-700">
+                                <Check className="h-4 w-4 mt-0.5 text-green-500 flex-shrink-0" />
+                                {feat}
+                            </li>
+                        ))}
+                    </ul>
+
+                    <div className="pt-4">
+                        <Button asChild size="lg" className="w-full bg-slate-100 text-slate-900 hover:bg-slate-200" variant="secondary">
+                            <Link href={plan.ctaHref as Route}>
+                                {plan.ctaLabel}
+                                <ArrowRight className="ml-2 h-4 w-4" />
+                            </Link>
+                        </Button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
     const isRecommended = plan.isRecommended ?? false;
     const price = billingPeriod === 'monthly' ? plan.priceMonthly : plan.priceYearly;
 
@@ -421,6 +485,7 @@ function AddonsBlock() {
 export function CartaPricingSection() {
     const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>('monthly');
     const [showTable, setShowTable] = useState(false);
+    const landingPlans: CartaLandingPlan[] = [...QR_PLANS, CARTA_ENTERPRISE_PLAN];
 
     return (
         <section className="py-16 lg:py-24" id="planes-carta">
@@ -470,8 +535,8 @@ export function CartaPricingSection() {
                     </div>
 
                     {/* Plan cards */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-stretch max-w-4xl mx-auto">
-                        {QR_PLANS.map((plan) => (
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 items-stretch max-w-6xl mx-auto">
+                        {landingPlans.map((plan) => (
                             <PlanCard key={plan.plan} plan={plan} billingPeriod={billingPeriod} />
                         ))}
                     </div>

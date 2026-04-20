@@ -2,6 +2,7 @@ import Link from 'next/link';
 import type { Route } from 'next';
 import { Button } from '@/components/ui/button';
 import { SiteContainer } from '@/components/layout/site-container';
+import { cn } from '@/lib/utils';
 import { Check, ArrowRight } from 'lucide-react';
 
 export type PricingCardData = {
@@ -13,6 +14,7 @@ export type PricingCardData = {
     ctaHref: string;
     ctaLabel: string;
     featured?: boolean;
+    badge?: string;
 };
 
 export type ProductPricingProps = {
@@ -37,53 +39,68 @@ export function ProductPricing({ label, title, subtitle, plans }: ProductPricing
                         {subtitle && <p className="text-lg text-slate-600">{subtitle}</p>}
                     </div>
 
-                    <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 max-w-4xl mx-auto">
+                    <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 max-w-4xl mx-auto items-stretch">
                         {plans.map((plan) => (
                             <div
                                 key={plan.name}
-                                className={`rounded-2xl border p-6 flex flex-col ${
+                                className={cn(
+                                    'rounded-2xl border bg-white flex flex-col h-full transition-all',
                                     plan.featured
-                                        ? 'border-brand-200 bg-brand-50/30 shadow-lg ring-1 ring-brand-100'
-                                        : 'border-slate-200 bg-white shadow-sm'
-                                }`}
+                                        ? 'border-brand-500 ring-2 ring-brand-500 shadow-lg scale-[1.02]'
+                                        : 'border-slate-200 shadow-sm hover:shadow-md'
+                                )}
                             >
-                                <div className="space-y-1">
-                                    <h3 className="text-lg font-semibold text-slate-900">{plan.name}</h3>
-                                    <p className="text-sm text-slate-500">{plan.tagline}</p>
-                                </div>
+                                <div className="h-full flex flex-col p-6">
+                                    {/* Badge */}
+                                    <div className="min-h-[24px] mb-2">
+                                        {plan.badge && (
+                                            <span className="inline-block bg-brand-500 text-white text-xs font-bold px-3 py-1 rounded-full">
+                                                {plan.badge}
+                                            </span>
+                                        )}
+                                    </div>
 
-                                <div className="mt-4">
-                                    <span className="text-3xl font-bold text-slate-900">{plan.price}</span>
-                                    {plan.period && (
-                                        <span className="text-sm text-slate-500 ml-1">{plan.period}</span>
-                                    )}
-                                </div>
+                                    {/* Header */}
+                                    <h3 className="text-2xl font-bold text-slate-900 mb-1">{plan.name}</h3>
+                                    <p className="text-sm text-slate-500 mb-4 min-h-[40px]">{plan.tagline}</p>
 
-                                <ul className="mt-6 space-y-2.5 flex-1">
-                                    {plan.highlights.map((h) => (
-                                        <li key={h} className="flex items-start gap-2 text-sm text-slate-600">
-                                            <Check className="h-4 w-4 mt-0.5 text-brand-500 flex-shrink-0" />
-                                            {h}
-                                        </li>
-                                    ))}
-                                </ul>
+                                    {/* Price */}
+                                    <div className="mb-5">
+                                        <span className="text-3xl font-bold text-slate-900">{plan.price}</span>
+                                        {plan.period && (
+                                            <span className="text-sm text-slate-500 ml-1.5">{plan.period}</span>
+                                        )}
+                                    </div>
 
-                                <div className="mt-6">
-                                    <Button
-                                        asChild
-                                        size="lg"
-                                        className={`w-full ${
-                                            plan.featured
-                                                ? 'bg-brand-600 hover:bg-brand-500 text-white'
-                                                : ''
-                                        }`}
-                                        variant={plan.featured ? 'default' : 'outline'}
-                                    >
-                                        <Link href={plan.ctaHref as Route}>
-                                            {plan.ctaLabel}
-                                            <ArrowRight className="ml-2 h-4 w-4" />
-                                        </Link>
-                                    </Button>
+                                    {/* Key features */}
+                                    <ul className="space-y-2 flex-1 mb-6 border-t border-slate-100 pt-4">
+                                        {plan.highlights.map((h) => (
+                                            <li key={h} className="flex items-start gap-2 text-sm text-slate-700">
+                                                <Check className="h-4 w-4 mt-0.5 text-green-500 flex-shrink-0" />
+                                                {h}
+                                            </li>
+                                        ))}
+                                    </ul>
+
+                                    {/* CTA */}
+                                    <div className="pt-4">
+                                        <Button
+                                            asChild
+                                            size="lg"
+                                            className={cn(
+                                                'w-full',
+                                                plan.featured
+                                                    ? 'bg-brand-600 hover:bg-brand-500 text-white shadow-md'
+                                                    : 'bg-slate-100 text-slate-900 hover:bg-slate-200'
+                                            )}
+                                            variant={plan.featured ? 'default' : 'secondary'}
+                                        >
+                                            <Link href={plan.ctaHref as Route}>
+                                                {plan.ctaLabel}
+                                                <ArrowRight className="ml-2 h-4 w-4" />
+                                            </Link>
+                                        </Button>
+                                    </div>
                                 </div>
                             </div>
                         ))}

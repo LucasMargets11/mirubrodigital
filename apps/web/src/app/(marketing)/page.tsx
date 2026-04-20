@@ -8,26 +8,26 @@ import { ExpandingPanelSection } from '@/components/marketing/sections/expanding
 const SITE_URL = 'https://www.mirubro.com';
 
 export const metadata: Metadata = {
-    title: 'Mirubro — Software de gestión para gastronomía',
+    title: 'MiRubro — Gestión comercial, Carta QR y Reseñas',
     description:
-        'Gestioná tu restaurante, bar o cafetería desde un solo lugar. Ventas, stock, reportes, carta digital y más.',
+        'Plataforma digital para gestionar tu negocio con herramientas de gestión comercial, carta online, operación gastronómica y QR de reseñas.',
     alternates: {
         canonical: SITE_URL,
     },
     openGraph: {
-        title: 'Mirubro — Software de gestión para gastronomía',
+        title: 'MiRubro — Gestión comercial, Carta QR y Reseñas',
         description:
-            'Gestioná tu restaurante, bar o cafetería desde un solo lugar. Ventas, stock, reportes, carta digital y más.',
+            'Plataforma digital para gestionar tu negocio con herramientas de gestión comercial, carta online, operación gastronómica y QR de reseñas.',
         url: SITE_URL,
-        siteName: 'Mirubro',
+        siteName: 'MiRubro',
         type: 'website',
         locale: 'es_AR',
     },
     twitter: {
         card: 'summary_large_image',
-        title: 'Mirubro — Software de gestión para gastronomía',
+        title: 'MiRubro — Gestión comercial, Carta QR y Reseñas',
         description:
-            'Gestioná tu restaurante, bar o cafetería desde un solo lugar. Ventas, stock, reportes, carta digital y más.',
+            'Plataforma digital para gestionar tu negocio con herramientas de gestión comercial, carta online, operación gastronómica y QR de reseñas.',
     },
 };
 

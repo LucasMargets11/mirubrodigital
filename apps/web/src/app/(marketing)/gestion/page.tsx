@@ -1,13 +1,13 @@
 import type { Metadata } from 'next';
 import {
     ProductHero,
-    ProductDemo,
     ProductBenefits,
     ProductSteps,
     ProductFeatures,
     GestionPricingSection,
     ProductFinalCta,
 } from '@/components/marketing/product-landing';
+import { SiteContainer } from '@/components/layout/site-container';
 import NextImage from 'next/image';
 import {
     ShoppingBag,
@@ -94,19 +94,36 @@ export default function GestionPage() {
             />
 
             {/* 2 ── Demo visual ── */}
-            <ProductDemo
-                label="En acción"
-                title="Así se ve tu operación diaria"
-                subtitle="Un panel pensado para que tu equipo venda rápido y vos tengas control total."
-            >
-                <NextImage
-                    src="/images/mockupdesktop.png"
-                    alt="Panel de Gestión Comercial Mi Rubro"
-                    fill
-                    className="object-cover object-top"
-                    sizes="(max-width: 768px) 95vw, 960px"
-                />
-            </ProductDemo>
+            <section className="py-16 lg:py-24">
+                <SiteContainer>
+                    <div className="space-y-10">
+                        <div className="text-center max-w-2xl mx-auto space-y-3">
+                            <p className="text-sm font-semibold uppercase tracking-[0.25em] text-brand-600">
+                                En acción
+                            </p>
+                            <h2 className="text-3xl font-display font-bold text-slate-900">
+                                Así se ve tu operación diaria
+                            </h2>
+                            <p className="text-lg text-slate-600">
+                                Un panel pensado para que tu equipo venda rápido y vos tengas control total.
+                            </p>
+                        </div>
+
+                        <div className="mx-auto max-w-5xl">
+                            <NextImage
+                                src="/images/mockdesk1.png"
+                                alt="Panel de Gestión Comercial Mi Rubro"
+                                width={1536}
+                                height={1024}
+                                quality={90}
+                                className="w-full h-auto rounded-lg"
+                                sizes="(max-width: 768px) 95vw, 1024px"
+                                priority
+                            />
+                        </div>
+                    </div>
+                </SiteContainer>
+            </section>
 
             {/* 3 ── Beneficios ── */}
             <ProductBenefits
@@ -246,7 +263,7 @@ function GestionMockup() {
             {/* Dashboard screenshot */}
             <div className="relative w-full h-[calc(100%-1.75rem)] overflow-hidden bg-slate-50">
                 <NextImage
-                    src="/images/mockupdesktop.png"
+                    src="/images/masmockupdesktop.png"
                     alt="Vista previa del panel de Gestión Comercial Mi Rubro"
                     fill
                     className="object-cover object-top"

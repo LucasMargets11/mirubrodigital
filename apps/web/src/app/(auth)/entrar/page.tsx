@@ -2,10 +2,14 @@ import { Suspense } from 'react';
 import type { Metadata } from 'next';
 import { AuthForm } from '@/components/auth/auth-form';
 
+const isGoogleOnlyBeta = process.env.NEXT_PUBLIC_AUTH_BETA_GOOGLE_ONLY === 'true';
+const authDescription = isGoogleOnlyBeta
+    ? 'Gestioná tu negocio desde un solo lugar. Ingresá con Google.'
+    : 'Gestioná tu negocio desde un solo lugar. Ingresá con Google o con tu email.';
+
 export const metadata: Metadata = {
     title: 'Ingresar — Mirubro',
-    description:
-        'Gestioná tu negocio desde un solo lugar. Ingresá con Google o con tu email.',
+    description: authDescription,
     robots: { index: false, follow: true },
 };
 
@@ -28,7 +32,7 @@ export default function EntrarPage() {
                             <p className="text-sm font-semibold uppercase tracking-wider text-brand-500">Plataforma de gestión</p>
                             <h1 className="text-4xl font-display font-bold tracking-tight text-slate-900 lg:text-5xl">Ingresá a MiRubro</h1>
                             <p className="text-lg leading-relaxed text-slate-600">
-                                Gestioná tu negocio desde un solo lugar. Ingresá con Google o con tu email.
+                                {authDescription}
                             </p>
                         </div>
                         <div className="w-full">

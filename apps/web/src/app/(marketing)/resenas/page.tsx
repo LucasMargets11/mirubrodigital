@@ -8,6 +8,7 @@ import {
     ResenasPricingSection,
     ProductFinalCta,
 } from '@/components/marketing/product-landing';
+import NextImage from 'next/image';
 import {
     QrCode,
     Star,
@@ -15,9 +16,6 @@ import {
     BarChart3,
     Smartphone,
     TrendingUp,
-    Zap,
-    Shield,
-    Eye,
     MapPin,
     Filter,
 } from 'lucide-react';
@@ -89,7 +87,16 @@ export default function ResenasPage() {
                 secondaryHref="#planes-resenas"
                 secondaryLabel="Ver planes"
                 proofPoints={['Filtro inteligente', 'Desde $25.000/mes', 'Sin apps intermedias']}
-                mockup={<ResenasMockup />}
+                mockup={
+                    <NextImage
+                        src="/images/mockupopinion.png"
+                        alt="Vista previa del QR de Reseñas Mi Rubro"
+                        width={600}
+                        height={450}
+                        className="w-full max-w-md h-auto"
+                        priority
+                    />
+                }
             />
 
             {/* 2 ── Demo visual ── */}
@@ -105,30 +112,25 @@ export default function ResenasPage() {
             <ProductBenefits
                 label="Resultados"
                 title="¿Qué lográs con QR de Reseñas?"
+                subtitle="QR de Reseñas te ayuda a transformar buenas experiencias en más visibilidad, más confianza y más oportunidades de venta."
                 benefits={[
                     {
-                        title: 'Aumentá tus reseñas en Google',
+                        title: 'Mejorás tu visibilidad en Google Maps',
                         description:
-                            'Más reseñas recientes mejoran tu posición en Google Maps y búsquedas locales.',
+                            'Cada reseña positiva fortalece la presencia digital de tu negocio y te da más chances de aparecer más arriba cuando alguien busca opciones como la tuya en Google Maps.',
+                        icon: MapPin,
+                    },
+                    {
+                        title: 'Generás confianza antes del primer contacto',
+                        description:
+                            'Cuando un posible cliente ve buenas calificaciones y comentarios reales, tu negocio transmite mayor credibilidad y resulta mucho más fácil de elegir frente a otras opciones.',
+                        icon: Star,
+                    },
+                    {
+                        title: 'Llegás a más clientes con una mejor reputación',
+                        description:
+                            'Una ficha bien valorada no solo se ve mejor: también puede atraer más visitas desde búsquedas locales y ayudarte a convertir esa visibilidad en consultas, visitas al local y nuevas ventas.',
                         icon: TrendingUp,
-                    },
-                    {
-                        title: 'Convertí clientes en recomendaciones',
-                        description:
-                            'Los clientes satisfechos dejan su opinión en Google. Tu reputación trabaja por vos.',
-                        icon: Shield,
-                    },
-                    {
-                        title: 'Detectá problemas antes de que se publiquen',
-                        description:
-                            'Las opiniones bajas quedan como feedback privado. Mejorá sin exposición pública.',
-                        icon: Eye,
-                    },
-                    {
-                        title: 'Cero fricción para el cliente',
-                        description:
-                            'Sin apps, sin formularios. Escanean el QR y opinan en segundos.',
-                        icon: Zap,
                     },
                 ]}
             />
@@ -218,28 +220,6 @@ export default function ResenasPage() {
 
 /* ── Mockups internos ── */
 
-function ResenasMockup() {
-    return (
-        <div className="w-full max-w-xs mx-auto flex flex-col items-center gap-6">
-            {/* QR Placeholder */}
-            <div className="w-48 h-48 rounded-2xl border-2 border-dashed border-brand-200 bg-brand-50/30 flex items-center justify-center">
-                <QrCode className="h-20 w-20 text-brand-400" />
-            </div>
-            {/* Stars */}
-            <div className="flex gap-1">
-                {Array.from({ length: 5 }).map((_, i) => (
-                    <Star
-                        key={i}
-                        className={`h-6 w-6 ${i < 4 ? 'text-amber-400 fill-amber-400' : 'text-amber-200 fill-amber-200'}`}
-                    />
-                ))}
-            </div>
-            <p className="text-sm text-slate-500 text-center">
-                4.8 de rating promedio · 127 reseñas
-            </p>
-        </div>
-    );
-}
 
 function DemoFlow() {
     const steps = [
