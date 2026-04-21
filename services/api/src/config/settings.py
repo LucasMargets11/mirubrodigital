@@ -143,6 +143,19 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR.parent / 'media'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# ── S3 Public Media ───────────────────────────────────────────────────────────
+# Active only when AWS_STORAGE_BUCKET_NAME is set (staging/prod on EC2 with
+# an IAM instance role — no access keys embedded here).
+# Without the variable the default FileSystemStorage stays in effect (local dev).
+# Only menu images and business logos use this via common.storages.public_media_storage.
+# Invoices, treasury, and tax_backup are NOT affected.
+AWS_STORAGE_BUCKET_NAME = os.getenv('AWS_STORAGE_BUCKET_NAME', '')
+if AWS_STORAGE_BUCKET_NAME:
+    AWS_S3_REGION_NAME    = os.getenv('AWS_S3_REGION_NAME', 'sa-east-1')
+    AWS_S3_FILE_OVERWRITE = False   # never clobber existing file by name
+    AWS_DEFAULT_ACL       = None    # no per-object ACL; rely on bucket policy
+    AWS_QUERYSTRING_AUTH  = False   # unsigned public URLs (no CloudFront needed)
+
 CORS_ALLOWED_ORIGINS = [
   origin.strip()
   for origin in os.getenv('CORS_ALLOWED_ORIGINS', 'http://localhost:3000').split(',')

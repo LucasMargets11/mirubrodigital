@@ -3,6 +3,8 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils.text import slugify
 
+from common.storages import public_media_storage
+
 
 class Business(models.Model):
   # ── Backward-compat choices (kept for existing code) ─────────────────────
@@ -372,12 +374,14 @@ class BusinessBranding(models.Model):
     upload_to='business/logos/',
     null=True,
     blank=True,
+    storage=public_media_storage,
     help_text='Logo horizontal para encabezados de documentos'
   )
   logo_square = models.ImageField(
     upload_to='business/logos/',
     null=True,
     blank=True,
+    storage=public_media_storage,
     help_text='Logo cuadrado/icono'
   )
   accent_color = models.CharField(

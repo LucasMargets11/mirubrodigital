@@ -5,6 +5,8 @@ import uuid
 from django.db import models
 from django.utils.text import slugify
 
+from common.storages import public_media_storage
+
 
 # ---------------------------------------------------------------------------
 # Engagement: tips + reviews modes
@@ -21,7 +23,7 @@ class MenuCategory(models.Model):
     business = models.ForeignKey('business.Business', related_name='menu_categories', on_delete=models.CASCADE)
     name = models.CharField(max_length=120)
     description = models.TextField(blank=True)
-    image = models.ImageField(upload_to='menu/categories/', blank=True, null=True)
+    image = models.ImageField(upload_to='menu/categories/', blank=True, null=True, storage=public_media_storage)
     image_updated_at = models.DateTimeField(null=True, blank=True)
     position = models.PositiveIntegerField(default=0)
     is_active = models.BooleanField(default=True)
@@ -67,7 +69,7 @@ class MenuItem(models.Model):
     is_featured = models.BooleanField(default=False)
     position = models.PositiveIntegerField(default=0)
     estimated_time_minutes = models.PositiveIntegerField(default=0)
-    image = models.ImageField(upload_to='menu/items/', blank=True, null=True)
+    image = models.ImageField(upload_to='menu/items/', blank=True, null=True, storage=public_media_storage)
     image_updated_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -122,7 +124,7 @@ class PublicMenuConfig(models.Model):
 class MenuBrandingSettings(models.Model):
     business = models.OneToOneField('business.Business', related_name='menu_branding', on_delete=models.CASCADE)
     display_name = models.CharField(max_length=140)
-    logo_image = models.ImageField(upload_to='menu/branding/logos/', blank=True, null=True)
+    logo_image = models.ImageField(upload_to='menu/branding/logos/', blank=True, null=True, storage=public_media_storage)
     palette_primary = models.CharField(max_length=7, default='#4C1D95')
     palette_secondary = models.CharField(max_length=7, default='#F97316')
     palette_background = models.CharField(max_length=7, default='#0F172A')
