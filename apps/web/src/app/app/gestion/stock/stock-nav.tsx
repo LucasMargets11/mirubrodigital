@@ -24,7 +24,7 @@ export function StockNav() {
                 return (
                     <Link
                         key={tab.href}
-                        href={tab.href}
+                        href={tab.href as any}
                         className={cn(
                             'rounded-full border px-4 py-2 text-sm font-semibold transition',
                             isActive

@@ -14,7 +14,7 @@ import {
     useRegisterOrderPayment 
 } from '@/features/gestion/hooks';
 
-import type { Order, OrderPaymentPayload } from '@/features/gestion/types';
+import type { Order } from '@/features/gestion/types';
 
 export default function OrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
     const router = useRouter();
@@ -35,6 +35,8 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
 
     if (isLoading) return <div className="p-8 text-center">Cargando pedido...</div>;
     if (error || !order) return <div className="p-8 text-center text-red-500">Error al cargar pedido</div>;
+
+    const orderData = order as any;
 
     const handleAction = async (action: 'confirm' | 'cancel' | 'prepare' | 'ready' | 'deliver', label: string) => {
         if (!confirm(`¿Confirmar acción: ${label}?`)) return;
@@ -88,16 +90,16 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
             <div className="flex justify-between items-start">
                 <div>
                     <div className="flex items-center gap-3">
-                        <h1 className="text-2xl font-bold text-slate-900">Pedido #{order.number}</h1>
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium uppercase ${getStatusColor(order.status)}`}>
-                            {order.status.replace(/_/g, ' ')}
+                        <h1 className="text-2xl font-bold text-slate-900">Pedido #{orderData.number}</h1>
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium uppercase ${getStatusColor(orderData.status)}`}>
+                            {orderData.status.replace(/_/g, ' ')}
                         </span>
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium uppercase ${order.payment_status === 'paid' ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'}`}>
-                            {order.payment_status === 'paid' ? 'Pagado' : 'Pendiente Pago'}
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium uppercase ${orderData.payment_status === 'paid' ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'}`}>
+                            {orderData.payment_status === 'paid' ? 'Pagado' : 'Pendiente Pago'}
                         </span>
                     </div>
-                    <p className="text-slate-500 mt-1">Cliente: {order.customer_name || 'Consumidor Final'}</p>
-                    <p className="text-slate-400 text-sm">{new Date(order.created_at).toLocaleString()}</p>
+                    <p className="text-slate-500 mt-1">Cliente: {orderData.customer_name || 'Consumidor Final'}</p>
+                    <p className="text-slate-400 text-sm">{new Date(orderData.created_at).toLocaleString()}</p>
                 </div>
                 <button onClick={() => router.back()} className="text-slate-500 hover:text-slate-700">Volver</button>
             </div>
@@ -117,7 +119,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                                 </tr>
                             </thead>
                             <tbody className="divide-y">
-                                {order.items.map((item: any) => (
+                                {orderData.items.map((item: any) => (
                                     <tr key={item.id}>
                                         <td className="px-4 py-3">{item.product_name || item.name_snapshot}</td>
                                         <td className="px-4 py-3 text-center">{item.quantity}</td>
@@ -129,7 +131,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                             <tfoot className="bg-slate-50 font-bold text-slate-800">
                                 <tr>
                                     <td colSpan={3} className="px-4 py-3 text-right">Total:</td>
-                                    <td className="px-4 py-3 text-right">${Number(order.total || order.total_amount).toFixed(2)}</td>
+                                    <td className="px-4 py-3 text-right">${Number(orderData.total || (order as any).total_amount).toFixed(2)}</td>
                                 </tr>
                             </tfoot>
                         </table>
@@ -139,7 +141,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                     <div className="bg-white rounded-lg border shadow-sm overflow-hidden">
                         <div className="flex justify-between items-center px-4 py-3 bg-slate-50 border-b">
                             <span className="font-medium">Pagos</span>
-                            {order.payment_status !== 'paid' && order.status !== 'cancelled' && (
+                            {orderData.payment_status !== 'paid' && orderData.status !== 'cancelled' && (
                                 <button 
                                     onClick={() => setShowPaymentModal(true)}
                                     className="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700"
@@ -148,7 +150,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                                 </button>
                             )}
                         </div>
-                        {order.payments.length === 0 ? (
+                        {orderData.payments.length === 0 ? (
                              <div className="p-4 text-slate-400 text-center text-sm">No hay pagos registrados.</div>
                         ) : (
                             <table className="w-full text-sm">
@@ -160,7 +162,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y">
-                                    {order.payments.map((p: any) => (
+                                    {orderData.payments.map((p: any) => (
                                         <tr key={p.id}>
                                             <td className="px-4 py-2">{new Date(p.created_at).toLocaleDateString()}</td>
                                             <td className="px-4 py-2 capitalize">{p.payment_method}</td>
@@ -178,7 +180,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                     <div className="bg-white rounded-lg border shadow-sm p-4 sticky top-6">
                         <h3 className="font-medium text-slate-800 mb-4">Acciones</h3>
                         <div className="space-y-2 flex flex-col">
-                            {(order.status === 'draft' || order.status === 'pending_confirmation') && (
+                            {(orderData.status === 'draft' || orderData.status === 'pending_confirmation') && (
                                 <button 
                                     onClick={() => handleAction('confirm', 'Confirmar Pedido')}
                                     className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-md font-medium transition-colors"
@@ -187,7 +189,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                                 </button>
                             )}
 
-                            {order.status === 'confirmed' && (
+                            {orderData.status === 'confirmed' && (
                                 <button 
                                     onClick={() => handleAction('prepare', 'Marcar en Preparación')}
                                     className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-md font-medium transition-colors"
@@ -196,7 +198,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                                 </button>
                             )}
 
-                            {order.status === 'in_preparation' && (
+                            {orderData.status === 'in_preparation' && (
                                 <button 
                                     onClick={() => handleAction('ready', 'Marcar Listo para Retirar')}
                                     className="w-full bg-purple-600 hover:bg-purple-700 text-white py-2 rounded-md font-medium transition-colors"
@@ -205,7 +207,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                                 </button>
                             )}
 
-                            {(order.status === 'ready_for_delivery' || order.status === 'confirmed') && (
+                            {(orderData.status === 'ready_for_delivery' || orderData.status === 'confirmed') && (
                                 <button 
                                     onClick={() => handleAction('deliver', 'Entregar Pedido')}
                                     className="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-md font-medium transition-colors"
@@ -214,7 +216,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                                 </button>
                             )}
 
-                            {order.status !== 'cancelled' && order.status !== 'delivered' && (
+                            {orderData.status !== 'cancelled' && orderData.status !== 'delivered' && (
                                 <button 
                                     onClick={() => handleAction('cancel', 'Cancelar Pedido')}
                                     className="w-full border border-red-200 text-red-600 hover:bg-red-50 py-2 rounded-md font-medium transition-colors mt-4"
@@ -229,19 +231,19 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                         <div className="mt-6 pt-4 border-t space-y-2 text-sm">
                             <div className="flex justify-between">
                                 <span className="text-slate-500">Subtotal</span>
-                                <span>${Number(order.subtotal).toFixed(2)}</span>
+                                <span>${Number(orderData.subtotal).toFixed(2)}</span>
                             </div>
                             <div className="flex justify-between">
                                 <span className="text-slate-500">Impuestos</span>
-                                <span>${Number(order.tax_amount).toFixed(2)}</span>
+                                <span>${Number(orderData.tax_amount).toFixed(2)}</span>
                             </div>
                             <div className="flex justify-between font-bold text-lg pt-2 border-t">
                                 <span>Total</span>
-                                <span>${Number(order.total_amount).toFixed(2)}</span>
+                                <span>${Number(orderData.total_amount).toFixed(2)}</span>
                             </div>
                              <div className="flex justify-between text-green-700 pt-2">
                                 <span>Pagado</span>
-                                <span>${order.payments.reduce((acc: number, p: any) => acc + Number(p.amount), 0).toFixed(2)}</span>
+                                <span>${orderData.payments.reduce((acc: number, p: any) => acc + Number(p.amount), 0).toFixed(2)}</span>
                             </div>
                         </div>
                     </div>
@@ -261,7 +263,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                                 className="w-full border rounded p-2"
                                 value={paymentAmount}
                                 onChange={e => setPaymentAmount(e.target.value)}
-                                placeholder={`Restante: $${(Number(order.total_amount) - order.payments.reduce((acc: number, p: any) => acc + Number(p.amount), 0)).toFixed(2)}`}
+                                placeholder={`Restante: $${(Number(orderData.total_amount) - orderData.payments.reduce((acc: number, p: any) => acc + Number(p.amount), 0)).toFixed(2)}`}
                             />
                         </div>
                         

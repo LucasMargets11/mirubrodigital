@@ -33,7 +33,6 @@ export default async function AdminLayout({ children }: { children: ReactNode })
   // 1. Check basic authentication
   const session = await getSession();
   if (!session) {
-    // @ts-expect-error -- /admin/login is a valid route in this module
     redirect('/admin/login');
   }
 

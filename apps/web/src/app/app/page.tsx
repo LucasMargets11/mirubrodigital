@@ -14,7 +14,7 @@ export default async function AppIndexPage() {
     if (targetService) {
         const entryPath = getServiceEntryPath(targetService);
         if (entryPath) {
-            redirect(entryPath);
+            redirect(entryPath as any);
         }
     }
 

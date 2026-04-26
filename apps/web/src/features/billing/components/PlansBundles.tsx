@@ -213,6 +213,7 @@ function getKeyModules(modules: any[], bundleCode: string, vertical: BillingVert
       'menu_branding_basic',
       'menu_qr_tools'
     ],
+    qr_reviews: [],
   };
 
   const priorityModules = priorityByVertical[vertical] ?? priorityByVertical.commercial;

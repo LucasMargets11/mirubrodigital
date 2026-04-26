@@ -228,7 +228,7 @@ function SessionRow({ closure, detailHref, ctaLabel }: SessionRowProps) {
             </td>
             <td className="px-2 py-3 text-right">
                 <Link
-                    href={detailHref(closure.id)}
+                    href={detailHref(closure.id) as any}
                     className="text-sm font-medium text-slate-900 underline-offset-4 hover:underline"
                 >
                     {ctaLabel}

@@ -48,7 +48,7 @@ export function CollectPaymentModal({ open, onClose, sale, sessionId, canManage 
 
     const isZeroTotal = enteredTotal <= 0.009;
     const isOverBalance = enteredTotal - saleBalance > 0.009;
-    const disableSubmit = mutation.isLoading || !canManage || isZeroTotal || isOverBalance;
+    const disableSubmit = mutation.isPending || !canManage || isZeroTotal || isOverBalance;
     const inlineWarning = isOverBalance ? 'Los pagos superan el saldo pendiente.' : '';
     const remainingAfterPayments = Math.max(saleBalance - enteredTotal, 0);
     const canCollectAll = saleBalance > 0;
@@ -278,7 +278,7 @@ export function CollectPaymentModal({ open, onClose, sale, sessionId, canManage 
                         disabled={disableSubmit}
                         className="rounded-full bg-slate-900 px-5 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-400"
                     >
-                        {mutation.isLoading ? 'Registrando...' : 'Registrar cobro'}
+                        {mutation.isPending ? 'Registrando...' : 'Registrar cobro'}
                     </button>
                 </div>
             </form>

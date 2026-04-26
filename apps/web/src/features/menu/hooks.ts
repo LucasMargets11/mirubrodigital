@@ -28,7 +28,7 @@ const menuStructureKey = ['menu', 'structure'];
 export const menuKeys = {
     categories: () => ['menu', 'categories'] as const,
     items: (filters: MenuItemFilters) => ['menu', 'items', filters] as const,
-    structure: () => menuStructureKey as const,
+    structure: () => menuStructureKey,
     branding: () => ['menu', 'branding'] as const,
     qr: (businessId: number) => ['menu', 'qr', businessId] as const,
 };

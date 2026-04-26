@@ -66,7 +66,7 @@ export default function RoleDetailPage() {
 
         for (const permissions of Object.values(roleDetail.permissions_by_module)) {
             const found = permissions.find((p: any) => p.code === permissionCode);
-            if (found) return found.enabled || false;
+            if (found) return (found as any).enabled || false;
         }
         return false;
     };

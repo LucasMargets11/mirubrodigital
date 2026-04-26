@@ -73,7 +73,7 @@ export function UpgradeSuccessBanner({ initialConfig, onUpgradeConfirmed }: Prop
         const url = new URL(window.location.href);
         url.searchParams.delete('upgrade');
         url.searchParams.delete('change_id');
-        router.replace(url.pathname + (url.search || ''), { scroll: false });
+        router.replace((url.pathname + (url.search || '')) as any, { scroll: false });
     }
 
     if (dismissed) return null;

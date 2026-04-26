@@ -84,15 +84,15 @@ export default async function PublicMenuPage({ params }: { params: Promise<{ slu
   const result = await getPublicMenu(slug)
   
   if (!result.success) {
-      if (result.errorType === 'NOT_FOUND') {
+      if ((result as any).errorType === 'NOT_FOUND') {
           return notFound()
       }
-      if (result.errorType === 'NETWORK_ERROR') {
+      if ((result as any).errorType === 'NETWORK_ERROR') {
           return (
               <div className="flex flex-col items-center justify-center min-h-screen p-4 text-center space-y-4 bg-slate-50">
                   <h1 className="text-2xl font-bold text-red-600">Sistema no disponible</h1>
                   <p className="text-slate-600">No pudimos conectar con el servidor del menú.</p>
-                  <p className="text-xs text-slate-400 font-mono">Error: {result.message}</p>
+                  <p className="text-xs text-slate-400 font-mono">Error: {(result as any).message}</p>
               </div>
           )
       }

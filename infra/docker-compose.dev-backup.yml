@@ -2,11 +2,12 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: mirubro-postgres
-    restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-mirubro}
       POSTGRES_USER: ${POSTGRES_USER:-mirubro}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mirubro}
+    ports:
+      - '5432:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -18,7 +19,8 @@ services:
   redis:
     image: redis:7-alpine
     container_name: mirubro-redis
-    restart: unless-stopped
+    ports:
+      - '6379:6379'
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -28,16 +30,17 @@ services:
   api:
     build:
       context: ../services/api
-      target: runtime
+      target: dev
     container_name: mirubro-api
-    restart: unless-stopped
-    command: sh -c "python manage.py migrate && exec gunicorn --bind 0.0.0.0:8000 --workers 4 --timeout 120 --access-logfile - --error-logfile - config.wsgi:application"
+    command: >-
+      sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
     env_file:
       - ../services/api/.env
     volumes:
+      - ../services/api:/app
       - ../generated:/app/generated:ro
     ports:
-      - '127.0.0.1:8000:8000'
+      - '8000:8000'
     depends_on:
       postgres:
         condition: service_healthy
@@ -47,64 +50,73 @@ services:
   web:
     build:
       context: ../apps/web
-      target: runner
-      args:
-        NEXT_PUBLIC_API_URL: https://mirubro.com
-        NEXT_PUBLIC_BASE_URL: https://mirubro.com
-        API_HOSTNAME: api
+      target: deps
     container_name: mirubro-web
-    restart: unless-stopped
+    command: npm run dev
     env_file:
       - ../apps/web/.env
     environment:
-      NODE_ENV: production
-      NEXT_PUBLIC_API_URL: https://mirubro.com
-      NEXT_PUBLIC_BASE_URL: https://mirubro.com
-      API_URL: https://mirubro.com
-      API_INTERNAL_URL: http://api:8000
-      API_URL_INTERNAL: http://api:8000
-      INTERNAL_API_URL: http://api:8000
-      API_HOSTNAME: api
+      # Internal Docker hostname overrides .env for SSR fetches (never use localhost here)
+      - API_URL_INTERNAL=http://api:8000
+    volumes:
+      - ../apps/web:/app
+      - /app/node_modules
     ports:
-      - '127.0.0.1:3000:3000'
+      - '3000:3000'
     depends_on:
       api:
         condition: service_started
 
+  # ── Celery worker (processes async tasks) ────────────────────────────────────
   celery-worker:
     build:
       context: ../services/api
-      target: runtime
+      target: dev
     container_name: mirubro-celery-worker
-    restart: unless-stopped
     command: celery -A config worker -l info -Q celery --concurrency=2
     env_file:
       - ../services/api/.env
     volumes:
+      - ../services/api:/app
       - ../generated:/app/generated:ro
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    restart: unless-stopped
 
+  # ── Celery beat scheduler (enqueues periodic tasks) ───────────────────────
   celery-beat:
     build:
       context: ../services/api
-      target: runtime
+      target: dev
     container_name: mirubro-celery-beat
-    restart: unless-stopped
     command: celery -A config beat -l info --pidfile=/tmp/celerybeat.pid
     env_file:
       - ../services/api/.env
     volumes:
+      - ../services/api:/app
       - ../generated:/app/generated:ro
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    restart: unless-stopped
 
+  # ── Optional: ngrok tunnel (expose API to internet for MP webhooks/back_urls) ──
+  # Usage: docker compose --profile tunnel up
+  # The NGROK_AUTHTOKEN must be set as an environment variable or in a .env file
+  # at the infra/ level. Get your token at https://dashboard.ngrok.com/authtokens
+  #
+  # After startup, get the public URL from:
+  #   docker compose logs ngrok   (look for "url=https://xxxx.ngrok-free.app")
+  #   or visit http://localhost:4040 (ngrok dashboard)
+  # Then update services/api/.env:
+  #   BASE_PUBLIC_URL=https://xxxx.ngrok-free.app
+  #   PUBLIC_MENU_BASE_URL=https://xxxx.ngrok-free.app
+  # And restart: docker compose up api
   ngrok:
     image: ngrok/ngrok:latest
     container_name: mirubro-ngrok

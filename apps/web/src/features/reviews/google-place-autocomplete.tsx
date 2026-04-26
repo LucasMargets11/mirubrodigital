@@ -109,7 +109,7 @@ export function GooglePlaceAutocomplete({ onSelect, onCancel }: Props) {
 
                 // Configure via properties (current API surface)
                 el.includedRegionCodes = ['ar'];
-                el.types = ['establishment'];
+                (el as any).types = ['establishment'];
 
                 // Style the inner <input> to match the app's design
                 el.classList.add('gpa-element');

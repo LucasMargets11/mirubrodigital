@@ -9,6 +9,8 @@ import { RelatedPosts } from './_components/RelatedPosts';
 
 const SITE_URL = 'https://www.mirubro.com';
 
+export const dynamic = 'force-dynamic';
+
 interface BlogPostPageProps {
     params: Promise<{ slug: string }>;
 }

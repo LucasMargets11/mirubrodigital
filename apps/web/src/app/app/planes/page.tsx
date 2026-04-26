@@ -59,7 +59,7 @@ export default async function PlansPage() {
 
             <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
                 <Link
-                    href={pricingHref}
+                    href={pricingHref as any}
                     className="rounded-full bg-brand-600 px-6 py-3 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 transition-colors"
                 >
                     Ver planes disponibles

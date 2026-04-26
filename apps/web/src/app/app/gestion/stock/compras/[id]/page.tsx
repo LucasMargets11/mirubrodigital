@@ -10,10 +10,10 @@ export default async function ComprasDetailPage({ params }: Props) {
     const { id } = await params;
     const session = await getSession();
 
-    if (!session) redirect('/login');
+    if (!session) redirect('/login' as any);
 
     const canView = session.permissions?.view_purchases ?? false;
-    if (!canView) redirect('/app/gestion/stock/compras');
+    if (!canView) redirect('/app/gestion/stock/compras' as any);
 
     const canManage = session.permissions?.manage_purchases ?? false;
 

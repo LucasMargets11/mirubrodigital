@@ -26,7 +26,7 @@ export function GestionNav({ tabs }: GestionNavProps) {
             {tabs.map((tab) => (
                 <Link
                     key={tab.href}
-                    href={tab.href}
+                    href={tab.href as any}
                     className={cn(
                         'rounded-full border px-4 py-2 text-sm font-semibold transition',
                         pathname?.startsWith(tab.href)

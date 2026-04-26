@@ -71,7 +71,7 @@ RUN chmod +x docker-entrypoint.sh
 
 # Collect Django static files (admin CSS/JS) into STATIC_ROOT
 RUN DJANGO_SECRET_KEY=build-placeholder DJANGO_DEBUG=False \
-    python src/manage.py collectstatic --noinput
+    python manage.py collectstatic --noinput
 
 # Non-root user for security
 RUN useradd -r -s /usr/sbin/nologin -u 1000 appuser \

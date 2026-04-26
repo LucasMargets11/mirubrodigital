@@ -9,7 +9,7 @@ from apps.resto.views import RestaurantTablesMapStateView, RestaurantTablesSnaps
 from common.health import health_check
 
 urlpatterns = [
-  path('admin/', admin.site.urls),
+  path('django-admin/', admin.site.urls),
   path('api/v1/health/', health_check, name='health-check'),
   path('api/v1/auth/', include('apps.accounts.urls')),
   path('api/v1/platform-admin/', include('apps.accounts.platform_admin_urls')),

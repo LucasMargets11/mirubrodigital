@@ -96,7 +96,7 @@ export function NewOrderClient({ canViewCommercialSettings = false }: NewOrderCl
         const params = new URLSearchParams(searchParams.toString());
         params.set('tableId', nextId);
         const query = params.toString();
-        router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+        router.replace((query ? `${pathname}?${query}` : pathname) as any, { scroll: false });
     };
 
     const handleClearTable = () => {
@@ -105,7 +105,7 @@ export function NewOrderClient({ canViewCommercialSettings = false }: NewOrderCl
         const params = new URLSearchParams(searchParams.toString());
         params.delete('tableId');
         const query = params.toString();
-        router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+        router.replace((query ? `${pathname}?${query}` : pathname) as any, { scroll: false });
     };
 
     const handleAddProduct = (selection: MenuProductSelection) => {

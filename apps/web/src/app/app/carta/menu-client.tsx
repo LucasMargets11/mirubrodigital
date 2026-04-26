@@ -132,7 +132,13 @@ export function MenuClient({ canManage, canImport, canExport, canUploadImages }:
         };
     }, [selectedCategory, availability, search]);
 
-    const itemsQuery = useMenuItems(itemFilters);
+    const itemsQuery = useMenuItems(
+        itemFilters as {
+            category?: string;
+            available?: 'true' | 'false';
+            search?: string;
+        }
+    );
     const items = itemsQuery.data ?? [];
 
     const structureQuery = useMenuStructure();

@@ -445,7 +445,7 @@ export function OnlineMenuSettingsClient({ canUploadImages }: OnlineMenuSettings
                                         name: config.brand_name || 'Mi Restaurant', 
                                         description: (config as any).description || 'La mejor comida de la ciudad' 
                                     }}
-                                    theme={config.theme_json || {}}
+                                    theme={(config.theme_json || {}) as any}
                                 />
                            </div>
                        </div>

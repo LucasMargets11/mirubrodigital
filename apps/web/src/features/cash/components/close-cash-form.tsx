@@ -168,7 +168,7 @@ export function CloseCashForm({ session, canManage }: CloseCashFormProps) {
                         type="checkbox"
                         className="mt-1 h-5 w-5 rounded border-slate-300"
                         checked={collectPending && hasPending}
-                        disabled={!canManage || !hasPending || mutation.isLoading}
+                        disabled={!canManage || !hasPending || mutation.isPending}
                         onChange={(event) => setCollectPending(event.target.checked)}
                     />
                     <div>
@@ -188,10 +188,10 @@ export function CloseCashForm({ session, canManage }: CloseCashFormProps) {
             <div className="flex items-center justify-end">
                 <button
                     type="submit"
-                    disabled={mutation.isLoading || !canManage}
+                    disabled={mutation.isPending || !canManage}
                     className="rounded-full bg-slate-900 px-5 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-400"
                 >
-                    {mutation.isLoading ? 'Cerrando...' : 'Cerrar caja'}
+                    {mutation.isPending ? 'Cerrando...' : 'Cerrar caja'}
                 </button>
             </div>
         </form>

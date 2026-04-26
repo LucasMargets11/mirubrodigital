@@ -39,7 +39,7 @@ export function HelpModal({
     const handleNavigate = useCallback(
         (href: string) => {
             onClose();
-            router.push(href);
+            router.push(href as any);
         },
         [onClose, router],
     );

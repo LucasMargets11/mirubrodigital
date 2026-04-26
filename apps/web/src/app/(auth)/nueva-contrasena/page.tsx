@@ -1,12 +1,13 @@
 'use client';
+export const dynamic = 'force-dynamic';
 
-import { FormEvent, useState } from 'react';
+import { FormEvent, Suspense, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { resetPassword } from '@/lib/auth/client';
 
 type PageState = 'form' | 'success' | 'invalid';
 
-export default function NuevaContrasenaPage() {
+function NuevaContrasenaContent() {
     const searchParams = useSearchParams();
     const token = searchParams.get('token');
 
@@ -146,5 +147,13 @@ export default function NuevaContrasenaPage() {
                 </div>
             </div>
         </section>
+    );
+}
+
+export default function NuevaContrasenaPage() {
+    return (
+        <Suspense fallback={<div className="min-h-full flex items-center justify-center py-16 px-6">Cargando…</div>}>
+            <NuevaContrasenaContent />
+        </Suspense>
     );
 }

@@ -45,11 +45,11 @@ function findNextAvailableCell(layout: TablesLayout) {
         for (let x = 1; x <= layout.gridCols; x += 1) {
             const key = `${x}:${y}`;
             if (!occupied.has(key)) {
-                return { x, y, w: 1, h: 1 } satisfies TablePlacement;
+                return { x, y, w: 1, h: 1 } as any;
             }
         }
     }
-    return { x: 1, y: 1, w: 1, h: 1 } satisfies TablePlacement;
+    return { x: 1, y: 1, w: 1, h: 1 } as any;
 }
 
 export function TablesEditor({ initialTables, initialLayout, onChange, onSave, saving = false }: TablesEditorProps) {
@@ -187,6 +187,7 @@ export function TablesEditor({ initialTables, initialLayout, onChange, onSave, s
             name: `Mesa ${nextIndex}`,
             capacity: 4,
             is_enabled: true,
+            is_paused: false,
         };
         setTables((prev) => [...prev, newTable]);
         setLayout((prev) => ({

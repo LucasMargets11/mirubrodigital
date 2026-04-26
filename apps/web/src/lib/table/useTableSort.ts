@@ -80,7 +80,7 @@ export function useTableSort(options: UseTableSortOptions = {}): UseTableSortRet
                 const params = new URLSearchParams(searchParams.toString());
                 const ordering = newDir === 'desc' ? `-${key}` : key;
                 params.set('ordering', ordering);
-                router.push(`${pathname}?${params.toString()}`, { scroll: false });
+                router.push((`${pathname}?${params.toString()}`) as any, { scroll: false });
             } else {
                 setLocalSortKey(key);
                 setLocalSortDir(newDir);

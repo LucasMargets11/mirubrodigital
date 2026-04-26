@@ -14,7 +14,7 @@ export default async function DashboardPage() {
     if (targetService) {
         const entryPath = getServiceEntryPath(targetService);
         if (entryPath) {
-            redirect(entryPath);
+            redirect(entryPath as any);
         }
     }
 

@@ -145,10 +145,10 @@ export function MovementsForm({ sessionId, canManage }: MovementsFormProps) {
             <div className="flex items-center justify-end">
                 <button
                     type="submit"
-                    disabled={mutation.isLoading || !canManage}
+                    disabled={mutation.isPending || !canManage}
                     className="rounded-full bg-slate-900 px-5 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-400"
                 >
-                    {mutation.isLoading ? 'Guardando...' : 'Registrar movimiento'}
+                    {mutation.isPending ? 'Guardando...' : 'Registrar movimiento'}
                 </button>
             </div>
         </form>

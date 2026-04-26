@@ -103,10 +103,10 @@ export function CollectAllPendingModal({ open, onClose, session, canCollect }: C
                         <button
                             type="button"
                             onClick={handleConfirm}
-                            disabled={!canCollect || !hasPending || mutation.isLoading}
+                            disabled={!canCollect || !hasPending || mutation.isPending}
                             className="rounded-full bg-slate-900 px-5 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-400"
                         >
-                            {mutation.isLoading ? 'Registrando...' : 'Confirmar'}
+                            {mutation.isPending ? 'Registrando...' : 'Confirmar'}
                         </button>
                     </div>
                 </div>

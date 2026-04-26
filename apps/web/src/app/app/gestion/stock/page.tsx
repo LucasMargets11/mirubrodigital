@@ -35,6 +35,6 @@ export default async function GestionStockPage({ searchParams }: GestionStockPag
     const initialProductId = typeof resolvedParams?.product === 'string' ? resolvedParams.product : undefined;
 
     return (
-        <StockClient canManage={canManage} canManagePurchases={canManagePurchases} initialStatus={initialStatus} initialAction={initialAction} initialProductId={initialProductId} />
+        <StockClient canManage={canManage} canManagePurchases={canManagePurchases} initialStatus={initialStatus} initialAction={initialAction as any} initialProductId={initialProductId} />
     );
 }

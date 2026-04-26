@@ -10,6 +10,7 @@ export const mockTables: Table[] = Array.from({ length: 20 }).map((_, index) => 
         name: `Mesa ${index + 1}`,
         capacity: 2 + (index % 4) * 2,
         is_enabled: index % 7 !== 0,
+        is_paused: false,
     } satisfies Table;
 });
 

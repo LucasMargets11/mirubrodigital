@@ -34,8 +34,6 @@ export function BlogCard({ post }: BlogCardProps) {
             {/* Cover image — link 1 */}
             <Link
                 href={href}
-                tabIndex={-1}
-                aria-hidden="true"
                 className="relative block h-[180px] w-full shrink-0 overflow-hidden sm:h-[200px] lg:h-[210px]"
             >
                 <Image

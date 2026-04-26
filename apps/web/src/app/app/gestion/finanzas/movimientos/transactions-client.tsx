@@ -197,7 +197,7 @@ export function TransactionsClient({ canManage, initialDateFrom, initialDateTo }
                                                 transactionType === 'payroll' ? 'bg-purple-100 text-purple-600' :
                                                 transactionType === 'sale' ? 'bg-emerald-100 text-emerald-600' :
                                                 transactionType === 'reconciliation' ? 'bg-amber-100 text-amber-600' :
-                                                        transactionType === 'stock_replenishment' ? 'bg-orange-100 text-orange-600' :
+                                                        (transactionType as string) === 'stock_replenishment' ? 'bg-orange-100 text-orange-600' :
                                                         'bg-slate-100 text-slate-600'
                                                     }`}>
                                                         {transactionType === 'transfer' && <Repeat className="h-5 w-5" />}
@@ -205,7 +205,7 @@ export function TransactionsClient({ canManage, initialDateFrom, initialDateTo }
                                                         {transactionType === 'payroll' && <Users className="h-5 w-5" />}
                                                         {transactionType === 'sale' && <FileText className="h-5 w-5" />}
                                                         {transactionType === 'reconciliation' && <RotateCcw className="h-5 w-5" />}
-                                                        {transactionType === 'stock_replenishment' && <ShoppingCart className="h-5 w-5" />}
+                                                        {(transactionType as string) === 'stock_replenishment' && <ShoppingCart className="h-5 w-5" />}
                                                     </div>
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex flex-wrap items-center gap-2 mb-1">
@@ -221,7 +221,7 @@ export function TransactionsClient({ canManage, initialDateFrom, initialDateTo }
                                                         transactionType === 'payroll' ? 'bg-purple-100 text-purple-700' :
                                                         transactionType === 'sale' ? 'bg-emerald-100 text-emerald-700' :
                                                         transactionType === 'reconciliation' ? 'bg-amber-100 text-amber-700' :
-                                                        transactionType === 'stock_replenishment' ? 'bg-orange-100 text-orange-700' :
+                                                        (transactionType as string) === 'stock_replenishment' ? 'bg-orange-100 text-orange-700' :
                                                         'bg-slate-100 text-slate-700'
                                                     }`}>
                                                         {transactionType === 'transfer' ? `Transf. → ${t.related_account_name ?? ''}` :
@@ -230,7 +230,7 @@ export function TransactionsClient({ canManage, initialDateFrom, initialDateTo }
                                                          transactionType === 'payroll' ? 'Sueldo' :
                                                          transactionType === 'sale' ? 'Venta' :
                                                          transactionType === 'reconciliation' ? 'Conciliación' :
-                                                         transactionType === 'stock_replenishment' ? 'Reposición Stock' :
+                                                         (transactionType as string) === 'stock_replenishment' ? 'Reposición Stock' :
                                                          'Otro'}
                                                     </span>
                                                 </div>
@@ -251,7 +251,7 @@ export function TransactionsClient({ canManage, initialDateFrom, initialDateTo }
                                                         {transactionType === 'payroll' && t.reference_details.employee_name && (
                                                             <span>👤 {t.reference_details.employee_name}</span>
                                                         )}
-                                                        {transactionType === 'stock_replenishment' && t.reference_id && (
+                                                        {(transactionType as string) === 'stock_replenishment' && t.reference_id && (
                                                             <Link
                                                                 href={`/app/gestion/stock/compras/${t.reference_id}`}
                                                                 className="inline-flex items-center gap-1 text-orange-600 hover:text-orange-700 hover:underline font-medium"

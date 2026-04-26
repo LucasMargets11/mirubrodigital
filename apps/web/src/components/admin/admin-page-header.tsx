@@ -19,7 +19,7 @@ export function AdminPageHeader({ title, description, actions, className, backHr
     <div className={cn('space-y-1', className)}>
       {backHref && (
         <Link
-          href={backHref}
+          href={backHref as any}
           className="mb-2 inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700"
         >
           <ArrowLeft className="h-4 w-4" />

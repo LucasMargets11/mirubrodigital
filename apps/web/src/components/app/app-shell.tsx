@@ -62,7 +62,7 @@ function AppShellContent({ session, children }: { session: Session; children: Re
             <div className="hidden md:block">
                 <Sidebar
                     businessName={session.current.business.name}
-                    branchName={session.current.branch?.name}
+                    branchName={(session.current as any).branch?.name}
                     service={service}
                     features={session.features}
                     permissions={session.permissions}
@@ -83,7 +83,7 @@ function AppShellContent({ session, children }: { session: Session; children: Re
                     <div className="flex-1 overflow-hidden">
                         <Sidebar
                             businessName={session.current.business.name}
-                            branchName={session.current.branch?.name}
+                            branchName={(session.current as any).branch?.name}
                             service={service}
                             features={session.features}
                             permissions={session.permissions}

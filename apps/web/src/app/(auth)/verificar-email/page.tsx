@@ -1,12 +1,13 @@
 'use client';
+export const dynamic = 'force-dynamic';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { verifyEmail } from '@/lib/auth/client';
 
 type State = 'verifying' | 'success' | 'error';
 
-export default function VerificarEmailPage() {
+function VerificarEmailContent() {
     const searchParams = useSearchParams();
     const token = searchParams.get('token');
     const [state, setState] = useState<State>('verifying');
@@ -85,5 +86,14 @@ export default function VerificarEmailPage() {
                 </div>
             </div>
         </section>
+    );
+}
+
+
+export default function VerificarEmailPage() {
+    return (
+        <Suspense fallback={<div className="min-h-full flex items-center justify-center py-16 px-6">Cargando…</div>}>
+            <VerificarEmailContent />
+        </Suspense>
     );
 }

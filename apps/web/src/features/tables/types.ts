@@ -29,6 +29,17 @@ export type TablesLayout = {
 
 export type RestaurantTableState = 'FREE' | 'OCCUPIED' | 'PAUSED' | 'DISABLED';
 
+export type TableStatusEntry = {
+     status: RestaurantTableState;
+     orderId?: string;
+     orderNumber?: number;
+     orderStatus?: string;
+     orderStatusLabel?: string;
+};
+
+export type TableStatusMap = Record<string, TableStatusEntry>;
+
+
 export type TableGridPosition = {
       x: number;
       y: number;

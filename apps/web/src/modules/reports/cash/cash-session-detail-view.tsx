@@ -33,7 +33,7 @@ export function CashSessionDetailView({
     return (
         <section className="space-y-6">
             <div className="flex items-center gap-3 text-sm text-slate-500">
-                <Link href={backHref} className="font-semibold text-slate-600 hover:text-slate-900">
+                <Link href={backHref as any} className="font-semibold text-slate-600 hover:text-slate-900">
                     {backLabel}
                 </Link>
                 <span>/</span>
@@ -275,7 +275,7 @@ function renderSaleLink(builder: ((id: string) => string) | undefined, id: strin
         return label;
     }
     return (
-        <Link href={builder(id)} className="underline-offset-4 hover:underline">
+        <Link href={builder(id) as any} className="underline-offset-4 hover:underline">
             {label}
         </Link>
     );

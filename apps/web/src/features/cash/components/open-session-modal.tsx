@@ -118,10 +118,10 @@ export function OpenCashModal({ open, onClose, canManage }: OpenCashModalProps) 
                     </button>
                     <button
                         type="submit"
-                        disabled={mutation.isLoading || !canManage}
+                        disabled={mutation.isPending || !canManage}
                         className="rounded-full bg-slate-900 px-5 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-400"
                     >
-                        {mutation.isLoading ? 'Guardando...' : 'Abrir caja'}
+                        {mutation.isPending ? 'Guardando...' : 'Abrir caja'}
                     </button>
                 </div>
             </form>

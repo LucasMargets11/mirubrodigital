@@ -106,7 +106,7 @@ export function ServicesSection() {
                                         variant="outline"
                                         className="w-full justify-between group/btn border-slate-200 text-slate-700 hover:text-brand-700 hover:border-brand-200 hover:bg-brand-50/50 transition-all shadow-sm"
                                     >
-                                        <Link href={service.ctaHref}>
+                                        <Link href={service.ctaHref as any}>
                                             <span className="font-semibold">{service.ctaLabel}</span>
                                             <ArrowRight className="w-4 h-4 ml-2 transition-transform group-hover/btn:translate-x-1" />
                                         </Link>

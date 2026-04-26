@@ -107,7 +107,7 @@ export function TableMapEmbed({ tables, selectedTableId, loading, error, layout,
                     <h3 className="text-xl font-semibold text-slate-900">Mesas</h3>
                 </div>
                 <div className="flex flex-wrap gap-2 text-xs">
-                    {(Object.keys(STATUS_LABELS) as TableStatus[]).map((key) => {
+                    {(Object.keys(STATUS_LABELS) as Array<keyof typeof STATUS_LABELS>).map((key) => {
                         const meta = STATUS_LABELS[key];
                         return (
                             <span key={key} className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-3 py-1 text-slate-600">

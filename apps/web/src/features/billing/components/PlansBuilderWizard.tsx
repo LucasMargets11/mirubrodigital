@@ -35,7 +35,7 @@ export function PlansBuilderWizard({ vertical, billingPeriod, onSubscribe, onCan
   const handleCalculate = () => {
     quoteMutation.mutate({
       vertical,
-      billingPeriod,
+      billing_period: billingPeriod,
       plan_type: 'custom',
       selected_module_codes: selectedCodes
     }, {
