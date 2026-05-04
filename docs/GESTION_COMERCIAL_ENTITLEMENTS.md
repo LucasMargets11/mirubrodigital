@@ -42,17 +42,18 @@ A continuación se listan todos los entitlements para el servicio `gestion`:
 | `gestion.sales_advanced` | Ventas avanzadas (descuentos, notas) | PRO |
 | `gestion.rbac_full` | RBAC completo con auditoría | PRO |
 | `gestion.audit` | Auditoría de cambios | PRO |
+| `gestion.invoices` | Facturación electrónica (base) | PRO |
+
+> **Nota:** PRO incluye `gestion.invoices` de forma nativa. El add-on de facturación aplica **solo para STARTER** como mecanismo para acceder a la feature sin hacer upgrade.
 
 ### Business Features
 
 | Entitlement | Descripción | Incluido desde |
 |-------------|-------------|----------------|
-| `gestion.invoices` | Facturación electrónica (*) | BUSINESS |
+| `gestion.tax_backup` | Respaldo impositivo (AFIP, SAT) | BUSINESS |
 | `gestion.multi_branch` | Multi-sucursal consolidado | BUSINESS |
 | `gestion.transfers` | Transferencias entre sucursales | BUSINESS |
 | `gestion.consolidated_reports` | Reportes consolidados multi-sucursal | BUSINESS |
-
-(*) En **PRO** puede habilitarse mediante add-on `invoices_module`.
 
 ---
 
@@ -84,6 +85,7 @@ ENTITLEMENTS_PRO = ENTITLEMENTS_START | {
     'gestion.sales_advanced',
     'gestion.rbac_full',
     'gestion.audit',
+    'gestion.invoices',  # Incluido en PRO base
 }
 ```
 
@@ -91,7 +93,7 @@ ENTITLEMENTS_PRO = ENTITLEMENTS_START | {
 
 ```python
 ENTITLEMENTS_BUSINESS = ENTITLEMENTS_PRO | {
-    'gestion.invoices',
+    'gestion.tax_backup',         # Respaldo impositivo — exclusivo BUSINESS
     'gestion.multi_branch',
     'gestion.transfers',
     'gestion.consolidated_reports',
@@ -112,7 +114,8 @@ ENTITLEMENTS_ENTERPRISE = ENTITLEMENTS_BUSINESS  # + custom si es necesario
 
 **Code**: `invoices_module`  
 **Habilita**: `gestion.invoices`  
-**Disponible en**: PRO (en BUSINESS ya está incluido)
+**Disponible en**: STARTER únicamente (como alternativa al upgrade a PRO)  
+**Incluido nativamente en**: PRO, BUSINESS, ENTERPRISE (no necesitan ni pueden comprar el add-on)
 
 ---
 
@@ -149,6 +152,7 @@ PLAN_ENTITLEMENTS = {
         'gestion.sales_advanced',
         'gestion.rbac_full',
         'gestion.audit',
+        'gestion.invoices',  # Incluido en PRO base
     },
     'business': {
         # Todos los de PRO +
@@ -168,6 +172,7 @@ PLAN_ENTITLEMENTS = {
         'gestion.rbac_full',
         'gestion.audit',
         'gestion.invoices',
+        'gestion.tax_backup',    # Respaldo impositivo — exclusivo BUSINESS+
         'gestion.multi_branch',
         'gestion.transfers',
         'gestion.consolidated_reports',
@@ -190,6 +195,7 @@ PLAN_ENTITLEMENTS = {
         'gestion.rbac_full',
         'gestion.audit',
         'gestion.invoices',
+        'gestion.tax_backup',
         'gestion.multi_branch',
         'gestion.transfers',
         'gestion.consolidated_reports',

@@ -320,3 +320,121 @@ def execute_scheduled_cancellations(self):
             )
 
     return counts
+
+
+@shared_task(
+    bind=True,
+    name='billing.reconcile_promotional_discounts',
+    max_retries=3,
+    default_retry_delay=300,
+    acks_late=True,
+)
+def reconcile_promotional_discounts(self):
+    """
+    Retry MercadoPago price restoration for promotional discounts where a
+    previous attempt failed (``price_restored=False``).
+
+    Also catches the edge case where a redemption reached ``cycles_used >=
+    cycles_total`` while still ACTIVE (e.g. if ``handle_promo_cycle`` was not
+    called due to an unexpected exception during webhook processing).
+
+    Candidates
+    ----------
+    1. ``COMPLETED`` with ``price_restored=False`` — MP call failed during webhook.
+    2. ``ACTIVE`` with ``cycles_used >= cycles_total`` — missed during webhook.
+
+    Idempotent — redundant calls produce the same outcome.
+
+    Returns:
+        dict: {'restored': int, 'failed': int, 'skipped': int}
+    """
+    from django.db.models import F
+    from apps.billing.models import PromoCodeRedemption  # local import avoids circular
+    from apps.billing.mp_service import MercadoPagoService
+
+    counts = {'restored': 0, 'failed': 0, 'skipped': 0}
+
+    # Gather both candidate sets; deduplicate by pk.
+    completed_unrestored = list(
+        PromoCodeRedemption.objects
+        .filter(status=PromoCodeRedemption.Status.COMPLETED, price_restored=False)
+        .select_related('subscription')
+    )
+    active_exhausted = list(
+        PromoCodeRedemption.objects
+        .filter(status=PromoCodeRedemption.Status.ACTIVE)
+        .filter(cycles_used__gte=F('cycles_total'))
+        .select_related('subscription')
+    )
+
+    all_candidates: dict = {r.pk: r for r in completed_unrestored}
+    for r in active_exhausted:
+        all_candidates.setdefault(r.pk, r)
+
+    if not all_candidates:
+        logger.info("[billing.task] reconcile_promotional_discounts: nothing to do.")
+        return counts
+
+    logger.info(
+        "[billing.task] reconcile_promotional_discounts: %d candidate(s).",
+        len(all_candidates),
+    )
+
+    try:
+        mp = MercadoPagoService()
+    except Exception as exc:
+        logger.error(
+            "[billing.task] reconcile_promotional_discounts: cannot initialise MP client: %s",
+            exc,
+        )
+        raise self.retry(exc=exc)
+
+    for redemption in all_candidates.values():
+        subscription = redemption.subscription
+        if subscription is None or not getattr(subscription, 'provider_sub_id', None):
+            logger.warning(
+                "[billing.task] reconcile: redemption=%s has no linked subscription "
+                "with provider_sub_id — skipping.",
+                redemption.pk,
+            )
+            counts['skipped'] += 1
+            continue
+
+        try:
+            mp.update_preapproval(
+                subscription.provider_sub_id,
+                {"auto_recurring": {"transaction_amount": float(redemption.original_amount)}},
+            )
+        except Exception as exc:
+            logger.error(
+                "[billing.task] reconcile: failed to restore price for "
+                "redemption=%s subscription=%s: %s",
+                redemption.pk, subscription.pk, exc,
+            )
+            counts['failed'] += 1
+            continue
+
+        # Persist success atomically.
+        from django.db import transaction as _tx
+        with _tx.atomic():
+            updated = (
+                PromoCodeRedemption.objects
+                .filter(pk=redemption.pk)
+                .exclude(price_restored=True)
+                .update(
+                    status=PromoCodeRedemption.Status.COMPLETED,
+                    price_restored=True,
+                    price_restored_at=timezone.now(),
+                )
+            )
+        if updated:
+            counts['restored'] += 1
+            logger.info(
+                "[billing.task] reconcile: price restored for redemption=%s subscription=%s.",
+                redemption.pk, subscription.pk,
+            )
+        else:
+            counts['skipped'] += 1  # already restored by concurrent run
+
+    logger.info("[billing.task] reconcile_promotional_discounts complete: %s", counts)
+    return counts

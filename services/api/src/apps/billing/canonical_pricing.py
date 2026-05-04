@@ -60,10 +60,12 @@ _DATA = _load_pricing()
 PLANS: List[dict] = _DATA['plans']
 ADDONS: List[dict] = _DATA['addons']
 EXTRAS: List[dict] = _DATA['extras']
+PRODUCTS: List[dict] = _DATA.get('products', [])
 
 _PLAN_INDEX: Dict[str, dict] = {p['code']: p for p in PLANS}
 _ADDON_INDEX: Dict[str, dict] = {a['code']: a for a in ADDONS}
 _EXTRA_INDEX: Dict[str, dict] = {e['code']: e for e in EXTRAS}
+_PRODUCT_INDEX: Dict[str, dict] = {p['code']: p for p in PRODUCTS}
 
 
 def get_plan(code: str) -> Optional[dict]:
@@ -76,6 +78,19 @@ def get_addon(code: str) -> Optional[dict]:
 
 def get_extra(code: str) -> Optional[dict]:
     return _EXTRA_INDEX.get(code)
+
+
+def get_product(code: str) -> Optional[dict]:
+    return _PRODUCT_INDEX.get(code)
+
+
+def get_products_catalog() -> List[dict]:
+    """
+    Return active products ordered by the canonical metadata in pricing.json.
+    This is the backend source used by onboarding/service selectors.
+    """
+    products = [p for p in PRODUCTS if p.get('is_active', False)]
+    return sorted(products, key=lambda p: (p.get('order', 999), p.get('code', '')))
 
 
 def plan_price(code: str, cycle: str = 'monthly') -> int:

@@ -24,7 +24,8 @@ export type AdminSection =
   | 'soporte'
   | 'blog'
   | 'reportes'
-  | 'configuracion';
+  | 'configuracion'
+  | 'promociones';
 
 export type AdminKPIs = {
   active_businesses: number;
@@ -526,4 +527,76 @@ export type AdminBlogCategory = {
   label: string;
   post_count: number;
   created_at: string | null;
+};
+
+// ── Promo Codes ────────────────────────────────────────────────────────────
+
+export type AdminPromoCodeRow = {
+  id: number;
+  code: string;
+  name: string;
+  description: string;
+  discount_type: 'percent' | 'fixed_amount';
+  discount_value: string;
+  duration_cycles: number;
+  applies_to_plan_codes: string[];
+  applies_to_service: string;
+  applies_to_billing_periods: string[];
+  starts_at: string | null;
+  ends_at: string | null;
+  max_redemptions: number | null;
+  max_redemptions_per_business: number;
+  active: boolean;
+  redemptions_count: number;
+  created_by_email: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export type AdminPromoCodeList = {
+  results: AdminPromoCodeRow[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+};
+
+export type AdminPromoCodeRedemptionRow = {
+  id: number;
+  business_id: number;
+  business_name: string | null;
+  user_email: string | null;
+  status: string;
+  original_amount: string;
+  discounted_amount: string;
+  cycles_total: number;
+  cycles_used: number;
+  price_restored: boolean;
+  price_restored_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export type AdminPromoCodeRedemptionList = {
+  results: AdminPromoCodeRedemptionRow[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+};
+
+export type AdminPlanOption = {
+  code: string;
+  label: string;
+  service: string;
+  service_label: string;
+  billing_period: string;
+  price: string;
+};
+
+export type AdminPromoOptions = {
+  services: { value: string; label: string }[];
+  plans: AdminPlanOption[];
+  billing_periods: { value: string; label: string }[];
+  discount_types: { value: string; label: string }[];
 };

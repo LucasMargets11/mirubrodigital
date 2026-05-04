@@ -1,6 +1,9 @@
 "use client";
 
+import { useState } from 'react';
+
 import { useInventorySummary } from '@/features/gestion/hooks';
+import { GestionSetupProgressBanner } from '@/features/setup/gestion/components/GestionSetupProgressBanner';
 import type { DashboardFeatures, DashboardPermissions } from '../../dashboard-client';
 import type { InventorySummaryStats } from '@/features/gestion/types';
 
@@ -28,6 +31,8 @@ export function OwnerDashboard({
     features,
     planName
 }: OwnerDashboardProps) {
+    const [helpOpen, setHelpOpen] = useState(false);
+
     const inventoryQuery = useInventorySummary({ 
         initialData: permissions.canViewStock && features.inventory ? initialSummary : null,
         enabled: permissions.canViewStock && features.inventory,
@@ -38,6 +43,9 @@ export function OwnerDashboard({
 
     return (
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            {/* 0. Setup Progress Banner (shown until configuration is complete) */}
+            <GestionSetupProgressBanner onOpenHelp={() => setHelpOpen(true)} />
+
             {/* 1. Header Ejecutivo */}
             <ExecutiveHeader 
                 inventorySummary={inventorySummary}
@@ -45,6 +53,8 @@ export function OwnerDashboard({
                 canViewCash={permissions.canViewCash && features.cash}
                 canViewQuotes={permissions.canViewQuotes && features.quotes}
                 canViewStock={permissions.canViewStock && features.inventory}
+                helpOpen={helpOpen}
+                onHelpOpenChange={setHelpOpen}
             />
 
             {/* 2. KPI Strip */}

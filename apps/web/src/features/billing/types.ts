@@ -26,6 +26,15 @@ export interface Bundle {
   is_default_recommended: boolean;
 }
 
+export interface BillingProduct {
+  code: string;
+  vertical: BillingVertical;
+  name: string;
+  description: string;
+  is_active: boolean;
+  order: number;
+}
+
 export interface QuoteRequest {
   vertical: BillingVertical;
   billing_period: 'monthly' | 'yearly';

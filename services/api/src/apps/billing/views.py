@@ -24,10 +24,12 @@ from .models import (
 )
 from .serializers import (
     ModuleSerializer, BundleSerializer, PromotionSerializer, 
-    QuoteRequestSerializer, SubscribeRequestSerializer, SubscriptionSerializer
+    QuoteRequestSerializer, SubscribeRequestSerializer, SubscriptionSerializer,
+    BillingProductSerializer,
 )
 from .services import PricingService
 from .mp_service import MercadoPagoService
+from .canonical_pricing import get_products_catalog
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -166,7 +168,7 @@ class BillingViewSet(viewsets.ViewSet):
     billing_enforcement_bypass = True
 
     def get_permissions(self):
-        if self.action in ['modules', 'bundles', 'promotions', 'quote']:
+        if self.action in ['modules', 'bundles', 'promotions', 'quote', 'products']:
             return [AllowAny()]
         if self.action == 'subscribe':
             # subscribe() initiates commercial activation — requires verified email
@@ -186,10 +188,34 @@ class BillingViewSet(viewsets.ViewSet):
     @action(detail=False, methods=['get'])
     def bundles(self, request):
         vertical = request.query_params.get('vertical')
-        qs = Bundle.objects.filter(is_active=True)
+        # checkout=true: exclude custom/contact-only plans (no fixed price).
+        # Used by the onboarding funnel; public pricing pages omit this param.
+        checkout = request.query_params.get('checkout', '').lower() == 'true'
+        qs = Bundle.objects.filter(is_active=True).order_by('sort_order', 'id')
         if vertical:
             qs = qs.filter(vertical=vertical)
+        if checkout:
+            qs = qs.filter(fixed_price_monthly__isnull=False)
         serializer = BundleSerializer(qs, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'])
+    def products(self, request):
+        """
+        Return commercializable products from the canonical source.
+        A product is returned only if:
+          1) it is active in generated/pricing.json metadata, and
+          2) it has at least one active bundle in DB for its vertical.
+        """
+        active_verticals = set(
+            Bundle.objects.filter(is_active=True).values_list('vertical', flat=True)
+        )
+        canonical_products = get_products_catalog()
+        commercializable = [
+            p for p in canonical_products
+            if p.get('vertical') in active_verticals
+        ]
+        serializer = BillingProductSerializer(commercializable, many=True)
         return Response(serializer.data)
         
     @action(detail=False, methods=['get'])
@@ -938,4 +964,123 @@ class DevMercadoPagoPingView(APIView):
             result['warnings'] = warnings
 
         return Response(result)
+
+
+class ValidatePromoCodeView(APIView):
+    """
+    POST /api/v1/billing/promo-codes/validate/
+
+    Validates a promotional code for a given plan + billing period + business.
+    Returns discount details on success, or an error code on failure.
+
+    This endpoint is informational — it does NOT create a PromoCodeRedemption.
+    Redemption creation happens inside start_checkout() when the user confirms.
+
+    Request body
+    ------------
+    {
+        "code": "PROMO10",
+        "plan_code": "start",
+        "billing_period": "monthly"   // optional, defaults to 'monthly'
+    }
+
+    Success response (HTTP 200)
+    ---------------------------
+    {
+        "valid": true,
+        "code": "PROMO10",
+        "discount_type": "percent",
+        "discount_value": "10.00",
+        "duration_cycles": 1,
+        "original_amount": "29900.00",
+        "discounted_amount": "26910.00",
+        "summary": "10% de descuento durante 1 mes. Luego pagás $29.900/mes."
+    }
+
+    Failure response (HTTP 200 — never 4xx for validation errors)
+    -------------------------------------------------------------
+    {
+        "valid": false,
+        "error_code": "CODE_NOT_FOUND",
+        "detail": "El código promocional no existe."
+    }
+    """
+
+    # No HasBusinessMembership — onboarding users don't yet have an active membership.
+    permission_classes = [IsAuthenticated]
+    # Bypass billing enforcement so onboarding users (no active plan) can call this.
+    billing_enforcement_bypass = True
+
+    def post(self, request):
+        from .promo_service import validate_promo_code
+
+        code = (request.data.get('code') or '').strip()
+        plan_code = (request.data.get('plan_code') or '').strip()
+        billing_period = (request.data.get('billing_period') or 'monthly').strip()
+
+        if not plan_code:
+            return Response({'detail': 'plan_code es requerido.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Resolve plan
+        try:
+            plan = Plan.objects.get(code=plan_code, plan_status='active')
+        except Plan.DoesNotExist:
+            return Response(
+                {'detail': f"Plan '{plan_code}' no encontrado o inactivo."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Resolve business — works for both onboarding and established users.
+        business = _resolve_business_for_request(request)
+        if business is None:
+            return Response(
+                {'detail': 'No se encontró el negocio asociado a tu cuenta.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        result = validate_promo_code(
+            code=code,
+            plan_code=plan_code,
+            billing_period=billing_period,
+            business=business,
+            plan_price=plan.price,
+        )
+
+        if not result['valid']:
+            return Response(result, status=status.HTTP_200_OK)
+
+        return Response({
+            'valid': True,
+            'code': result['promo_code'].code,
+            'discount_type': result['discount_type'],
+            'discount_value': str(result['discount_value']),
+            'duration_cycles': result['duration_cycles'],
+            'original_amount': str(result['original_amount']),
+            'discounted_amount': str(result['discounted_amount']),
+            'summary': result['summary'],
+        }, status=status.HTTP_200_OK)
+
+
+def _resolve_business_for_request(request) -> 'Business | None':
+    """
+    Resolve the Business for the current request.
+
+    Prefers the membership resolved by the standard access layer (supports
+    X-Business-ID header for multi-tenant users).  Falls back to the user's
+    first membership — matching the onboarding path where no header is sent.
+    """
+    membership = resolve_request_membership(request)
+    if membership is not None:
+        return membership.business
+
+    # Onboarding fallback: user has a membership but access layer didn't resolve it
+    # (e.g., no X-Business-ID header and HasBusinessMembership wasn't in the chain).
+    first = (
+        Membership.objects
+        .select_related('business')
+        .filter(user=request.user)
+        .order_by('id')
+        .first()
+    )
+    return first.business if first else None
 

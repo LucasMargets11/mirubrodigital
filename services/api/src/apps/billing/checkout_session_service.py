@@ -85,6 +85,7 @@ def start_checkout(
     tenant,
     plan_code: str,
     frontend_url: str | None = None,
+    promo_code: str | None = None,
 ) -> dict:
     """
     Idempotent entry point for starting a subscription checkout.
@@ -98,8 +99,21 @@ def start_checkout(
             "reused": bool,         # True if an existing session was returned
         }
 
-    Raises ValueError for validation errors.
+    Raises ValueError for validation errors (including invalid promo codes).
     Raises Exception if the MP API call fails.
+
+    Promo code handling
+    -------------------
+    If *promo_code* is provided:
+      - It is validated via promo_service.validate_promo_code.
+      - On failure, ValueError is raised with the human-readable detail message.
+      - On success, the discounted amount is used in the MP plan instead of
+        plan.price, and a PromoCodeRedemption record is created.
+      - If an existing open session is reused and already has a matching
+        PromoCodeRedemption, the redemption result from the original session
+        is returned (idempotent).
+      - If an existing open session does NOT have a matching redemption for the
+        provided code, it is expired and a fresh session is created.
 
     Thread safety
     -------------
@@ -107,10 +121,66 @@ def start_checkout(
     concurrent requests for the same (user, plan) from creating duplicate
     sessions or duplicate MP plans.
     """
+    from decimal import Decimal
     try:
         plan = Plan.objects.get(code=plan_code, plan_status='active')
     except Plan.DoesNotExist:
         raise ValueError(f"Plan '{plan_code}' not found or inactive.")
+
+    # ── Early idempotency check for promo reuse (before validation) ───────────
+    # If an open session already has a matching pending/active redemption for
+    # this exact promo code, return it immediately without re-validating.
+    # This prevents double-counting the pending redemption on the per-business
+    # limit check when the user double-clicks or retries the same checkout.
+    if promo_code:
+        _early_filter: dict = dict(user=user, plan=plan, status__in=MpCheckoutSession.OPEN_STATUSES)
+        if tenant is not None:
+            _early_filter['tenant'] = tenant
+        else:
+            _early_filter['tenant__isnull'] = True
+        _early_session = MpCheckoutSession.objects.filter(**_early_filter).first()
+        if _early_session and not _early_session.is_expired():
+            from .models import PromoCodeRedemption, PromoCode
+            try:
+                _promo_obj = PromoCode.objects.get(code=promo_code.upper())
+                _early_rdem = PromoCodeRedemption.objects.filter(
+                    checkout_session=_early_session,
+                    promo_code=_promo_obj,
+                    status__in=[PromoCodeRedemption.Status.PENDING,
+                                PromoCodeRedemption.Status.ACTIVE],
+                ).first()
+                if _early_rdem:
+                    _early_session.last_seen_at = timezone.now()
+                    _early_session.save(update_fields=['last_seen_at', 'updated_at'])
+                    logger.info(
+                        "[checkout_session] Early reuse: session %s already has promo '%s' redemption. user=%s",
+                        _early_session.id, promo_code, user.pk,
+                    )
+                    return {
+                        "checkout_session_id": str(_early_session.id),
+                        "init_point": _early_session.provider_checkout_url or '',
+                        "status": _early_session.status,
+                        "reused": True,
+                    }
+            except PromoCode.DoesNotExist:
+                pass
+
+    # ── Validate promo code before entering the transaction ───────────────────
+    # Validation is a read-only operation; no lock is needed here.
+    # The PromoCodeRedemption is created INSIDE the transaction (after session
+    # creation succeeds) so it is always tied to a real checkout session.
+    promo_result: dict | None = None
+    if promo_code:
+        from .promo_service import validate_promo_code
+        promo_result = validate_promo_code(
+            code=promo_code,
+            plan_code=plan_code,
+            billing_period=plan.interval or 'monthly',
+            business=tenant,
+            plan_price=plan.price,
+        )
+        if not promo_result['valid']:
+            raise ValueError(promo_result['detail'])
 
     idempotency_key = build_idempotency_key(
         user.pk, plan_code, tenant_pk=getattr(tenant, 'pk', None)
@@ -143,20 +213,58 @@ def start_checkout(
                     existing.save(update_fields=['status', 'updated_at'])
                     # Fall through to create a new session.
                 else:
-                    # Reuse the existing open session.
-                    existing.last_seen_at = timezone.now()
-                    existing.save(update_fields=['last_seen_at', 'updated_at'])
-                    logger.info(
-                        "[checkout_session] Reusing existing session %s "
-                        "status=%s plan=%s user=%s",
-                        existing.id, existing.status, plan_code, user.pk,
-                    )
-                    return {
-                        "checkout_session_id": str(existing.id),
-                        "init_point": existing.provider_checkout_url or '',
-                        "status": existing.status,
-                        "reused": True,
-                    }
+                    # Reuse if possible — but check promo consistency first.
+                    if promo_result is not None:
+                        # A promo code was provided.  Check if this session already
+                        # has a matching pending/active redemption so we can reuse it.
+                        from .models import PromoCodeRedemption
+                        existing_redemption = PromoCodeRedemption.objects.filter(
+                            checkout_session=existing,
+                            promo_code=promo_result['promo_code'],
+                            status__in=[PromoCodeRedemption.Status.PENDING,
+                                        PromoCodeRedemption.Status.ACTIVE],
+                        ).first()
+                        if existing_redemption:
+                            # Same promo already applied — safe to reuse the session.
+                            existing.last_seen_at = timezone.now()
+                            existing.save(update_fields=['last_seen_at', 'updated_at'])
+                            logger.info(
+                                "[checkout_session] Reusing session %s with existing promo redemption "
+                                "promo=%s user=%s",
+                                existing.id, promo_result['promo_code'].code, user.pk,
+                            )
+                            return {
+                                "checkout_session_id": str(existing.id),
+                                "init_point": existing.provider_checkout_url or '',
+                                "status": existing.status,
+                                "reused": True,
+                            }
+                        else:
+                            # Different promo (or no promo last time) — expire the old
+                            # session and create a fresh one with the new promo.
+                            logger.info(
+                                "[checkout_session] Session %s exists but lacks promo %s — "
+                                "expiring and creating new session. user=%s",
+                                existing.id, promo_result['promo_code'].code, user.pk,
+                            )
+                            existing.status = MpCheckoutSession.Status.EXPIRED
+                            existing.save(update_fields=['status', 'updated_at'])
+                            # Fall through to create new session.
+                    else:
+                        # No promo code — standard reuse.
+                        existing.last_seen_at = timezone.now()
+                        existing.save(update_fields=['last_seen_at', 'updated_at'])
+                        logger.info(
+                            "[checkout_session] Reusing existing session %s "
+                            "status=%s plan=%s user=%s",
+                            existing.id, existing.status, plan_code, user.pk,
+                        )
+                        return {
+                            "checkout_session_id": str(existing.id),
+                            "init_point": existing.provider_checkout_url or '',
+                            "status": existing.status,
+                            "reused": True,
+                        }
 
             # ── Create a new checkout session ─────────────────────────────────
             session_external_ref = f"SESS-{uuid.uuid4()}"
@@ -182,7 +290,14 @@ def start_checkout(
 
             # ── Create MP ephemeral plan ──────────────────────────────────────
             try:
-                session = _create_mp_plan_for_session(session, plan, frontend_url)
+                override_amount = (
+                    float(promo_result['discounted_amount'])
+                    if promo_result is not None
+                    else None
+                )
+                session = _create_mp_plan_for_session(
+                    session, plan, frontend_url, override_amount=override_amount,
+                )
             except Exception as exc:
                 session.status = MpCheckoutSession.Status.FAILED
                 session.save(update_fields=['status', 'updated_at'])
@@ -191,6 +306,27 @@ def start_checkout(
                     session.id, exc,
                 )
                 raise
+
+            # ── Create PromoCodeRedemption (inside the transaction) ───────────
+            if promo_result is not None:
+                from .models import PromoCodeRedemption
+                PromoCodeRedemption.objects.create(
+                    promo_code=promo_result['promo_code'],
+                    business=tenant,
+                    user=user,
+                    checkout_session=session,
+                    original_amount=promo_result['original_amount'],
+                    discounted_amount=promo_result['discounted_amount'],
+                    cycles_total=promo_result['duration_cycles'],
+                    status=PromoCodeRedemption.Status.PENDING,
+                )
+                logger.info(
+                    "[checkout_session] PromoCodeRedemption created: promo=%s session=%s "
+                    "original=%s discounted=%s cycles=%d",
+                    promo_result['promo_code'].code, session.id,
+                    promo_result['original_amount'], promo_result['discounted_amount'],
+                    promo_result['duration_cycles'],
+                )
 
         return {
             "checkout_session_id": str(session.id),
@@ -264,6 +400,8 @@ def _create_mp_plan_for_session(
     session: MpCheckoutSession,
     plan: Plan,
     frontend_url: str | None,
+    *,
+    override_amount: float | None = None,
 ) -> MpCheckoutSession:
     """
     Calls MP to create an ephemeral preapproval plan and persists the result.
@@ -273,6 +411,13 @@ def _create_mp_plan_for_session(
     this checkout session — not reused across sessions.  This is the only valid
     strategy for maintaining the 1-session : 1-plan-id correlation required for
     webhook traceability.
+
+    Parameters
+    ----------
+    override_amount:
+        If provided, this float value (ARS pesos) is used as the
+        ``transaction_amount`` instead of ``float(plan.price)``.
+        Used when a promotional code is applied.
     """
     from .mp_service import MercadoPagoService
     from .canonical_pricing import assert_not_centavos, get_plan as get_canonical_plan
@@ -289,15 +434,17 @@ def _create_mp_plan_for_session(
     auto_recurring = {
         "frequency": plan.frequency,
         "frequency_type": plan.frequency_type,
-        "transaction_amount": float(plan.price),  # ARS pesos → MP float
+        "transaction_amount": override_amount if override_amount is not None else float(plan.price),
         "currency_id": plan.currency,
     }
 
     back_url = _build_back_url(str(session.id), frontend_url)
 
     logger.info(
-        "[checkout_session] Creating MP plan for session=%s plan=%s amount=%s",
-        session.id, plan.code, plan.price,
+        "[checkout_session] Creating MP plan for session=%s plan=%s amount=%s%s",
+        session.id, plan.code,
+        override_amount if override_amount is not None else plan.price,
+        ' (promo override)' if override_amount is not None else '',
     )
 
     mp_plan = mp.create_preapproval_plan(

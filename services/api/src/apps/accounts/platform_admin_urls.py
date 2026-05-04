@@ -39,6 +39,12 @@ from .platform_admin_reporting_views import (
     AdminReportingOverviewView,
     AdminReportingAlertsView,
 )
+from apps.billing.platform_admin_promo_views import (
+    AdminPromoCodeListCreateView,
+    AdminPromoCodeDetailView,
+    AdminPromoCodeRedemptionsView,
+    AdminPromoCodeOptionsView,
+)
 from apps.blog.admin_views import (
     AdminBlogPostListView,
     AdminBlogPostCreateView,
@@ -99,4 +105,9 @@ urlpatterns = [
     path('blog/posts/<str:post_id>/schedule/', AdminBlogPostScheduleView.as_view(), name='platform-admin-blog-post-schedule'),
     path('blog/categories/', AdminBlogCategoryListCreateView.as_view(), name='platform-admin-blog-categories'),
     path('blog/categories/<int:category_id>/', AdminBlogCategoryUpdateView.as_view(), name='platform-admin-blog-category-update'),
+    # ── Promo Codes ──────────────────────────────────────────────────────
+    path('promo-codes/', AdminPromoCodeListCreateView.as_view(), name='platform-admin-promo-codes'),
+    path('promo-codes/options/', AdminPromoCodeOptionsView.as_view(), name='platform-admin-promo-code-options'),
+    path('promo-codes/<int:promo_id>/', AdminPromoCodeDetailView.as_view(), name='platform-admin-promo-code-detail'),
+    path('promo-codes/<int:promo_id>/redemptions/', AdminPromoCodeRedemptionsView.as_view(), name='platform-admin-promo-code-redemptions'),
 ]

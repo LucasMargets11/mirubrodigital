@@ -7,6 +7,7 @@ from .views import (
     MercadoPagoWebhookView,
     DevMercadoPagoPingView,
     CheckoutSessionStatusView,
+    ValidatePromoCodeView,
 )
 from .commercial_views import (
     CommercialSubscriptionView,
@@ -42,5 +43,6 @@ urlpatterns = [
     path('undo-cancel/', UndoCancelSubscriptionView.as_view(), name='undo-cancel'),
     path('reviews/upgrade/', ReviewsUpgradeView.as_view(), name='reviews-upgrade'),
     path('reviews/downgrade/', ReviewsDowngradeView.as_view(), name='reviews-downgrade'),
+    path('promo-codes/validate/', ValidatePromoCodeView.as_view(), name='promo-code-validate'),
 ] + router.urls
 

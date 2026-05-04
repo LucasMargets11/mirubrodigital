@@ -73,6 +73,15 @@ export const QR_PREMIUM: PlanDef = {
   priceYearly: 528000,
 };
 
+export const QR_EMPRESARIAL: PlanDef = {
+  code: 'menu_qr_empresarial',
+  vertical: 'menu_qr',
+  name: 'Empresarial',
+  priceMonthly: 0,
+  priceYearly: 0,
+  isCustom: true,
+};
+
 // ── QR de Reseñas ─────────────────────────────────────────────────
 
 export const REVIEWS_BASE: PlanDef = {
@@ -91,6 +100,15 @@ export const REVIEWS_PRO: PlanDef = {
   priceYearly: 384000,
 };
 
+export const REVIEWS_EMPRESARIAL: PlanDef = {
+  code: 'qr_reviews_empresarial',
+  vertical: 'qr_reviews',
+  name: 'Empresarial',
+  priceMonthly: 0,
+  priceYearly: 0,
+  isCustom: true,
+};
+
 // ── Aggregate ─────────────────────────────────────────────────────
 
 export const ALL_PLANS: readonly PlanDef[] = [
@@ -101,6 +119,8 @@ export const ALL_PLANS: readonly PlanDef[] = [
   QR_LITE,
   QR_PRO,
   QR_PREMIUM,
+  QR_EMPRESARIAL,
   REVIEWS_BASE,
   REVIEWS_PRO,
+  REVIEWS_EMPRESARIAL,
 ];

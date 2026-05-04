@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { FinalCtaSection } from '@/components/marketing/sections/final-cta';
 import { HeroSection } from '@/components/marketing/sections/hero';
+import { HomeProductShowcase } from '@/components/marketing/sections/home-product-showcase';
 import { ProductsSection } from '@/components/marketing/sections/products';
 import { BlogResourcesSection } from '@/components/marketing/sections/blog-resources';
 import { ExpandingPanelSection } from '@/components/marketing/sections/expanding-panel';
@@ -79,6 +80,7 @@ export default function MarketingHomePage() {
             <OrganizationJsonLd />
             <WebSiteJsonLd />
             <HeroSection />
+            <HomeProductShowcase />
             <BlogResourcesSection />
             <ExpandingPanelSection />
             <ProductsSection />

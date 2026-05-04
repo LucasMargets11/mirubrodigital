@@ -1,6 +1,15 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiGet, apiPost } from '@/lib/api/client';
-import { BillingVertical, Bundle, Module, QuoteRequest, QuoteResponse } from './types';
+import type { PromoValidationResult } from './subscription-types';
+import { BillingProduct, BillingVertical, Bundle, Module, QuoteRequest, QuoteResponse } from './types';
+
+export function getBillingProducts(): Promise<BillingProduct[]> {
+  return apiGet<BillingProduct[]>('/api/v1/billing/products/');
+}
+
+export function getBundlesByVertical(vertical: BillingVertical): Promise<Bundle[]> {
+  return apiGet<Bundle[]>(`/api/v1/billing/bundles/?vertical=${vertical}`);
+}
 
 export function useModules(vertical: BillingVertical) {
   return useQuery({
@@ -16,10 +25,7 @@ export function useModules(vertical: BillingVertical) {
 export function useBundles(vertical: BillingVertical) {
   return useQuery({
     queryKey: ['billing-bundles', vertical],
-    queryFn: async () => {
-      const data = await apiGet<Bundle[]>(`/api/v1/billing/bundles/?vertical=${vertical}`);
-      return data;
-    },
+    queryFn: () => getBundlesByVertical(vertical),
     enabled: !!vertical,
   });
 }
@@ -43,5 +49,21 @@ export function useSubscribe() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['billing-subscription'] });
     },
+  });
+}
+
+// ── Promotional code validation ───────────────────────────────────────────────
+
+export interface ValidatePromoCodeParams {
+  code: string;
+  plan_code: string;
+  billing_period?: string;
+}
+
+export function validatePromoCode(params: ValidatePromoCodeParams): Promise<PromoValidationResult> {
+  return apiPost<PromoValidationResult>('/api/v1/billing/promo-codes/validate/', {
+    code: params.code,
+    plan_code: params.plan_code,
+    billing_period: params.billing_period ?? 'monthly',
   });
 }

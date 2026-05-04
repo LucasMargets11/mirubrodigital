@@ -421,6 +421,9 @@ class OnboardingStartCheckoutView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Optional promotional code — normalised to uppercase, None if absent/blank.
+        promo_code: str | None = (request.data.get('promo_code') or '').strip().upper() or None
+
         frontend_url = getattr(django_settings, 'FRONTEND_URL', 'http://localhost:3000')
 
         try:
@@ -429,6 +432,7 @@ class OnboardingStartCheckoutView(APIView):
                 tenant=business,
                 plan_code=plan_code,
                 frontend_url=frontend_url,
+                promo_code=promo_code,
             )
         except ValueError as exc:
             # Invalid plan_code or business validation error from the service.

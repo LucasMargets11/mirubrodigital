@@ -19,13 +19,18 @@ class ModuleSerializer(serializers.ModelSerializer):
 
 class BundleSerializer(serializers.ModelSerializer):
     modules = ModuleSerializer(many=True, read_only=True)
-    
+    is_custom = serializers.SerializerMethodField()
+
+    def get_is_custom(self, obj):
+        return obj.fixed_price_monthly is None
+
     class Meta:
         model = Bundle
         fields = [
-            'code', 'name', 'description', 'vertical', 'badge', 
-            'modules', 'pricing_mode', 'fixed_price_monthly', 
-            'fixed_price_yearly', 'discount_percent', 'is_default_recommended'
+            'code', 'name', 'description', 'vertical', 'badge',
+            'modules', 'pricing_mode', 'fixed_price_monthly',
+            'fixed_price_yearly', 'discount_percent', 'is_default_recommended',
+            'is_custom', 'sort_order', 'cta_label',
         ]
 
 class PromotionSerializer(serializers.ModelSerializer):
@@ -56,3 +61,12 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             'plan_type', 'bundle', 'selected_modules', 'billing_period', 
             'currency', 'price_snapshot', 'status', 'created_at'
         ]
+
+
+class BillingProductSerializer(serializers.Serializer):
+    code = serializers.CharField()
+    vertical = serializers.CharField()
+    name = serializers.CharField()
+    description = serializers.CharField()
+    is_active = serializers.BooleanField()
+    order = serializers.IntegerField()

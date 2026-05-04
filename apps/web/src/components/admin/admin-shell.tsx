@@ -16,6 +16,7 @@ import {
   Shield,
   Menu,
   X,
+  Tag,
 } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
@@ -36,6 +37,7 @@ const ALL_NAV_ITEMS: NavItem[] = [
   { section: 'soporte', label: 'Soporte', href: '/admin/soporte', icon: HeadphonesIcon },
   { section: 'blog', label: 'Blog', href: '/admin/blog', icon: FileText },
   { section: 'reportes', label: 'Reportes', href: '/admin/reportes', icon: BarChart3 },
+  { section: 'promociones', label: 'Promociones', href: '/admin/promociones', icon: Tag },
   { section: 'configuracion', label: 'Configuración', href: '/admin/configuracion', icon: Settings },
 ];
 

@@ -31,9 +31,9 @@ class Command(BaseCommand):
             ('gestion_sales_advanced', 'Ventas Avanzadas', 'Descuentos, promociones y ventas a cuenta', 'operation', 0, False),
             ('gestion_rbac_full', 'Control de Acceso Completo', 'Roles, permisos y usuarios ilimitados', 'admin', 0, False),
             ('gestion_audit', 'Auditoría', 'Historial de cambios y logs', 'admin', 0, False),
+            ('gestion_invoices', 'Facturación Electrónica', 'Emisión de facturas fiscales', 'admin', 0, False),
             
             # BUSINESS modules (not in PRO)
-            ('gestion_invoices', 'Facturación Electrónica', 'Emisión de facturas fiscales', 'admin', 0, False),
             ('gestion_multi_branch', 'Multi-Sucursal', 'Gestión consolidada de múltiples sucursales', 'operation', 0, False),
             ('gestion_transfers', 'Transferencias', 'Transferencias de stock entre sucursales', 'operation', 0, False),
             ('gestion_consolidated_reports', 'Reportes Consolidados', 'Reportes multi-sucursal', 'insights', 0, False),
@@ -80,7 +80,7 @@ class Command(BaseCommand):
         pro_modules = start_modules + [
             'gestion_customers', 'gestion_cash', 'gestion_quotes', 'gestion_reports',
             'gestion_export', 'gestion_treasury', 'gestion_inventory_advanced',
-            'gestion_sales_advanced', 'gestion_rbac_full', 'gestion_audit'
+            'gestion_sales_advanced', 'gestion_rbac_full', 'gestion_audit', 'gestion_invoices',
         ]
         
         b_pro, _ = Bundle.objects.update_or_create(
@@ -98,9 +98,10 @@ class Command(BaseCommand):
         )
         b_pro.modules.set([created_modules[code] for code in pro_modules if code in created_modules])
 
-        # Plan BUSINESS - Todo de PRO + features BUSINESS
+        # Plan BUSINESS - Todo de PRO + features exclusivos BUSINESS
+        # Nota: gestion_invoices ya está incluido en pro_modules
         business_modules = pro_modules + [
-            'gestion_invoices', 'gestion_multi_branch', 'gestion_transfers',
+            'gestion_multi_branch', 'gestion_transfers',
             'gestion_consolidated_reports'
         ]
         
@@ -220,8 +221,7 @@ class Command(BaseCommand):
             )
             menu_modules[code] = mod
 
-        # Legacy bundle — keep for backwards compatibility (existing subscriptions reference it)
-        # TODO Deploy 4: review if still needed or can be removed
+        # Legacy bundle — deactivated; keep row so existing subscription FKs don't break.
         menu_bundle, _ = Bundle.objects.update_or_create(
             code='menu_qr_online',
             defaults={
@@ -229,10 +229,11 @@ class Command(BaseCommand):
                 'description': 'Carta digital con QR y branding básico.',
                 'vertical': 'menu_qr',
                 'pricing_mode': 'fixed_price',
-                'fixed_price_monthly': 4900,   # Legacy — not canonical
+                'fixed_price_monthly': 4900,
                 'fixed_price_yearly': 4900 * 10,
                 'is_default_recommended': False,
                 'badge': '',
+                'is_active': False,
             }
         )
         menu_bundle.modules.set(list(menu_modules.values()))
@@ -279,14 +280,17 @@ class Command(BaseCommand):
         b_qr_basico, _ = Bundle.objects.update_or_create(
             code='menu_qr_basico',
             defaults={
-                'name': 'QR Básico',
-                'description': 'Carta digital con QR, branding básico. Sin imágenes por producto.',
+                'name': 'Lite',
+                'description': 'Carta digital básica con branding. Ideal para empezar.',
+                'is_active': True,
                 'vertical': 'menu_qr',
                 'pricing_mode': 'fixed_price',
                 'fixed_price_monthly': plan_price('menu_qr_basico', 'monthly'),  # 18000
                 'fixed_price_yearly': plan_price('menu_qr_basico', 'yearly'),    # 172800
                 'is_default_recommended': False,
                 'badge': '',
+                'sort_order': 1,
+                'cta_label': 'Empezar con Lite',
             }
         )
         b_qr_basico.modules.set(
@@ -298,14 +302,17 @@ class Command(BaseCommand):
         b_qr_visual, _ = Bundle.objects.update_or_create(
             code='menu_qr_visual',
             defaults={
-                'name': 'QR Visual',
-                'description': 'Carta visual con imágenes por producto y branding completo.',
+                'name': 'Pro',
+                'description': 'Imágenes, analítica avanzada y 1 módulo de engagement a elección.',
+                'is_active': True,
                 'vertical': 'menu_qr',
                 'pricing_mode': 'fixed_price',
                 'fixed_price_monthly': plan_price('menu_qr_visual', 'monthly'),  # 30000
                 'fixed_price_yearly': plan_price('menu_qr_visual', 'yearly'),    # 288000
                 'is_default_recommended': True,
-                'badge': 'Popular',
+                'badge': 'Recomendado',
+                'sort_order': 2,
+                'cta_label': 'Elegir Pro',
             }
         )
         b_qr_visual.modules.set(
@@ -318,17 +325,42 @@ class Command(BaseCommand):
         b_qr_marca, _ = Bundle.objects.update_or_create(
             code='menu_qr_marca',
             defaults={
-                'name': 'QR Marca',
-                'description': 'Carta premium con imágenes, dominio personalizado y sin branding de Mirubro.',
+                'name': 'Premium',
+                'description': 'Todo incluido: reseñas, propinas, imágenes, dominio y multi-sucursal.',
+                'is_active': True,
                 'vertical': 'menu_qr',
                 'pricing_mode': 'fixed_price',
                 'fixed_price_monthly': plan_price('menu_qr_marca', 'monthly'),  # 55000
                 'fixed_price_yearly': plan_price('menu_qr_marca', 'yearly'),    # 528000
                 'is_default_recommended': False,
-                'badge': 'Completo',
+                'badge': '',
+                'sort_order': 3,
+                'cta_label': 'Ir a Premium',
             }
         )
         b_qr_marca.modules.set(
+            [menu_modules.get(c) or premium_menu_mods.get(c) for c in marca_module_codes
+             if menu_modules.get(c) or premium_menu_mods.get(c)]
+        )
+
+        # Tier Empresarial: contact only — no MP checkout
+        b_qr_empresarial, _ = Bundle.objects.update_or_create(
+            code='menu_qr_empresarial',
+            defaults={
+                'name': 'Empresarial',
+                'description': 'Una experiencia digital adaptada a tu marca y operación.',
+                'vertical': 'menu_qr',
+                'pricing_mode': 'fixed_price',
+                'fixed_price_monthly': None,   # None = contact only; no MP checkout
+                'fixed_price_yearly': None,
+                'is_default_recommended': False,
+                'is_active': True,
+                'badge': 'Contactar',
+                'sort_order': 4,
+                'cta_label': 'Hablar con MiRubro',
+            }
+        )
+        b_qr_empresarial.modules.set(
             [menu_modules.get(c) or premium_menu_mods.get(c) for c in marca_module_codes
              if menu_modules.get(c) or premium_menu_mods.get(c)]
         )
@@ -356,23 +388,81 @@ class Command(BaseCommand):
             )
             qr_reviews_modules[code] = mod
 
-        # PROVISIONAL PRICING — subject to commercial decision.
-        # Single source of truth for QR de Reseñas pricing is this bundle seed.
-        # Frontend reads this via /api/v1/billing/bundles/?vertical=qr_reviews.
-        b_qr_reviews, _ = Bundle.objects.update_or_create(
+        # Legacy bundle — deactivated; keep row so existing subscription FKs don't break.
+        b_qr_reviews_legacy, _ = Bundle.objects.update_or_create(
             code='qr_reviews',
             defaults={
                 'name': 'QR de Reseñas',
                 'description': 'QR y enlace público para recopilar reseñas de Google.',
                 'vertical': 'qr_reviews',
                 'pricing_mode': 'fixed_price',
-                'fixed_price_monthly': plan_price('qr_reviews_base', 'monthly'),  # 25000
-                'fixed_price_yearly': plan_price('qr_reviews_base', 'yearly'),    # 240000
-                'is_default_recommended': True,
+                'fixed_price_monthly': plan_price('qr_reviews_base', 'monthly'),
+                'fixed_price_yearly': plan_price('qr_reviews_base', 'yearly'),
+                'is_default_recommended': False,
                 'badge': '',
+                'is_active': False,
+                'sort_order': 99,
+                'cta_label': '',
             }
         )
-        b_qr_reviews.modules.set(list(qr_reviews_modules.values()))
+        b_qr_reviews_legacy.modules.set(list(qr_reviews_modules.values()))
+
+        # Tier 1: Reseñas Base
+        b_qr_reviews_base, _ = Bundle.objects.update_or_create(
+            code='qr_reviews_base',
+            defaults={
+                'name': 'Reseñas Base',
+                'description': 'Generá reseñas en Google de forma simple.',
+                'vertical': 'qr_reviews',
+                'pricing_mode': 'fixed_price',
+                'fixed_price_monthly': plan_price('qr_reviews_base', 'monthly'),  # 25000
+                'fixed_price_yearly': plan_price('qr_reviews_base', 'yearly'),    # 240000
+                'is_default_recommended': False,
+                'is_active': True,
+                'badge': '',
+                'sort_order': 1,
+                'cta_label': 'Activar Reseñas Base',
+            }
+        )
+        b_qr_reviews_base.modules.set(list(qr_reviews_modules.values()))
+
+        # Tier 2: Reseñas Pro
+        b_qr_reviews_pro, _ = Bundle.objects.update_or_create(
+            code='qr_reviews_pro',
+            defaults={
+                'name': 'Reseñas Pro',
+                'description': 'Elegí qué llega a Google y qué queda como feedback privado.',
+                'vertical': 'qr_reviews',
+                'pricing_mode': 'fixed_price',
+                'fixed_price_monthly': plan_price('qr_reviews_pro', 'monthly'),  # 40000
+                'fixed_price_yearly': plan_price('qr_reviews_pro', 'yearly'),    # 384000
+                'is_default_recommended': True,
+                'is_active': True,
+                'badge': 'Recomendado',
+                'sort_order': 2,
+                'cta_label': 'Activar Reseñas Pro',
+            }
+        )
+        b_qr_reviews_pro.modules.set(list(qr_reviews_modules.values()))
+
+        # Tier 3: Empresarial — contact only, no MP checkout
+        b_qr_reviews_empresarial, _ = Bundle.objects.update_or_create(
+            code='qr_reviews_empresarial',
+            defaults={
+                'name': 'Empresarial',
+                'description': 'Una propuesta personalizada para escalar tu reputación digital.',
+                'vertical': 'qr_reviews',
+                'pricing_mode': 'fixed_price',
+                'fixed_price_monthly': None,   # None = contact only; no MP checkout
+                'fixed_price_yearly': None,
+                'is_default_recommended': False,
+                'is_active': True,
+                'badge': 'Contactar',
+                'sort_order': 3,
+                'cta_label': 'Hablar con MiRubro',
+            }
+        )
+        b_qr_reviews_empresarial.modules.set(list(qr_reviews_modules.values()))
 
         # Plans for checkout flow
         # These codes MUST match Bundle.code values — checkout_session_service.start_checkout()
@@ -388,11 +478,13 @@ class Command(BaseCommand):
             ('resto_basic',             'Startup — Restaurante',             Decimal('25.00'),   'restaurant'),
             ('restaurante_inteligente', 'Inteligente — Restaurante',         Decimal('149.00'),  'restaurant'),
             # Menú QR (canonical)
-            ('menu_qr_basico',          'QR Básico — Menú QR',               price_to_decimal(plan_price('menu_qr_basico')),   'menu_qr'),
-            ('menu_qr_visual',          'QR Visual — Menú QR',               price_to_decimal(plan_price('menu_qr_visual')),   'menu_qr'),
-            ('menu_qr_marca',           'QR Marca — Menú QR',                price_to_decimal(plan_price('menu_qr_marca')),    'menu_qr'),
+            ('menu_qr_basico',          'Lite — Menú QR',                    price_to_decimal(plan_price('menu_qr_basico')),   'menu_qr'),
+            ('menu_qr_visual',          'Pro — Menú QR',                     price_to_decimal(plan_price('menu_qr_visual')),   'menu_qr'),
+            ('menu_qr_marca',           'Premium — Menú QR',                 price_to_decimal(plan_price('menu_qr_marca')),    'menu_qr'),
             # QR de Reseñas (canonical)
-            ('qr_reviews',              'QR de Reseñas',                     price_to_decimal(plan_price('qr_reviews_base')),  'qr_reviews'),
+            ('qr_reviews',              'QR de Reseñas (legacy)',            price_to_decimal(plan_price('qr_reviews_base')),  'qr_reviews'),
+            ('qr_reviews_base',         'Reseñas Base',                      price_to_decimal(plan_price('qr_reviews_base')),  'qr_reviews'),
+            ('qr_reviews_pro',          'Reseñas Pro',                       price_to_decimal(plan_price('qr_reviews_pro')),   'qr_reviews'),
         ]
         for code, name, price, _vertical in PLAN_SEEDS:
             Plan.objects.update_or_create(

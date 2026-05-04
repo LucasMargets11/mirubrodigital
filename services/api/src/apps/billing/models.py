@@ -124,6 +124,8 @@ class Bundle(models.Model):
     
     is_default_recommended = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
+    sort_order = models.IntegerField(default=0, help_text="Visual display order within a vertical (lower = first)")
+    cta_label = models.CharField(max_length=128, blank=True, default='', help_text="CTA button label for plan card")
 
     def __str__(self):
         return self.name
@@ -832,3 +834,191 @@ class BillingInvoiceEvent(models.Model):
 
     def __str__(self) -> str:  # pragma: no cover
         return f"BillingInvoiceEvent · {self.provider_authorized_payment_id} · {self.provider_status}"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Promotional Codes — subscription discount system
+#
+# Design:
+#   PromoCode         : admin-created promo rule (discount, eligibility, limits)
+#   PromoCodeRedemption: one record per (promo_code × business) that tracks the
+#                        discount lifecycle from checkout through final cycle.
+#
+# Intentionally SEPARATE from the legacy `Promotion` model, which handles
+# Bundle/Module display-level discounts and must not be modified.
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class PromoCode(models.Model):
+    """
+    Admin-created promotional code for subscription discounts.
+
+    Eligibility rules (all optional except applies_to_plan_codes):
+      - applies_to_plan_codes: non-empty list of Plan.code values. Required.
+      - applies_to_service: if set, only applies to that service_type slug.
+      - applies_to_billing_periods: if set, only applies to listed periods.
+      - starts_at / ends_at: validity window.
+      - max_redemptions: global cap (null = unlimited).
+      - max_redemptions_per_business: per-business cap (default 1).
+    """
+
+    class DiscountType(models.TextChoices):
+        PERCENT      = 'percent',      'Porcentaje'
+        FIXED_AMOUNT = 'fixed_amount', 'Monto fijo'
+
+    code           = models.CharField(max_length=64, unique=True)
+    name           = models.CharField(max_length=128)
+    description    = models.TextField(blank=True)
+    discount_type  = models.CharField(max_length=16, choices=DiscountType.choices)
+    discount_value = models.DecimalField(
+        max_digits=10, decimal_places=2,
+        help_text='Percentage (0–100) or fixed ARS amount to subtract.',
+    )
+    duration_cycles = models.PositiveSmallIntegerField(
+        default=1,
+        help_text='Number of billing cycles the discount applies. Minimum 1.',
+    )
+    starts_at = models.DateTimeField(null=True, blank=True)
+    ends_at   = models.DateTimeField(null=True, blank=True)
+    max_redemptions = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text='Global redemption cap. Null = unlimited.',
+    )
+    max_redemptions_per_business = models.PositiveSmallIntegerField(
+        default=1,
+        help_text='Max times a single business can use this code. Default 1.',
+    )
+    active = models.BooleanField(default=True)
+
+    # ── Applicability filters (empty = no restriction) ────────────────────────
+    # Must contain at least one Plan.code; an empty list is rejected by promo_service.
+    applies_to_plan_codes = models.JSONField(
+        default=list,
+        help_text='List of Plan.code values. Must contain at least one entry.',
+    )
+    applies_to_service = models.CharField(
+        max_length=32, blank=True,
+        help_text="Service slug restriction ('gestion', 'restaurante', …). Empty = any.",
+    )
+    applies_to_billing_periods = models.JSONField(
+        default=list,
+        help_text="List of billing periods ('monthly', 'yearly'). Empty = any.",
+    )
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='created_promo_codes',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def compute_discounted_amount(self, original_amount):
+        """
+        Returns the discounted amount for *original_amount* (Decimal, ARS pesos).
+        Result is always >= Decimal('0.00').
+        """
+        from decimal import Decimal, ROUND_HALF_UP
+        original = original_amount
+        if self.discount_type == self.DiscountType.PERCENT:
+            fraction = self.discount_value / Decimal('100')
+            discounted = original * (Decimal('1') - fraction)
+        else:
+            discounted = original - self.discount_value
+        return max(Decimal('0.00'), discounted).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+    def __str__(self) -> str:  # pragma: no cover
+        return f"PromoCode · {self.code} · {self.discount_type}:{self.discount_value}"
+
+
+class PromoCodeRedemption(models.Model):
+    """
+    Tracks the usage of a PromoCode for a specific business/subscription.
+
+    Lifecycle
+    ---------
+    pending   → checkout session created, MP plan created with discounted amount;
+                waiting for first authorized payment.
+    active    → first payment confirmed; cycles_used starts counting.
+    completed → cycles_used == cycles_total; full-price payment follows.
+    cancelled → checkout abandoned or subscription cancelled before completion.
+    expired   → promo window ended without activation.
+
+    Idempotency
+    -----------
+    The partial unique constraint ``uq_pr_active_biz_code``
+    prevents a business from having more than one pending/active redemption for
+    the same promo code simultaneously.
+    """
+
+    class Status(models.TextChoices):
+        PENDING   = 'pending',   'Pendiente'
+        ACTIVE    = 'active',    'Activo'
+        COMPLETED = 'completed', 'Completado'
+        CANCELLED = 'cancelled', 'Cancelado'
+        EXPIRED   = 'expired',   'Expirado'
+
+    promo_code = models.ForeignKey(
+        PromoCode, on_delete=models.PROTECT, related_name='redemptions',
+    )
+    business = models.ForeignKey(
+        Business, on_delete=models.PROTECT, related_name='promo_redemptions',
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='promo_redemptions',
+    )
+    subscription = models.ForeignKey(
+        SubscriptionV2,
+        on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='promo_redemptions',
+    )
+    checkout_session = models.ForeignKey(
+        MpCheckoutSession,
+        on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='promo_redemptions',
+    )
+
+    original_amount   = models.DecimalField(max_digits=12, decimal_places=2)
+    discounted_amount = models.DecimalField(max_digits=12, decimal_places=2)
+    cycles_total = models.PositiveSmallIntegerField()
+    cycles_used  = models.PositiveSmallIntegerField(default=0)
+    status = models.CharField(
+        max_length=16, choices=Status.choices, default=Status.PENDING,
+    )
+
+    # Set by Fase 2 webhook logic when full price is restored on MP.
+    price_restored    = models.BooleanField(default=False)
+    price_restored_at = models.DateTimeField(null=True, blank=True)
+    # Idempotency key for the last payment that incremented cycles_used.
+    last_applied_payment_id = models.CharField(max_length=128, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['subscription', 'status'],  name='pr_sub_status_idx'),
+            models.Index(fields=['business', 'promo_code'],  name='pr_biz_code_idx'),
+            models.Index(fields=['checkout_session'],        name='promo_redemption_session_idx'),
+        ]
+        constraints = [
+            # A business cannot have two concurrent pending/active redemptions
+            # for the same promo code.  Completed/cancelled/expired are allowed
+            # to coexist (they represent history).
+            models.UniqueConstraint(
+                fields=['promo_code', 'business'],
+                condition=models.Q(status__in=['pending', 'active']),
+                name='uq_pr_active_biz_code',
+            ),
+        ]
+
+    def __str__(self) -> str:  # pragma: no cover
+        return (
+            f"PromoRedemption · {self.promo_code.code} · "
+            f"biz={self.business_id} · {self.status}"
+        )

@@ -11,6 +11,41 @@ import { formatPrice } from '@/lib/pricing/format';
 const STEP1_ROUTE = '/app/onboarding/servicio';
 const CHECKOUT_ROUTE = '/app/onboarding/checkout';
 
+type BillingProduct = {
+    code: string;
+    vertical: string;
+    name: string;
+    description: string;
+    is_active: boolean;
+    order: number;
+};
+
+export function buildBundlesPath(vertical: string): string {
+    return `/api/v1/billing/bundles/?vertical=${vertical}&checkout=true`;
+}
+
+export function resolveSelectedProduct(
+    serviceType: string,
+    products: BillingProduct[],
+): BillingProduct | null {
+    return products.find((product) => product.code === serviceType) ?? null;
+}
+
+function fallbackVerticalForService(serviceType: string): string {
+    if (serviceType === 'gestion') return 'commercial';
+    if (serviceType === 'resto') return 'restaurant';
+    if (serviceType === 'menu_qr') return 'menu_qr';
+    if (serviceType === 'qr_reviews') return 'qr_reviews';
+    return 'commercial';
+}
+
+type OnboardingStatus = {
+    step: string;
+    service_type: string | null;
+    email_verified: boolean;
+    can_proceed: boolean;
+};
+
 type PlanBundle = {
     code: string;
     name: string;
@@ -19,6 +54,9 @@ type PlanBundle = {
     fixed_price_yearly: number | null;
     badge: string | null;
     is_default_recommended: boolean;
+    is_custom: boolean;
+    sort_order: number;
+    cta_label: string;
 };
 
 /**
@@ -51,41 +89,46 @@ export default async function OnboardingPlanPage({ searchParams }: Props) {
         redirect((`${CHECKOUT_ROUTE}?plan=${encodeURIComponent(preselectedPlan)}`) as never);
     }
 
-    // If service_type not yet selected, bounce back to step 1.
-    const serviceType = session.current?.service ?? '';
-    // Use service_type from the business (canonical) instead of the resolved active
-    // service — the resolved service may default to 'gestion' even when unset.
-    // The onboarding status endpoint gives us the canonical value; here we
-    // use the session's current.service as proxy (it's set from service_type | default_service).
+    // Fetch the canonical service_type from the onboarding status endpoint.
+    // session.current.service resolves to 'gestion' by default (build_business_context
+    // fallback) even before the user selects a service during onboarding, so we
+    // cannot rely on it here — it would always show commercial plans.
+    let onboardingStatus: OnboardingStatus | null = null;
+    try {
+        onboardingStatus = await serverApiFetch<OnboardingStatus>('/api/v1/auth/onboarding/');
+    } catch {
+        // Non-fatal: null check below will redirect to step 1.
+    }
+
+    const serviceType = onboardingStatus?.service_type ?? '';
     if (!serviceType) {
+        // service_type not set yet — user must complete step 1 first.
         redirect(STEP1_ROUTE as never);
     }
 
-    // Vertical map: service_type → billing vertical param
-    const verticalMap: Record<string, string> = {
-        gestion: 'commercial',
-        restaurante: 'restaurant',
-        menu_qr: 'menu_qr',
-        qr_reviews: 'qr_reviews',
-    };
-    const vertical = verticalMap[serviceType] ?? 'commercial';
-
-    let bundles: PlanBundle[] = [];
+    let products: BillingProduct[] = [];
     try {
-        const data = await serverApiFetch<PlanBundle[]>(
-            `/api/v1/billing/bundles/?vertical=${vertical}`
-        );
-        bundles = Array.isArray(data) ? data : [];
+        const productData = await serverApiFetch<BillingProduct[]>('/api/v1/billing/products/');
+        products = Array.isArray(productData) ? productData : [];
     } catch {
-        // Non-fatal: render with empty list and a retry hint.
+        // Non-fatal: we'll fallback to serviceType when product catalog fails.
     }
 
-    const serviceLabel: Record<string, string> = {
-        gestion: 'Gestión Comercial',
-        restaurante: 'Restaurante',
-        menu_qr: 'Menú QR',
-        qr_reviews: 'QR de Reseñas',
-    };
+    const selectedProduct = resolveSelectedProduct(serviceType, products);
+    const vertical = selectedProduct?.vertical ?? fallbackVerticalForService(serviceType);
+
+    let bundles: PlanBundle[] = [];
+    let bundlesFetchFailed = false;
+    try {
+        const data = await serverApiFetch<PlanBundle[]>(buildBundlesPath(vertical));
+        // API already filters checkout=true, but we defensively strip any
+        // is_custom or null-price bundles that might slip through.
+        const all = Array.isArray(data) ? [...data].sort((a, b) => a.sort_order - b.sort_order) : [];
+        bundles = all.filter((b) => !b.is_custom && b.fixed_price_monthly !== null);
+    } catch {
+        bundlesFetchFailed = true;
+    }
+    const serviceLabel = selectedProduct?.name ?? serviceType;
 
     return (
         <div className="w-full max-w-3xl">
@@ -99,26 +142,37 @@ export default async function OnboardingPlanPage({ searchParams }: Props) {
             </div>
 
             <h1 className="text-2xl font-semibold text-slate-900 mb-2">
-                Elegí tu plan de {serviceLabel[serviceType] ?? serviceType}
+                Elegí tu plan de {serviceLabel}
             </h1>
             <p className="text-sm text-slate-500 mb-8">
                 Todos los planes incluyen 14 días de prueba gratuita. Sin tarjeta de crédito requerida.
             </p>
 
             {bundles.length === 0 ? (
-                <div className="rounded-lg border border-slate-200 bg-white p-6 text-center">
-                    <p className="text-sm text-slate-500 mb-4">
-                        No pudimos cargar los planes disponibles.
+                <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center">
+                    <p className="text-sm font-medium text-red-700 mb-1">
+                        {bundlesFetchFailed
+                            ? 'Error al cargar los planes. Verificá tu conexión.'
+                            : `No hay planes disponibles para ${serviceLabel}.`}
+                    </p>
+                    <p className="text-xs text-red-600 mb-4">
+                        {bundlesFetchFailed
+                            ? 'Intentá de nuevo o contactá soporte si el problema persiste.'
+                            : 'Contactá soporte para configurar los planes de tu producto.'}
                     </p>
                     <a
                         href="/app/onboarding/plan"
-                        className="text-sm text-slate-900 underline"
+                        className="text-sm font-medium text-red-700 underline"
                     >
                         Reintentar
                     </a>
                 </div>
             ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {/* Onboarding context: only checkout-enabled plans are shown.
+                        is_custom and null-price bundles (Empresarial / contact-only)
+                        are excluded at both the API level (?checkout=true) and
+                        client-side for defense-in-depth. */}
                     {bundles.map((bundle) => (
                         <div
                             key={bundle.code}
@@ -135,19 +189,19 @@ export default async function OnboardingPlanPage({ searchParams }: Props) {
                             <p className="text-xs text-slate-500 mb-4 flex-1">{bundle.description}</p>
                             <p className="text-lg font-bold text-slate-900 mb-1">
                                 {bundle.fixed_price_monthly != null
-                                    ? formatPrice(bundle.fixed_price_monthly)
-                                    : '—'}
-                                <span className="text-xs font-normal text-slate-400">/mes</span>
+                                    ? <>{formatPrice(bundle.fixed_price_monthly)}<span className="text-xs font-normal text-slate-400">/mes</span></>
+                                    : <span className="text-slate-500 font-semibold">Hablemos</span>}
                             </p>
-                            {/* Navigate to the onboarding checkout page with the
-                                plan pre-selected.  start-checkout is idempotent so
-                                re-clicking the same plan returns the existing session. */}
+                            {/* All bundles rendered here have a price and are
+                                checkout-enabled (is_custom=false). CTA always
+                                goes to the checkout step — no /contacto links
+                                in the onboarding funnel. */}
                             <Link
-                                href={`${CHECKOUT_ROUTE}?plan=${bundle.code}` as never}
+                                href={`${CHECKOUT_ROUTE}?plan=${bundle.code}&product=${encodeURIComponent(serviceType)}` as never}
                                 className="mt-3 block w-full text-center py-2 px-4 bg-slate-900 text-white 
                                            text-xs font-medium rounded-md hover:bg-slate-800 transition-colors"
                             >
-                                Elegir plan
+                                {bundle.cta_label || 'Elegir plan'}
                             </Link>
                         </div>
                     ))}

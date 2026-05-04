@@ -1,35 +1,53 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 
 import { getClientApiBaseUrl } from '@/lib/api-url';
+import { getBillingProducts } from '@/features/billing/api';
+import type { BillingProduct } from '@/features/billing/types';
 
 const API_URL = getClientApiBaseUrl();
 
 type ServiceOption = {
     code: string;
+    vertical: string;
     label: string;
     description: string;
 };
 
-const SERVICE_OPTIONS: ServiceOption[] = [
+const FALLBACK_SERVICE_OPTIONS: ServiceOption[] = [
     {
         code: 'gestion',
+        vertical: 'commercial',
         label: 'Gestión Comercial',
         description: 'Ventas, stock, clientes, caja y facturación para comercios.',
     },
     {
-        code: 'restaurante',
-        label: 'Restaurante',
-        description: 'Mesas, pedidos, cocina y delivery para gastronomía.',
-    },
-    {
         code: 'menu_qr',
+        vertical: 'menu_qr',
         label: 'Menú QR',
         description: 'Carta digital con código QR para que tus clientes vean tu menú.',
     },
+    {
+        code: 'qr_reviews',
+        vertical: 'qr_reviews',
+        label: 'QR de Reseñas',
+        description: 'Más reseñas positivas en Google y mejor reputación para tu negocio.',
+    },
 ];
+
+function mapProductsToServiceOptions(products: BillingProduct[]): ServiceOption[] {
+    return products
+        .filter((product) => product.is_active)
+        .sort((a, b) => a.order - b.order)
+        .map((product) => ({
+            code: product.code,
+            vertical: product.vertical,
+            label: product.name,
+            description: product.description,
+        }));
+}
 
 /**
  * Step 1 of the onboarding funnel: service type selection.
@@ -44,16 +62,53 @@ export default function OnboardingServicioPage() {
     const planCode     = searchParams.get('plan_code') ?? '';
     const billingPeriod = searchParams.get('billing_period') ?? '';
 
-    // Pre-select service from ?vertical when it matches a known option.
-    const initialService = SERVICE_OPTIONS.some(o => o.code === verticalHint) ? verticalHint : '';
-
-    const [selected, setSelected] = useState<string>(initialService);
+    const [serviceOptions, setServiceOptions] = useState<ServiceOption[]>([]);
+    const [productsLoading, setProductsLoading] = useState(true);
+    const [selected, setSelected] = useState<string>('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    useEffect(() => {
+        let alive = true;
+
+        async function loadProducts() {
+            try {
+                const products = await getBillingProducts();
+                if (!alive) return;
+                const mapped = mapProductsToServiceOptions(products);
+                setServiceOptions(mapped.length > 0 ? mapped : FALLBACK_SERVICE_OPTIONS);
+            } catch {
+                if (!alive) return;
+                setServiceOptions(FALLBACK_SERVICE_OPTIONS);
+            } finally {
+                if (alive) setProductsLoading(false);
+            }
+        }
+
+        loadProducts();
+        return () => {
+            alive = false;
+        };
+    }, []);
+
+    const effectiveOptions = useMemo(
+        () => (serviceOptions.length > 0 ? serviceOptions : FALLBACK_SERVICE_OPTIONS),
+        [serviceOptions],
+    );
+
+    useEffect(() => {
+        if (effectiveOptions.length === 0) return;
+        if (selected && effectiveOptions.some((o) => o.code === selected)) return;
+
+        const hinted = effectiveOptions.find(
+            (o) => o.code === verticalHint || o.vertical === verticalHint,
+        );
+        setSelected(hinted?.code ?? effectiveOptions[0].code);
+    }, [effectiveOptions, verticalHint, selected]);
+
     async function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
-        if (!selected) return;
+        if (!selected || productsLoading) return;
 
         setLoading(true);
         setError(null);
@@ -110,7 +165,7 @@ export default function OnboardingServicioPage() {
             </p>
 
             <form onSubmit={handleSubmit} className="space-y-3">
-                {SERVICE_OPTIONS.map((opt) => (
+                {effectiveOptions.map((opt) => (
                     <label
                         key={opt.code}
                         className={`flex items-start gap-4 p-4 rounded-lg border cursor-pointer transition-colors ${
@@ -143,7 +198,7 @@ export default function OnboardingServicioPage() {
                 <div className="pt-4">
                     <button
                         type="submit"
-                        disabled={!selected || loading}
+                        disabled={!selected || loading || productsLoading}
                         className="w-full py-2.5 px-4 bg-slate-900 text-white text-sm font-medium rounded-lg 
                                    hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed 
                                    transition-colors"

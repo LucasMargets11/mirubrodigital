@@ -468,6 +468,22 @@ def _handle_authorized_payment(authorized_payment_id: str, delivery: WebhookDeli
                 ap_status, delivery.id,
             )
 
+    # Step 5: handle promotional discount cycles.
+    # Runs OUTSIDE the main transaction so a MercadoPago restore failure cannot
+    # roll back the subscription activation committed in Step 4.
+    if ap_status == 'authorized' and subscription is not None:
+        from .promo_cycle_service import handle_promo_cycle
+        try:
+            handle_promo_cycle(subscription, authorized_payment_id)
+        except Exception as exc:
+            logger.exception(
+                "[webhook/authorized_payment] handle_promo_cycle failed — "
+                "subscription=%s auth_payment=%s: %s. "
+                "Webhook will be marked PROCESSED; reconciliation will retry.",
+                subscription.pk, authorized_payment_id, exc,
+            )
+            # Do NOT re-raise — promo cycle failure must not fail the webhook.
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Internal helpers

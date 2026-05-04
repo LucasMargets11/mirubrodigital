@@ -42,3 +42,24 @@ export interface CancelSubscriptionResponse {
     detail: string;
     subscription: SubscriptionInfo;
 }
+
+// ── Promotional Code Validation ───────────────────────────────────────────────
+
+export interface PromoValidationSuccess {
+    valid: true;
+    code: string;
+    discount_type: 'percent' | 'fixed_amount';
+    discount_value: string;
+    duration_cycles: number;
+    original_amount: string;
+    discounted_amount: string;
+    summary: string;
+}
+
+export interface PromoValidationError {
+    valid: false;
+    error_code: string;
+    detail: string;
+}
+
+export type PromoValidationResult = PromoValidationSuccess | PromoValidationError;

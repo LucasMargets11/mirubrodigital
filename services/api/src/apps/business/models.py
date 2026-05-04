@@ -407,3 +407,46 @@ def ensure_business_profiles(sender, instance: Business, created: bool, **kwargs
   if created:
     BusinessBillingProfile.objects.get_or_create(business=instance)
     BusinessBranding.objects.get_or_create(business=instance)
+
+
+class BusinessOnboardingProgress(models.Model):
+  """Tracks the embedded onboarding wizard progress per product type."""
+
+  PRODUCT_TYPE_CHOICES = [
+    ('gestion', 'Gestión Comercial'),
+    ('menu_qr', 'Menú QR'),
+    ('qr_reviews', 'QR de Reseñas'),
+  ]
+
+  business = models.ForeignKey(
+    'business.Business',
+    related_name='onboarding_progress',
+    on_delete=models.CASCADE,
+  )
+  product_type = models.CharField(
+    max_length=32,
+    choices=PRODUCT_TYPE_CHOICES,
+    default='gestion',
+  )
+  version = models.CharField(max_length=8, default='v1')
+  # Current step the wizard should resume at. Empty string = not started / finished.
+  current_step = models.CharField(max_length=64, blank=True, default='')
+  # List of step IDs explicitly skipped by the user.
+  skipped_steps = models.JSONField(default=list)
+  # Set when the user has genuinely completed all wizard steps.
+  completed_at = models.DateTimeField(null=True, blank=True)
+  # Set when the user dismisses the banner/wizard without completing it.
+  dismissed_at = models.DateTimeField(null=True, blank=True)
+  created_at = models.DateTimeField(auto_now_add=True)
+  updated_at = models.DateTimeField(auto_now=True)
+
+  class Meta:
+    verbose_name = 'Business Onboarding Progress'
+    verbose_name_plural = 'Business Onboarding Progress'
+    unique_together = [('business', 'product_type', 'version')]
+    indexes = [
+      models.Index(fields=['business', 'product_type'], name='onboarding_biz_type_idx'),
+    ]
+
+  def __str__(self) -> str:
+    return f"OnboardingProgress · {self.business_id} · {self.product_type} {self.version}"

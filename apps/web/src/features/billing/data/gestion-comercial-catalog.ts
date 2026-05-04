@@ -420,6 +420,7 @@ export const GC_PLAN_KEY_FEATURES: Record<GcPlanEntry['plan'], string[]> = {
   pro: [
     'Todo lo incluido en Starter',
     'CRM / Gestión de clientes',
+    'Facturación electrónica',
     'Caja y sesiones de caja',
     'Cotizaciones con PDF',
     'Reportes avanzados + Exportación',
@@ -427,11 +428,10 @@ export const GC_PLAN_KEY_FEATURES: Record<GcPlanEntry['plan'], string[]> = {
   ],
   business: [
     'Todo lo incluido en Pro',
-    'Facturación electrónica incluida',
-    'Respaldo Impositivo',
-    'Gestión multi-sucursal',
+    'Multi-sucursal (5 sucursales incluidas)',
     'Transferencias entre sucursales',
-    'Reportes consolidados',
+    'Reportes consolidados multi-sucursal',
+    'Respaldo impositivo',
   ],
 };
 
@@ -442,7 +442,7 @@ export const GC_PLAN_KEY_FEATURES: Record<GcPlanEntry['plan'], string[]> = {
 export const GC_PLAN_META: Record<GcPlanEntry['plan'], { branches: string; users: string; highlight: string }> = {
   start: { branches: '1 sucursal', users: '2 usuarios', highlight: 'Ideal para empezar' },
   pro: { branches: 'Hasta 3 sucursales', users: '10 usuarios', highlight: 'Incluye Tesorería' },
-  business: { branches: 'Ilimitadas (5 incluidas)', users: '20 usuarios base', highlight: 'Facturación incluida' },
+  business: { branches: 'Ilimitadas (5 incluidas)', users: '20 usuarios base', highlight: 'Multi-sucursal + Respaldo fiscal' },
 };
 
 // ---------------------------------------------------------------------------

@@ -108,7 +108,7 @@ export function GooglePlaceAutocomplete({ onSelect, onCancel }: Props) {
                 const el = new google.maps.places.PlaceAutocompleteElement({});
 
                 // Configure via properties (current API surface)
-                el.includedRegionCodes = ['ar'];
+                (el as any).includedRegionCodes = ['ar'];
                 (el as any).types = ['establishment'];
 
                 // Style the inner <input> to match the app's design

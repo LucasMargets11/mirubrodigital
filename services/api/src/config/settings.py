@@ -292,6 +292,11 @@ CELERY_BEAT_SCHEDULE = {
         # Mondays at 12:00 UTC (09:00 ART) — weekly feedback digest.
         'schedule': crontab(hour='12', minute='0', day_of_week='1'),
     },
+    'billing-reconcile-promo-discounts': {
+        'task': 'billing.reconcile_promotional_discounts',
+        # Every hour at minute 45 — retry failed MP price restorations.
+        'schedule': crontab(minute='45'),
+    },
 }
 
 REPORTS_LOW_STOCK_THRESHOLD_DEFAULT = Decimal(os.getenv('REPORTS_LOW_STOCK_THRESHOLD_DEFAULT', '5'))

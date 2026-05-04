@@ -1,6 +1,7 @@
 "use client";
 
 import type { InventorySummaryStats } from '@/features/gestion/types';
+import { OnboardingResumeBanner } from '@/components/onboarding/OnboardingResumeBanner';
 
 import { OwnerDashboard } from './components/owner/owner-dashboard';
 
@@ -39,14 +40,15 @@ type DashboardClientProps = {
 };
 
 export function DashboardClient({ initialSummary, permissions, features, planName }: DashboardClientProps) {
-    // For now, we assume everyone landing here gets the new Owner Dashboard as requested.
-    // In future, we can switch based on role.
     return (
-        <OwnerDashboard 
-            initialSummary={initialSummary}
-            permissions={permissions}
-            features={features}
-            planName={planName}
-        />
+        <div className="space-y-4">
+            <OnboardingResumeBanner />
+            <OwnerDashboard
+                initialSummary={initialSummary}
+                permissions={permissions}
+                features={features}
+                planName={planName}
+            />
+        </div>
     );
 }

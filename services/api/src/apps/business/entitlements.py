@@ -125,7 +125,7 @@ ADDON_ENTITLEMENTS = {
 
 # Mapeo de entitlements a upgrade hint
 ENTITLEMENT_UPGRADE_HINTS = {
-    'gestion.customers': 'PRO o ADD-ON',
+    'gestion.customers': 'Disponible en PRO o como add-on para Starter.',
     'gestion.cash': 'PRO',
     'gestion.quotes': 'PRO',
     'gestion.reports': 'PRO',
@@ -136,7 +136,7 @@ ENTITLEMENT_UPGRADE_HINTS = {
     'gestion.sales_advanced': 'PRO',
     'gestion.rbac_full': 'PRO',
     'gestion.audit': 'PRO',
-    'gestion.invoices': 'PRO o ADD-ON',
+    'gestion.invoices': 'Disponible en PRO o como add-on para Starter.',
     'gestion.multi_branch': 'BUSINESS',
     'gestion.transfers': 'BUSINESS',
     'gestion.consolidated_reports': 'BUSINESS',

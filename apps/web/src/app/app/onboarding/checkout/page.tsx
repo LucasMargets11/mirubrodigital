@@ -40,6 +40,8 @@ import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 
 import { getClientApiBaseUrl } from '@/lib/api-url';
+import { validatePromoCode } from '@/features/billing/api';
+import type { PromoValidationSuccess } from '@/features/billing/subscription-types';
 
 const API_URL = getClientApiBaseUrl();
 
@@ -62,6 +64,7 @@ type SessionPollData = {
 };
 
 type PagePhase =
+    | 'pre_checkout'        // promo input form — before initiating checkout
     | 'loading'             // calling start-checkout
     | 'payment_ready'       // init_point available — waiting for user to click
     | 'awaiting_activation' // user opened MP; polling for webhook activation
@@ -74,6 +77,8 @@ type PagePhase =
 export default function OnboardingCheckoutPage() {
     const searchParams = useSearchParams();
     const planCode = searchParams.get('plan') ?? '';
+    // product_code forwarded from the plan page for start-checkout validation.
+    const productCode = searchParams.get('product') ?? '';
     // Wave 5: session_id provided by the MP back_url return handler.
     // When set, we skip start-checkout and jump directly to polling.
     const resumeSessionId = searchParams.get('session_id') ?? '';
@@ -81,6 +86,12 @@ export default function OnboardingCheckoutPage() {
     const [phase, setPhase] = useState<PagePhase>('loading');
     const [initPoint, setInitPoint] = useState<string>('');
     const [errorMessage, setErrorMessage] = useState<string>('');
+
+    // Promo code state
+    const [promoInput, setPromoInput] = useState('');
+    const [promoLoading, setPromoLoading] = useState(false);
+    const [appliedPromo, setAppliedPromo] = useState<PromoValidationSuccess | null>(null);
+    const [promoError, setPromoError] = useState('');
 
     // Use refs to avoid stale closures inside the polling interval.
     const sessionIdRef = useRef<string>('');
@@ -153,17 +164,21 @@ export default function OnboardingCheckoutPage() {
 
     // ── Checkout initiation ────────────────────────────────────────────────────
 
-    async function initiateCheckout(code: string) {
+    async function initiateCheckout(code: string, promoCode?: string | null) {
         // Prevent concurrent calls (React Strict Mode double-mount, user double-click).
         if (initiatingRef.current) return;
         initiatingRef.current = true;
 
         try {
+            const body: Record<string, string> = { plan_code: code };
+            if (productCode) body.product_code = productCode;
+            if (promoCode) body.promo_code = promoCode;
+
             const resp = await fetch(`${API_URL}/api/v1/auth/onboarding/start-checkout/`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
-                body: JSON.stringify({ plan_code: code }),
+                body: JSON.stringify(body),
             });
 
             if (!resp.ok) {
@@ -205,6 +220,31 @@ export default function OnboardingCheckoutPage() {
         }
     }
 
+    // ── Promo code application ─────────────────────────────────────────────────
+
+    async function handleApplyPromo() {
+        const code = promoInput.trim().toUpperCase();
+        if (!code) return;
+
+        setPromoLoading(true);
+        setPromoError('');
+        setAppliedPromo(null);
+
+        try {
+            const result = await validatePromoCode({ code, plan_code: planCode });
+            if (result.valid === true) {
+                setAppliedPromo(result);
+                setPromoError('');
+            } else {
+                setPromoError(result.detail);
+            }
+        } catch {
+            setPromoError('No pudimos verificar el código. Intentalo de nuevo.');
+        } finally {
+            setPromoLoading(false);
+        }
+    }
+
     // ── Mount ──────────────────────────────────────────────────────────────────
 
     useEffect(() => {
@@ -220,7 +260,8 @@ export default function OnboardingCheckoutPage() {
             setErrorMessage('No se especificó ningún plan. Volvé a elegir un plan.');
             return;
         }
-        initiateCheckout(planCode);
+        // Show promo input form before initiating checkout.
+        setPhase('pre_checkout');
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
@@ -239,6 +280,102 @@ export default function OnboardingCheckoutPage() {
                 <span>→</span>
                 <span className="font-semibold text-slate-900">3. Confirmación</span>
             </div>
+
+            {/* ── Pre-checkout: optional promo code ────────────────────────── */}
+            {phase === 'pre_checkout' && (
+                <div>
+                    <h1 className="text-2xl font-semibold text-slate-900 mb-2">
+                        Confirmá tu suscripción
+                    </h1>
+                    <p className="text-sm text-slate-500 mb-8">
+                        Si tenés un código promocional podés aplicarlo antes de ir a Mercado Pago.
+                    </p>
+
+                    {/* Promo code input */}
+                    <div className="mb-6">
+                        <label className="block text-sm font-medium text-slate-700 mb-1">
+                            Código promocional <span className="text-slate-400 font-normal">(opcional)</span>
+                        </label>
+                        <div className="flex gap-2">
+                            <input
+                                type="text"
+                                value={promoInput}
+                                onChange={(e) => {
+                                    const val = e.target.value.toUpperCase();
+                                    setPromoInput(val);
+                                    // Clear applied result when user modifies the input
+                                    if (appliedPromo) setAppliedPromo(null);
+                                    if (promoError) setPromoError('');
+                                }}
+                                onKeyDown={(e) => { if (e.key === 'Enter') handleApplyPromo(); }}
+                                placeholder="EJEMPLO50"
+                                maxLength={64}
+                                disabled={promoLoading}
+                                className="flex-1 px-3 py-2 text-sm border border-slate-300 rounded-lg
+                                           focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent
+                                           disabled:opacity-50 uppercase placeholder-slate-400"
+                            />
+                            <button
+                                onClick={handleApplyPromo}
+                                disabled={promoLoading || !promoInput.trim()}
+                                className="px-4 py-2 text-sm font-medium bg-slate-100 text-slate-700
+                                           border border-slate-300 rounded-lg hover:bg-slate-200
+                                           transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                                {promoLoading ? (
+                                    <span className="inline-block w-4 h-4 border-2 border-slate-400 border-t-slate-700 rounded-full animate-spin" />
+                                ) : 'Aplicar'}
+                            </button>
+                        </div>
+
+                        {/* Promo error */}
+                        {promoError && (
+                            <p className="mt-2 text-xs text-red-600">{promoError}</p>
+                        )}
+
+                        {/* Promo success summary */}
+                        {appliedPromo && (
+                            <div className="mt-3 rounded-lg border border-green-200 bg-green-50 p-3">
+                                <div className="flex items-start justify-between gap-2">
+                                    <div>
+                                        <p className="text-xs font-semibold text-green-800 mb-0.5">
+                                            Código <span className="font-mono">{appliedPromo.code}</span> aplicado
+                                        </p>
+                                        <p className="text-xs text-green-700">{appliedPromo.summary}</p>
+                                    </div>
+                                    <button
+                                        onClick={() => {
+                                            setAppliedPromo(null);
+                                            setPromoInput('');
+                                            setPromoError('');
+                                        }}
+                                        className="text-green-600 hover:text-green-900 text-xs shrink-0 mt-0.5"
+                                        title="Quitar código"
+                                    >
+                                        ✕
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* CTA */}
+                    <button
+                        onClick={() => {
+                            setPhase('loading');
+                            initiateCheckout(planCode, appliedPromo?.code ?? null);
+                        }}
+                        className="w-full py-3 px-4 bg-slate-900 text-white text-sm font-medium
+                                   rounded-lg hover:bg-slate-800 transition-colors"
+                    >
+                        {appliedPromo ? 'Ir a Mercado Pago con descuento →' : 'Ir a Mercado Pago →'}
+                    </button>
+
+                    <p className="text-xs text-slate-400 mt-4 text-center">
+                        Sin código también podés continuar directamente.
+                    </p>
+                </div>
+            )}
 
             {/* ── Loading ───────────────────────────────────────────────────── */}
             {phase === 'loading' && (
@@ -350,7 +487,7 @@ export default function OnboardingCheckoutPage() {
                                     setPhase('loading');
                                     setErrorMessage('');
                                     stopPolling();
-                                    initiateCheckout(planCode);
+                                    initiateCheckout(planCode, appliedPromo?.code ?? null);
                                 }}
                                 className="text-sm text-slate-500 underline underline-offset-2 hover:text-slate-800"
                             >
@@ -380,7 +517,7 @@ export default function OnboardingCheckoutPage() {
                                 onClick={() => {
                                     setPhase('loading');
                                     setErrorMessage('');
-                                    initiateCheckout(planCode);
+                                    initiateCheckout(planCode, appliedPromo?.code ?? null);
                                 }}
                                 className="text-sm text-slate-900 underline underline-offset-2 font-medium"
                             >

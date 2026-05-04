@@ -20,6 +20,11 @@ import type {
   AdminBlogPostDetail,
   AdminBlogPostKPIs,
   AdminBlogCategory,
+  AdminPromoCodeList,
+  AdminPromoCodeRow,
+  AdminPromoCodeRedemptionList,
+  AdminPromoOptions,
+  AdminPlanOption,
 } from './types';
 
 /**
@@ -200,6 +205,47 @@ export async function getAdminBlogCategories(): Promise<{ results: AdminBlogCate
   }
 }
 
+// ── Promo Codes ──────────────────────────────────────────────────
+
+export async function getAdminPromoCodes(params: Record<string, string> = {}): Promise<AdminPromoCodeList | null> {
+  try {
+    const qs = new URLSearchParams(params).toString();
+    return await serverApiFetch<AdminPromoCodeList>(`/api/v1/platform-admin/promo-codes/?${qs}`);
+  } catch {
+    return null;
+  }
+}
+
+export async function getAdminPromoCodeDetail(id: number): Promise<AdminPromoCodeRow | null> {
+  try {
+    return await serverApiFetch<AdminPromoCodeRow>(`/api/v1/platform-admin/promo-codes/${id}/`);
+  } catch {
+    return null;
+  }
+}
+
+export async function getAdminPromoCodeRedemptions(
+  id: number,
+  params: Record<string, string> = {},
+): Promise<AdminPromoCodeRedemptionList | null> {
+  try {
+    const qs = new URLSearchParams(params).toString();
+    return await serverApiFetch<AdminPromoCodeRedemptionList>(
+      `/api/v1/platform-admin/promo-codes/${id}/redemptions/?${qs}`,
+    );
+  } catch {
+    return null;
+  }
+}
+
+export async function getAdminPromoOptions(): Promise<AdminPromoOptions | null> {
+  try {
+    return await serverApiFetch<AdminPromoOptions>('/api/v1/platform-admin/promo-codes/options/');
+  } catch {
+    return null;
+  }
+}
+
 export type {
   AdminSession,
   AdminDashboardMetrics,
@@ -220,4 +266,9 @@ export type {
   AdminBlogPostDetail,
   AdminBlogPostKPIs,
   AdminBlogCategory,
+  AdminPromoCodeList,
+  AdminPromoCodeRow,
+  AdminPromoCodeRedemptionList,
+  AdminPromoOptions,
+  AdminPlanOption,
 };
