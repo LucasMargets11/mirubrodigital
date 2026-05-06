@@ -108,7 +108,7 @@ export default async function OnboardingIndexPage({ searchParams }: Props) {
             if (params.plan_code) {
                 redirect((`/app/onboarding/checkout?plan=${encodeURIComponent(String(params.plan_code))}`) as never);
             }
-            redirect((`/app/onboarding/plan${fwd}`) as never);
+            redirect((`/app/onboarding/servicio${fwd}`) as never);
 
         case 'no_service_type':
         default:

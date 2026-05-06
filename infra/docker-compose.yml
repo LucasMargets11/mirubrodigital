@@ -49,8 +49,8 @@ services:
       context: ../apps/web
       target: runner
       args:
-        NEXT_PUBLIC_API_URL: http://localhost:8000
-        NEXT_PUBLIC_BASE_URL: http://localhost:3000
+        NEXT_PUBLIC_API_URL: https://www.mirubro.com
+        NEXT_PUBLIC_BASE_URL: https://www.mirubro.com
         API_HOSTNAME: api
         NEXT_PUBLIC_NEW_ONBOARDING_ENABLED: "true"
         NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID}
@@ -61,9 +61,9 @@ services:
       - ../apps/web/.env
     environment:
       NODE_ENV: production
-      NEXT_PUBLIC_API_URL: http://localhost:8000
-      NEXT_PUBLIC_BASE_URL: http://localhost:3000
-      API_URL: http://localhost:8000
+      NEXT_PUBLIC_API_URL: https://www.mirubro.com
+      NEXT_PUBLIC_BASE_URL: https://www.mirubro.com
+      API_URL: http://api:8000
       API_INTERNAL_URL: http://api:8000
       API_URL_INTERNAL: http://api:8000
       INTERNAL_API_URL: http://api:8000
