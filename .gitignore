@@ -15,6 +15,14 @@ __pycache__/
 .venv/
 .env
 .env.*
+**/.env
+**/.env.*
+
+# Keep env templates versioned
+!.env.example
+!.env.*.example
+!**/.env.example
+!**/.env.*.example
 
 # Editor
 *.swp

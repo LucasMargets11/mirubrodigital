@@ -173,6 +173,12 @@ if DEBUG and _BASE_PUBLIC_URL and 'xxxx' not in _BASE_PUBLIC_URL.lower():
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_HEADERS = ['authorization', 'content-type', 'x-requested-with', 'x-employee-token', 'x-business-id']
 
+CSRF_TRUSTED_ORIGINS = [
+  origin.strip()
+  for origin in os.getenv('CSRF_TRUSTED_ORIGINS', 'http://localhost:3000').split(',')
+  if origin.strip()
+]
+
 REST_FRAMEWORK = {
   'DEFAULT_AUTHENTICATION_CLASSES': [
     'apps.accounts.authentication.CookieJWTAuthentication',
