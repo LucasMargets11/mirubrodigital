@@ -141,7 +141,10 @@ def access_summary(request: Request) -> Response:
         })
     
     role_display = dict(Membership.ROLE_CHOICES).get(membership.role, membership.role)
-    
+
+    # Resolve HQ (a branch user's business has a parent; HQ has no parent).
+    hq = membership.business.parent if membership.business.parent else membership.business
+
     data = {
         'user_id': request.user.id,
         'role': membership.role,
@@ -150,9 +153,15 @@ def access_summary(request: Request) -> Response:
         'service': service,
         'permissions_by_module': permissions_by_module,
     }
-    
+
+    # Expose POS business code only to owner and admin.
+    if membership.role in ('owner', 'admin'):
+        data['pos_access_code'] = hq.slug
+
     serializer = AccessSummarySerializer(data)
-    return Response(serializer.data)
+    response = Response(serializer.data)
+    response['Cache-Control'] = 'no-store'
+    return response
 
 
 @api_view(['GET'])

@@ -18,9 +18,6 @@ export function EmployeesTable({ employees, onRefresh }: EmployeesTableProps) {
   const [statusLoading, setStatusLoading] = useState<string | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
 
-  // business_code is the same for all employees (HQ slug).
-  const businessCode = employees.find((e) => e.business_code)?.business_code ?? null;
-
   const handleToggleStatus = async (emp: EmployeeProfile) => {
     if (emp.status === 'active') {
       const confirmed = window.confirm(
@@ -69,20 +66,6 @@ export function EmployeesTable({ employees, onRefresh }: EmployeesTableProps) {
           </button>
         </div>
       )}
-
-      <div className="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3">
-        <p className="text-sm text-blue-800">
-          <span className="font-medium">Código de negocio para acceso POS:</span>{' '}
-          {businessCode ? (
-            <span className="font-mono font-semibold">{businessCode}</span>
-          ) : (
-            <span className="italic text-amber-600">No disponible</span>
-          )}
-        </p>
-        <p className="mt-0.5 text-xs text-blue-600">
-          Los empleados necesitan el código de negocio, su código de empleado y su PIN para iniciar sesión en el POS.
-        </p>
-      </div>
 
       <div className="overflow-hidden rounded-lg border border-slate-200">
         <table className="min-w-full divide-y divide-slate-200">

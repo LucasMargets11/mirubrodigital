@@ -67,6 +67,7 @@ class AccessSummarySerializer(serializers.Serializer):
     business_name = serializers.CharField()
     service = serializers.CharField()
     permissions_by_module = serializers.DictField()
+    pos_access_code = serializers.CharField(required=False, allow_null=True)
 
 
 class PasswordResetResponseSerializer(serializers.Serializer):

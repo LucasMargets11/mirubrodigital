@@ -53,6 +53,7 @@ export interface AccessSummary {
   business_name: string;
   service: string;
   permissions_by_module: PermissionsByModule;
+  pos_access_code?: string;
 }
 
 export interface PasswordResetResponse {

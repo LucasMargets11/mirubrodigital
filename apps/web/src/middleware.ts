@@ -17,20 +17,21 @@ const isDev = process.env.NODE_ENV === 'development';
 const apiOrigin = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
 
 const connectSrc = isDev
-    ? "connect-src 'self' http://localhost:8000 http://api:8000"
-    : `connect-src 'self' ${apiOrigin}`;
+    ? "connect-src 'self' http://localhost:8000 http://api:8000 https://accounts.google.com/gsi/"
+    : `connect-src 'self' ${apiOrigin} https://accounts.google.com/gsi/`;
 
 const scriptSrc = isDev
-    ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
-    : "script-src 'self' 'unsafe-inline'";
+    ? "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://accounts.google.com/gsi/client"
+    : "script-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/client";
 
 const CSP_DIRECTIVES = [
     "default-src 'self'",
     scriptSrc,
-    "style-src 'self' 'unsafe-inline'",
+    "style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style",
     "img-src 'self' data: https://via.placeholder.com https://images.unsplash.com",
     "font-src 'self' data:",
     connectSrc,
+    "frame-src 'self' https://accounts.google.com https://accounts.google.com/gsi/",
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'",
@@ -47,10 +48,21 @@ const CSP_DIRECTIVES = [
  *
  * Also sets Content-Security-Policy-Report-Only for observability (Phase 2C).
  */
+// Routes where Google Identity Services OAuth popup is used.
+const GOOGLE_SIGNIN_PATHS = ['/entrar', '/registrarse'];
+
 export function middleware(request: NextRequest) {
     const response = NextResponse.next();
     response.headers.set('x-pathname', request.nextUrl.pathname);
     response.headers.set('Content-Security-Policy-Report-Only', CSP_DIRECTIVES);
+
+    // Allow the Google Sign-In popup to postMessage back to this page.
+    // Only needed on pages that initiate the Google OAuth flow.
+    const pathname = request.nextUrl.pathname;
+    if (GOOGLE_SIGNIN_PATHS.some((p) => pathname === p || pathname.startsWith(p + '/'))) {
+        response.headers.set('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+    }
+
     return response;
 }
 

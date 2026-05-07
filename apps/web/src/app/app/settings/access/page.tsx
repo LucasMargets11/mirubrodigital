@@ -29,6 +29,7 @@ export default function OwnerAccessPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [isOwner, setIsOwner] = useState(false);
+    const [canSeePosCode, setCanSeePosCode] = useState(false);
 
     useEffect(() => {
         loadAccessSummary();
@@ -42,6 +43,7 @@ export default function OwnerAccessPage() {
             setAccessSummary(summary);
             const canManage = summary.role === 'owner';
             setIsOwner(canManage);
+            setCanSeePosCode(summary.role === 'owner' || summary.role === 'admin');
 
             if (canManage) {
                 const [rolesData, accountsResponse, employeesData] = await Promise.all([
@@ -119,6 +121,8 @@ export default function OwnerAccessPage() {
                 <p className="mt-1 text-sm text-slate-600">
                     {isOwner
                         ? 'Administra roles, permisos y cuentas de usuarios en tu negocio.'
+                        : canSeePosCode
+                        ? 'Consultá tus roles, permisos y el código de acceso al POS de tu negocio.'
                         : 'Consulta tus roles y permisos asignados.'}
                 </p>
             </header>
@@ -155,16 +159,18 @@ export default function OwnerAccessPage() {
                             >
                                 Accesos (Cuentas)
                             </button>
-                            <button
-                                onClick={() => setActiveTab('employees')}
-                                className={`border-b-2 pb-3 text-sm font-medium transition-colors ${activeTab === 'employees'
-                                    ? 'border-blue-600 text-blue-600'
-                                    : 'border-transparent text-slate-600 hover:text-slate-900'
-                                    }`}
-                            >
-                                Personal Operativo
-                            </button>
                         </>
+                    )}
+                    {(isOwner || canSeePosCode) && (
+                        <button
+                            onClick={() => setActiveTab('employees')}
+                            className={`border-b-2 pb-3 text-sm font-medium transition-colors ${activeTab === 'employees'
+                                ? 'border-blue-600 text-blue-600'
+                                : 'border-transparent text-slate-600 hover:text-slate-900'
+                                }`}
+                        >
+                            Personal Operativo
+                        </button>
                     )}
                 </nav>
             </div>
@@ -174,8 +180,13 @@ export default function OwnerAccessPage() {
                 {activeTab === 'my-roles' && <MyRolesTab summary={accessSummary} />}
                 {activeTab === 'business-roles' && isOwner && <BusinessRolesTab roles={roles} />}
                 {activeTab === 'accounts' && isOwner && <AccountsTab accounts={accounts} seatInfo={seatInfo} onRefresh={loadAccessSummary} />}
-                {activeTab === 'employees' && isOwner && (
-                    <EmployeesTab employees={employees} onRefresh={reloadEmployees} />
+                {activeTab === 'employees' && (isOwner || canSeePosCode) && (
+                    <EmployeesTab
+                        employees={employees}
+                        onRefresh={reloadEmployees}
+                        isOwner={isOwner}
+                        posAccessCode={accessSummary?.pos_access_code}
+                    />
                 )}
             </div>
         </div>
@@ -303,12 +314,69 @@ export function AccountsTab({ accounts, seatInfo, onRefresh }: { accounts: UserA
     );
 }
 
+function PosAccessCard({ posAccessCode }: { posAccessCode: string }) {
+    const [revealed, setRevealed] = useState(false);
+    const [copied, setCopied] = useState(false);
+
+    const handleCopy = async () => {
+        try {
+            await navigator.clipboard.writeText(posAccessCode);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        } catch {
+            // Fallback: select the text manually
+        }
+    };
+
+    return (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+            <div className="flex items-start gap-3">
+                <div className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-blue-100">
+                    <svg className="h-4 w-4 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                    </svg>
+                </div>
+                <div className="flex-1 min-w-0">
+                    <h3 className="text-sm font-semibold text-slate-900">Código de acceso al POS</h3>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                        Los empleados necesitan este código de negocio junto con su código personal y PIN para iniciar sesión en la terminal POS.
+                    </p>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-1.5">
+                            <span className="text-xs text-slate-500">Código de negocio</span>
+                            <span className="font-mono text-sm font-semibold text-slate-900">
+                                {revealed ? posAccessCode : '••••••••'}
+                            </span>
+                        </div>
+                        <button
+                            onClick={() => setRevealed((v) => !v)}
+                            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+                        >
+                            {revealed ? 'Ocultar' : 'Mostrar'}
+                        </button>
+                        <button
+                            onClick={handleCopy}
+                            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+                        >
+                            {copied ? '¡Copiado!' : 'Copiar'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 function EmployeesTab({
     employees,
     onRefresh,
+    isOwner,
+    posAccessCode,
 }: {
     employees: EmployeeProfile[];
     onRefresh: () => void;
+    isOwner: boolean;
+    posAccessCode?: string;
 }) {
     const [showCreate, setShowCreate] = useState(false);
 
@@ -322,17 +390,21 @@ function EmployeesTab({
                         Autentican con código + PIN, sin acceso al panel de administración.
                     </p>
                 </div>
-                <button
-                    onClick={() => setShowCreate(true)}
-                    className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
-                >
-                    + Nuevo empleado
-                </button>
+                {isOwner && (
+                    <button
+                        onClick={() => setShowCreate(true)}
+                        className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
+                    >
+                        + Nuevo empleado
+                    </button>
+                )}
             </div>
 
-            <EmployeesTable employees={employees} onRefresh={onRefresh} />
+            {posAccessCode && <PosAccessCard posAccessCode={posAccessCode} />}
 
-            {showCreate && (
+            {isOwner && <EmployeesTable employees={employees} onRefresh={onRefresh} />}
+
+            {isOwner && showCreate && (
                 <EmployeeFormModal
                     isOpen
                     mode="create"
