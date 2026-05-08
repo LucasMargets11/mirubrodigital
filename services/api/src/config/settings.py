@@ -59,6 +59,7 @@ INSTALLED_APPS = [
   'apps.treasury',
   'apps.tax_backup',
   'apps.blog',
+  'apps.printables',
 ]
 
 MIDDLEWARE = [

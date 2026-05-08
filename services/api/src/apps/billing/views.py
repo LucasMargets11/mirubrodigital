@@ -597,6 +597,85 @@ class CheckoutSessionStatusView(APIView):
         })
 
 
+class CheckoutSessionReconcileView(APIView):
+    """
+    POST /billing/checkout-sessions/<session_id>/reconcile/
+
+    Proactively queries MercadoPago to reconcile a checkout session that has
+    not yet been activated.  Called by the frontend when the user returns from
+    MercadoPago via the back_url, so that activation does not depend solely on
+    the asynchronous webhook delivery.
+
+    This endpoint is safe and idempotent:
+      - If the session is already activated, it returns immediately.
+      - If no preapproval exists in MP yet, it records that and returns.
+      - On success, it activates the subscription and marks the session active.
+
+    Response (200 always; check 'status' field):
+    {
+        "session_id": "<uuid>",
+        "status": "activated" | "awaiting_webhook" | "linked" | ...,
+        "action_taken": [...],
+        "error": null | "...",
+    }
+
+    Security:
+      - Requires authentication (IsAuthenticated).
+      - Session must belong to the authenticated user's business (ownership check).
+        An unauthenticated or unauthorized caller receives 403 — never 404, to
+        avoid session-ID enumeration.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, session_id):
+        from .reconciliation import reconcile_session
+
+        # ── Ownership check ───────────────────────────────────────────────────
+        # Verify the session belongs to a business the authenticated user is
+        # a member of.  Return 403 (not 404) on any mismatch to prevent
+        # session-ID enumeration by unauthenticated / malicious callers.
+        try:
+            session_obj = MpCheckoutSession.objects.select_related('tenant').get(
+                id=session_id
+            )
+        except MpCheckoutSession.DoesNotExist:
+            # Return 403 rather than 404 to avoid leaking session existence.
+            return Response(
+                {'detail': 'Forbidden.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Allow access if the session was created by this user directly, OR if
+        # the user is a member of the session's tenant business.
+        tenant = session_obj.tenant
+        user = request.user
+        is_owner = (session_obj.user_id == user.pk)
+        is_member = (
+            tenant is not None and
+            Membership.objects.filter(user=user, business=tenant).exists()
+        )
+        if not (is_owner or is_member):
+            return Response(
+                {'detail': 'Forbidden.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            result = reconcile_session(str(session_id))
+        except Exception as exc:
+            logger.exception(
+                "[CheckoutSessionReconcileView] Unexpected error session=%s: %s",
+                session_id, exc,
+            )
+            return Response({
+                'session_id': str(session_id),
+                'status': 'error',
+                'action_taken': [],
+                'error': 'Reconciliation failed — will retry via webhook.',
+            }, status=200)  # Always 200 so the frontend doesn't treat it as fatal.
+
+        return Response(result, status=200)
+
 
 class IntentStatusView(APIView):
     permission_classes = [AllowAny]

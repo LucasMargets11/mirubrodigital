@@ -35,6 +35,7 @@ urlpatterns = [
   path('api/v1/treasury/', include('apps.treasury.urls')),
   path('api/v1/tax-backup/', include('apps.tax_backup.urls')),
   path('api/v1/blog/', include('apps.blog.urls')),
+  path('api/v1/printables/', include('apps.printables.urls')),
   path('api/v1/support/', include('apps.accounts.tenant_support_urls')),
   path('api/v1/restaurant/tables/', RestaurantTablesSnapshotView.as_view(), name='restaurant-tables'),
   path('api/v1/restaurant/tables/map-state/', RestaurantTablesMapStateView.as_view(), name='restaurant-tables-map'),

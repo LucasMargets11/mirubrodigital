@@ -46,6 +46,252 @@ logger = logging.getLogger(__name__)
 # Public API
 # ─────────────────────────────────────────────────────────────────────────────
 
+def reconcile_session(session_id: str) -> dict:
+    """
+    Proactive, user-triggered reconciliation for a checkout session.
+
+    Called when:
+      - The user returns from MercadoPago via back_url (redirect).
+      - The frontend polls and the session hasn't activated yet.
+      - An operator triggers recovery for a stuck onboarding.
+
+    Algorithm
+    ---------
+    1. Load MpCheckoutSession. If already activated/failed/expired → return.
+    2. Transition session from checkout_created → awaiting_webhook (idempotent).
+    3. Search MP for preapprovals linked to this session's preapproval_plan_id.
+    4. For each found preapproval, upsert SubscriptionV2 (idempotent).
+    5. If preapproval.status == 'authorized':
+       a. Search MP for authorized_payments by preapproval_id.
+       b. Upsert BillingInvoiceEvent for the first authorized payment.
+       c. Call activate_subscription_from_invoice (idempotent).
+    6. Return a summary dict with action_taken and current status.
+
+    Safe to call multiple times — fully idempotent.
+    """
+    from .models import BillingInvoiceEvent, MpCheckoutSession, SubscriptionV2
+    from .mp_service import MercadoPagoService
+    from .subscription_activator import activate_subscription_from_invoice
+    from .webhook_processor import _upsert_subscription_v2
+
+    result: dict = {
+        'session_id': session_id,
+        'status': None,
+        'action_taken': [],
+        'error': None,
+    }
+
+    try:
+        session = (
+            MpCheckoutSession.objects
+            .select_related('plan', 'tenant')
+            .get(id=session_id)
+        )
+    except MpCheckoutSession.DoesNotExist:
+        result['error'] = f"MpCheckoutSession {session_id} not found"
+        logger.warning("[reconcile_session] %s", result['error'])
+        return result
+
+    result['status'] = session.status
+
+    # ── Fast exits for terminal states ────────────────────────────────────────
+    if session.status == MpCheckoutSession.Status.ACTIVATED:
+        result['action_taken'].append('Session already activated — no-op')
+        return result
+
+    if session.status in MpCheckoutSession.TERMINAL_STATUSES:
+        result['action_taken'].append(
+            f'Session in terminal status {session.status} — cannot recover via reconciliation'
+        )
+        return result
+
+    plan_id = session.provider_preapproval_plan_id
+    if not plan_id:
+        result['error'] = 'Session has no provider_preapproval_plan_id — cannot search MP'
+        logger.warning("[reconcile_session] %s session=%s", result['error'], session_id)
+        return result
+
+    # The external_reference we sent to MP when creating the plan template.
+    # This value is echoed back on every preapproval that belongs to this session.
+    # We MUST use it to filter the list from MP so we never accidentally process
+    # a preapproval that belongs to a different tenant who signed up for the same
+    # plan template.
+    expected_ext_ref = session.mp_external_reference  # e.g. "SESS-<uuid>"
+
+    # ── Step 2: advance session state ─────────────────────────────────────────
+    # Transition checkout_created → awaiting_webhook to signal that the user
+    # has returned from MP.  Any other open status is left as-is.
+    if session.status == MpCheckoutSession.Status.CHECKOUT_CREATED:
+        try:
+            session.transition_to(MpCheckoutSession.Status.AWAITING_WEBHOOK)
+            result['action_taken'].append('Session transitioned checkout_created → awaiting_webhook')
+            result['status'] = session.status
+        except ValueError as exc:
+            logger.warning('[reconcile_session] State transition skipped: %s', exc)
+
+    # ── Step 3: search MP for preapprovals ───────────────────────────────────
+    mp = MercadoPagoService()
+    preapprovals = mp.search_preapprovals(plan_id)
+
+    if not preapprovals:
+        result['action_taken'].append(
+            f'No preapprovals found in MP for plan_id={plan_id} — webhook not yet received'
+        )
+        logger.info(
+            "[reconcile_session] No MP preapprovals for plan_id=%s session=%s",
+            plan_id, session_id,
+        )
+        return result
+
+    activated_any = False
+
+    for preapproval in preapprovals:
+        preapproval_id = preapproval.get('id', '')
+        mp_status = preapproval.get('status', '')
+        mp_ext_ref = preapproval.get('external_reference', '')
+
+        if not preapproval_id:
+            continue
+
+        # ── external_reference ownership guard ───────────────────────────────
+        # MP's search_preapprovals returns ALL subscribers to this plan template,
+        # not just the one for this session.  Only process the preapproval that
+        # matches our session's external_reference to avoid cross-tenant activation.
+        if expected_ext_ref and mp_ext_ref != expected_ext_ref:
+            logger.info(
+                "[reconcile_session] Skipping preapproval=%s (ext_ref=%r ≠ expected=%r) session=%s",
+                preapproval_id, mp_ext_ref, expected_ext_ref, session_id,
+            )
+            continue
+
+        logger.info(
+            "[reconcile_session] Found preapproval=%s status=%s session=%s",
+            preapproval_id, mp_status, session_id,
+        )
+        result['action_taken'].append(f'Found preapproval {preapproval_id} status={mp_status}')
+
+        # ── Step 4: upsert SubscriptionV2 (idempotent) ───────────────────────
+        with transaction.atomic():
+            sub_v2 = _upsert_subscription_v2(
+                preapproval_id=preapproval_id,
+                plan_id=plan_id,
+                session=session,
+                preapproval_data=preapproval,
+            )
+        result['action_taken'].append(f'Upserted SubscriptionV2 {sub_v2.pk}')
+
+        # Transition session to LINKED now that we have a preapproval.
+        if session.status not in MpCheckoutSession.TERMINAL_STATUSES:
+            try:
+                session.refresh_from_db(fields=['status'])
+                session.transition_to(MpCheckoutSession.Status.LINKED)
+                result['action_taken'].append('Session transitioned → linked')
+                result['status'] = session.status
+            except ValueError:
+                pass  # Already linked or terminal — fine.
+
+        if mp_status != 'authorized':
+            result['action_taken'].append(
+                f'Preapproval status={mp_status} — awaiting authorization, not activating yet'
+            )
+            continue
+
+        # ── Step 5: search for authorized_payments ───────────────────────────
+        auth_payments = mp.search_authorized_payments(preapproval_id)
+
+        invoice_event = None
+
+        for ap in auth_payments:
+            ap_id = str(ap.get('id', ''))
+            ap_status = ap.get('status', '')
+
+            if ap_status != 'authorized' or not ap_id:
+                continue
+
+            amount = ap.get('transaction_amount') or ap.get('total_paid_amount') or 0
+            currency = ap.get('currency_id', 'ARS')
+            payment_id = str(ap.get('payment_id', '') or ap_id)
+            paid_at_str = ap.get('date_approved') or ap.get('date_created')
+
+            # ── Step 5b: upsert BillingInvoiceEvent (idempotent) ─────────────
+            with transaction.atomic():
+                invoice_event, created = BillingInvoiceEvent.objects.get_or_create(
+                    provider_authorized_payment_id=ap_id,
+                    defaults={
+                        'provider_payment_id': payment_id,
+                        'provider_subscription_id': preapproval_id,
+                        'subscription': sub_v2,
+                        'checkout_session': session,
+                        'amount': amount,
+                        'currency': currency,
+                        'provider_status': ap_status,
+                        'paid_at': _parse_dt(paid_at_str),
+                        'raw_payload_json': ap,
+                    },
+                )
+            result['action_taken'].append(
+                ('Created' if created else 'Found') + f' BillingInvoiceEvent {invoice_event.id}'
+            )
+            break  # Use the first authorized payment found.
+
+        if invoice_event is None:
+            # Preapproval is authorized but no authorized_payment found yet.
+            # This can happen in a very tight race window.
+            result['action_taken'].append(
+                f'Preapproval {preapproval_id} is authorized but no authorized_payment found yet'
+            )
+            logger.info(
+                "[reconcile_session] Preapproval authorized but no auth_payment yet "
+                "preapproval_id=%s session=%s",
+                preapproval_id, session_id,
+            )
+            continue
+
+        # ── Step 5c: activate (idempotent) ───────────────────────────────────
+        if not sub_v2.is_active and sub_v2.can_activate():
+            activated = activate_subscription_from_invoice(
+                invoice_event=invoice_event,
+                subscription=sub_v2,
+            )
+            if activated:
+                result['action_taken'].append(f'Activated subscription {sub_v2.pk}')
+                result['status'] = 'activated'
+                activated_any = True
+
+        elif sub_v2.is_active:
+            result['action_taken'].append(f'Subscription {sub_v2.pk} already active — no-op')
+            result['status'] = 'activated'
+            activated_any = True
+
+    if activated_any:
+        result['status'] = 'activated'
+
+    # ── Safety net: fix Business.status if subscription is active but business isn't ──
+    # This catches the edge case where activation completed but the Business row
+    # wasn't updated (e.g. a previous failed DB write after subscription commit).
+    # Uses filter().update() — atomically skips if already active (no race condition).
+    if result['status'] == 'activated' and session.tenant_id:
+        try:
+            from django.utils import timezone as tz
+            from apps.business.models import Business
+            rows = Business.objects.filter(
+                pk=session.tenant_id, status='onboarding',
+            ).update(status='active', activated_at=tz.now())
+            if rows:
+                result['action_taken'].append(
+                    f'Fixed Business {session.tenant_id} status onboarding → active (safety net)'
+                )
+                logger.warning(
+                    "[reconcile_session] Safety net applied: Business %s was in onboarding "
+                    "despite active subscription — fixed to active.",
+                    session.tenant_id,
+                )
+        except Exception as exc:
+            logger.warning("[reconcile_session] Safety net check failed: %s", exc)
+
+    return result
+
+
 def reconcile_checkout_session(checkout_session_id: str) -> dict:
     """
     Re-fetch the MP plan associated with a checkout session and reconcile state.

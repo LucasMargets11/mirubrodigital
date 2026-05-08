@@ -7,6 +7,7 @@ from .views import (
     MercadoPagoWebhookView,
     DevMercadoPagoPingView,
     CheckoutSessionStatusView,
+    CheckoutSessionReconcileView,
     ValidatePromoCodeView,
 )
 from .commercial_views import (
@@ -31,6 +32,8 @@ urlpatterns = [
     path('mercadopago/webhook', MercadoPagoWebhookView.as_view(), name='mp-webhook'),
     # Phase 3: checkout session status polling endpoint
     path('checkout-sessions/<uuid:session_id>', CheckoutSessionStatusView.as_view(), name='checkout-session-status'),
+    # Phase 5: proactive reconciliation — called when user returns from MercadoPago
+    path('checkout-sessions/<uuid:session_id>/reconcile/', CheckoutSessionReconcileView.as_view(), name='checkout-session-reconcile'),
     # DEV diagnostics — two paths for convenience
     path('dev/mercadopago/ping', DevMercadoPagoPingView.as_view(), name='mp-dev-ping'),
     path('dev/mp/status', DevMercadoPagoPingView.as_view(), name='mp-dev-status'),

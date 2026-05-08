@@ -41,6 +41,7 @@ PLAN_ENTITLEMENTS = {
         'gestion.rbac_full',
         'gestion.audit',
         'gestion.invoices',
+        'gestion.print_signage',
     },
     'business': {
         # Todos los de PRO +
@@ -141,6 +142,7 @@ ENTITLEMENT_UPGRADE_HINTS = {
     'gestion.transfers': 'BUSINESS',
     'gestion.consolidated_reports': 'BUSINESS',
     'gestion.tax_backup': 'BUSINESS',
+    'gestion.print_signage': 'PRO',
 }
 
 

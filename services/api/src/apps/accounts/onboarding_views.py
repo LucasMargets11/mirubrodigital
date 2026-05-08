@@ -71,6 +71,31 @@ def _compute_onboarding_step(business: Business) -> str:
     if business.status != 'onboarding':
         return 'done'
 
+    # Fast path: if an active SubscriptionV2 already exists for this business,
+    # the activation webhook arrived and set is_active=True on the subscription
+    # but (due to a partial failure or race) didn't flip Business.status.
+    # Heal it in-place so the user gets routed to /app on the next page load,
+    # and report 'done' so the frontend redirects immediately.
+    try:
+        from apps.billing.models import SubscriptionV2
+        active_sub = SubscriptionV2.objects.filter(
+            business=business, is_active=True,
+        ).first()
+        if active_sub:
+            from django.utils import timezone as _tz
+            updated = Business.objects.filter(
+                pk=business.pk, status='onboarding',
+            ).update(status='active', activated_at=_tz.now())
+            if updated:
+                logger.warning(
+                    "[onboarding] Healed Business %s status onboarding→active "
+                    "(active SubscriptionV2 %s already existed — partial write detected).",
+                    business.pk, active_sub.pk,
+                )
+            return 'done'
+    except Exception as exc:
+        logger.warning("[onboarding] Active-sub check failed for business=%s: %s", business.pk, exc)
+
     # A CHECKOUT_PENDING SubscriptionV2 or open MpCheckoutSession means the
     # user has already initiated the MP payment flow and is waiting for a
     # webhook confirmation.
@@ -87,12 +112,30 @@ def _compute_onboarding_step(business: Business) -> str:
 
 
 def _has_pending_checkout(business: Business) -> bool:
-    """Return True if a CHECKOUT_PENDING SubscriptionV2 exists for this business."""
+    """
+    Return True if this business has an in-flight checkout that hasn't activated yet.
+
+    Checks (in order):
+      1. A CHECKOUT_PENDING SubscriptionV2 — webhooks have already fired and
+         linked a subscription but payment has not yet been confirmed.
+      2. An open MpCheckoutSession (created / checkout_created / awaiting_webhook
+         / linked) — covers the window after the user is redirected to MP but
+         before the subscription_preapproval webhook arrives.
+
+    Both conditions are considered "checkout_pending" from the user's perspective
+    so the onboarding funnel shows the payment-in-progress screen.
+    """
     try:
-        from apps.billing.models import SubscriptionV2
-        return SubscriptionV2.objects.filter(
+        from apps.billing.models import MpCheckoutSession, SubscriptionV2
+        if SubscriptionV2.objects.filter(
             business=business,
             status=SubscriptionV2.Status.CHECKOUT_PENDING,
+        ).exists():
+            return True
+        # Fallback: open checkout session that hasn't produced a SubscriptionV2 yet.
+        return MpCheckoutSession.objects.filter(
+            tenant=business,
+            status__in=MpCheckoutSession.OPEN_STATUSES,
         ).exists()
     except Exception:
         return False

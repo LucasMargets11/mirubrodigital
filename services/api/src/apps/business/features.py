@@ -39,12 +39,13 @@ FEATURE_KEYS: Iterable[str] = (
   'menu_qr_tips_pro',  # Dynamic tip amount via MP OAuth Checkout (Fase 2)
   # QR de Reseñas — standalone product flags
   'qr_reviews_core',   # Core access flag for QR de Reseñas standalone product
+  'print_signage',      # Carteles y Etiquetas imprimibles (PRO only)
 )
 
 PLAN_FEATURES: Dict[str, Iterable[str]] = {
   # 4 planes oficiales Gestión Comercial
   'starter': ('products', 'inventory', 'stock', 'sales', 'orders'),
-  'pro': ('products', 'inventory', 'stock', 'sales', 'customers', 'invoices', 'cash', 'quotes', 'treasury', 'reports', 'orders'),
+  'pro': ('products', 'inventory', 'stock', 'sales', 'customers', 'invoices', 'cash', 'quotes', 'treasury', 'reports', 'orders', 'print_signage'),
   'business': ('products', 'inventory', 'stock', 'sales', 'customers', 'invoices', 'cash', 'quotes', 'treasury', 'reports', 'multi_branch', 'orders'),
   'enterprise': ('products', 'inventory', 'stock', 'sales', 'customers', 'invoices', 'cash', 'quotes', 'treasury', 'reports', 'multi_branch', 'orders'),
   # Legacy aliases

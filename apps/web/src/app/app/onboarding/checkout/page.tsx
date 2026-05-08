@@ -48,6 +48,8 @@ const API_URL = getClientApiBaseUrl();
 // Poll every 3 seconds for up to ~15 minutes (300 attempts).
 const POLL_INTERVAL_MS = 3_000;
 const MAX_POLL_ATTEMPTS = 300;
+// After this many attempts, show the "still processing" soft-warning but keep polling.
+const SOFT_WARNING_ATTEMPTS = 40; // ~2 min
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -69,7 +71,8 @@ type PagePhase =
     | 'payment_ready'       // init_point available — waiting for user to click
     | 'awaiting_activation' // user opened MP; polling for webhook activation
     | 'activated'           // business.status → active/trialing
-    | 'failed'              // checkout failed or expired
+    | 'failed'              // checkout failed or expired (genuine MP rejection)
+    | 'timed_out'           // polling timed out — payment may still be processing
     | 'error';              // unexpected API error during initiation
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -99,6 +102,8 @@ export default function OnboardingCheckoutPage() {
     const pollCountRef = useRef(0);
     // Guard: prevent double initiation from React Strict Mode / concurrent effects.
     const initiatingRef = useRef(false);
+    // Track whether the open-session soft warning has been shown.
+    const [pollingSlowWarning, setPollingSlowWarning] = useState(false);
 
     // ── Polling helpers ────────────────────────────────────────────────────────
 
@@ -124,13 +129,18 @@ export default function OnboardingCheckoutPage() {
         pollTimerRef.current = setInterval(async () => {
             pollCountRef.current += 1;
 
+            // After ~2 min without activation, show a soft warning inside the
+            // spinner screen so the user knows we haven't forgotten them.
+            if (pollCountRef.current === SOFT_WARNING_ATTEMPTS) {
+                setPollingSlowWarning(true);
+            }
+
             if (pollCountRef.current > MAX_POLL_ATTEMPTS) {
                 stopPolling();
-                setPhase('failed');
-                setErrorMessage(
-                    'El tiempo de espera expiró. ' +
-                    'Si completaste el pago, tu cuenta será activada en unos minutos automáticamente.',
-                );
+                // Timeout ≠ payment failure.  The webhook may still arrive.
+                // Use a dedicated phase so we can show a "don't pay again" message
+                // and NOT offer the "Reintentar / Volver a elegir plan" buttons.
+                setPhase('timed_out');
                 return;
             }
 
@@ -212,7 +222,22 @@ export default function OnboardingCheckoutPage() {
             const result: StartCheckoutPayload = await resp.json();
             sessionIdRef.current = result.checkout_session_id;
             setInitPoint(result.init_point);
-            setPhase('payment_ready');
+
+            // If the session is already past checkout_created (user has already
+            // been to MP — login recovery after payment), skip payment_ready and
+            // go directly to polling. Also trigger a reconciliation so activation
+            // does not depend solely on the async webhook.
+            const alreadyAtMP = ['awaiting_webhook', 'linked', 'activated'].includes(result.status);
+            if (alreadyAtMP) {
+                // Trigger reconciliation then start polling.
+                fetch(
+                    `${API_URL}/api/v1/billing/checkout-sessions/${result.checkout_session_id}/reconcile/`,
+                    { method: 'POST', credentials: 'include' },
+                ).catch(() => {});
+                startPolling();
+            } else {
+                setPhase('payment_ready');
+            }
         } catch {
             setPhase('error');
             setErrorMessage('Error de red. Verificá tu conexión e intentalo de nuevo.');
@@ -248,10 +273,26 @@ export default function OnboardingCheckoutPage() {
     // ── Mount ──────────────────────────────────────────────────────────────────
 
     useEffect(() => {
-        // Wave 5: MP back_url return path — session already exists, jump to polling.
+        // Wave 5: MP back_url return path — session already exists.
+        // 1. Trigger a proactive server-side reconciliation so that activation
+        //    does NOT depend solely on the async MP webhook arriving first.
+        // 2. Then start polling normally — the reconciliation will have already
+        //    activated the subscription if MP confirms the payment.
         if (resumeSessionId) {
             sessionIdRef.current = resumeSessionId;
+
+            // Fire-and-forget reconciliation: call the backend which will query
+            // MercadoPago directly and activate the session if payment is confirmed.
+            // We start polling immediately in parallel so the UI stays responsive.
             startPolling();
+
+            fetch(
+                `${API_URL}/api/v1/billing/checkout-sessions/${resumeSessionId}/reconcile/`,
+                { method: 'POST', credentials: 'include' },
+            ).catch(() => {
+                // Reconciliation failure is non-fatal — webhook will handle activation.
+            });
+
             return;
         }
 
@@ -439,9 +480,22 @@ export default function OnboardingCheckoutPage() {
                     <h1 className="text-xl font-semibold text-slate-900 mb-2">
                         Verificando tu pago...
                     </h1>
-                    <p className="text-sm text-slate-500">
-                        Esto puede tardar unos segundos. No cierres esta ventana.
-                    </p>
+                    {pollingSlowWarning ? (
+                        <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-left max-w-sm mx-auto">
+                            <p className="text-sm font-semibold text-amber-800 mb-1">
+                                Esto está tardando más de lo habitual
+                            </p>
+                            <p className="text-xs text-amber-700">
+                                Tu pago puede estar siendo procesado. Podés cerrar esta
+                                ventana — te enviaremos un email cuando tu cuenta quede activa.{' '}
+                                <strong>No vuelvas a pagar.</strong>
+                            </p>
+                        </div>
+                    ) : (
+                        <p className="text-sm text-slate-500">
+                            Esto puede tardar unos segundos. No cierres esta ventana.
+                        </p>
+                    )}
                 </div>
             )}
 
@@ -461,6 +515,44 @@ export default function OnboardingCheckoutPage() {
                     >
                         Ir al panel ahora
                     </a>
+                </div>
+            )}
+
+            {/* ── Timed out (webhook still pending) ────────────────────────── */}
+            {phase === 'timed_out' && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-6 text-center">
+                    <div className="text-4xl mb-4 select-none">⏳</div>
+                    <h1 className="text-xl font-semibold text-slate-900 mb-2">
+                        Tu pago se está procesando
+                    </h1>
+                    <p className="text-sm text-amber-800 mb-1">
+                        La confirmación de Mercado Pago está tardando más de lo esperado.
+                    </p>
+                    <p className="text-sm text-slate-700 mb-6">
+                        Si el pago ya se debitó,{' '}
+                        <strong>no vuelvas a pagar</strong>.
+                        Tu cuenta se activará automáticamente cuando Mercado Pago confirme
+                        el pago — normalmente en minutos.
+                    </p>
+                    <p className="text-xs text-slate-500 mb-4">
+                        ¿Necesitás ayuda? Escribinos a{' '}
+                        <a
+                            href="mailto:soporte@mirubro.com"
+                            className="underline text-slate-700 hover:text-slate-900"
+                        >
+                            soporte@mirubro.com
+                        </a>{' '}
+                        con tu email y te ayudamos.
+                    </p>
+                    <button
+                        onClick={() => {
+                            setPollingSlowWarning(false);
+                            startPolling();
+                        }}
+                        className="text-sm text-slate-600 underline underline-offset-2 hover:text-slate-900"
+                    >
+                        Seguir esperando
+                    </button>
                 </div>
             )}
 

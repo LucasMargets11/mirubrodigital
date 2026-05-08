@@ -55,6 +55,7 @@ const NAV_CONFIG: Record<string, NavGroup[]> = {
                 { href: '/app/gestion/ventas', label: 'Ventas', permissionKey: 'view_sales', featureKey: 'sales' },
                 { href: '/app/gestion/facturas', label: 'Facturas', permissionKey: 'view_invoices', featureKey: 'invoices' },
                 { href: '/app/gestion/clientes', label: 'Clientes', permissionKey: 'view_customers', featureKey: 'customers' },
+                { href: '/app/gestion/carteles', label: 'Carteles y Etiquetas', featureKey: 'print_signage' },
             ],
         },
         {
@@ -114,6 +115,7 @@ const NAV_CONFIG: Record<string, NavGroup[]> = {
                 { href: '/app/gestion/facturas', label: 'Facturas', permissionKey: 'view_invoices', featureKey: 'invoices' },
                 { href: '/app/gestion/finanzas', label: 'Finanzas', permissionKey: 'view_finance', featureKey: 'treasury' },
                 { href: '/app/gestion/clientes', label: 'Clientes', permissionKey: 'view_customers', featureKey: 'customers' },
+                { href: '/app/gestion/carteles', label: 'Carteles y Etiquetas', featureKey: 'print_signage' },
             ],
         },
         {

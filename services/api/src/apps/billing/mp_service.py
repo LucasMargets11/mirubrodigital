@@ -102,6 +102,59 @@ class MercadoPagoService:
             logger.error("[MPService] get_preapproval error id=%s: %s", preapproval_id, exc)
             return None
 
+    def search_preapprovals(self, preapproval_plan_id: str) -> list:
+        """
+        Search for preapprovals (user subscriptions) linked to a given plan template.
+
+        Used by reconciliation when a user returns from MP before the
+        subscription_preapproval webhook fires.
+
+        Returns a list of preapproval dicts (may be empty).
+        """
+        try:
+            result = self.sdk.preapproval().search({
+                "preapproval_plan_id": preapproval_plan_id,
+            })
+            if result["status"] == 200:
+                return result["response"].get("results", [])
+            logger.warning(
+                "[MPService] search_preapprovals plan_id=%s returned status=%s",
+                preapproval_plan_id, result["status"],
+            )
+            return []
+        except Exception as exc:
+            logger.error(
+                "[MPService] search_preapprovals error plan_id=%s: %s", preapproval_plan_id, exc,
+            )
+            return []
+
+    def search_authorized_payments(self, preapproval_id: str) -> list:
+        """
+        Search for authorized_payments (recurring charges) linked to a preapproval.
+
+        Used by reconciliation to find the first authorized payment when the
+        subscription_authorized_payment webhook has not yet been received.
+
+        Returns a list of authorized_payment dicts (may be empty).
+        """
+        try:
+            result = self.sdk.authorized_payments().search({
+                "preapproval_id": preapproval_id,
+            })
+            if result["status"] == 200:
+                return result["response"].get("results", [])
+            logger.warning(
+                "[MPService] search_authorized_payments preapproval_id=%s returned status=%s",
+                preapproval_id, result["status"],
+            )
+            return []
+        except Exception as exc:
+            logger.error(
+                "[MPService] search_authorized_payments error preapproval_id=%s: %s",
+                preapproval_id, exc,
+            )
+            return []
+
     def update_preapproval(self, preapproval_id: str, update_data: dict) -> dict:
         """
         Updates a preapproval (user subscription) in MercadoPago.
