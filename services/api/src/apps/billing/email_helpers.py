@@ -142,6 +142,68 @@ def send_subscription_activated_email(subscription, invoice_event) -> bool:
 # Private helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ─────────────────────────────────────────────────────────────────────────────
+# PR-8 — payment_failed
+# ─────────────────────────────────────────────────────────────────────────────
+
+def send_payment_failed_email(subscription, *, reason: str | None = None,
+                              amount=None) -> bool:
+    """
+    Notify the business owner that a payment failed and their subscription
+    has entered PAST_DUE status.
+
+    Parameters
+    ----------
+    subscription : SubscriptionV2 instance (already saved as PAST_DUE).
+    reason       : Optional human-readable failure reason from the provider.
+    amount       : Optional Decimal/str amount that was attempted.
+
+    Returns True if the email was enqueued, False otherwise.
+    """
+    owner = get_owner_user(subscription)
+    if owner is None:
+        return False
+
+    frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')
+    billing_url = f"{frontend_url}/billing"
+
+    plan_name = _resolve_plan_name(subscription)
+
+    try:
+        queue_transactional_email(
+            to_email=owner.email,
+            subject="Hubo un problema con el pago de tu suscripción",
+            template_key="payment_failed",
+            context={
+                "user_name": owner.get_full_name() or owner.username,
+                "business_name": subscription.business.name,
+                "plan_name": plan_name,
+                "failure_reason": reason or "",
+                "amount": amount,
+                "billing_url": billing_url,
+            },
+            user=owner,
+            business=subscription.business,
+            send_async=True,
+        )
+        logger.info(
+            "[billing.email] payment_failed email enqueued "
+            "owner=%s subscription=%s business=%s",
+            owner.pk,
+            subscription.pk,
+            subscription.business_id,
+        )
+        return True
+    except Exception:
+        logger.exception(
+            "[billing.email] Failed to queue payment_failed email "
+            "for owner=%s subscription=%s",
+            owner.pk,
+            subscription.pk,
+        )
+        return False
+
+
 def _resolve_plan_name(subscription) -> str:
     """
     Return a human-readable plan name.

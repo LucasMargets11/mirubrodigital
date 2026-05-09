@@ -195,6 +195,22 @@ def record_failed_payment(
 
         # Mirror on Business so frontend routing stays consistent.
         _set_tenant_past_due(subscription)
+
+        # Notify the business owner — fire-and-forget, outside any transaction.
+        from .email_helpers import send_payment_failed_email
+        try:
+            send_payment_failed_email(
+                subscription,
+                reason=reason or None,
+                amount=getattr(invoice_event, 'amount', None),
+            )
+        except Exception as exc:
+            logger.exception(
+                "[activator] send_payment_failed_email failed — "
+                "subscription=%s invoice_event=%s: %s. "
+                "Payment failure is recorded; email failure does not revert it.",
+                subscription.pk, invoice_event.pk, exc,
+            )
     # else: still checkout_pending or trialing — leave as is.
 
 

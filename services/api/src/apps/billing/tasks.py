@@ -127,6 +127,18 @@ def _transition_active_to_past_due(SubscriptionV2, now) -> int:
                 row['business_id'], row['pk'],
                 row['current_period_end'], grace,
             )
+            # Notify the business owner — fire-and-forget, never re-raises.
+            try:
+                sub = SubscriptionV2.objects.select_related(
+                    'business', 'checkout_session__user',
+                ).get(pk=row['pk'])
+                from apps.billing.email_helpers import send_payment_failed_email
+                send_payment_failed_email(sub)
+            except Exception as exc:
+                logger.exception(
+                    "[billing.task] send_payment_failed_email failed for sub=%s: %s",
+                    row['pk'], exc,
+                )
     return count
 
 
