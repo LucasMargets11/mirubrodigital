@@ -1,7 +1,7 @@
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.core.mail import send_mail
 from django.db import transaction
+from apps.notifications.services import queue_transactional_email
 from django.core.exceptions import ValidationError
 from rest_framework.exceptions import PermissionDenied
 from apps.accounts.models import Membership, AccountProfile, AccessAuditLog
@@ -83,7 +83,7 @@ class OwnerGuardService:
 
 class EmailService:
     """
-    Thin wrapper around Django's send_mail for transactional emails.
+    Thin wrapper around notifications.queue_transactional_email for transactional emails.
     All failures are logged but do NOT propagate — registration/reset flows
     should succeed even if the email server is temporarily unavailable.
     """
@@ -92,27 +92,25 @@ class EmailService:
     def send_verification_email(user, token: str) -> bool:
         frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')
         verify_url = f"{frontend_url}/verificar-email?token={token}"
-        subject = "Verificá tu email en Mirubro"
-        body = (
-            f"Hola,\n\n"
-            f"Para activar tu cuenta en Mirubro, hacé clic en el siguiente enlace:\n\n"
-            f"  {verify_url}\n\n"
-            f"Este enlace es válido por {getattr(settings, 'EMAIL_VERIFICATION_TOKEN_HOURS', 48)} horas.\n\n"
-            f"Si no creaste una cuenta, ignorá este mensaje.\n\n"
-            f"— El equipo de Mirubro"
-        )
+        expiration_hours = getattr(settings, 'EMAIL_VERIFICATION_TOKEN_HOURS', 48)
+
         try:
-            send_mail(
-                subject=subject,
-                message=body,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[user.email],
-                fail_silently=False,
+            queue_transactional_email(
+                to_email=user.email,
+                subject="Verificá tu email en MiRubro",
+                template_key="verify_email",
+                context={
+                    "user_name": user.get_full_name() or user.username,
+                    "verification_url": verify_url,
+                    "expiration_hours": expiration_hours,
+                },
+                user=user,
+                send_async=True,
             )
             return True
         except Exception:
             logger.exception(
-                "[EmailService] Failed to send verification email to user=%s", user.pk
+                "[EmailService] Failed to queue verification email for user=%s", user.pk
             )
             return False
 
