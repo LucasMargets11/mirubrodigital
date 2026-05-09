@@ -1,0 +1,59 @@
+{% extends "emails/base.html" %}
+
+{% block subject %}Tu suscripción a MiRubro fue cancelada{% endblock %}
+
+{% block content %}
+  <h2 style="margin:0 0 16px;font-size:20px;font-weight:bold;color:#111827;line-height:1.3;">
+    Hola, {{ user_name }}. Tu suscripción fue cancelada
+  </h2>
+
+  <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#374151;">
+    Tu suscripción <strong>{{ plan_name }}</strong> para
+    <strong>{{ business_name }}</strong> fue cancelada correctamente.
+    Si querés volver a activar tu cuenta, podés hacerlo desde tu panel.
+  </p>
+
+  {% if canceled_at %}
+  <table cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 24px;border-collapse:collapse;">
+    <tr>
+      <td style="padding:12px 16px;background-color:#f9fafb;border:1px solid #e5e7eb;border-radius:6px 6px 0 0;font-size:14px;color:#6b7280;">
+        Fecha de cancelación
+      </td>
+      <td style="padding:12px 16px;background-color:#f9fafb;border:1px solid #e5e7eb;border-left:none;border-radius:0 6px 0 0;font-size:14px;color:#111827;font-weight:bold;text-align:right;">
+        {{ canceled_at|date:"d/m/Y" }}
+      </td>
+    </tr>
+    {% if access_until %}
+    <tr>
+      <td style="padding:12px 16px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 0 6px;font-size:14px;color:#6b7280;">
+        Acceso hasta
+      </td>
+      <td style="padding:12px 16px;border:1px solid #e5e7eb;border-top:none;border-left:none;border-radius:0 0 6px 0;font-size:14px;color:#111827;text-align:right;">
+        {{ access_until|date:"d/m/Y" }}
+      </td>
+    </tr>
+    {% endif %}
+  </table>
+  {% endif %}
+
+  <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#374151;">
+    Podés volver a suscribirte en cualquier momento desde tu panel para
+    recuperar el acceso completo a MiRubro.
+  </p>
+
+  <table cellpadding="0" cellspacing="0" style="margin:0 0 32px;">
+    <tr>
+      <td style="background-color:#1a56db;border-radius:6px;">
+        <a href="{{ resubscribe_url }}"
+           style="display:inline-block;padding:12px 28px;color:#ffffff;font-size:15px;font-weight:bold;text-decoration:none;">
+          Volver a suscribirme
+        </a>
+      </td>
+    </tr>
+  </table>
+
+  <p style="margin:0 0 8px;font-size:13px;line-height:1.5;color:#6b7280;">
+    ¿Necesitás ayuda? Escribinos a
+    <a href="mailto:{{ support_email }}" style="color:#1a56db;">{{ support_email }}</a>.
+  </p>
+{% endblock %}

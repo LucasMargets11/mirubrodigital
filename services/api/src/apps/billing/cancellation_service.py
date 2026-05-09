@@ -185,4 +185,15 @@ def execute_cancellation(
         "[cancellation] Subscription canceled sub=%s business=%s",
         subscription.pk, subscription.business_id,
     )
+
+    # Notify the owner — fire-and-forget, never re-raises.
+    try:
+        from apps.billing.email_helpers import send_cancellation_confirmed_email
+        send_cancellation_confirmed_email(subscription)
+    except Exception as exc:
+        logger.exception(
+            "[cancellation] send_cancellation_confirmed_email failed for sub=%s: %s",
+            subscription.pk, exc,
+        )
+
     return subscription

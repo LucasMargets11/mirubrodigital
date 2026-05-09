@@ -270,6 +270,72 @@ def send_subscription_suspended_email(subscription, *, reason: str | None = None
         return False
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# PR-10 — cancellation_confirmed
+# ─────────────────────────────────────────────────────────────────────────────
+
+def send_cancellation_confirmed_email(subscription) -> bool:
+    """
+    Notify the business owner that their subscription has been canceled.
+
+    Called at the end of execute_cancellation() only when the cancellation
+    actually changed the subscription to CANCELED status.  Runs outside any
+    active transaction.atomic() block.
+
+    Parameters
+    ----------
+    subscription : SubscriptionV2 instance (already saved as CANCELED).
+
+    Returns True if the email was enqueued, False otherwise.
+    """
+    owner = get_owner_user(subscription)
+    if owner is None:
+        return False
+
+    frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')
+    resubscribe_url = f"{frontend_url}/billing"
+
+    plan_name = _resolve_plan_name(subscription)
+    canceled_at = getattr(subscription, 'canceled_at', None)
+    # access_until: subscriptions canceled at period end may still have access.
+    access_until = getattr(subscription, 'current_period_end', None)
+
+    try:
+        queue_transactional_email(
+            to_email=owner.email,
+            subject="Tu suscripción a MiRubro fue cancelada",
+            template_key="cancellation_confirmed",
+            context={
+                "user_name": owner.get_full_name() or owner.username,
+                "business_name": subscription.business.name,
+                "plan_name": plan_name,
+                "canceled_at": canceled_at,
+                "access_until": access_until,
+                "resubscribe_url": resubscribe_url,
+                "support_email": getattr(settings, 'SUPPORT_EMAIL', 'soporte@mirubro.com'),
+            },
+            user=owner,
+            business=subscription.business,
+            send_async=True,
+        )
+        logger.info(
+            "[billing.email] cancellation_confirmed email enqueued "
+            "owner=%s subscription=%s business=%s",
+            owner.pk,
+            subscription.pk,
+            subscription.business_id,
+        )
+        return True
+    except Exception:
+        logger.exception(
+            "[billing.email] Failed to queue cancellation_confirmed email "
+            "for owner=%s subscription=%s",
+            owner.pk,
+            subscription.pk,
+        )
+        return False
+
+
 def _resolve_plan_name(subscription) -> str:
     """
     Return a human-readable plan name.
