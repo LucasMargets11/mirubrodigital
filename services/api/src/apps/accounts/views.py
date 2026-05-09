@@ -803,6 +803,8 @@ class ResetPasswordView(APIView):
 		except Exception:
 			logger.exception("[ResetPasswordView] Audit log failed for user=%s", user.pk)
 
+		EmailService.send_password_changed_email(user)
+
 		return Response({'status': 'ok', 'message': 'Tu contraseña fue restablecida exitosamente.'})
 
 
@@ -880,6 +882,8 @@ class ChangePasswordView(APIView):
 		except Exception:
 			logger.exception("[ChangePasswordView] Audit log failed for user=%s", user.pk)
 
+		EmailService.send_password_changed_email(user)
+
 		return response
 
 
@@ -951,6 +955,8 @@ class ForceChangePasswordView(APIView):
 				)
 		except Exception:
 			logger.exception("[ForceChangePasswordView] Audit log failed for user=%s", user.pk)
+
+		EmailService.send_password_changed_email(user)
 
 		return response
 

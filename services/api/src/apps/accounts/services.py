@@ -140,6 +140,31 @@ class EmailService:
             )
             return False
 
+    @staticmethod
+    def send_password_changed_email(user) -> bool:
+        frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')
+        support_email = getattr(settings, 'SUPPORT_EMAIL', 'soporte@mirubro.com')
+
+        try:
+            queue_transactional_email(
+                to_email=user.email,
+                subject="Tu contraseña de MiRubro fue modificada",
+                template_key="password_changed",
+                context={
+                    "user_name": user.get_full_name() or user.username,
+                    "support_email": support_email,
+                    "frontend_url": frontend_url,
+                },
+                user=user,
+                send_async=True,
+            )
+            return True
+        except Exception:
+            logger.exception(
+                "[EmailService] Failed to queue password-changed email for user=%s", user.pk
+            )
+            return False
+
 
 class MembershipService:
     @staticmethod
