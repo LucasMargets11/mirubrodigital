@@ -118,29 +118,25 @@ class EmailService:
     def send_password_reset_email(user, token: str) -> bool:
         frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')
         reset_url = f"{frontend_url}/nueva-contrasena?token={token}"
-        subject = "Recuperá tu contraseña en Mirubro"
-        hours = getattr(settings, 'PASSWORD_RESET_TOKEN_HOURS', 2)
-        body = (
-            f"Hola,\n\n"
-            f"Recibimos una solicitud para restablecer tu contraseña en Mirubro.\n\n"
-            f"Hacé clic en el siguiente enlace para continuar:\n\n"
-            f"  {reset_url}\n\n"
-            f"Este enlace es válido por {hours} hora{'s' if hours != 1 else ''}.\n\n"
-            f"Si no solicitaste este cambio, ignorá este mensaje. Tu contraseña no será modificada.\n\n"
-            f"— El equipo de Mirubro"
-        )
+        expiration_hours = getattr(settings, 'PASSWORD_RESET_TOKEN_HOURS', 2)
+
         try:
-            send_mail(
-                subject=subject,
-                message=body,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[user.email],
-                fail_silently=False,
+            queue_transactional_email(
+                to_email=user.email,
+                subject="Recuperá tu contraseña en MiRubro",
+                template_key="password_reset",
+                context={
+                    "user_name": user.get_full_name() or user.username,
+                    "reset_url": reset_url,
+                    "expiration_hours": expiration_hours,
+                },
+                user=user,
+                send_async=True,
             )
             return True
         except Exception:
             logger.exception(
-                "[EmailService] Failed to send password-reset email to user=%s", user.pk
+                "[EmailService] Failed to queue password-reset email for user=%s", user.pk
             )
             return False
 
