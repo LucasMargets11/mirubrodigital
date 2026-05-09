@@ -241,28 +241,63 @@ class BusinessDocumentConfig:
             }
 
 
-def resolve_document_logo_path(image_field) -> str | None:
+def resolve_document_logo_path(image_field):
     """
-    Resuelve el path absoluto del logo de branding para renderizar en PDFs.
+    Resuelve el logo de branding para renderizar en PDFs.
 
     Maneja de forma segura:
     - Campo vacío / None
     - Logo SVG (no soportado por ReportLab)
+    - FileSystemStorage local (devuelve path string)
+    - S3Boto3Storage u otro storage remoto (devuelve BytesIO via storage.open)
     - Archivo inaccesible
 
     Returns:
-        Path absoluto del archivo de imagen, o None si no se puede usar.
+        str:     path absoluto del archivo (FileSystemStorage local).
+        BytesIO: stream listo para leer (S3 / storage remoto).
+        None:    si no hay logo disponible o no se puede usar.
     """
+    from io import BytesIO as _BytesIO
+
     if not image_field:
         return None
     try:
         name = getattr(image_field, 'name', '') or ''
         if not name:
+            logger.debug('resolve_document_logo_path: campo sin nombre, se omite logo')
             return None
         if name.lower().endswith('.svg'):
+            logger.debug(
+                'resolve_document_logo_path: SVG no soportado por ReportLab, se omite (name=%s)',
+                name,
+            )
             return None
-        return image_field.path
+
+        # Intentar path local (FileSystemStorage)
+        try:
+            return image_field.path
+        except (NotImplementedError, ValueError):
+            pass
+
+        # Fallback: storage.open (S3, GCS, etc.)
+        storage = getattr(image_field, 'storage', None)
+        if storage is None:
+            logger.warning(
+                'resolve_document_logo_path: storage no disponible (name=%s)', name
+            )
+            return None
+        buf = _BytesIO()
+        with storage.open(name, 'rb') as f:
+            buf.write(f.read())
+        buf.seek(0)
+        return buf
+
     except Exception:
+        logger.warning(
+            'resolve_document_logo_path: no se pudo resolver logo (name=%s)',
+            getattr(image_field, 'name', '?'),
+            exc_info=True,
+        )
         return None
 
 

@@ -117,17 +117,20 @@ def _draw_logo(pdf: canvas.Canvas, logo_field, x: float, y_top: float,
     Intenta dibujar el logo dentro del área (x, y_top - max_h) a (x + max_w, y_top).
     Devuelve la altura efectivamente usada (0.0 si falló o no hay logo).
 
-    Compatible con FileSystemStorage. En S3 el .path falla → retorna 0.0.
+    Compatible con FileSystemStorage (path local) y S3Boto3Storage (BytesIO).
+    resolve_document_logo_path devuelve str, BytesIO o None; en todos los casos
+    se construye un ImageReader que ReportLab acepta directamente en drawImage.
     """
     if logo_field is None:
         return 0.0
     try:
         from reportlab.lib.utils import ImageReader
         from apps.business.services import resolve_document_logo_path
-        logo_path = resolve_document_logo_path(logo_field)
-        if not logo_path:
+        logo_src = resolve_document_logo_path(logo_field)
+        if logo_src is None:
+            logger.debug('_draw_logo: resolve_document_logo_path devolvió None, se omite logo')
             return 0.0
-        reader = ImageReader(logo_path)
+        reader = ImageReader(logo_src)
         img_w, img_h = reader.getSize()
         if img_w <= 0 or img_h <= 0:
             return 0.0
@@ -137,7 +140,7 @@ def _draw_logo(pdf: canvas.Canvas, logo_field, x: float, y_top: float,
         # Centrar horizontalmente dentro de max_w
         x_offset = (max_w - draw_w) / 2
         pdf.drawImage(
-            logo_path,
+            reader,
             x + x_offset,
             y_top - draw_h,
             width=draw_w,
@@ -147,7 +150,7 @@ def _draw_logo(pdf: canvas.Canvas, logo_field, x: float, y_top: float,
         )
         return draw_h
     except Exception:
-        logger.debug('_draw_logo: no se pudo dibujar logo', exc_info=True)
+        logger.warning('_draw_logo: no se pudo dibujar logo', exc_info=True)
         return 0.0
 
 

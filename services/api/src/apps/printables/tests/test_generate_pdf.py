@@ -1001,6 +1001,156 @@ class Phase8HeaderContentTypeTests(PrintablesBaseTest):
         response = self.client.post(URL, payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+
+# ── Tests de logo en PDFs (S3 + FileSystem) ───────────────────────────────────
+
+class LogoPDFTests(PrintablesBaseTest):
+    """
+    Verifica que los logos de BusinessBranding aparecen correctamente en PDFs
+    tanto con FileSystemStorage (local) como con S3Boto3Storage (producción).
+    """
+
+    def test_pdf_without_logo_still_generates(self):
+        """Sin logo configurado, el PDF se genera normalmente."""
+        biz = self._bootstrap_business(plan='pro')
+        BusinessBranding.objects.filter(business=biz).update(
+            logo_horizontal='', logo_square=''
+        )
+        payload = _minimal_payload(include_logo=True, logo_variant='horizontal')
+        response = self.client.post(URL, payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response['Content-Type'], 'application/pdf')
+
+    def test_pdf_logo_variant_none_skips_logo_resolution(self):
+        """logo_variant='none' no debe intentar resolver el logo."""
+        from unittest.mock import patch
+        self._bootstrap_business(plan='pro')
+        with patch('apps.printables.services.resolve_signage_logo') as mock_resolve:
+            payload = _minimal_payload(logo_variant='none', include_logo=False)
+            response = self.client.post(URL, payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_resolve.assert_not_called()
+
+    def test_pdf_with_logo_bytesio_from_s3_generates_pdf(self):
+        """
+        Cuando resolve_document_logo_path devuelve un BytesIO (caso S3),
+        el PDF debe generarse sin error y contener el logo.
+        """
+        from io import BytesIO
+        from unittest.mock import MagicMock, PropertyMock, patch
+
+        self._bootstrap_business(plan='pro')
+
+        png_bytes = _make_minimal_png()
+        logo_bytesio = BytesIO(png_bytes)
+
+        # Simular campo de logo con storage S3 (path lanza NotImplementedError)
+        mock_field = MagicMock()
+        mock_field.name = 'business/logos/test_logo.png'
+        type(mock_field).path = PropertyMock(
+            side_effect=NotImplementedError('S3 does not support path')
+        )
+        mock_cm = MagicMock()
+        mock_cm.__enter__ = MagicMock(return_value=MagicMock(read=MagicMock(return_value=png_bytes)))
+        mock_cm.__exit__ = MagicMock(return_value=False)
+        mock_field.storage = MagicMock()
+        mock_field.storage.open.return_value = mock_cm
+
+        with patch('apps.printables.services.resolve_signage_logo', return_value=mock_field):
+            payload = _minimal_payload(include_logo=True, logo_variant='horizontal')
+            response = self.client.post(URL, payload, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response['Content-Type'], 'application/pdf')
+        self.assertGreater(len(response.content), 100)
+
+    def test_pdf_with_logo_path_from_filesystem_generates_pdf(self):
+        """
+        Cuando resolve_document_logo_path devuelve un path str (FileSystemStorage),
+        el PDF debe generarse correctamente.
+        """
+        import tempfile, os
+        from unittest.mock import MagicMock, PropertyMock, patch
+
+        self._bootstrap_business(plan='pro')
+
+        png_bytes = _make_minimal_png()
+
+        # Guardar PNG a archivo temporal y usar ese path
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+            tmp.write(png_bytes)
+            tmp_path = tmp.name
+
+        try:
+            mock_field = MagicMock()
+            mock_field.name = 'logos/local_logo.png'
+            type(mock_field).path = PropertyMock(return_value=tmp_path)
+
+            with patch('apps.printables.services.resolve_signage_logo', return_value=mock_field):
+                payload = _minimal_payload(include_logo=True, logo_variant='horizontal')
+                response = self.client.post(URL, payload, format='json')
+        finally:
+            os.unlink(tmp_path)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response['Content-Type'], 'application/pdf')
+        self.assertGreater(len(response.content), 100)
+
+    def test_pdf_with_svg_logo_skips_silently(self):
+        """Un logo SVG debe omitirse sin romper la generación del PDF."""
+        from unittest.mock import MagicMock, PropertyMock, patch
+
+        self._bootstrap_business(plan='pro')
+
+        mock_field = MagicMock()
+        mock_field.name = 'business/logos/brand.svg'
+        type(mock_field).path = PropertyMock(return_value='/media/brand.svg')
+
+        with patch('apps.printables.services.resolve_signage_logo', return_value=mock_field):
+            payload = _minimal_payload(include_logo=True, logo_variant='horizontal')
+            response = self.client.post(URL, payload, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response['Content-Type'], 'application/pdf')
+
+    def test_pdf_with_s3_open_failure_skips_logo_and_generates(self):
+        """
+        Si storage.open falla (S3 timeout), el logo se omite silenciosamente
+        y el PDF se genera igual.
+        """
+        from unittest.mock import MagicMock, PropertyMock, patch
+
+        self._bootstrap_business(plan='pro')
+
+        mock_field = MagicMock()
+        mock_field.name = 'logos/brand.png'
+        type(mock_field).path = PropertyMock(side_effect=NotImplementedError())
+        mock_field.storage = MagicMock()
+        mock_field.storage.open.side_effect = OSError('S3 timeout')
+
+        with patch('apps.printables.services.resolve_signage_logo', return_value=mock_field):
+            payload = _minimal_payload(include_logo=True, logo_variant='horizontal')
+            response = self.client.post(URL, payload, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response['Content-Type'], 'application/pdf')
+
+    def test_logo_variant_square_uses_logo_square_field(self):
+        """logo_variant='square' debe intentar usar logo_square del branding."""
+        from unittest.mock import patch, call
+
+        self._bootstrap_business(plan='pro')
+
+        with patch('apps.printables.services.resolve_signage_logo', return_value=None) as mock_resolve:
+            payload = _minimal_payload(include_logo=True, logo_variant='square')
+            response = self.client.post(URL, payload, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_resolve.assert_called_once()
+        _, kwargs_or_args = mock_resolve.call_args[0], mock_resolve.call_args
+        # Verifica que se pasó 'square' como logo_variant
+        self.assertIn('square', mock_resolve.call_args[0])
+
     def test_header_content_type_highlight_text_generates_pdf(self):
         """header_content_type='highlight_text' con header_text → 200."""
         self._bootstrap_business(plan='pro')
