@@ -204,6 +204,72 @@ def send_payment_failed_email(subscription, *, reason: str | None = None,
         return False
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# PR-9 — subscription_suspended
+# ─────────────────────────────────────────────────────────────────────────────
+
+def send_subscription_suspended_email(subscription, *, reason: str | None = None) -> bool:
+    """
+    Notify the business owner that their subscription has been suspended.
+
+    Called after a subscription transitions to SUSPENDED status (either from
+    PAST_DUE when grace_until expired, or from TRIALING when trial_ends_at
+    expired).  Runs outside any active transaction.atomic() block.
+
+    Parameters
+    ----------
+    subscription : SubscriptionV2 instance (already saved as SUSPENDED).
+    reason       : Optional human-readable reason (not currently shown but
+                   kept for future use and logging).
+
+    Returns True if the email was enqueued, False otherwise.
+    """
+    owner = get_owner_user(subscription)
+    if owner is None:
+        return False
+
+    frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')
+    reactivation_url = f"{frontend_url}/billing"
+
+    plan_name = _resolve_plan_name(subscription)
+    grace_expired_at = getattr(subscription, 'grace_until', None)
+
+    try:
+        queue_transactional_email(
+            to_email=owner.email,
+            subject="Tu acceso a MiRubro fue suspendido",
+            template_key="subscription_suspended",
+            context={
+                "user_name": owner.get_full_name() or owner.username,
+                "business_name": subscription.business.name,
+                "plan_name": plan_name,
+                "grace_expired_at": grace_expired_at,
+                "reactivation_url": reactivation_url,
+                "support_email": getattr(settings, 'SUPPORT_EMAIL', 'soporte@mirubro.com'),
+            },
+            user=owner,
+            business=subscription.business,
+            send_async=True,
+        )
+        logger.info(
+            "[billing.email] subscription_suspended email enqueued "
+            "owner=%s subscription=%s business=%s reason=%s",
+            owner.pk,
+            subscription.pk,
+            subscription.business_id,
+            reason,
+        )
+        return True
+    except Exception:
+        logger.exception(
+            "[billing.email] Failed to queue subscription_suspended email "
+            "for owner=%s subscription=%s",
+            owner.pk,
+            subscription.pk,
+        )
+        return False
+
+
 def _resolve_plan_name(subscription) -> str:
     """
     Return a human-readable plan name.

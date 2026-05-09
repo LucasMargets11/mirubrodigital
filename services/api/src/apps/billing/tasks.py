@@ -172,6 +172,18 @@ def _transition_past_due_to_suspended(SubscriptionV2, now) -> int:
                 "[billing.task] past_due→suspended business=%s sub=%s grace_was=%s",
                 row['business_id'], row['pk'], row['grace_until'],
             )
+            try:
+                sub = SubscriptionV2.objects.select_related(
+                    'business', 'checkout_session__user',
+                ).get(pk=row['pk'])
+                from apps.billing.email_helpers import send_subscription_suspended_email
+                send_subscription_suspended_email(sub, reason='grace_period_expired')
+            except Exception as exc:
+                logger.exception(
+                    "[billing.task] send_subscription_suspended_email failed "
+                    "for sub=%s: %s",
+                    row['pk'], exc,
+                )
     return count
 
 
@@ -204,6 +216,18 @@ def _transition_trial_to_suspended(SubscriptionV2, now) -> int:
                 "[billing.task] trialing→suspended business=%s sub=%s trial_ended=%s",
                 row['business_id'], row['pk'], row['trial_ends_at'],
             )
+            try:
+                sub = SubscriptionV2.objects.select_related(
+                    'business', 'checkout_session__user',
+                ).get(pk=row['pk'])
+                from apps.billing.email_helpers import send_subscription_suspended_email
+                send_subscription_suspended_email(sub, reason='trial_expired')
+            except Exception as exc:
+                logger.exception(
+                    "[billing.task] send_subscription_suspended_email failed "
+                    "for sub=%s: %s",
+                    row['pk'], exc,
+                )
     return count
 
 
