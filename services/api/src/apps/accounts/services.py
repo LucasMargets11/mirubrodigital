@@ -165,6 +165,43 @@ class EmailService:
             )
             return False
 
+    @staticmethod
+    def send_secondary_user_access_email(user, business, role: str) -> bool:
+        """
+        Inform a newly-created secondary user that they can log in with Google.
+        Only sent when the user has an email address.
+        Failures are logged but never propagate — user creation must not be affected.
+        """
+        if not user.email:
+            return False
+
+        frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')
+        support_email = getattr(settings, 'SUPPORT_EMAIL', 'soporte@mirubro.com')
+        login_url = frontend_url  # landing page with "Ingresar con Google" button
+
+        try:
+            queue_transactional_email(
+                to_email=user.email,
+                subject="Te dieron acceso a MiRubro",
+                template_key="secondary_user_access",
+                context={
+                    "user_name": user.get_full_name() or user.username,
+                    "business_name": business.name,
+                    "role": role,
+                    "login_url": login_url,
+                    "support_email": support_email,
+                },
+                user=user,
+                business=business,
+                send_async=True,
+            )
+            return True
+        except Exception:
+            logger.exception(
+                "[EmailService] Failed to queue secondary-user-access email for user=%s", user.pk
+            )
+            return False
+
 
 class MembershipService:
     @staticmethod
@@ -381,5 +418,10 @@ class InternalUserService:
                 created_by_user.pk if created_by_user else None,
             )
 
-            return {'user': user, 'membership': membership}
+        # Best-effort: inform the secondary user they can log in with Google.
+        # Intentionally outside transaction.atomic() so a delivery failure
+        # never rolls back the user creation.
+        EmailService.send_secondary_user_access_email(user, business, role)
+
+        return {'user': user, 'membership': membership}
 
