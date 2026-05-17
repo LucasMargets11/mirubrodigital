@@ -84,15 +84,30 @@ class Command(BaseCommand):
     help = (
         'Seeds TWO demo accounts for QR de Reseñas QA: '
         'qr.basic@demo.local (base) and qr.pro@demo.local (PRO). '
-        'Idempotent. DEBUG only.'
+        'Idempotent. DEBUG by default. In production requires --allow-production.'
     )
 
+    def add_arguments(self, parser):
+        parser.add_argument(
+            '--allow-production',
+            action='store_true',
+            help='Permite ejecutar este seed con DEBUG=False de forma explícita.',
+        )
+
     def handle(self, *args, **kwargs):
-        if not settings.DEBUG:
+        allow_production = kwargs.get('allow_production', False)
+
+        if not settings.DEBUG and not allow_production:
             raise CommandError(
                 "❌ Este comando solo se puede ejecutar en DEBUG=True. "
-                "Rechazado por seguridad."
+                "En producción usá explícitamente: --allow-production"
             )
+
+        if not settings.DEBUG and allow_production:
+            self.stdout.write(self.style.WARNING(
+                "\n⚠️ Ejecutando seed de cuentas demo QR de Reseñas en producción "
+                "por uso explícito de --allow-production.\n"
+            ))
 
         self.stdout.write(self.style.WARNING(
             "\n🔍 Iniciando seed de cuentas demo QR de Reseñas (básico + PRO)...\n"
