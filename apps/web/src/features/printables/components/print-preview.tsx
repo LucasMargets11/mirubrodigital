@@ -64,6 +64,17 @@ type PrintPreviewProps = {
 const PREVIEW_PX_PER_CM = 14;
 const MAX_PREVIEW_W = 210; // px cap
 
+/** Formats a raw price string for signage: no space after $, no trailing .00.
+ *  '890.00' → '$890'  |  '890.50' → '$890.50'  |  '890' → '$890' */
+function formatSignagePrice(raw: string): string {
+  const n = parseFloat(raw);
+  if (Number.isFinite(n)) {
+    return n === Math.trunc(n) ? `$${Math.trunc(n)}` : `$${n.toFixed(2)}`;
+  }
+  // fallback: strip any leading $ and spaces, strip trailing .00
+  return `$${raw.replace(/^[$\s]+/, '').replace(/\.00$/, '')}`;
+}
+
 export function PrintPreview({
   title,
   price,
@@ -295,7 +306,7 @@ export function PrintPreview({
                       marginTop: priceGapPx,
                     }}
                   >
-                    $ {oldPrice}
+                    {formatSignagePrice(oldPrice)}
                   </p>
                 ) : null}
                 <p
@@ -307,7 +318,7 @@ export function PrintPreview({
                     marginTop: oldPrice ? 0 : priceGapPx,
                   }}
                 >
-                  {price || '$ -'}
+                  {price ? formatSignagePrice(price) : '$-'}
                 </p>
               </>
             )}

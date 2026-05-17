@@ -342,6 +342,9 @@ DEFAULT_FROM_EMAIL = os.getenv(
 SERVER_EMAIL = os.getenv('SERVER_EMAIL', DEFAULT_FROM_EMAIL)
 SUPPORT_EMAIL = os.getenv('SUPPORT_EMAIL', 'mirubrodigital@gmail.com')
 BILLING_EMAIL = os.getenv('BILLING_EMAIL', 'mirubrodigital@gmail.com')
+OPERATIONS_EMAIL = os.getenv('OPERATIONS_EMAIL', 'mirubrodigital@gmail.com')
+ADMIN_EMAIL = os.getenv('ADMIN_EMAIL', 'mirubrodigital@gmail.com')
+ADMIN_FRONTEND_URL = os.getenv('ADMIN_FRONTEND_URL', 'http://localhost:3000/admin')
 
 # ── Notifications / SES settings ─────────────────────────────────────────────
 EMAIL_PROVIDER = os.getenv('EMAIL_PROVIDER', 'django').strip().lower()

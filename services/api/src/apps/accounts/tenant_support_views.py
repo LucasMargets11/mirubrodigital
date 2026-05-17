@@ -16,10 +16,13 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from django.conf import settings
+
 from apps.accounts.models import AccountProfile
 from apps.accounts.permissions import HasBusinessMembership
 from apps.accounts.platform_audit import log_platform_action
 from apps.accounts.support_ticket import SupportTicket, TicketMessage
+from apps.notifications.admin_helpers import queue_admin_transactional_email
 
 PAGE_SIZE = 25
 MAX_SUBJECT_LENGTH = 200
@@ -89,6 +92,77 @@ def _serialize_message_tenant(m) -> dict:
         'is_from_staff': is_from_staff,
         'author_name': author_name,
     }
+
+
+def _build_admin_ticket_url(ticket_id: str) -> str:
+    """Build the admin panel URL for a given ticket."""
+    base = getattr(settings, 'ADMIN_FRONTEND_URL', '').rstrip('/')
+    return f"{base}/soporte/{ticket_id}"
+
+
+def _queue_ticket_created_email(ticket, user) -> None:
+    """Best-effort: enqueue internal admin email for a new tenant ticket."""
+    try:
+        queue_admin_transactional_email(
+            recipient_category="support",
+            subject="Nuevo ticket de soporte en MiRubro",
+            template_key="admin_support_ticket_created",
+            context={
+                "ticket_reference": ticket.reference,
+                "ticket_subject": ticket.subject,
+                "ticket_category": ticket.category,
+                "ticket_priority": ticket.priority,
+                "business_name": ticket.business.name,
+                "contact_email": ticket.contact_email,
+                "created_at": ticket.created_at.strftime("%d/%m/%Y %H:%M") if ticket.created_at else "",
+                "admin_url": _build_admin_ticket_url(str(ticket.id)),
+            },
+            related_business=ticket.business,
+            related_user=user,
+            metadata={
+                "event_type": "admin_support_ticket_created",
+                "ticket_id": str(ticket.id),
+                "ticket_reference": ticket.reference,
+                "ticket_category": ticket.category,
+                "ticket_priority": ticket.priority,
+                "related_business_id": str(ticket.business_id),
+            },
+        )
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception(
+            "_queue_ticket_created_email: error inesperado para ticket %s", ticket.id
+        )
+
+
+def _notify_admin_ticket_created(ticket) -> None:
+    """Best-effort: create admin in-app notification for a new tenant-created support ticket."""
+    # Guard: only notify for tickets originated from the tenant portal.
+    if getattr(ticket, 'origin', None) != SupportTicket.ORIGIN_TENANT:
+        return
+    try:
+        from apps.accounts.admin_notification_service import create_admin_notification
+        create_admin_notification(
+            notif_type='support_ticket_created',
+            severity='warning',
+            target_role='support_agent',
+            title='Nuevo ticket de soporte',
+            message=f'{ticket.business.name} creó un nuevo ticket: {ticket.subject}',
+            business=ticket.business,
+            related_object_type='support_ticket',
+            related_object_id=str(ticket.id),
+            action_url=f'/admin/soporte/{ticket.id}',
+            metadata={
+                'ticket_reference': ticket.reference,
+                'ticket_priority': ticket.priority,
+                'ticket_category': ticket.category,
+            },
+        )
+    except Exception:
+        import logging as _logging
+        _logging.getLogger(__name__).exception(
+            '_notify_admin_ticket_created: error inesperado para ticket %s', ticket.id,
+        )
 
 
 def _log_tenant_action(action, user, ticket, details=None, request=None):
@@ -214,6 +288,9 @@ class TenantTicketListCreateView(APIView):
             details={'reference': ticket.reference, 'category': category},
             request=request,
         )
+
+        _queue_ticket_created_email(ticket, request.user)
+        _notify_admin_ticket_created(ticket)
 
         return Response({
             'id': str(ticket.id),

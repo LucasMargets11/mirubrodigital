@@ -9,6 +9,7 @@ import type { PublicMenuConfig } from '@/features/menu/types';
 import { MENU_FONTS_MAP, menuFontsVariablesClassName, getMenuFontFamily } from '@/lib/fonts';
 import { ONLINE_MENU_PRESETS, applyPreset } from '@/lib/online-menu-presets';
 import { MenuBrandHeader } from '@/components/public-menu/brand-header';
+import { BusinessBrandingPanel } from '@/features/business/branding';
 
 /* ── Tiny helper ────────────────────────────────────────────────────────────── */
 function ColorInput({ label, value, onChange }: { label: string; value: string; onChange: (val: string) => void }) {
@@ -130,7 +131,8 @@ export function AparienciaClient({ canUploadImages }: AparienciaClientProps) {
             </div>
 
             <div className="grid xl:grid-cols-[1fr_minmax(340px,420px)] gap-8">
-                <div className="space-y-6">
+                <div className="space-y-6">                    {/* ── Marca del negocio (branding global) ──────────────────────── */}
+                    <BusinessBrandingPanel />
                     {/* ── Configuración General ─────────────────────────────────── */}
                     <div className="bg-white p-4 rounded-lg border shadow-sm space-y-4">
                         <h2 className="text-lg font-semibold">Configuración General</h2>

@@ -11,6 +11,30 @@ interface MenuBrandHeaderProps {
   theme: LayoutTheme;
 }
 
+interface TitleAndDescProps {
+  name: string;
+  description?: string;
+}
+
+function TitleAndDesc({ name, description }: TitleAndDescProps) {
+  return (
+    <>
+      <h1 className="font-semibold tracking-tight font-[family-name:var(--menu-font-heading)]"
+          style={{ fontSize: `calc(var(--menu-size-heading) * 2)`, lineHeight: 1.1 }}
+      >
+          {name}
+      </h1>
+      {description && (
+            <p className="mx-auto mt-4 max-w-2xl text-[var(--menu-muted)]"
+              style={{ fontSize: `calc(var(--menu-size-body) * 1.1)` }}
+            >
+              {description}
+          </p>
+      )}
+    </>
+  );
+}
+
 export function MenuBrandHeader({ brandDetails, theme }: MenuBrandHeaderProps) {
   const logoUrl = buildMediaUrl(theme.menuLogoUrl) ?? undefined;
   const position = theme.menuLogoPosition || 'top_center';
@@ -22,28 +46,10 @@ export function MenuBrandHeader({ brandDetails, theme }: MenuBrandHeaderProps) {
       lg: 'h-16 lg:h-[88px]'
   }[size];
 
-  // Common title/desc rendering to avoid duplication
-  const TitleAndDesc = () => (
-    <>
-      <h1 className="font-semibold tracking-tight font-[family-name:var(--menu-font-heading)]"
-          style={{ fontSize: `calc(var(--menu-size-heading) * 2)`, lineHeight: 1.1 }}
-      >
-          {brandDetails.name}
-      </h1>
-      {brandDetails.description && (
-            <p className="mx-auto mt-4 max-w-2xl text-[var(--menu-muted)]"
-              style={{ fontSize: `calc(var(--menu-size-body) * 1.1)` }}
-            >
-              {brandDetails.description}
-          </p>
-      )}
-    </>
-  );
-
   if (!logoUrl || position === 'watermark') {
     return (
        <div className="mb-12 text-center lg:mb-16">
-          <TitleAndDesc />
+          <TitleAndDesc name={brandDetails.name} description={brandDetails.description} />
       </div>
     );
   }
@@ -53,7 +59,7 @@ export function MenuBrandHeader({ brandDetails, theme }: MenuBrandHeaderProps) {
         {position === 'top_center' && (
              <div className="flex flex-col items-center text-center">
                  <img src={logoUrl} alt={`Logo de ${brandDetails.name}`} className={cn("mb-6 object-contain", imgSizeClass)} />
-                 <TitleAndDesc />
+                 <TitleAndDesc name={brandDetails.name} description={brandDetails.description} />
              </div>
         )}
 
@@ -83,7 +89,7 @@ export function MenuBrandHeader({ brandDetails, theme }: MenuBrandHeaderProps) {
                     <img src={logoUrl} alt={`Logo de ${brandDetails.name}`} className={cn("object-contain", imgSizeClass)} />
                  </div>
                  <div className="text-center px-10 lg:px-0">
-                    <TitleAndDesc />
+                    <TitleAndDesc name={brandDetails.name} description={brandDetails.description} />
                  </div>
             </div>
         )}

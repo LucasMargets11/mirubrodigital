@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import logging
 from datetime import date, timedelta
 
@@ -7,6 +8,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.db.models import Avg, Count
 from django.db.models.functions import TruncDate
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
@@ -15,12 +17,15 @@ from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle, ScopedRateThrottle
 from rest_framework.views import APIView
 
-from apps.accounts.permissions import HasBusinessMembership, HasPermission
+from apps.accounts.permissions import HasBusinessMembership, HasEntitlement, HasPermission
 from common.ip import hash_ip
 from common.qr import build_qr_svg
 
 from .entitlements import is_reviews_pro, reviews_allowed, smart_filter_allowed, trial_available
-from .models import Review, ReviewConfig, ReviewMode, ReviewVisit
+from .models import Review, ReviewConfig, ReviewMode, ReviewQrPosterDesign, ReviewVisit
+from .qr_poster_design_serializer import QrPosterDesignSerializer
+from .qr_poster_serializer import GenerateQrPosterSerializer
+from .qr_posters import render_qr_poster_pdf
 from .serializers import (
     PublicReviewConfigSerializer,
     ReviewConfigSerializer,
@@ -595,3 +600,397 @@ class PublicReviewSubmitView(APIView):
             'action': 'submitted',
             'message': config.thank_you_message,
         }, status=status.HTTP_201_CREATED)
+
+
+# ---------------------------------------------------------------------------
+# Carteles QR PRO
+# ---------------------------------------------------------------------------
+
+class GenerateQrPosterPdfView(APIView):
+    """
+    POST /api/v1/reviews/qr-posters/generate-pdf/
+
+    Genera un cartel QR en PDF para QR de Reseñas PRO.
+
+    Acepta application/json (solo color de fondo) o multipart/form-data
+    (con campo background_image para imagen de fondo).
+
+    Requiere entitlement 'qr_reviews.print_posters' (plan qr_reviews_pro).
+    Usuarios con plan base (qr_reviews / qr_reviews_base) reciben 403.
+
+    Response exitosa: application/pdf con el cartel listo para imprimir.
+    """
+    permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement]
+    required_entitlement = 'qr_reviews.print_posters'
+
+    _MAX_BG_IMAGE_BYTES = 10 * 1024 * 1024          # 10 MB
+    _ALLOWED_IMAGE_FORMATS = frozenset({'JPEG', 'PNG'})
+
+    def post(self, request):
+        business = request.business
+
+        if not getattr(business, 'slug', None):
+            return Response(
+                {
+                    'code': 'no_slug',
+                    'message': 'El negocio no tiene un slug configurado.',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = GenerateQrPosterSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        background_mode = serializer.validated_data.get('background_mode', 'color')
+        background_image_bytes: bytes | None = None
+
+        if background_mode == 'image':
+            bg_file = request.FILES.get('background_image')
+            if bg_file is None:
+                return Response(
+                    {'background_image': 'Se requiere una imagen cuando background_mode es "image".'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            raw = bg_file.read()
+
+            if len(raw) > self._MAX_BG_IMAGE_BYTES:
+                return Response(
+                    {'background_image': 'La imagen no puede superar 10 MB.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            try:
+                from PIL import Image as _PilImage  # noqa: PLC0415  (Pillow — dep de ReportLab)
+                img = _PilImage.open(io.BytesIO(raw))
+                img_format = img.format
+            except Exception:
+                return Response(
+                    {'background_image': 'El archivo no es una imagen válida.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if img_format not in self._ALLOWED_IMAGE_FORMATS:
+                return Response(
+                    {'background_image': f'Solo se aceptan JPG o PNG. Formato recibido: {img_format}.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            background_image_bytes = raw
+
+        try:
+            pdf_bytes = render_qr_poster_pdf(
+                serializer.validated_data, business, background_image_bytes,
+            )
+        except Exception:
+            logger.exception(
+                'GenerateQrPosterPdfView: error generating PDF (business=%s)',
+                business.pk,
+            )
+            return Response(
+                {
+                    'code': 'pdf_generation_error',
+                    'message': 'No se pudo generar el PDF. Intentá nuevamente.',
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        response = HttpResponse(pdf_bytes, content_type='application/pdf')
+        response['Content-Disposition'] = 'attachment; filename="cartel-qr-resenas.pdf"'
+        return response
+
+
+# ---------------------------------------------------------------------------
+# Historial de diseños QR PRO
+# ---------------------------------------------------------------------------
+
+_MAX_DESIGN_IMAGE_BYTES = 10 * 1024 * 1024       # 10 MB
+_ALLOWED_DESIGN_IMAGE_FORMATS = frozenset({'JPEG', 'PNG'})
+
+
+def _validate_design_image(bg_file) -> bytes:
+    """
+    Validates an uploaded background image file.
+    Returns raw bytes if valid.
+    Raises rest_framework.exceptions.ValidationError on failure.
+    """
+    from rest_framework.exceptions import ValidationError  # noqa: PLC0415
+
+    raw = bg_file.read()
+
+    if len(raw) > _MAX_DESIGN_IMAGE_BYTES:
+        raise ValidationError({'background_image': 'La imagen no puede superar 10 MB.'})
+
+    try:
+        from PIL import Image as _PilImage  # noqa: PLC0415
+        img = _PilImage.open(io.BytesIO(raw))
+        img_format = img.format
+    except Exception:
+        raise ValidationError({'background_image': 'El archivo no es una imagen válida.'})
+
+    if img_format not in _ALLOWED_DESIGN_IMAGE_FORMATS:
+        raise ValidationError(
+            {'background_image': f'Solo se aceptan JPG o PNG. Formato recibido: {img_format}.'}
+        )
+
+    return raw
+
+
+class QrPosterDesignListCreateView(APIView):
+    """
+    GET  /api/v1/reviews/qr-posters/designs/  — list saved designs for the business.
+    POST /api/v1/reviews/qr-posters/designs/  — save a new design (max 5 per business).
+
+    Both methods require entitlement 'qr_reviews.print_posters' (plan qr_reviews_pro).
+
+    POST accepts multipart/form-data when background_mode=image (field: background_image).
+    Otherwise accepts application/json.
+    The `payload` field must be a valid JSON object matching the cartel configuration.
+    """
+
+    permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement]
+    required_entitlement = 'qr_reviews.print_posters'
+
+    def get(self, request):
+        business = request.business
+        designs = ReviewQrPosterDesign.objects.filter(business=business)
+        serializer = QrPosterDesignSerializer(designs, many=True, context={'request': request})
+        return Response({
+            'count': designs.count(),
+            'limit': ReviewQrPosterDesign.DESIGN_LIMIT,
+            'results': serializer.data,
+        })
+
+    def post(self, request):
+        business = request.business
+
+        # Enforce limit before touching serializer or files
+        count = ReviewQrPosterDesign.objects.filter(business=business).count()
+        if count >= ReviewQrPosterDesign.DESIGN_LIMIT:
+            return Response(
+                {
+                    'code': 'design_limit_reached',
+                    'message': 'Podés guardar hasta 5 diseños.',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = QrPosterDesignSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        payload = serializer.validated_data['payload']
+        background_mode = payload.get('background_mode', 'color')
+
+        design = ReviewQrPosterDesign(
+            business=business,
+            name=serializer.validated_data['name'],
+            payload=payload,
+            created_by=request.user,
+            updated_by=request.user,
+        )
+
+        if background_mode == 'image':
+            bg_file = request.FILES.get('background_image')
+            if bg_file is None:
+                return Response(
+                    {'background_image': 'Se requiere una imagen cuando background_mode es "image".'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            from rest_framework.exceptions import ValidationError as DRFValidationError  # noqa: PLC0415
+            try:
+                _validate_design_image(bg_file)
+            except DRFValidationError as exc:
+                return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
+            bg_file.seek(0)
+            design.background_image.save(bg_file.name, bg_file, save=False)
+
+        design.save()
+
+        logger.info(
+            '[Reviews] PosterDesign created business=%s id=%s name=%r',
+            business.id, design.id, design.name,
+        )
+        return Response(QrPosterDesignSerializer(design, context={'request': request}).data, status=status.HTTP_201_CREATED)
+
+
+class QrPosterDesignDetailView(APIView):
+    """
+    GET    /api/v1/reviews/qr-posters/designs/<uuid:id>/  — retrieve a design.
+    PATCH  /api/v1/reviews/qr-posters/designs/<uuid:id>/  — partial update.
+    DELETE /api/v1/reviews/qr-posters/designs/<uuid:id>/  — delete (also removes image file).
+
+    Tenant isolation: queries always filter by business=request.business.
+    """
+
+    permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement]
+    required_entitlement = 'qr_reviews.print_posters'
+
+    def _get_design(self, request, id):
+        return get_object_or_404(ReviewQrPosterDesign, id=id, business=request.business)
+
+    def get(self, request, id):
+        design = self._get_design(request, id)
+        return Response(QrPosterDesignSerializer(design, context={'request': request}).data)
+
+    def patch(self, request, id):
+        design = self._get_design(request, id)
+
+        serializer = QrPosterDesignSerializer(design, data=request.data, partial=True)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        # Resolve the updated payload (merge partial with existing)
+        existing_payload = design.payload or {}
+        new_payload_data = serializer.validated_data.get('payload')
+        if new_payload_data is not None:
+            payload = new_payload_data
+        else:
+            payload = existing_payload
+
+        background_mode = payload.get('background_mode', existing_payload.get('background_mode', 'color'))
+        from rest_framework.exceptions import ValidationError as DRFValidationError  # noqa: PLC0415
+
+        if background_mode == 'color':
+            # Switching to color mode — clean up any stored image
+            if design.background_image:
+                design.background_image.delete(save=False)
+                design.background_image = None
+        elif background_mode == 'image':
+            bg_file = request.FILES.get('background_image')
+            if bg_file is not None:
+                # Replace existing image with new one
+                try:
+                    _validate_design_image(bg_file)
+                except DRFValidationError as exc:
+                    return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
+                if design.background_image:
+                    design.background_image.delete(save=False)
+                    design.background_image = None
+                bg_file.seek(0)
+                design.background_image.save(bg_file.name, bg_file, save=False)
+            elif not design.background_image:
+                # No new file and no existing image — invalid state
+                return Response(
+                    {'background_image': 'Se requiere una imagen cuando background_mode es "image".'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            # else: bg_file is None but design.background_image exists → keep as-is
+
+        if 'name' in serializer.validated_data:
+            design.name = serializer.validated_data['name']
+        if new_payload_data is not None:
+            design.payload = payload
+        design.updated_by = request.user
+        design.save()
+
+        logger.info(
+            '[Reviews] PosterDesign updated business=%s id=%s',
+            request.business.id, design.id,
+        )
+        return Response(QrPosterDesignSerializer(design, context={'request': request}).data)
+
+    def delete(self, request, id):
+        design = self._get_design(request, id)
+
+        if design.background_image:
+            design.background_image.delete(save=False)
+
+        design.delete()
+
+        logger.info(
+            '[Reviews] PosterDesign deleted business=%s id=%s',
+            request.business.id, id,
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class GenerateQrPosterPdfFromDesignView(APIView):
+    """
+    POST /api/v1/reviews/qr-posters/designs/<uuid:id>/generate-pdf/
+
+    Genera el PDF de un Cartel QR usando un diseño guardado.
+    Si el diseño tiene imagen de fondo persistida en storage, la usa directamente
+    — el usuario no necesita volver a subir el archivo.
+
+    Tenant isolation: solo accede al diseño si pertenece al business del request.
+    Requiere entitlement 'qr_reviews.print_posters'.
+    """
+
+    permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement]
+    required_entitlement = 'qr_reviews.print_posters'
+
+    def post(self, request, id):
+        business = request.business
+
+        if not getattr(business, 'slug', None):
+            return Response(
+                {
+                    'code': 'no_slug',
+                    'message': 'El negocio no tiene un slug configurado.',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        design = get_object_or_404(ReviewQrPosterDesign, id=id, business=business)
+
+        payload = design.payload or {}
+        background_mode = payload.get('background_mode', 'color')
+        background_image_bytes: bytes | None = None
+
+        if background_mode == 'image':
+            if not design.background_image:
+                return Response(
+                    {
+                        'code': 'missing_design_background_image',
+                        'message': 'Este diseño no tiene una imagen de fondo guardada.',
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            logger.info(
+                'GenerateQrPosterPdfFromDesignView: reading bg image '
+                'design=%s name=%s url=%s storage=%s',
+                design.id,
+                getattr(design.background_image, 'name', None),
+                getattr(design.background_image, 'url', None),
+                design.background_image.storage.__class__.__name__,
+            )
+            try:
+                design.background_image.open('rb')
+                background_image_bytes = design.background_image.read()
+                design.background_image.close()
+            except Exception:
+                logger.exception(
+                    'GenerateQrPosterPdfFromDesignView: failed to read bg image '
+                    '(business=%s design=%s name=%s)',
+                    business.pk, design.id,
+                    getattr(design.background_image, 'name', None),
+                )
+                return Response(
+                    {
+                        'code': 'background_image_read_error',
+                        'message': 'No se pudo leer la imagen de fondo del diseño.',
+                    },
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+        try:
+            pdf_bytes = render_qr_poster_pdf(payload, business, background_image_bytes)
+        except Exception:
+            logger.exception(
+                'GenerateQrPosterPdfFromDesignView: error generating PDF '
+                '(business=%s design=%s)',
+                business.pk, id,
+            )
+            return Response(
+                {
+                    'code': 'pdf_generation_error',
+                    'message': 'No se pudo generar el PDF. Intentá nuevamente.',
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        response = HttpResponse(pdf_bytes, content_type='application/pdf')
+        response['Content-Disposition'] = 'attachment; filename="cartel-qr-resenas.pdf"'
+        return response

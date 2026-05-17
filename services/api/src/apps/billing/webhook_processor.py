@@ -505,6 +505,21 @@ def _handle_authorized_payment(authorized_payment_id: str, delivery: WebhookDeli
             )
             # Do NOT re-raise — email failure must not revert activation.
 
+        # Step 7: notify ADMIN billing team (internal email).
+        # Guarded by the same activated=True condition as the client email —
+        # duplicate webhooks will not fire this either.
+        from .email_helpers import send_admin_subscription_payment_created_email
+        try:
+            send_admin_subscription_payment_created_email(subscription, invoice_event)
+        except Exception as exc:
+            logger.exception(
+                "[webhook/authorized_payment] send_admin_subscription_payment_created_email failed — "
+                "subscription=%s auth_payment=%s: %s. "
+                "Webhook will be marked PROCESSED; activation is NOT reverted.",
+                subscription.pk, authorized_payment_id, exc,
+            )
+            # Do NOT re-raise — internal email failure must not revert activation.
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Internal helpers

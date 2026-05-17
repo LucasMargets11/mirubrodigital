@@ -261,8 +261,6 @@ function BlockNavChips({ blocks, accentColor }: { blocks: PublicMenuLayoutBlock[
     // the "page jumps back to carousel" bug.
     const isProgrammaticScroll = useRef(false);
 
-    if (blocks.length <= 1 && blocks.every((b) => b.categories.length <= 1)) return null;
-
     // Flatten all categories across blocks for the mobile carousel
     const allCategories = blocks.flatMap((block) =>
         block.categories.map((cat) => ({ ...cat, blockId: block.id }))
@@ -324,6 +322,8 @@ function BlockNavChips({ blocks, accentColor }: { blocks: PublicMenuLayoutBlock[
         // Release the lock after the smooth scroll finishes (≈500 ms).
         setTimeout(() => { isProgrammaticScroll.current = false; }, 600);
     }, []);
+
+    if (blocks.length <= 1 && blocks.every((b) => b.categories.length <= 1)) return null;
 
     return (
         <nav

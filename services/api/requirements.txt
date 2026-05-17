@@ -28,3 +28,6 @@ gunicorn>=22.0,<23.0
 # S3 media storage — public images only (menu items, categories, logos)
 django-storages[s3]>=1.14,<2.0
 boto3>=1.34,<2.0
+# Testing utilities
+pytest>=8.0,<9.0
+pytest-django>=4.8,<5.0

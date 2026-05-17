@@ -6,6 +6,7 @@ import type { ReviewConfig, ReviewMode } from '@/features/reviews/types';
 import { UpgradeToProButton } from '@/features/reviews/upgrade-to-pro-button';
 import { DowngradeToBaseButton } from '@/features/reviews/downgrade-to-base-button';
 import { GooglePlaceAutocomplete, type GooglePlaceResult } from '@/features/reviews/google-place-autocomplete';
+import { BusinessBrandingPanel } from '@/features/business/branding';
 
 const MODE_LABELS: Record<ReviewMode, string> = {
     direct: 'Directo — redirige siempre a Google',
@@ -429,7 +430,20 @@ export function ReviewConfigClient() {
                             </select>
                             {config?.trial_active && (
                                 <p className="text-xs text-amber-600">
-                                    Estás usando el filtro inteligente durante tu período de prueba.
+                                    {config.trial_ends_at
+                                        ? (() => {
+                                              const daysLeft = Math.max(
+                                                  0,
+                                                  Math.ceil(
+                                                      (new Date(config.trial_ends_at).getTime() - Date.now()) /
+                                                          (1000 * 60 * 60 * 24),
+                                                  ),
+                                              );
+                                              if (daysLeft === 0) return 'Tu prueba finaliza hoy.';
+                                              if (daysLeft === 1) return 'Te queda 1 día de prueba.';
+                                              return `Te quedan ${daysLeft} días de prueba.`;
+                                          })()
+                                        : 'Estás usando el filtro inteligente durante tu período de prueba.'}
                                 </p>
                             )}
                         </>
@@ -588,6 +602,9 @@ export function ReviewConfigClient() {
                     </div>
                 </div>
                 )}
+
+                {/* Branding global */}
+                <BusinessBrandingPanel />
 
                 {/* Actions */}
                 {message && (

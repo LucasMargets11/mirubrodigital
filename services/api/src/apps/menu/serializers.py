@@ -235,6 +235,17 @@ class MenuBrandingSettingsSerializer(serializers.ModelSerializer):
     def get_logo_url(self, obj):
         url = obj.logo_url
         request = self.context.get('request') if hasattr(self, 'context') else None
+
+        # Fallback to global BusinessBranding if the menu has no specific logo.
+        if not url:
+            try:
+                from apps.business.models import BusinessBranding
+                biz_branding = BusinessBranding.objects.filter(business=obj.business).first()
+                if biz_branding:
+                    url = biz_branding.logo_square_url or biz_branding.logo_horizontal_url
+            except Exception:
+                pass
+
         if url and request and url.startswith('/'):
             return request.build_absolute_uri(url)
         return url

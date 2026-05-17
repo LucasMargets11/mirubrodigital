@@ -80,6 +80,44 @@ def schedule_cancellation(
         "[cancellation] Scheduled cancellation for sub=%s business=%s effective=%s reason=%r",
         subscription.pk, subscription.business_id, effective_date, reason,
     )
+
+    # Notify internal ADMIN operations team — fire-and-forget, never re-raises.
+    try:
+        from apps.billing.email_helpers import send_admin_cancellation_request_received_email
+        send_admin_cancellation_request_received_email(subscription)
+    except Exception:
+        logger.exception(
+            "[cancellation] send_admin_cancellation_request_received_email failed "
+            "for sub=%s — cancellation remains scheduled.",
+            subscription.pk,
+        )
+
+    # Admin in-app notification — fire-and-forget, never re-raises.
+    try:
+        from apps.accounts.admin_notification_service import create_admin_notification
+        create_admin_notification(
+            notif_type='billing_cancel_request',
+            severity='warning',
+            target_role='operations',
+            title='Solicitud de baja recibida',
+            message=f'{subscription.business.name} solicit\u00f3 la baja de su suscripci\u00f3n.',
+            business=subscription.business,
+            related_object_type='subscription',
+            related_object_id=str(subscription.id),
+            action_url=f'/admin/suscripciones/{subscription.id}',
+            metadata={
+                'plan_code': subscription.plan_code,
+                'service_type': subscription.service_type,
+            },
+            dedupe_window_seconds=86400,
+        )
+    except Exception:
+        logger.exception(
+            '[cancellation] create_admin_notification billing_cancel_request failed '
+            'for sub=%s — cancellation remains scheduled.',
+            subscription.pk,
+        )
+
     return subscription
 
 

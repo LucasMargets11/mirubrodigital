@@ -377,3 +377,282 @@ def _resolve_billing_period(subscription) -> str:
     if plan_code.endswith('_yearly'):
         return 'anual'
     return 'mensual'
+
+
+def _build_admin_subscription_url(subscription_id: str) -> str:
+    """Build the admin panel URL for a subscription detail."""
+    base = getattr(settings, 'ADMIN_FRONTEND_URL', '').rstrip('/')
+    return f"{base}/suscripciones/{subscription_id}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PR-ADMIN-03 — admin_subscription_payment_created (internal ADMIN email)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def send_admin_subscription_payment_created_email(subscription, invoice_event) -> bool:
+    """
+    Send an internal ADMIN email notifying the billing team that a customer
+    completed a payment and their subscription is now active.
+
+    This is a separate internal notification from the client-facing
+    send_subscription_activated_email().  It uses the admin_helpers layer
+    (queue_admin_transactional_email) and is addressed to recipient_category="billing".
+
+    Parameters
+    ----------
+    subscription  : SubscriptionV2 instance (already ACTIVE).
+    invoice_event : BillingInvoiceEvent instance that triggered activation.
+
+    Returns True if the email was enqueued, False otherwise.
+    Failures are logged but never propagated — the webhook must not be affected.
+    """
+    from apps.notifications.admin_helpers import queue_admin_transactional_email
+
+    owner = get_owner_user(subscription)
+    owner_email = owner.email if owner is not None else None
+
+    paid_at = getattr(invoice_event, 'paid_at', None)
+    paid_at_str = paid_at.strftime("%d/%m/%Y %H:%M") if paid_at else ""
+    amount = getattr(invoice_event, 'amount', None)
+    currency = getattr(invoice_event, 'currency', 'ARS')
+    admin_url = _build_admin_subscription_url(str(subscription.pk))
+
+    try:
+        result = queue_admin_transactional_email(
+            recipient_category="billing",
+            subject="Nuevo cliente suscripto en MiRubro",
+            template_key="admin_subscription_payment_created",
+            context={
+                "business_name": subscription.business.name,
+                "business_id": str(subscription.business_id),
+                "owner_email": owner_email or "",
+                "plan_code": subscription.plan_code,
+                "service_type": subscription.service_type,
+                "amount": str(amount) if amount is not None else "",
+                "currency": currency,
+                "paid_at": paid_at_str,
+                "invoice_event_id": str(invoice_event.pk),
+                "admin_url": admin_url,
+            },
+            related_business=subscription.business,
+            related_user=owner,
+            metadata={
+                "event_type": "admin_subscription_payment_created",
+                "subscription_id": str(subscription.pk),
+                "invoice_event_id": str(invoice_event.pk),
+                "related_business_id": str(subscription.business_id),
+                "service_type": subscription.service_type,
+                "plan_code": subscription.plan_code,
+                "amount": str(amount) if amount is not None else "",
+                "currency": currency,
+            },
+        )
+        logger.info(
+            "[billing.email] admin_subscription_payment_created email enqueued=%s "
+            "subscription=%s business=%s",
+            result,
+            subscription.pk,
+            subscription.business_id,
+        )
+        return result
+    except Exception:
+        logger.exception(
+            "[billing.email] Failed to queue admin_subscription_payment_created email "
+            "for subscription=%s business=%s",
+            subscription.pk,
+            subscription.business_id,
+        )
+        return False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PR-ADMIN-04 — admin_cancellation_request_received (internal ADMIN email)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PR-ADMIN-08 — admin_payment_failure_recurrent (internal ADMIN email)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def send_admin_payment_failure_recurrent_email(
+    subscription,
+    invoice_event=None,
+    *,
+    reason: str | None = None,
+) -> bool:
+    """
+    Send an internal ADMIN email notifying the billing team that an active
+    subscription has transitioned to PAST_DUE due to a payment failure or
+    expiry of the billing period without a confirmed payment.
+
+    Can be called from:
+      - record_failed_payment()       in subscription_activator.py (invoice_event present)
+      - _transition_active_to_past_due() in tasks.py               (invoice_event=None)
+
+    Parameters
+    ----------
+    subscription  : SubscriptionV2 instance (already saved as PAST_DUE).
+    invoice_event : BillingInvoiceEvent or None (not available in time-based path).
+    reason        : Optional human-readable failure reason.
+
+    Returns True if the email was enqueued, False otherwise.
+    Failures are logged but never propagated — the billing state change must
+    not be reverted by an email failure.
+    """
+    from apps.notifications.admin_helpers import queue_admin_transactional_email
+
+    owner = get_owner_user(subscription)
+    owner_email = owner.email if owner is not None else None
+
+    retry_count = getattr(subscription, 'retry_count', 0) or 0
+    # In the time-based task path, retry_count may still be 0 since it is only
+    # incremented by record_failed_payment().  Show at least 1 so the email
+    # does not read "Intento #0".
+    display_retry_count = max(retry_count, 1)
+
+    if retry_count >= 3:
+        urgency = "crítico"
+    elif retry_count == 2:
+        urgency = "atención"
+    else:
+        urgency = "aviso"
+
+    amount = getattr(invoice_event, 'amount', None) if invoice_event is not None else None
+    currency = (getattr(invoice_event, 'currency', None) or 'ARS') if invoice_event is not None else 'ARS'
+    provider_status = (getattr(invoice_event, 'provider_status', '') or '') if invoice_event is not None else ''
+    invoice_event_id = str(invoice_event.pk) if invoice_event is not None else ''
+
+    grace_until = getattr(subscription, 'grace_until', None)
+    grace_until_str = grace_until.strftime("%d/%m/%Y %H:%M") if grace_until else ''
+
+    current_period_end = getattr(subscription, 'current_period_end', None)
+    current_period_end_str = current_period_end.strftime("%d/%m/%Y %H:%M") if current_period_end else ''
+
+    admin_url = _build_admin_subscription_url(str(subscription.pk))
+
+    try:
+        result = queue_admin_transactional_email(
+            recipient_category="billing",
+            subject="Pago fallido en MiRubro — requiere revisión",
+            template_key="admin_payment_failure_recurrent",
+            context={
+                "business_name": subscription.business.name,
+                "business_id": str(subscription.business_id),
+                "owner_email": owner_email or "",
+                "plan_code": subscription.plan_code or "",
+                "service_type": subscription.service_type or "",
+                "retry_count": display_retry_count,
+                "urgency": urgency,
+                "amount": str(amount) if amount is not None else "",
+                "currency": currency,
+                "failure_reason": reason or "",
+                "provider_status": provider_status,
+                "grace_until": grace_until_str,
+                "current_period_end": current_period_end_str,
+                "invoice_event_id": invoice_event_id,
+                "admin_url": admin_url,
+            },
+            related_business=subscription.business,
+            related_user=owner,
+            metadata={
+                "event_type": "admin_payment_failure_recurrent",
+                "subscription_id": str(subscription.pk),
+                "related_business_id": str(subscription.business_id),
+                "plan_code": subscription.plan_code or "",
+                "service_type": subscription.service_type or "",
+                "retry_count": display_retry_count,
+                "amount": str(amount) if amount is not None else "",
+                "currency": currency,
+                "provider_status": provider_status,
+                "invoice_event_id": invoice_event_id,
+            },
+        )
+        logger.info(
+            "[billing.email] admin_payment_failure_recurrent email enqueued=%s "
+            "subscription=%s business=%s retry_count=%s",
+            result,
+            subscription.pk,
+            subscription.business_id,
+            display_retry_count,
+        )
+        return result
+    except Exception:
+        logger.exception(
+            "[billing.email] Failed to queue admin_payment_failure_recurrent email "
+            "for subscription=%s business=%s",
+            subscription.pk,
+            subscription.business_id,
+        )
+        return False
+
+
+def send_admin_cancellation_request_received_email(subscription) -> bool:
+    """
+    Send an internal ADMIN email notifying the operations team that a customer
+    has requested the cancellation of their subscription.
+
+    Called after schedule_cancellation() succeeds (cancel_at_period_end=True,
+    cancel_requested_at set, subscription saved).  Must NOT be called from
+    execute_cancellation() or undo_cancellation().
+
+    Returns True if enqueued, False otherwise.
+    Failures are logged but never propagated — the cancellation flow must
+    not be affected by an email failure.
+    """
+    from apps.notifications.admin_helpers import queue_admin_transactional_email
+
+    owner = get_owner_user(subscription)
+    owner_email = owner.email if owner is not None else None
+    admin_url = _build_admin_subscription_url(str(subscription.pk))
+
+    cancel_requested_at = getattr(subscription, 'cancel_requested_at', None)
+    cancel_requested_at_str = (
+        cancel_requested_at.strftime("%d/%m/%Y %H:%M") if cancel_requested_at else ""
+    )
+    effective_date = getattr(subscription, 'current_period_end', None)
+    effective_date_str = (
+        effective_date.strftime("%d/%m/%Y %H:%M") if effective_date else ""
+    )
+    cancel_reason = getattr(subscription, 'cancel_reason', None) or ""
+
+    try:
+        result = queue_admin_transactional_email(
+            recipient_category="operations",
+            subject="Solicitud de baja recibida en MiRubro",
+            template_key="admin_cancellation_request_received",
+            context={
+                "business_name": subscription.business.name,
+                "business_id": str(subscription.business_id),
+                "owner_email": owner_email or "",
+                "plan_code": subscription.plan_code,
+                "service_type": subscription.service_type,
+                "cancel_requested_at": cancel_requested_at_str,
+                "effective_date": effective_date_str,
+                "cancel_reason": cancel_reason,
+                "admin_url": admin_url,
+            },
+            related_business=subscription.business,
+            related_user=owner,
+            metadata={
+                "event_type": "admin_cancellation_request_received",
+                "subscription_id": str(subscription.pk),
+                "related_business_id": str(subscription.business_id),
+                "service_type": subscription.service_type,
+                "plan_code": subscription.plan_code,
+            },
+        )
+        logger.info(
+            "[billing.email] admin_cancellation_request_received email enqueued=%s "
+            "subscription=%s business=%s",
+            result,
+            subscription.pk,
+            subscription.business_id,
+        )
+        return result
+    except Exception:
+        logger.exception(
+            "[billing.email] Failed to queue admin_cancellation_request_received email "
+            "for subscription=%s business=%s",
+            subscription.pk,
+            subscription.business_id,
+        )
+        return False

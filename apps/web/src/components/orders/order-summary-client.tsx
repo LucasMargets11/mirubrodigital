@@ -40,6 +40,8 @@ export function OrderSummaryClient({
     const orderQuery = useOrder(orderId, { initialData: initialOrder, refetchInterval: 12000 });
     const order = orderQuery.data ?? initialOrder;
 
+    const items = useMemo(() => order?.items ?? [], [order?.items]);
+
     if (!order) {
         return (
             <section className="space-y-4">
@@ -56,8 +58,6 @@ export function OrderSummaryClient({
     const statusMeta = STATUS_META[order.status];
     const channelMeta = CHANNEL_META[order.channel];
     const itemCount = order.items.length;
-
-    const items = useMemo(() => order.items ?? [], [order.items]);
 
     return (
         <section className="space-y-6" data-testid="order-summary-root">

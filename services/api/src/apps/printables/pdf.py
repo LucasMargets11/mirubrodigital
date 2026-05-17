@@ -73,6 +73,18 @@ def _truncate(text: str, max_chars: int) -> str:
     return text[:max_chars - 1] + '…'
 
 
+def _format_signage_price(raw: str) -> str:
+    """Formatea precio para Carteles: sin espacio entre $ y número,
+    sin .00 si el valor es entero (e.g. '890.00' → '$890', '890.50' → '$890.50')."""
+    try:
+        n = float(raw)
+        if n == int(n):
+            return f'${int(n)}'
+        return f'${n:.2f}'
+    except (ValueError, TypeError):
+        return f'${raw}'
+
+
 def _transform_text(value: str, text_transform: str) -> str:
     """Aplica transformación al texto (uppercase / none). No modifica precios."""
     if not value:
@@ -369,9 +381,9 @@ def _draw_card(pdf: canvas.Canvas, item: dict, x: float, y_bottom: float,
         old_price_str = _truncate((item.get('old_price') or '').strip(), MAX_PRICE_CHARS)
         price_str     = _truncate((item.get('price') or '').strip(), MAX_PRICE_CHARS)
         if old_price_str:
-            old_price_sz = _fit_font_size(pdf, f'$ {old_price_str}', text_w, font_reg, sec_pt)
+            old_price_sz = _fit_font_size(pdf, _format_signage_price(old_price_str), text_w, font_reg, sec_pt)
         if price_str:
-            price_sz = _fit_font_size(pdf, f'$ {price_str}', text_w, font_bold, price_pt)
+            price_sz = _fit_font_size(pdf, _format_signage_price(price_str), text_w, font_bold, price_pt)
 
     parts: list[tuple[str, float]] = []
     if title_sz:     parts.append(('title',     title_sz))
@@ -411,7 +423,7 @@ def _draw_card(pdf: canvas.Canvas, item: dict, x: float, y_bottom: float,
             pdf.drawString(center_x - tw / 2, cursor_y, desc)
 
         elif label == 'old_price':
-            text = f'$ {old_price_str}'
+            text = _format_signage_price(old_price_str)
             pdf.setFont(font_reg, sz)
             pdf.setFillColor(colors.HexColor('#94a3b8'))
             tw = pdf.stringWidth(text, font_reg, sz)
@@ -423,7 +435,7 @@ def _draw_card(pdf: canvas.Canvas, item: dict, x: float, y_bottom: float,
             pdf.line(draw_x, strike_y, draw_x + tw, strike_y)
 
         elif label == 'price':
-            text = f'$ {price_str}'
+            text = _format_signage_price(price_str)
             pdf.setFont(font_bold, sz)
             if layout_style == 'price_focus':
                 try:
@@ -615,9 +627,9 @@ def _draw_promotion_card(pdf: canvas.Canvas, item: dict, x: float, y_bottom: flo
         old_price_str = _truncate((item.get('old_price') or '').strip(), MAX_PRICE_CHARS)
         price_str     = _truncate((item.get('price') or '').strip(), MAX_PRICE_CHARS)
         if old_price_str:
-            old_price_sz = _fit_font_size(pdf, f'$ {old_price_str}', text_w, font_reg, sec_pt, 5.0)
+            old_price_sz = _fit_font_size(pdf, _format_signage_price(old_price_str), text_w, font_reg, sec_pt, 5.0)
         if price_str:
-            price_sz = _fit_font_size(pdf, f'$ {price_str}', text_w, font_bold, price_pt, 5.0)
+            price_sz = _fit_font_size(pdf, _format_signage_price(price_str), text_w, font_bold, price_pt, 5.0)
 
     parts: list[tuple[str, float]] = []
     if promo_sz:     parts.append(('promo',     promo_sz))
@@ -682,7 +694,7 @@ def _draw_promotion_card(pdf: canvas.Canvas, item: dict, x: float, y_bottom: flo
             pdf.drawString(center_x - tw / 2, cursor_y, desc)
 
         elif label == 'old_price':
-            text = f'$ {old_price_str}'
+            text = _format_signage_price(old_price_str)
             pdf.setFont(font_reg, sz)
             pdf.setFillColor(colors.HexColor('#94a3b8'))
             tw = pdf.stringWidth(text, font_reg, sz)
@@ -694,7 +706,7 @@ def _draw_promotion_card(pdf: canvas.Canvas, item: dict, x: float, y_bottom: flo
             pdf.line(draw_x, strike_y, draw_x + tw, strike_y)
 
         elif label == 'price':
-            text = f'$ {price_str}'
+            text = _format_signage_price(price_str)
             pdf.setFont(font_bold, sz)
             try:
                 pdf.setFillColor(colors.HexColor(price_text_color))

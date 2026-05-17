@@ -17,7 +17,10 @@ import {
   Menu,
   X,
   Tag,
+  Bell,
 } from 'lucide-react';
+
+import { NotificationBell } from '@/components/admin/notification-bell';
 
 import { cn } from '@/lib/utils';
 import { adminLogout } from '@/lib/admin/client';
@@ -38,6 +41,7 @@ const ALL_NAV_ITEMS: NavItem[] = [
   { section: 'blog', label: 'Blog', href: '/admin/blog', icon: FileText },
   { section: 'reportes', label: 'Reportes', href: '/admin/reportes', icon: BarChart3 },
   { section: 'promociones', label: 'Promociones', href: '/admin/promociones', icon: Tag },
+  { section: 'notificaciones', label: 'Notificaciones', href: '/admin/notificaciones', icon: Bell },
   { section: 'configuracion', label: 'Configuración', href: '/admin/configuracion', icon: Settings },
 ];
 
@@ -119,6 +123,13 @@ function AdminSidebarContent({
 
       {/* User footer */}
       <div className="border-t border-slate-700 px-4 py-4">
+        {/* Notification bell — only if user has access to the section */}
+        {session.authorized_sections.includes('notificaciones') && (
+          <div className="mb-3 flex items-center justify-between">
+            <span className="text-xs font-medium text-slate-400">Notificaciones</span>
+            <NotificationBell />
+          </div>
+        )}
         <div className="flex items-center gap-3">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-700 text-xs font-semibold text-slate-200">
             {session.user.name

@@ -108,6 +108,7 @@ export const REVIEW_PRICING_CARDS: PricingCardData[] = [
             'Feedback privado automático',
             'Gestión de estados',
             'Analytics avanzadas',
+            'Carteles personalizados para tu local',
         ],
         ctaHref: '/entrar',
         ctaLabel: 'Activar Reseñas Pro',

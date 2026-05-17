@@ -49,6 +49,21 @@ class EmailSettingsTest(SimpleTestCase):
         self.assertIsInstance(settings.BILLING_EMAIL, str)
         self.assertIn("@", settings.BILLING_EMAIL)
 
+    def test_operations_email_setting_exists(self):
+        self.assertTrue(hasattr(settings, "OPERATIONS_EMAIL"))
+        self.assertIsInstance(settings.OPERATIONS_EMAIL, str)
+        self.assertIn("@", settings.OPERATIONS_EMAIL)
+
+    def test_admin_email_setting_exists(self):
+        self.assertTrue(hasattr(settings, "ADMIN_EMAIL"))
+        self.assertIsInstance(settings.ADMIN_EMAIL, str)
+        self.assertIn("@", settings.ADMIN_EMAIL)
+
+    def test_admin_frontend_url_setting_exists(self):
+        self.assertTrue(hasattr(settings, "ADMIN_FRONTEND_URL"))
+        self.assertIsInstance(settings.ADMIN_FRONTEND_URL, str)
+        self.assertGreater(len(settings.ADMIN_FRONTEND_URL), 0)
+
     def test_server_email_setting_exists(self):
         self.assertTrue(hasattr(settings, "SERVER_EMAIL"))
         self.assertIsInstance(settings.SERVER_EMAIL, str)

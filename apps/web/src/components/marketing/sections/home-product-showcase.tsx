@@ -226,7 +226,7 @@ function ReviewsMockup() {
                     </div>
                 </div>
                 <p className="text-xs text-slate-600 leading-relaxed md:text-sm">
-                    "Excelente atención y comida, volvería sin dudarlo. Muy recomendable."
+                    &quot;Excelente atención y comida, volvería sin dudarlo. Muy recomendable.&quot;
                 </p>
             </div>
 
@@ -360,10 +360,10 @@ function ProductFeatureCard({
                     <ul className="space-y-5">
                         {block.bullets.map(({ icon: Icon, text }) => (
                             <li key={text} className="flex items-start gap-3">
-                                <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-50 ring-1 ring-inset ring-brand-100">
-                                    <Icon className="h-4.5 w-4.5 text-brand-700" />
+                                <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-50 ring-1 ring-inset ring-brand-100">
+                                    <Icon className="h-4 w-4 text-brand-700" />
                                 </span>
-                                <span className="text-base text-slate-700">{text}</span>
+                                <span className="text-base leading-6 text-slate-700">{text}</span>
                             </li>
                         ))}
                     </ul>

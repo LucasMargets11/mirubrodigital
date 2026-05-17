@@ -369,6 +369,12 @@ class MenuLogoUploadView(APIView):
     required_permission = 'manage_menu_branding'
 
     def post(self, request):
+        raw_file = request.data.get('file')
+        if raw_file and hasattr(raw_file, 'size') and raw_file.size > 5 * 1024 * 1024:
+            return Response(
+                {'error': 'El archivo supera el límite de 5 MB.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         serializer = MenuLogoUploadSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         file_obj = serializer.validated_data['file']

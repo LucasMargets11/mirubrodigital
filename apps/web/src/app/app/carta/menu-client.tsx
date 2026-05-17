@@ -2,6 +2,7 @@
 
 import { ChangeEvent, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 
 import { Modal } from '@/components/ui/modal';
 import { todayDateString } from '@/lib/dates';
@@ -501,7 +502,7 @@ export function MenuClient({ canManage, canImport, canExport, canUploadImages }:
                 <div className="mt-6 rounded-2xl border border-white/60 bg-white/80 p-4 text-sm text-slate-600 shadow-inner">
                     <p className="font-semibold text-slate-900">Integrada a pedidos</p>
                     <p className="mt-1 text-slate-500">
-                        Cada cambio impacta en <a href="/app/orders" className="font-semibold text-amber-600">Órdenes</a> y en el tablero de cocina.
+                        Cada cambio impacta en <Link href="/app/orders" className="font-semibold text-amber-600">Órdenes</Link> y en el tablero de cocina.
                     </p>
                 </div>
 {/* Kitchen integration notice */}

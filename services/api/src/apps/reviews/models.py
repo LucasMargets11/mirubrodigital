@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import uuid
 
+from django.conf import settings
 from django.db import models
+
+from common.storages import public_media_storage
 
 
 class ReviewMode(models.TextChoices):
@@ -157,3 +160,54 @@ class ReviewVisit(models.Model):
 
     def __str__(self) -> str:
         return f"ReviewVisit · {self.business_id} · {self.created_at}"
+
+
+class ReviewQrPosterDesign(models.Model):
+    """Saved poster design for QR de Reseñas PRO (max 5 per business)."""
+
+    DESIGN_LIMIT = 5
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    business = models.ForeignKey(
+        'business.Business',
+        related_name='qr_poster_designs',
+        on_delete=models.CASCADE,
+    )
+    name = models.CharField(max_length=100)
+    payload = models.JSONField(
+        help_text='Poster configuration excluding background_image file.',
+    )
+    background_image = models.ImageField(
+        upload_to='reviews/poster_designs/',
+        null=True,
+        blank=True,
+        storage=public_media_storage,
+        help_text='Optional background image (JPG/PNG, max 10 MB).',
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='+',
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='+',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-updated_at']
+        indexes = [
+            models.Index(fields=['business', '-updated_at']),
+        ]
+        verbose_name = 'QR Poster Design'
+        verbose_name_plural = 'QR Poster Designs'
+
+    def __str__(self) -> str:
+        return f"PosterDesign · {self.business_id} · {self.name!r}"

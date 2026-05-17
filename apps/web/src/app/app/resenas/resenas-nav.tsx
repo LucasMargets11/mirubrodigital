@@ -59,12 +59,16 @@ export function ResenasNav() {
     const isPro = config
         ? config.smart_filter_allowed && !config.trial_active
         : false;
+    const isReviewsPro = config?.is_reviews_pro ?? false;
     const feedbackAccessible = config?.smart_filter_allowed ?? false;
     const newCount = stats?.new_reviews ?? 0;
     const isTrial = config?.trial_active ?? false;
 
     const tabs: TabDef[] = [
         ...BASE_TABS,
+        ...(isReviewsPro
+            ? [{ href: '/app/resenas/carteles', label: 'Carteles' }]
+            : []),
         {
             href: '/app/resenas/feedback',
             label: 'Feedback',

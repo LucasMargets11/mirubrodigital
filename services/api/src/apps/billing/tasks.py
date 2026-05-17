@@ -128,6 +128,7 @@ def _transition_active_to_past_due(SubscriptionV2, now) -> int:
                 row['current_period_end'], grace,
             )
             # Notify the business owner — fire-and-forget, never re-raises.
+            sub = None
             try:
                 sub = SubscriptionV2.objects.select_related(
                     'business', 'checkout_session__user',
@@ -139,6 +140,49 @@ def _transition_active_to_past_due(SubscriptionV2, now) -> int:
                     "[billing.task] send_payment_failed_email failed for sub=%s: %s",
                     row['pk'], exc,
                 )
+            # Notify ADMIN billing team — internal email, fire-and-forget.
+            if sub is not None:
+                try:
+                    from apps.billing.email_helpers import send_admin_payment_failure_recurrent_email
+                    send_admin_payment_failure_recurrent_email(
+                        sub,
+                        invoice_event=None,
+                        reason="current_period_expired_without_payment",
+                    )
+                except Exception as exc:
+                    logger.exception(
+                        "[billing.task] send_admin_payment_failure_recurrent_email failed "
+                        "for sub=%s: %s",
+                        row['pk'], exc,
+                    )
+            # Admin in-app notification — fire-and-forget.
+            if sub is not None:
+                try:
+                    from apps.accounts.admin_notification_service import create_admin_notification
+                    create_admin_notification(
+                        notif_type='billing_payment_failure',
+                        severity='critical',
+                        target_role='operations',
+                        title='Pago fallido recurrente',
+                        message=(
+                            f'{sub.business.name} pasó a PAST_DUE por vencimiento del período.'
+                        ),
+                        business=sub.business,
+                        related_object_type='subscription',
+                        related_object_id=str(sub.id),
+                        action_url=f'/admin/suscripciones/{sub.id}',
+                        metadata={
+                            'plan_code': sub.plan_code,
+                            'service_type': sub.service_type,
+                            'retry_count': sub.retry_count,
+                        },
+                        dedupe_window_seconds=3600,
+                    )
+                except Exception as exc:
+                    logger.exception(
+                        '[billing.task] create_admin_notification billing_payment_failure '
+                        'failed for sub=%s: %s', row['pk'], exc,
+                    )
     return count
 
 
@@ -172,6 +216,7 @@ def _transition_past_due_to_suspended(SubscriptionV2, now) -> int:
                 "[billing.task] past_due→suspended business=%s sub=%s grace_was=%s",
                 row['business_id'], row['pk'], row['grace_until'],
             )
+            sub = None
             try:
                 sub = SubscriptionV2.objects.select_related(
                     'business', 'checkout_session__user',
@@ -184,6 +229,32 @@ def _transition_past_due_to_suspended(SubscriptionV2, now) -> int:
                     "for sub=%s: %s",
                     row['pk'], exc,
                 )
+            if sub is not None:
+                try:
+                    from apps.accounts.admin_notification_service import create_admin_notification
+                    create_admin_notification(
+                        notif_type='billing_suspended',
+                        severity='critical',
+                        target_role='operations',
+                        title='Suscripción suspendida',
+                        message=(
+                            f'{sub.business.name} fue suspendido por vencimiento del período de gracia.'
+                        ),
+                        business=sub.business,
+                        related_object_type='subscription',
+                        related_object_id=str(sub.id),
+                        action_url=f'/admin/suscripciones/{sub.id}',
+                        metadata={
+                            'plan_code': sub.plan_code,
+                            'service_type': sub.service_type,
+                        },
+                        dedupe_window_seconds=86400,
+                    )
+                except Exception as exc:
+                    logger.exception(
+                        '[billing.task] create_admin_notification billing_suspended '
+                        'failed for sub=%s: %s', row['pk'], exc,
+                    )
     return count
 
 
