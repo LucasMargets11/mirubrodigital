@@ -45,6 +45,13 @@ from apps.billing.platform_admin_promo_views import (
     AdminPromoCodeRedemptionsView,
     AdminPromoCodeOptionsView,
 )
+from .platform_admin_notification_views import (
+    AdminNotificationListView,
+    AdminNotificationUnreadCountView,
+    AdminNotificationMarkReadView,
+    AdminNotificationArchiveView,
+    AdminNotificationResolveView,
+)
 from apps.blog.admin_views import (
     AdminBlogPostListView,
     AdminBlogPostCreateView,
@@ -105,6 +112,12 @@ urlpatterns = [
     path('blog/posts/<str:post_id>/schedule/', AdminBlogPostScheduleView.as_view(), name='platform-admin-blog-post-schedule'),
     path('blog/categories/', AdminBlogCategoryListCreateView.as_view(), name='platform-admin-blog-categories'),
     path('blog/categories/<int:category_id>/', AdminBlogCategoryUpdateView.as_view(), name='platform-admin-blog-category-update'),
+    # ── Notifications (Phase 10C) ────────────────────────────────────────
+    path('notifications/', AdminNotificationListView.as_view(), name='platform-admin-notifications'),
+    path('notifications/unread-count/', AdminNotificationUnreadCountView.as_view(), name='platform-admin-notifications-unread-count'),
+    path('notifications/<uuid:notification_id>/read/', AdminNotificationMarkReadView.as_view(), name='platform-admin-notifications-read'),
+    path('notifications/<uuid:notification_id>/archive/', AdminNotificationArchiveView.as_view(), name='platform-admin-notifications-archive'),
+    path('notifications/<uuid:notification_id>/resolve/', AdminNotificationResolveView.as_view(), name='platform-admin-notifications-resolve'),
     # ── Promo Codes ──────────────────────────────────────────────────────
     path('promo-codes/', AdminPromoCodeListCreateView.as_view(), name='platform-admin-promo-codes'),
     path('promo-codes/options/', AdminPromoCodeOptionsView.as_view(), name='platform-admin-promo-code-options'),

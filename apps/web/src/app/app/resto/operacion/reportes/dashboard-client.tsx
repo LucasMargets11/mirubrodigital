@@ -92,16 +92,6 @@ export function RestauranteReportsDashboard() {
         }
     }, [summaryQuery.error]);
 
-    if (accessDenied) {
-        return (
-            <AccessMessage
-                title="Sin acceso a reportes"
-                description="Tu usuario no tiene permisos para ver los reportes de operación."
-                hint="Pedí acceso a un administrador"
-            />
-        );
-    }
-
     const summary = summaryQuery.data;
     const compareKpis = summary?.compare?.kpis;
     const metrics = buildMetricViews(metricsConfig, summary?.kpis, compareKpis);
@@ -114,6 +104,16 @@ export function RestauranteReportsDashboard() {
         () => (summary?.series_daily ?? []).map(convertTrendPoint),
         [summary?.series_daily],
     );
+
+    if (accessDenied) {
+        return (
+            <AccessMessage
+                title="Sin acceso a reportes"
+                description="Tu usuario no tiene permisos para ver los reportes de operación."
+                hint="Pedí acceso a un administrador"
+            />
+        );
+    }
     const productsData = productsQuery.data;
     const cashSessions = cashSessionsQuery.data?.results ?? [];
     const rangeLabel = summary?.range

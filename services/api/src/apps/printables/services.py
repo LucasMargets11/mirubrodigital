@@ -18,9 +18,9 @@ def resolve_signage_logo(business, logo_variant: str):
 
     Nunca lanza excepciones — cualquier error retorna None.
 
-    Nota: en producción con S3, resolve_document_logo_path() puede
-    fallar al llamar .path (NotImplementedError). Para Carteles se
-    omite el logo silenciosamente en ese caso.
+    En producción con S3, resolve_document_logo_path() maneja correctamente
+    el caso NotImplementedError usando storage.open() + BytesIO, por lo que
+    el logo se renderiza sin problemas tanto en local como en S3.
     """
     if logo_variant == 'none':
         return None

@@ -130,7 +130,7 @@ export function KitchenTicket({ order, onUpdateItem, onUpdateOrder }: KitchenTic
                                 {item.kitchen_status === 'done' && <CheckCircle2 className="h-4 w-4 text-slate-400" />}
                             </div>
                             {renderModifiers(item.modifiers)}
-                            {item.note && <div className="mt-1 text-xs italic text-slate-500">"{item.note}"</div>}
+                            {item.note && <div className="mt-1 text-xs italic text-slate-500">&quot;{item.note}&quot;</div>}
                         </div>
                     ))}
                 </div>

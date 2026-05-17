@@ -195,6 +195,65 @@ def record_failed_payment(
 
         # Mirror on Business so frontend routing stays consistent.
         _set_tenant_past_due(subscription)
+
+        # Notify the business owner — fire-and-forget, outside any transaction.
+        from .email_helpers import send_payment_failed_email
+        try:
+            send_payment_failed_email(
+                subscription,
+                reason=reason or None,
+                amount=getattr(invoice_event, 'amount', None),
+            )
+        except Exception as exc:
+            logger.exception(
+                "[activator] send_payment_failed_email failed — "
+                "subscription=%s invoice_event=%s: %s. "
+                "Payment failure is recorded; email failure does not revert it.",
+                subscription.pk, invoice_event.pk, exc,
+            )
+
+        # Notify ADMIN billing team — internal email, fire-and-forget.
+        from .email_helpers import send_admin_payment_failure_recurrent_email
+        try:
+            send_admin_payment_failure_recurrent_email(
+                subscription,
+                invoice_event=invoice_event,
+                reason=reason,
+            )
+        except Exception as exc:
+            logger.exception(
+                "[activator] send_admin_payment_failure_recurrent_email failed — "
+                "subscription=%s invoice_event=%s: %s. "
+                "Payment failure is recorded; email failure does not revert it.",
+                subscription.pk, invoice_event.pk, exc,
+            )
+
+        # Admin in-app notification — fire-and-forget.
+        try:
+            from apps.accounts.admin_notification_service import create_admin_notification
+            create_admin_notification(
+                notif_type='billing_payment_failure',
+                severity='critical',
+                target_role='operations',
+                title='Pago fallido recurrente',
+                message=f'{subscription.business.name} pasó a PAST_DUE por fallo de pago.',
+                business=subscription.business,
+                related_object_type='subscription',
+                related_object_id=str(subscription.id),
+                action_url=f'/admin/suscripciones/{subscription.id}',
+                metadata={
+                    'plan_code': subscription.plan_code,
+                    'service_type': subscription.service_type,
+                    'retry_count': subscription.retry_count,
+                },
+                dedupe_window_seconds=3600,
+            )
+        except Exception as exc:
+            logger.exception(
+                '[activator] create_admin_notification billing_payment_failure failed '
+                'for sub=%s — payment failure remains recorded.',
+                subscription.pk,
+            )
     # else: still checkout_pending or trialing — leave as is.
 
 

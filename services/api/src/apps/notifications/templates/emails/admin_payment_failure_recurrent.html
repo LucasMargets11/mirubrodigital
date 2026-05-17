@@ -1,0 +1,112 @@
+{% extends "emails/base.html" %}
+
+{% block subject %}[ADMIN] Pago fallido — {{ business_name }}{% endblock %}
+
+{% block content %}
+  {# ── Badge interno ──────────────────────────────────────────────────────── #}
+  <p style="margin:0 0 20px;display:inline-block;padding:4px 10px;background-color:#fff7ed;border:1px solid #f97316;border-radius:4px;font-size:12px;font-weight:bold;color:#9a3412;letter-spacing:0.4px;">
+    NOTIFICACIÓN INTERNA · EQUIPO BILLING MIRUBRO
+  </p>
+
+  {# ── Indicador de urgencia ──────────────────────────────────────────────── #}
+  {% if urgency == "crítico" %}
+  <p style="margin:0 0 16px;display:inline-block;padding:4px 12px;background-color:#fee2e2;border:1px solid #ef4444;border-radius:4px;font-size:12px;font-weight:bold;color:#991b1b;">
+    🔴 CRÍTICO — Intento #{{ retry_count }}
+  </p>
+  {% elif urgency == "atención" %}
+  <p style="margin:0 0 16px;display:inline-block;padding:4px 12px;background-color:#fef3c7;border:1px solid #f59e0b;border-radius:4px;font-size:12px;font-weight:bold;color:#92400e;">
+    🟠 ATENCIÓN — Intento #{{ retry_count }}
+  </p>
+  {% else %}
+  <p style="margin:0 0 16px;display:inline-block;padding:4px 12px;background-color:#fefce8;border:1px solid #eab308;border-radius:4px;font-size:12px;font-weight:bold;color:#713f12;">
+    🟡 AVISO — Intento #{{ retry_count }}
+  </p>
+  {% endif %}
+
+  {# ── Título ─────────────────────────────────────────────────────────────── #}
+  <h2 style="margin:0 0 8px;font-size:20px;font-weight:bold;color:#111827;line-height:1.3;">
+    Pago fallido en suscripción activa
+  </h2>
+  <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#374151;">
+    Una suscripción activa pasó a estado <strong>PAST_DUE</strong> por un fallo de cobro
+    o falta de pago confirmado. Revisá el caso desde el panel ADMIN para hacer seguimiento.
+  </p>
+
+  {# ── Tabla de datos ─────────────────────────────────────────────────────── #}
+  <table cellpadding="0" cellspacing="0" width="100%"
+         style="margin:0 0 24px;border:1px solid #e5e7eb;border-radius:6px;border-collapse:collapse;overflow:hidden;">
+    <tr style="background-color:#f9fafb;">
+      <td style="padding:10px 16px;font-size:13px;font-weight:bold;color:#6b7280;width:40%;border-bottom:1px solid #e5e7eb;">Negocio</td>
+      <td style="padding:10px 16px;font-size:13px;color:#111827;border-bottom:1px solid #e5e7eb;font-weight:bold;">{{ business_name }}</td>
+    </tr>
+    {% if owner_email %}
+    <tr style="background-color:#ffffff;">
+      <td style="padding:10px 16px;font-size:13px;font-weight:bold;color:#6b7280;width:40%;border-bottom:1px solid #e5e7eb;">Email del owner</td>
+      <td style="padding:10px 16px;font-size:13px;color:#111827;border-bottom:1px solid #e5e7eb;">{{ owner_email }}</td>
+    </tr>
+    {% endif %}
+    <tr style="background-color:#f9fafb;">
+      <td style="padding:10px 16px;font-size:13px;font-weight:bold;color:#6b7280;width:40%;border-bottom:1px solid #e5e7eb;">Plan</td>
+      <td style="padding:10px 16px;font-size:13px;color:#374151;border-bottom:1px solid #e5e7eb;">{{ plan_code }}</td>
+    </tr>
+    <tr style="background-color:#ffffff;">
+      <td style="padding:10px 16px;font-size:13px;font-weight:bold;color:#6b7280;width:40%;border-bottom:1px solid #e5e7eb;">Servicio</td>
+      <td style="padding:10px 16px;font-size:13px;color:#374151;border-bottom:1px solid #e5e7eb;">{{ service_type }}</td>
+    </tr>
+    <tr style="background-color:#f9fafb;">
+      <td style="padding:10px 16px;font-size:13px;font-weight:bold;color:#6b7280;width:40%;border-bottom:1px solid #e5e7eb;">Intento #</td>
+      <td style="padding:10px 16px;font-size:13px;color:#9a3412;border-bottom:1px solid #e5e7eb;font-weight:bold;">{{ retry_count }}</td>
+    </tr>
+    {% if amount %}
+    <tr style="background-color:#ffffff;">
+      <td style="padding:10px 16px;font-size:13px;font-weight:bold;color:#6b7280;width:40%;border-bottom:1px solid #e5e7eb;">Monto intentado</td>
+      <td style="padding:10px 16px;font-size:13px;color:#374151;border-bottom:1px solid #e5e7eb;">{{ amount }} {{ currency }}</td>
+    </tr>
+    {% endif %}
+    {% if failure_reason %}
+    <tr style="background-color:#f9fafb;">
+      <td style="padding:10px 16px;font-size:13px;font-weight:bold;color:#6b7280;width:40%;border-bottom:1px solid #e5e7eb;">Razón del fallo</td>
+      <td style="padding:10px 16px;font-size:13px;color:#991b1b;border-bottom:1px solid #e5e7eb;">{{ failure_reason }}</td>
+    </tr>
+    {% endif %}
+    {% if provider_status %}
+    <tr style="background-color:#ffffff;">
+      <td style="padding:10px 16px;font-size:13px;font-weight:bold;color:#6b7280;width:40%;border-bottom:1px solid #e5e7eb;">Estado en proveedor</td>
+      <td style="padding:10px 16px;font-size:13px;color:#374151;border-bottom:1px solid #e5e7eb;">{{ provider_status }}</td>
+    </tr>
+    {% endif %}
+    {% if grace_until %}
+    <tr style="background-color:#f9fafb;">
+      <td style="padding:10px 16px;font-size:13px;font-weight:bold;color:#6b7280;width:40%;border-bottom:1px solid #e5e7eb;">Grace hasta</td>
+      <td style="padding:10px 16px;font-size:13px;color:#374151;border-bottom:1px solid #e5e7eb;">{{ grace_until }}</td>
+    </tr>
+    {% endif %}
+    {% if current_period_end %}
+    <tr style="background-color:#ffffff;">
+      <td style="padding:10px 16px;font-size:13px;font-weight:bold;color:#6b7280;width:40%;border-bottom:1px solid #e5e7eb;">Fin de período</td>
+      <td style="padding:10px 16px;font-size:13px;color:#374151;border-bottom:1px solid #e5e7eb;">{{ current_period_end }}</td>
+    </tr>
+    {% endif %}
+    {% if invoice_event_id %}
+    <tr style="background-color:#f9fafb;">
+      <td style="padding:10px 16px;font-size:13px;font-weight:bold;color:#6b7280;width:40%;">ID Invoice Event</td>
+      <td style="padding:10px 16px;font-size:13px;color:#6b7280;font-family:monospace;">{{ invoice_event_id }}</td>
+    </tr>
+    {% endif %}
+  </table>
+
+  {# ── CTA ────────────────────────────────────────────────────────────────── #}
+  {% if admin_url %}
+  <p style="margin:0 0 24px;text-align:center;">
+    <a href="{{ admin_url }}"
+       style="display:inline-block;padding:12px 28px;background-color:#f97316;color:#ffffff;font-size:14px;font-weight:bold;text-decoration:none;border-radius:6px;letter-spacing:0.3px;">
+      Ver suscripción en admin
+    </a>
+  </p>
+  {% endif %}
+
+  {# ── Nota interna ───────────────────────────────────────────────────────── #}
+  <p style="margin:24px 0 0;font-size:12px;color:#9ca3af;text-align:center;border-top:1px solid #f3f4f6;padding-top:16px;">
+    Este mensaje es una notificación interna de MiRubro dirigida al equipo de Billing. No responder.
+  </p>
+{% endblock %}

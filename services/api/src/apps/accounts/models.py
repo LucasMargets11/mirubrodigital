@@ -685,3 +685,10 @@ def _create_account_profile(sender, instance, created: bool, **kwargs):
     if created:
         AccountProfile.objects.get_or_create(user=instance)
 
+
+# ── Split-file models — imported here so Django's migration framework
+#    discovers them when it imports apps.accounts.models. ───────────────────────
+from apps.accounts.admin_internal_note import AdminInternalNote  # noqa: E402, F401
+from apps.accounts.admin_notification import AdminNotification    # noqa: E402, F401
+from apps.accounts.support_ticket import SupportTicket, TicketMessage  # noqa: E402, F401
+

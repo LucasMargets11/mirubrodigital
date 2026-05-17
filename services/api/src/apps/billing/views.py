@@ -851,6 +851,14 @@ class MercadoPagoWebhookView(APIView):
             pending_change.mp_payment_id = str(payment_id)
 
             if payment_status == 'approved':
+                # Idempotency: skip if this upgrade was already completed.
+                # MercadoPago can deliver the same webhook notification more than once.
+                if is_reviews_upgrade and pending_change.status == 'completed':
+                    logger.info(
+                        "[MPWebhook] Skipping already-completed reviews_upgrade %s",
+                        pending_change.id,
+                    )
+                    return
                 pending_change.status = 'processing'
                 pending_change.save()
                 try:

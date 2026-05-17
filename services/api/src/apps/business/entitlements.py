@@ -109,11 +109,22 @@ _PLAN_ALIAS = {
 PLAN_ENTITLEMENTS['start'] = PLAN_ENTITLEMENTS['starter']
 PLAN_ENTITLEMENTS['plus'] = PLAN_ENTITLEMENTS['business']
 
-# QR de Reseñas
+# QR de Reseñas — plan base
 PLAN_ENTITLEMENTS['qr_reviews'] = {
     'qr_reviews.config',
     'qr_reviews.qr',
     'qr_reviews.dashboard',
+}
+
+# QR de Reseñas — plan base explícito (alias)
+PLAN_ENTITLEMENTS['qr_reviews_base'] = PLAN_ENTITLEMENTS['qr_reviews']
+
+# QR de Reseñas — plan PRO (superset del base + cartelería)
+PLAN_ENTITLEMENTS['qr_reviews_pro'] = {
+    'qr_reviews.config',
+    'qr_reviews.qr',
+    'qr_reviews.dashboard',
+    'qr_reviews.print_posters',   # solo PRO
 }
 
 
@@ -143,6 +154,7 @@ ENTITLEMENT_UPGRADE_HINTS = {
     'gestion.consolidated_reports': 'BUSINESS',
     'gestion.tax_backup': 'BUSINESS',
     'gestion.print_signage': 'PRO',
+    'qr_reviews.print_posters': 'Reseñas PRO',
 }
 
 

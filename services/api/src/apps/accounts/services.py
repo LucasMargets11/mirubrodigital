@@ -1,7 +1,7 @@
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.core.mail import send_mail
 from django.db import transaction
+from apps.notifications.services import queue_transactional_email
 from django.core.exceptions import ValidationError
 from rest_framework.exceptions import PermissionDenied
 from apps.accounts.models import Membership, AccountProfile, AccessAuditLog
@@ -83,7 +83,7 @@ class OwnerGuardService:
 
 class EmailService:
     """
-    Thin wrapper around Django's send_mail for transactional emails.
+    Thin wrapper around notifications.queue_transactional_email for transactional emails.
     All failures are logged but do NOT propagate — registration/reset flows
     should succeed even if the email server is temporarily unavailable.
     """
@@ -92,27 +92,25 @@ class EmailService:
     def send_verification_email(user, token: str) -> bool:
         frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')
         verify_url = f"{frontend_url}/verificar-email?token={token}"
-        subject = "Verificá tu email en Mirubro"
-        body = (
-            f"Hola,\n\n"
-            f"Para activar tu cuenta en Mirubro, hacé clic en el siguiente enlace:\n\n"
-            f"  {verify_url}\n\n"
-            f"Este enlace es válido por {getattr(settings, 'EMAIL_VERIFICATION_TOKEN_HOURS', 48)} horas.\n\n"
-            f"Si no creaste una cuenta, ignorá este mensaje.\n\n"
-            f"— El equipo de Mirubro"
-        )
+        expiration_hours = getattr(settings, 'EMAIL_VERIFICATION_TOKEN_HOURS', 48)
+
         try:
-            send_mail(
-                subject=subject,
-                message=body,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[user.email],
-                fail_silently=False,
+            queue_transactional_email(
+                to_email=user.email,
+                subject="Verificá tu email en MiRubro",
+                template_key="verify_email",
+                context={
+                    "user_name": user.get_full_name() or user.username,
+                    "verification_url": verify_url,
+                    "expiration_hours": expiration_hours,
+                },
+                user=user,
+                send_async=True,
             )
             return True
         except Exception:
             logger.exception(
-                "[EmailService] Failed to send verification email to user=%s", user.pk
+                "[EmailService] Failed to queue verification email for user=%s", user.pk
             )
             return False
 
@@ -120,29 +118,87 @@ class EmailService:
     def send_password_reset_email(user, token: str) -> bool:
         frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')
         reset_url = f"{frontend_url}/nueva-contrasena?token={token}"
-        subject = "Recuperá tu contraseña en Mirubro"
-        hours = getattr(settings, 'PASSWORD_RESET_TOKEN_HOURS', 2)
-        body = (
-            f"Hola,\n\n"
-            f"Recibimos una solicitud para restablecer tu contraseña en Mirubro.\n\n"
-            f"Hacé clic en el siguiente enlace para continuar:\n\n"
-            f"  {reset_url}\n\n"
-            f"Este enlace es válido por {hours} hora{'s' if hours != 1 else ''}.\n\n"
-            f"Si no solicitaste este cambio, ignorá este mensaje. Tu contraseña no será modificada.\n\n"
-            f"— El equipo de Mirubro"
-        )
+        expiration_hours = getattr(settings, 'PASSWORD_RESET_TOKEN_HOURS', 2)
+
         try:
-            send_mail(
-                subject=subject,
-                message=body,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[user.email],
-                fail_silently=False,
+            queue_transactional_email(
+                to_email=user.email,
+                subject="Recuperá tu contraseña en MiRubro",
+                template_key="password_reset",
+                context={
+                    "user_name": user.get_full_name() or user.username,
+                    "reset_url": reset_url,
+                    "expiration_hours": expiration_hours,
+                },
+                user=user,
+                send_async=True,
             )
             return True
         except Exception:
             logger.exception(
-                "[EmailService] Failed to send password-reset email to user=%s", user.pk
+                "[EmailService] Failed to queue password-reset email for user=%s", user.pk
+            )
+            return False
+
+    @staticmethod
+    def send_password_changed_email(user) -> bool:
+        frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')
+        support_email = getattr(settings, 'SUPPORT_EMAIL', 'soporte@mirubro.com')
+
+        try:
+            queue_transactional_email(
+                to_email=user.email,
+                subject="Tu contraseña de MiRubro fue modificada",
+                template_key="password_changed",
+                context={
+                    "user_name": user.get_full_name() or user.username,
+                    "support_email": support_email,
+                    "frontend_url": frontend_url,
+                },
+                user=user,
+                send_async=True,
+            )
+            return True
+        except Exception:
+            logger.exception(
+                "[EmailService] Failed to queue password-changed email for user=%s", user.pk
+            )
+            return False
+
+    @staticmethod
+    def send_secondary_user_access_email(user, business, role: str) -> bool:
+        """
+        Inform a newly-created secondary user that they can log in with Google.
+        Only sent when the user has an email address.
+        Failures are logged but never propagate — user creation must not be affected.
+        """
+        if not user.email:
+            return False
+
+        frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')
+        support_email = getattr(settings, 'SUPPORT_EMAIL', 'soporte@mirubro.com')
+        login_url = frontend_url  # landing page with "Ingresar con Google" button
+
+        try:
+            queue_transactional_email(
+                to_email=user.email,
+                subject="Te dieron acceso a MiRubro",
+                template_key="secondary_user_access",
+                context={
+                    "user_name": user.get_full_name() or user.username,
+                    "business_name": business.name,
+                    "role": role,
+                    "login_url": login_url,
+                    "support_email": support_email,
+                },
+                user=user,
+                business=business,
+                send_async=True,
+            )
+            return True
+        except Exception:
+            logger.exception(
+                "[EmailService] Failed to queue secondary-user-access email for user=%s", user.pk
             )
             return False
 
@@ -362,5 +418,10 @@ class InternalUserService:
                 created_by_user.pk if created_by_user else None,
             )
 
-            return {'user': user, 'membership': membership}
+        # Best-effort: inform the secondary user they can log in with Google.
+        # Intentionally outside transaction.atomic() so a delivery failure
+        # never rolls back the user creation.
+        EmailService.send_secondary_user_access_email(user, business, role)
+
+        return {'user': user, 'membership': membership}
 

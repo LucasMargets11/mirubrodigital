@@ -246,6 +246,10 @@ export async function getAdminPromoOptions(): Promise<AdminPromoOptions | null> 
   }
 }
 
+// ── Notifications (PR-ADMIN-10C/10D) ────────────────────────────────────────
+
+export { getAdminNotifications, getAdminUnreadCount } from './notifications';
+
 export type {
   AdminSession,
   AdminDashboardMetrics,

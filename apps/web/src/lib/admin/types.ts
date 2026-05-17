@@ -25,7 +25,72 @@ export type AdminSection =
   | 'blog'
   | 'reportes'
   | 'configuracion'
-  | 'promociones';
+  | 'promociones'
+  | 'notificaciones';
+
+// ── Notifications (PR-ADMIN-10B/10C/10D) ──────────────────────────────────
+
+export type AdminNotificationStatus =
+  | 'unread'
+  | 'read'
+  | 'resolved'
+  | 'archived';
+
+export type AdminNotificationSeverity =
+  | 'info'
+  | 'success'
+  | 'warning'
+  | 'critical';
+
+export type AdminNotificationType =
+  | 'support_ticket_created'
+  | 'support_ticket_urgent'
+  | 'support_ticket_stale'
+  | 'support_ticket_reopened'
+  | 'billing_payment_failure'
+  | 'billing_cancel_request'
+  | 'billing_suspended'
+  | 'billing_payment_ok'
+  | 'review_negative'
+  | 'review_spike'
+  | 'security_mfa_reset'
+  | 'security_role_changed'
+  | 'security_login_failed'
+  | 'security_staff_changed'
+  | 'system_webhook_failed'
+  | 'system_email_failed';
+
+export type AdminNotification = {
+  id: string;
+  notif_type: AdminNotificationType;
+  severity: AdminNotificationSeverity;
+  title: string;
+  message: string;
+  status: AdminNotificationStatus;
+  action_url: string;
+  business_id: string | null;
+  business_name: string | null;
+  related_object_type: string;
+  related_object_id: string;
+  created_at: string | null;
+  read_at: string | null;
+  resolved_at: string | null;
+  archived_at: string | null;
+};
+
+export type AdminNotificationList = {
+  results: AdminNotification[];
+  total: number;
+  unread_count: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+};
+
+export type AdminNotificationUnreadCount = {
+  count: number;
+  critical_count: number;
+};
 
 export type AdminKPIs = {
   active_businesses: number;

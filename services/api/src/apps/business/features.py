@@ -150,6 +150,7 @@ PLAN_FEATURES: Dict[str, Iterable[str]] = {
   ),
   'qr_reviews_pro': (
     'qr_reviews_core',
+    'print_signage',      # Carteles imprimibles — PRO only
   ),
 }
 

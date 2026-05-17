@@ -24,11 +24,15 @@ const scriptSrc = isDev
     ? "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://accounts.google.com/gsi/client"
     : "script-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/client";
 
+const imgSrc = isDev
+    ? "img-src 'self' data: blob: http://localhost:8000 http://127.0.0.1:8000 http://api:8000 https://via.placeholder.com https://images.unsplash.com"
+    : `img-src 'self' data: blob: ${apiOrigin} https://via.placeholder.com https://images.unsplash.com https://*.amazonaws.com https://*.cloudfront.net`;
+
 const CSP_DIRECTIVES = [
     "default-src 'self'",
     scriptSrc,
     "style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style",
-    "img-src 'self' data: https://via.placeholder.com https://images.unsplash.com",
+    imgSrc,
     "font-src 'self' data:",
     connectSrc,
     "frame-src 'self' https://accounts.google.com https://accounts.google.com/gsi/",

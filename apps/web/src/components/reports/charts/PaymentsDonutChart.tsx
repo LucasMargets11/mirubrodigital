@@ -41,12 +41,11 @@ const FALLBACK_COLORS = CATEGORICAL_PALETTE.slice(0, 6);
 
 export function PaymentsDonutChart({ data, topN = 5 }: PaymentsDonutChartProps) {
     const prepared = prepareData(data, topN);
+    const option = useMemo(() => buildDonutOption(prepared), [prepared]);
 
     if (!prepared.length) {
         return null;
     }
-
-    const option = useMemo(() => buildDonutOption(prepared), [prepared]);
 
     return (
         <div className="flex h-full w-full min-h-0 flex-col gap-6 md:flex-row md:items-center">

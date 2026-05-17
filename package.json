@@ -6,7 +6,7 @@
     "apps/web"
   ],
   "scripts": {
-    "dev": "docker compose -f infra/docker-compose.yml up --build",
+    "dev": "docker compose -f infra/docker-compose.yml -f infra/docker-compose.override.yml up --build",
     "dev:web": "npm --prefix apps/web run dev",
     "dev:api": "cd services/api && python manage.py runserver 0.0.0.0:8000",
     "lint": "npm --prefix apps/web run lint",

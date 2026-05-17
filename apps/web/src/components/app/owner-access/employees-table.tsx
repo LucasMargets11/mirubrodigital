@@ -47,7 +47,7 @@ export function EmployeesTable({ employees, onRefresh }: EmployeesTableProps) {
       <div className="rounded-lg border border-slate-200 bg-slate-50 p-8 text-center">
         <p className="text-sm text-slate-600">No hay empleados operativos registrados.</p>
         <p className="mt-1 text-xs text-slate-500">
-          Creá el primer empleado con el botón "+ Nuevo empleado".
+          Creá el primer empleado con el botón &quot;+ Nuevo empleado&quot;.
         </p>
       </div>
     );

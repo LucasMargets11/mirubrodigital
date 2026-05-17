@@ -211,7 +211,7 @@ export function EngagementSettingsSection() {
                             <div>
                                 <label className="block text-xs font-medium mb-1">
                                     URL de tu link de Mercado Pago
-                                    {eng.tips_mode === 'mp_qr_image' && <span className="text-slate-400"> (opcional — para botón "Abrir MP")</span>}
+                                    {eng.tips_mode === 'mp_qr_image' && <span className="text-slate-400"> (opcional — para botón &quot;Abrir MP&quot;)</span>}
                                     {eng.tips_mode === 'mp_link' && <span className="text-red-500"> *</span>}
                                 </label>
                                 <input

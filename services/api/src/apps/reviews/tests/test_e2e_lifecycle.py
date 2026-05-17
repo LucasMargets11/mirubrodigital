@@ -25,6 +25,7 @@ from rest_framework.test import APIClient
 from apps.accounts.models import Membership
 from apps.billing.models import PendingSubscriptionChange, SubscriptionV2
 from apps.billing.reviews_views import apply_reviews_plan_downgrade, apply_reviews_plan_upgrade
+from apps.billing.views import MercadoPagoWebhookView
 from apps.business.models import Business, Subscription
 
 from ..digest import compute_digest_stats, send_digest_for_business
@@ -110,12 +111,11 @@ class BaseDirectLifecycleTests(TestCase):
 
         self.assertEqual(Review.objects.filter(business=self.biz).count(), 0)
 
-    @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
-    @patch('apps.reviews.notifications.send_mail')
-    def test_no_notifications_sent(self, mock_send):
+    @patch('apps.accounts.admin_notification_service.create_admin_notification')
+    def test_no_notifications_sent(self, mock_helper):
         """Direct mode never creates Review → signal never fires notification."""
         _submit(self.api, 'base-direct', 1)
-        mock_send.assert_not_called()
+        mock_helper.assert_not_called()
 
     def test_stats_show_visits_but_no_reviews(self):
         """Stats reflect visits from landing but zero reviews."""
@@ -152,6 +152,9 @@ class ProSmartFilterLifecycleTests(TestCase):
     def setUp(self):
         cache.clear()
         mail.outbox.clear()
+        patcher = patch('apps.accounts.admin_notification_service.create_admin_notification', return_value=None)
+        self.mock_notif = patcher.start()
+        self.addCleanup(patcher.stop)
         self.owner = _user('pro-sf@test.com')
         self.biz = _business(self.owner, plan='qr_reviews_pro', slug='pro-sf')
         self.config = _cfg(self.biz, mode='smart_filter')
@@ -183,9 +186,8 @@ class ProSmartFilterLifecycleTests(TestCase):
         self.assertEqual(review.comment, 'Malo')
         self.assertEqual(review.status, 'new')
 
-        # Email notification fired
-        self.assertEqual(len(mail.outbox), 1)
-        self.assertIn('2★', mail.outbox[0].subject)
+        # Admin notification queued for support team
+        self.mock_notif.assert_called_once()
 
     def test_full_status_pipeline(self):
         """new → read → contacted → resolved → read (reopen)."""
@@ -271,6 +273,9 @@ class TrialLifecycleTests(TestCase):
     def setUp(self):
         cache.clear()
         mail.outbox.clear()
+        patcher = patch('apps.accounts.admin_notification_service.create_admin_notification', return_value=None)
+        self.mock_notif = patcher.start()
+        self.addCleanup(patcher.stop)
         self.owner = _user('trial-life@test.com')
         self.biz = _business(self.owner, plan='qr_reviews_base', slug='trial-life')
         self.config = _cfg(self.biz, mode='direct')
@@ -307,8 +312,8 @@ class TrialLifecycleTests(TestCase):
         review = Review.objects.get(business=self.biz)
         self.assertEqual(review.rating, 2)
 
-        # Notification fires during trial (smart_filter_allowed = True)
-        self.assertEqual(len(mail.outbox), 1)
+        # Admin notification queued for support team (smart_filter_allowed = True)
+        self.mock_notif.assert_called_once()
 
     def test_expired_trial_falls_back_to_direct(self):
         """After trial expires, effective_mode=direct → all ratings redirect."""
@@ -382,6 +387,9 @@ class UpgradeLifecycleTests(TestCase):
     def setUp(self):
         cache.clear()
         mail.outbox.clear()
+        patcher = patch('apps.accounts.admin_notification_service.create_admin_notification', return_value=None)
+        self.mock_notif = patcher.start()
+        self.addCleanup(patcher.stop)
         self.owner = _user('upgrade-life@test.com')
         self.biz = _business(self.owner, plan='qr_reviews_base', slug='upgrade-life')
         self.config = _cfg(self.biz, mode='smart_filter')
@@ -422,8 +430,8 @@ class UpgradeLifecycleTests(TestCase):
         review = Review.objects.get(business=self.biz)
         self.assertEqual(review.comment, 'After upgrade')
 
-        # Notification fires
-        self.assertEqual(len(mail.outbox), 1)
+        # Admin notification queued for support team
+        self.mock_notif.assert_called_once()
 
     def test_stats_reflect_pre_and_post_upgrade(self):
         """Landing before upgrade + review after upgrade → stats coherent."""
@@ -455,6 +463,44 @@ class UpgradeLifecycleTests(TestCase):
         # Submit works
         res = _submit(self.api, 'upgrade-life', 2)
         self.assertEqual(res.status_code, 201)
+
+    @patch('apps.billing.views.MercadoPagoService')
+    def test_webhook_reviews_upgrade_idempotent_double_fire(self, MockMPService):
+        """Double-fire of an approved reviews_upgrade webhook must be skipped the second time."""
+        pending = PendingSubscriptionChange.objects.create(
+            business=self.biz,
+            user=self.owner,
+            target_plan_code='qr_reviews_pro',
+            billing_cycle='monthly',
+            total_amount=0,
+            is_upgrade=True,
+            status='pending_payment',
+        )
+        MockMPService.return_value.get_payment.return_value = {
+            'external_reference': f'reviews_upgrade_{pending.id}',
+            'status': 'approved',
+        }
+
+        view = MercadoPagoWebhookView()
+
+        # First fire → applies upgrade
+        view.process_payment_event(payment_id='pay-idempotent-001')
+
+        pending.refresh_from_db()
+        self.assertEqual(pending.status, 'completed')
+        self.biz.subscription.refresh_from_db()
+        self.assertEqual(self.biz.subscription.plan, 'qr_reviews_pro')
+
+        v2_count = SubscriptionV2.objects.filter(business=self.biz, service_type='qr_reviews').count()
+
+        # Second fire → must be skipped due to idempotency guard
+        view.process_payment_event(payment_id='pay-idempotent-001')
+
+        pending.refresh_from_db()
+        self.assertEqual(pending.status, 'completed', "Status must remain completed after second webhook")
+
+        v2_count_after = SubscriptionV2.objects.filter(business=self.biz, service_type='qr_reviews').count()
+        self.assertEqual(v2_count, v2_count_after, "No duplicate SubscriptionV2 must be created")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -557,6 +603,9 @@ class NotificationsDigestCoherenceTests(TestCase):
     def setUp(self):
         cache.clear()
         mail.outbox.clear()
+        patcher = patch('apps.accounts.admin_notification_service.create_admin_notification', return_value=None)
+        self.mock_notif = patcher.start()
+        self.addCleanup(patcher.stop)
         self.owner = _user('notif-digest@test.com')
         self.biz = _business(self.owner, plan='qr_reviews_pro', slug='notif-digest')
         self.config = _cfg(self.biz, mode='smart_filter')
@@ -570,9 +619,8 @@ class NotificationsDigestCoherenceTests(TestCase):
         mail.outbox.clear()
         _submit(self.api, 'notif-digest', 2, comment='Test')
 
-        # Immediate notification
-        self.assertEqual(len(mail.outbox), 1)
-        self.assertIn('2★', mail.outbox[0].subject)
+        # Admin notification queued for support team
+        self.mock_notif.assert_called_once()
 
         # Digest sees it
         stats = compute_digest_stats(self.biz)
@@ -581,14 +629,14 @@ class NotificationsDigestCoherenceTests(TestCase):
         self.assertEqual(stats['negative_count'], 1)
 
     def test_notification_throttle_does_not_affect_digest(self):
-        """Multiple reviews → only 1 immediate email, but digest counts all."""
+        """Multiple reviews each trigger in-app notification, and digest counts all."""
         mail.outbox.clear()
         _submit(self.api, 'notif-digest', 1, remote_addr='10.0.0.1')
         _submit(self.api, 'notif-digest', 2, remote_addr='10.0.0.2')
         _submit(self.api, 'notif-digest', 3, remote_addr='10.0.0.3')
 
-        # Immediate: only 1 email (throttled after first)
-        self.assertEqual(len(mail.outbox), 1)
+        # In-app notification called for each negative review (no throttle)
+        self.assertEqual(self.mock_notif.call_count, 3)
 
         # Digest: counts all 3
         stats = compute_digest_stats(self.biz)

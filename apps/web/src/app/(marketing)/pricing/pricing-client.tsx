@@ -224,14 +224,6 @@ export default function PricingClient() {
                     </button>
                     {/* "Armá tu plan" tab is hidden for Menú QR — the plan builder is inline in Packs */}
                     {/* TODO: re-enable "Armá tu plan" tab when ready */}
-                    {false && vertical !== 'menu_qr' && (
-                        <button
-                            className={`pb-4 border-b-2 font-medium text-lg transition-colors px-4 ${mode === 'custom' ? 'border-brand-600 text-brand-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-                            onClick={() => setMode('custom')}
-                        >
-                            Armá tu plan
-                        </button>
-                    )}
                 </div>
             </div>
 

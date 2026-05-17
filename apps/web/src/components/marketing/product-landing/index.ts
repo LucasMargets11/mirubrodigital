@@ -8,3 +8,4 @@ export { ProductFinalCta } from './product-final-cta';
 export { GestionPricingSection } from './gestion-pricing-section';
 export { CartaPricingSection } from './carta-pricing-section';
 export { ResenasPricingSection } from './resenas-pricing-section';
+export { ResenasPosterSection } from './resenas-posters-section';

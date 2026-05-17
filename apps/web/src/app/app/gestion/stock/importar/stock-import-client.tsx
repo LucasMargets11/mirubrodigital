@@ -122,7 +122,9 @@ export function StockImportClient() {
 
     const handleResetFile = () => {
         setSelectedFile(null);
-        fileInputRef.current?.value && (fileInputRef.current.value = '');
+        if (fileInputRef.current?.value) {
+            fileInputRef.current.value = '';
+        }
     };
 
     return (

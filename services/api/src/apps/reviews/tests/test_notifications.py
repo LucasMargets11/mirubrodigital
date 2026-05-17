@@ -1,40 +1,34 @@
 """
 Bloque 16 — Tests for negative-feedback notification system.
 
+ROLLBACK: QR de Reseñas does NOT send emails.
 Covers:
+  - notify_negative_feedback() calls create_admin_notification for rating ≤ 3
+  - notify_negative_feedback() does nothing for rating > 3
+  - No emails sent under any circumstance
+  - Exception in create_admin_notification does not propagate
   - Signal fires on Review creation, not on update
-  - Email sent for Pro business with smart-filter access
-  - Email sent for trial-active business
-  - Email NOT sent for Base plan (no smart-filter)
-  - Anti-spam: throttle blocks second email within window
-  - Anti-spam: allows email after cache expires
-  - Owner email resolution: active owner, no owner, no email
-  - Email content: subject, stars, body fields
+  - Signal triggers for Pro/smart-filter business
+  - Signal skipped for Base plan
+  - Signal triggers for trial-active business
+  - Signal skipped for expired trial
 """
 
 from __future__ import annotations
 
 from datetime import timedelta
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.core import mail
 from django.core.cache import cache
-from django.test import TestCase, override_settings
+from django.test import TestCase
 from django.utils import timezone
 
 from apps.accounts.models import Membership
 from apps.business.models import Business, Subscription
 
 from ..models import Review, ReviewConfig
-from ..notifications import (
-    _CACHE_PREFIX,
-    _THROTTLE_SECONDS,
-    _get_owner_email,
-    _is_throttled,
-    _mark_sent,
-    notify_negative_feedback,
-)
+from ..notifications import notify_negative_feedback
 from ..signals import on_review_created
 
 User = get_user_model()
@@ -45,7 +39,6 @@ User = get_user_model()
 # ---------------------------------------------------------------------------
 
 def _disconnect_signal():
-    """Disconnect the post_save signal so unit tests can call notify_negative_feedback directly."""
     from django.db.models.signals import post_save
     post_save.disconnect(on_review_created, sender=Review)
 
@@ -54,10 +47,6 @@ def _reconnect_signal():
     from django.db.models.signals import post_save
     post_save.connect(on_review_created, sender=Review)
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 def _biz(name='Notif Biz', slug='notif-biz', plan='qr_reviews', service='qr_reviews'):
     biz = Business.objects.create(name=name, slug=slug, default_service=service)
@@ -78,7 +67,7 @@ def _cfg(business, **kwargs):
         mode='smart_filter',
     )
     defaults.update(kwargs)
-    return ReviewConfig.objects.create(business=business, **defaults)
+    return ReviewConfig.objects.get_or_create(business=business, defaults=defaults)[0]
 
 
 def _owner(business, email='owner@example.com'):
@@ -94,208 +83,88 @@ def _review(business, rating=2, comment='Malo', **kwargs):
     )
 
 
+_CREATE_NOTIF = 'apps.accounts.admin_notification_service.create_admin_notification'
+_ADMIN_EMAIL = 'apps.notifications.admin_helpers.queue_admin_transactional_email'
+
+
 # ---------------------------------------------------------------------------
-# Unit tests: notifications.py functions
+# Unit tests: notify_negative_feedback()
 # ---------------------------------------------------------------------------
 
-@override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
 class NotifyNegativeFeedbackTests(TestCase):
-    """Direct tests for notify_negative_feedback()."""
+    """Direct tests for notify_negative_feedback() — in-app only, no email."""
 
     def setUp(self):
         cache.clear()
         _disconnect_signal()
+        self.biz = _biz_pro(slug='unit-notif')
+        _cfg(self.biz)
 
     def tearDown(self):
         _reconnect_signal()
         cache.clear()
 
-    def test_email_sent_pro_owner(self):
-        biz = _biz_pro()
-        _cfg(biz)
-        _owner(biz, email='pro@example.com')
-        review = _review(biz, rating=2, comment='Frío')
+    def test_rating_le_3_calls_create_admin_notification(self):
+        review = _review(self.biz, rating=2)
+        with patch(_CREATE_NOTIF) as mock_notif:
+            notify_negative_feedback(review)
+        mock_notif.assert_called_once()
+        self.assertEqual(mock_notif.call_args.kwargs['notif_type'], 'review_negative')
 
-        result = notify_negative_feedback(review)
+    def test_rating_gt_3_skips_notification(self):
+        review = _review(self.biz, rating=4)
+        with patch(_CREATE_NOTIF) as mock_notif:
+            notify_negative_feedback(review)
+        mock_notif.assert_not_called()
 
-        self.assertTrue(result)
-        self.assertEqual(len(mail.outbox), 1)
-        self.assertIn('2★', mail.outbox[0].subject)
-        self.assertIn('pro@example.com', mail.outbox[0].to)
+    def test_rating_eq_3_calls_create_admin_notification(self):
+        review = _review(self.biz, rating=3)
+        with patch(_CREATE_NOTIF) as mock_notif:
+            notify_negative_feedback(review)
+        mock_notif.assert_called_once()
 
-    def test_email_body_contains_business_and_comment(self):
-        biz = _biz_pro(name='Mi Café', slug='mi-cafe')
-        _cfg(biz)
-        _owner(biz, email='cafe@example.com')
-        review = _review(biz, rating=1, comment='Horrible servicio')
-
-        notify_negative_feedback(review)
-
-        body = mail.outbox[0].body
-        self.assertIn('Mi Café', body)
-        self.assertIn('Horrible servicio', body)
-        self.assertIn('★☆☆☆☆', body)
-        self.assertIn('/app/resenas/feedback', body)
-
-    def test_email_body_no_comment(self):
-        biz = _biz_pro(name='No Comment Biz', slug='no-comment')
-        _cfg(biz)
-        _owner(biz, email='nc@example.com')
-        review = _review(biz, rating=3, comment='')
-
-        notify_negative_feedback(review)
-
-        body = mail.outbox[0].body
-        self.assertNotIn('Comentario:', body)
-
-    def test_email_body_with_contact(self):
-        biz = _biz_pro(name='Contact Biz', slug='contact-biz')
-        _cfg(biz)
-        _owner(biz, email='ct@example.com')
-        review = _review(biz, rating=2, comment='Malo', contact_info='juan@gmail.com')
-
-        notify_negative_feedback(review)
-
-        body = mail.outbox[0].body
-        self.assertIn('juan@gmail.com', body)
-
-    def test_no_owner_returns_false(self):
-        biz = _biz_pro(slug='no-owner')
-        _cfg(biz)
-        review = _review(biz)
-
-        result = notify_negative_feedback(review)
-
-        self.assertFalse(result)
-        self.assertEqual(len(mail.outbox), 0)
-
-    def test_owner_no_email_returns_false(self):
-        biz = _biz_pro(slug='no-email')
-        _cfg(biz)
-        _owner(biz, email='')
-
-        review = _review(biz)
-        result = notify_negative_feedback(review)
-
-        self.assertFalse(result)
-        self.assertEqual(len(mail.outbox), 0)
-
-    def test_inactive_owner_skipped(self):
-        biz = _biz_pro(slug='inactive-owner')
-        _cfg(biz)
-        user = User.objects.create_user(username='inactive_o', email='ina@example.com', password='pass')
-        Membership.objects.create(user=user, business=biz, role='owner', status='inactive')
-
-        review = _review(biz)
-        result = notify_negative_feedback(review)
-
-        self.assertFalse(result)
-        self.assertEqual(len(mail.outbox), 0)
-
-    def test_throttle_blocks_second_email(self):
-        biz = _biz_pro(slug='throttle-biz')
-        _cfg(biz)
-        _owner(biz, email='throt@example.com')
-
-        review1 = _review(biz, rating=1, comment='Bad 1')
-        result1 = notify_negative_feedback(review1)
-        self.assertTrue(result1)
-        self.assertEqual(len(mail.outbox), 1)
-
-        review2 = _review(biz, rating=2, comment='Bad 2')
-        result2 = notify_negative_feedback(review2)
-        self.assertFalse(result2)
-        self.assertEqual(len(mail.outbox), 1)  # Still 1
-
-    def test_throttle_allows_after_clear(self):
-        biz = _biz_pro(slug='throttle-clear')
-        _cfg(biz)
-        _owner(biz, email='clear@example.com')
-
-        review1 = _review(biz, rating=1)
-        notify_negative_feedback(review1)
-        self.assertEqual(len(mail.outbox), 1)
-
-        # Simulate cache expiry
-        cache.delete(f'{_CACHE_PREFIX}{biz.id}')
-
-        review2 = _review(biz, rating=2)
-        result2 = notify_negative_feedback(review2)
-        self.assertTrue(result2)
-        self.assertEqual(len(mail.outbox), 2)
-
-    def test_send_mail_failure_returns_false(self):
-        biz = _biz_pro(slug='fail-mail')
-        _cfg(biz)
-        _owner(biz, email='fail@example.com')
-        review = _review(biz)
-
-        with patch('apps.reviews.notifications.send_mail', side_effect=Exception('SMTP down')):
+    def test_returns_none(self):
+        review = _review(self.biz, rating=1)
+        with patch(_CREATE_NOTIF):
             result = notify_negative_feedback(review)
+        self.assertIsNone(result)
 
-        self.assertFalse(result)
+    def test_exception_does_not_propagate(self):
+        review = _review(self.biz, rating=1)
+        with patch(_CREATE_NOTIF, side_effect=Exception('DB error')):
+            notify_negative_feedback(review)  # must not raise
 
+    def test_no_email_sent_for_negative_review(self):
+        review = _review(self.biz, rating=1)
+        with patch(_ADMIN_EMAIL) as mock_email, patch(_CREATE_NOTIF):
+            notify_negative_feedback(review)
+        mock_email.assert_not_called()
 
-# ---------------------------------------------------------------------------
-# Unit tests: throttle helpers
-# ---------------------------------------------------------------------------
-
-class ThrottleHelperTests(TestCase):
-    def setUp(self):
-        cache.clear()
-
-    def tearDown(self):
-        cache.clear()
-
-    def test_initially_not_throttled(self):
-        self.assertFalse(_is_throttled(999))
-
-    def test_mark_sent_makes_throttled(self):
-        _mark_sent(999)
-        self.assertTrue(_is_throttled(999))
-
-    def test_different_business_not_throttled(self):
-        _mark_sent(111)
-        self.assertFalse(_is_throttled(222))
-
-
-# ---------------------------------------------------------------------------
-# Unit tests: owner email resolution
-# ---------------------------------------------------------------------------
-
-class OwnerEmailTests(TestCase):
-    def test_active_owner_found(self):
-        biz = _biz(slug='oe-active')
-        _owner(biz, email='active@example.com')
-        self.assertEqual(_get_owner_email(biz), 'active@example.com')
-
-    def test_no_membership(self):
-        biz = _biz(slug='oe-none')
-        self.assertIsNone(_get_owner_email(biz))
-
-    def test_inactive_owner_not_returned(self):
-        biz = _biz(slug='oe-inactive')
-        user = User.objects.create_user(username='oe_ina', email='ina@example.com', password='pass')
-        Membership.objects.create(user=user, business=biz, role='owner', status='inactive')
-        self.assertIsNone(_get_owner_email(biz))
+    def test_no_email_sent_for_positive_review(self):
+        review = _review(self.biz, rating=5)
+        with patch(_ADMIN_EMAIL) as mock_email, patch(_CREATE_NOTIF):
+            notify_negative_feedback(review)
+        mock_email.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
 # Integration tests: signal fires on Review creation
 # ---------------------------------------------------------------------------
 
-@override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
 class SignalIntegrationTests(TestCase):
-    """Verify the post_save signal triggers notification end-to-end."""
+    """Verify the post_save signal triggers create_admin_notification end-to-end."""
 
     def setUp(self):
         cache.clear()
+        patcher = patch(_CREATE_NOTIF, return_value=None)
+        self.mock_notif = patcher.start()
+        self.addCleanup(patcher.stop)
 
     def tearDown(self):
         cache.clear()
 
     def test_signal_fires_on_create_pro(self):
-        """Creating a Review for a Pro business sends an email."""
+        """Creating a Review for a Pro business calls create_admin_notification."""
         biz = _biz_pro(slug='sig-pro')
         _cfg(biz)
         _owner(biz, email='sigpro@example.com')
@@ -305,11 +174,10 @@ class SignalIntegrationTests(TestCase):
             source='qr', ip_hash='sig1',
         )
 
-        self.assertEqual(len(mail.outbox), 1)
-        self.assertIn('Signal test', mail.outbox[0].body)
+        self.mock_notif.assert_called_once()
 
     def test_signal_does_not_fire_on_update(self):
-        """Updating an existing Review does NOT send email."""
+        """Updating an existing Review does NOT call create_admin_notification."""
         biz = _biz_pro(slug='sig-update')
         _cfg(biz)
         _owner(biz, email='sigup@example.com')
@@ -318,15 +186,15 @@ class SignalIntegrationTests(TestCase):
             business=biz, rating=2, comment='Initial',
             source='qr', ip_hash='sig2',
         )
-        mail.outbox.clear()  # Reset after creation email
+        self.mock_notif.reset_mock()
 
         review.status = 'read'
         review.save()
 
-        self.assertEqual(len(mail.outbox), 0)
+        self.mock_notif.assert_not_called()
 
     def test_signal_skipped_for_base_plan(self):
-        """Base plan (no smart_filter_allowed) should NOT trigger email."""
+        """Base plan (no smart_filter_allowed) should NOT trigger notification."""
         biz = _biz(slug='sig-base', plan='qr_reviews')
         _cfg(biz, mode='direct')
         _owner(biz, email='sigbase@example.com')
@@ -336,10 +204,10 @@ class SignalIntegrationTests(TestCase):
             source='qr', ip_hash='sig3',
         )
 
-        self.assertEqual(len(mail.outbox), 0)
+        self.mock_notif.assert_not_called()
 
     def test_signal_fires_for_trial_active(self):
-        """Trial-active business should receive notification email."""
+        """Trial-active business should trigger create_admin_notification."""
         biz = _biz(slug='sig-trial', plan='qr_reviews')
         _cfg(
             biz,
@@ -354,10 +222,10 @@ class SignalIntegrationTests(TestCase):
             source='qr', ip_hash='sig4',
         )
 
-        self.assertEqual(len(mail.outbox), 1)
+        self.mock_notif.assert_called_once()
 
     def test_signal_skipped_for_expired_trial(self):
-        """Expired trial should NOT trigger email."""
+        """Expired trial should NOT trigger notification."""
         biz = _biz(slug='sig-exp', plan='qr_reviews')
         _cfg(
             biz,
@@ -372,18 +240,17 @@ class SignalIntegrationTests(TestCase):
             source='qr', ip_hash='sig5',
         )
 
-        self.assertEqual(len(mail.outbox), 0)
+        self.mock_notif.assert_not_called()
 
-    def test_multiple_reviews_throttled(self):
-        """Multiple rapid reviews only produce 1 email."""
-        biz = _biz_pro(slug='sig-thr')
+    def test_positive_review_no_notification(self):
+        """Rating > 3 does not trigger notification even for Pro plan."""
+        biz = _biz_pro(slug='sig-pos')
         _cfg(biz)
-        _owner(biz, email='sigthr@example.com')
+        _owner(biz, email='pos@example.com')
 
-        for i in range(5):
-            Review.objects.create(
-                business=biz, rating=1, comment=f'Rapid {i}',
-                source='qr', ip_hash=f'thr{i}',
-            )
+        Review.objects.create(
+            business=biz, rating=5, comment='Excellent',
+            source='qr', ip_hash='sig6',
+        )
 
-        self.assertEqual(len(mail.outbox), 1)
+        self.mock_notif.assert_not_called()

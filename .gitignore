@@ -40,6 +40,14 @@ coverage/
 dist/
 build/
 
+# Generated / test output (do not version)
+apps/web/tsconfig.tsbuildinfo
+apps/web/test_results.txt
+services/api/test_results.txt
+lint_errors.txt
+lint_map.txt
+tsc_output.txt
+
 # Terraform
 *.tfstate
 *.tfstate.*

@@ -29,6 +29,8 @@ const COPY = {
     thankYouFeedbackSub: 'Vamos a tener en cuenta tu comentario.',
     thankYouRedirect: '¡Gracias por tu reseña! ⭐',
     thankYouRedirectSub: 'Nos ayuda muchísimo 💛',
+    noRedirectUrlTitle: 'Gracias por tu opinión 🙏',
+    noRedirectUrlSub: 'Este negocio todavía no configuró su enlace de reseñas.',
     closePage: 'Podés cerrar esta página.',
     sending: 'Enviando…',
     send: 'Enviar feedback',
@@ -44,7 +46,7 @@ const REDIRECT_DELAY_S = 3;
 /* ── Types ─────────────────────────────────────────────────── */
 
 type Step = 'rating' | 'feedback' | 'redirect' | 'thankyou';
-type ThankYouOrigin = 'feedback' | 'redirect';
+type ThankYouOrigin = 'feedback' | 'redirect' | 'redirect_no_url';
 
 interface Props {
     slug: string;
@@ -130,7 +132,7 @@ export function ReviewFlowClient({ slug, config }: Props) {
                 setRedirectUrl(data.redirect_url);
                 setStep('redirect');
             } else if (data.action === 'redirect' && !data.redirect_url) {
-                setThankYouOrigin('redirect');
+                setThankYouOrigin('redirect_no_url');
                 setStep('thankyou');
             } else {
                 setThankYouOrigin('feedback');
@@ -352,11 +354,15 @@ export function ReviewFlowClient({ slug, config }: Props) {
                     <h2 className="text-lg font-bold text-slate-900">
                         {thankYouOrigin === 'redirect'
                             ? COPY.thankYouRedirect
+                            : thankYouOrigin === 'redirect_no_url'
+                            ? COPY.noRedirectUrlTitle
                             : COPY.thankYouFeedback}
                     </h2>
                     <p className="text-sm text-slate-500">
                         {thankYouOrigin === 'redirect'
                             ? COPY.thankYouRedirectSub
+                            : thankYouOrigin === 'redirect_no_url'
+                            ? COPY.noRedirectUrlSub
                             : COPY.thankYouFeedbackSub}
                     </p>
                 </div>

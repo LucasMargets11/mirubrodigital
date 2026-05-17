@@ -90,6 +90,7 @@ export default async function OnboardingIndexPage({ searchParams }: Props) {
         case 'done':
             // Business is already active — leave the onboarding funnel.
             redirect(ROUTE_APP);
+            break;
 
         case 'checkout_pending': {
             // Checkout already initiated — resume at the checkout/polling page.
@@ -99,6 +100,7 @@ export default async function OnboardingIndexPage({ searchParams }: Props) {
                 ? `?plan=${encodeURIComponent(pending_plan_code)}`
                 : '';
             redirect((`${ROUTE_CHECKOUT_BASE}${planParam}`) as never);
+            break;
         }
 
         case 'plan_selection':
@@ -109,6 +111,7 @@ export default async function OnboardingIndexPage({ searchParams }: Props) {
                 redirect((`/app/onboarding/checkout?plan=${encodeURIComponent(String(params.plan_code))}`) as never);
             }
             redirect((`/app/onboarding/servicio${fwd}`) as never);
+            break;
 
         case 'no_service_type':
         default:

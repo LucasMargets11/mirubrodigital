@@ -52,13 +52,13 @@ class HasInternalRole(BasePermission):
 INTERNAL_ROLE_SECTIONS = {
     'superadmin': [
         'dashboard', 'clientes', 'suscripciones', 'soporte',
-        'blog', 'reportes', 'configuracion', 'promociones',
+        'blog', 'reportes', 'configuracion', 'promociones', 'notificaciones',
     ],
     'operations': [
-        'dashboard', 'clientes', 'suscripciones', 'reportes',
+        'dashboard', 'clientes', 'suscripciones', 'reportes', 'notificaciones',
     ],
     'support_agent': [
-        'dashboard', 'soporte',
+        'dashboard', 'soporte', 'notificaciones',
     ],
     'content_admin': [
         'dashboard', 'blog',

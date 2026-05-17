@@ -60,6 +60,7 @@ INSTALLED_APPS = [
   'apps.tax_backup',
   'apps.blog',
   'apps.printables',
+  'apps.notifications',
 ]
 
 MIDDLEWARE = [
@@ -334,7 +335,25 @@ EMAIL_PORT        = int(os.getenv('EMAIL_PORT', '587'))
 EMAIL_USE_TLS     = os.getenv('EMAIL_USE_TLS', 'True').lower() == 'true'
 EMAIL_HOST_USER   = os.getenv('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
-DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'Mirubro <no-reply@mirubro.com>')
+DEFAULT_FROM_EMAIL = os.getenv(
+    'DEFAULT_FROM_EMAIL',
+    'MiRubro <notificaciones@mirubro.com>',
+)
+SERVER_EMAIL = os.getenv('SERVER_EMAIL', DEFAULT_FROM_EMAIL)
+SUPPORT_EMAIL = os.getenv('SUPPORT_EMAIL', 'mirubrodigital@gmail.com')
+BILLING_EMAIL = os.getenv('BILLING_EMAIL', 'mirubrodigital@gmail.com')
+OPERATIONS_EMAIL = os.getenv('OPERATIONS_EMAIL', 'mirubrodigital@gmail.com')
+ADMIN_EMAIL = os.getenv('ADMIN_EMAIL', 'mirubrodigital@gmail.com')
+ADMIN_FRONTEND_URL = os.getenv('ADMIN_FRONTEND_URL', 'http://localhost:3000/admin')
+
+# ── Notifications / SES settings ─────────────────────────────────────────────
+EMAIL_PROVIDER = os.getenv('EMAIL_PROVIDER', 'django').strip().lower()
+
+AWS_SES_REGION = os.getenv('AWS_SES_REGION', 'sa-east-1')
+AWS_SES_CONFIGURATION_SET = os.getenv('AWS_SES_CONFIGURATION_SET', '')
+
+EMAIL_TRANSACTIONAL_ENABLED = os.getenv('EMAIL_TRANSACTIONAL_ENABLED', 'true').lower() == 'true'
+EMAIL_MARKETING_ENABLED = os.getenv('EMAIL_MARKETING_ENABLED', 'false').lower() == 'true'
 
 # How long email-verification and password-reset tokens remain valid.
 EMAIL_VERIFICATION_TOKEN_HOURS = int(os.getenv('EMAIL_VERIFICATION_TOKEN_HOURS', '48'))

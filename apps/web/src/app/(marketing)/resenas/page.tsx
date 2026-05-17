@@ -6,6 +6,7 @@ import {
     ProductSteps,
     ProductFeatures,
     ResenasPricingSection,
+    ResenasPosterSection,
     ProductFinalCta,
 } from '@/components/marketing/product-landing';
 import NextImage from 'next/image';
@@ -135,7 +136,10 @@ export default function ResenasPage() {
                 ]}
             />
 
-            {/* 4 ── Cómo funciona ── */}
+            {/* 4 ── Carteles para tu local ── */}
+            <ResenasPosterSection />
+
+            {/* 5 ── Cómo funciona ── */}
             <ProductSteps
                 label="Setup"
                 title="Activá tu QR en 3 pasos"
@@ -202,8 +206,10 @@ export default function ResenasPage() {
                 ]}
             />
 
-            {/* 6 ── Pricing ── */}
-            <ResenasPricingSection />
+            {/* 7 ── Pricing ── */}
+            <div id="planes-resenas">
+                <ResenasPricingSection />
+            </div>
 
             {/* 7 ── CTA final ── */}
             <ProductFinalCta

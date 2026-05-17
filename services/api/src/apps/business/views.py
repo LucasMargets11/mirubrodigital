@@ -155,9 +155,15 @@ class BusinessBillingProfileView(APIView):
 
 
 class BusinessBrandingView(APIView):
-	"""Vista para obtener y actualizar el branding del negocio (solo accent_color)."""
+	"""Vista para obtener y actualizar el branding del negocio (accent_color y logos).
+
+	Accesible por cualquier product owner/admin:
+	  - manage_commercial_settings  → Gestión Comercial owners
+	  - manage_menu_branding         → Carta Online / Restaurante owners
+	  - manage_settings              → QR de Reseñas owners (y otros)
+	"""
 	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
-	required_permission = 'manage_commercial_settings'
+	required_permission = ('manage_commercial_settings', 'manage_menu_branding', 'manage_settings')
 
 	def _get_branding(self, request):
 		business = getattr(request, 'business', None)
@@ -182,12 +188,24 @@ class BusinessBrandingView(APIView):
 
 
 class BusinessLogoUploadView(APIView):
-	"""Vista para subir logos del negocio."""
+	"""Vista para subir logos del negocio.
+
+	Accesible por cualquier product owner/admin:
+	  - manage_commercial_settings  → Gestión Comercial owners
+	  - manage_menu_branding         → Carta Online / Restaurante owners
+	  - manage_settings              → QR de Reseñas owners (y otros)
+	"""
 	parser_classes = [MultiPartParser]
 	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
-	required_permission = 'manage_commercial_settings'
+	required_permission = ('manage_commercial_settings', 'manage_menu_branding', 'manage_settings')
 
 	def post(self, request):
+		raw_file = request.data.get('file')
+		if raw_file and hasattr(raw_file, 'size') and raw_file.size > 5 * 1024 * 1024:
+			return Response(
+				{'error': 'El archivo supera el límite de 5 MB.'},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
 		serializer = BusinessLogoUploadSerializer(data=request.data)
 		serializer.is_valid(raise_exception=True)
 		

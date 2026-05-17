@@ -67,14 +67,12 @@ export async function downloadInvoicePdf(invoiceId: string): Promise<Blob> {
     const data = await response.json().catch(() => ({}));
 
     if (response.status === 422 && data.code === 'issuer_profile_incomplete') {
-        // eslint-disable-next-line @typescript-eslint/no-throw-literal
         throw {
             type: 'issuer_profile_incomplete',
             missing_fields: (data.missing_fields as string[]) ?? [],
         } satisfies PdfDownloadError;
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-throw-literal
     throw {
         type: 'generic',
         message: (data.message as string) ?? 'No se pudo descargar el PDF. Intentá nuevamente.',

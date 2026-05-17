@@ -170,6 +170,7 @@ const NAV_CONFIG: Record<string, NavGroup[]> = {
             items: [
                 { href: '/app/resenas', label: 'Inicio' },
                 { href: '/app/resenas/qr', label: 'Mi QR', permissionKey: 'manage_reviews' },
+                { href: '/app/resenas/carteles', label: 'Carteles', permissionKey: 'manage_reviews', planKey: 'qr_reviews_pro' },
                 { href: '/app/resenas/feedback', label: 'Feedback', permissionKey: 'manage_reviews' },
                 { href: '/app/resenas/analytics', label: 'Analytics', permissionKey: 'manage_reviews', planKey: 'qr_reviews_pro' },
             ],
