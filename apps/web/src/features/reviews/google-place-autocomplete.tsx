@@ -65,8 +65,10 @@ function loadGoogleMapsScript(): Promise<void> {
  * capture `googleMapsURI` — the official Google Maps page URL — as provenance.
  */
 export function GooglePlaceAutocomplete({ onSelect, onCancel }: Props) {
+    type PlaceAutocompleteElementCtor = new (opts?: object) => HTMLElement;
+
     const containerRef = useRef<HTMLDivElement>(null);
-    const autocompleteRef = useRef<google.maps.places.PlaceAutocompleteElement | null>(null);
+    const autocompleteRef = useRef<HTMLElement | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
@@ -105,9 +107,13 @@ export function GooglePlaceAutocomplete({ onSelect, onCancel }: Props) {
                 await loadGoogleMapsScript();
                 if (cancelled || !containerRef.current) return;
 
-                let PlaceAutocompleteElement: typeof google.maps.places.PlaceAutocompleteElement;
+                type PlacesLibraryRuntime = {
+                    PlaceAutocompleteElement?: PlaceAutocompleteElementCtor;
+                };
+
+                let PlaceAutocompleteElement: PlaceAutocompleteElementCtor | undefined;
                 try {
-                    const placesLib = await google.maps.importLibrary('places') as google.maps.PlacesLibrary;
+                    const placesLib = await google.maps.importLibrary('places') as unknown as PlacesLibraryRuntime;
                     PlaceAutocompleteElement = placesLib.PlaceAutocompleteElement;
                     if (!PlaceAutocompleteElement) {
                         throw new Error('PlaceAutocompleteElement no disponible.');
