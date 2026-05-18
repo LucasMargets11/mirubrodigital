@@ -21,7 +21,7 @@ interface Props {
 
 let _loadPromise: Promise<void> | null = null;
 
-function loadGoogleMapsPlaces(): Promise<void> {
+function loadGoogleMapsScript(): Promise<void> {
     if (_loadPromise) return _loadPromise;
 
     const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
@@ -31,12 +31,12 @@ function loadGoogleMapsPlaces(): Promise<void> {
 
     _loadPromise = new Promise<void>((resolve, reject) => {
         // Already loaded
-        if (typeof google !== 'undefined' && google.maps?.places) {
+        if (typeof google !== 'undefined' && typeof google.maps?.importLibrary === 'function') {
             resolve();
             return;
         }
         const script = document.createElement('script');
-        script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places&v=weekly&loading=async`;
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&v=weekly&loading=async`;
         script.async = true;
         script.onload = () => resolve();
         script.onerror = () => {
@@ -102,10 +102,23 @@ export function GooglePlaceAutocomplete({ onSelect, onCancel }: Props) {
 
         async function init() {
             try {
-                await loadGoogleMapsPlaces();
+                await loadGoogleMapsScript();
                 if (cancelled || !containerRef.current) return;
 
-                const el = new google.maps.places.PlaceAutocompleteElement({});
+                let PlaceAutocompleteElement: typeof google.maps.places.PlaceAutocompleteElement;
+                try {
+                    const placesLib = await google.maps.importLibrary('places') as google.maps.PlacesLibrary;
+                    PlaceAutocompleteElement = placesLib.PlaceAutocompleteElement;
+                    if (!PlaceAutocompleteElement) {
+                        throw new Error('PlaceAutocompleteElement no disponible.');
+                    }
+                } catch {
+                    throw new Error(
+                        'No se pudo cargar Google Places. Verificá que Maps JavaScript API y Places API (New) estén habilitadas.',
+                    );
+                }
+
+                const el = new PlaceAutocompleteElement({});
 
                 // Configure via properties (current API surface)
                 (el as any).includedRegionCodes = ['ar'];
