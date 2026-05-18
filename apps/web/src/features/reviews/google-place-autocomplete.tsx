@@ -36,7 +36,7 @@ function loadGoogleMapsScript(): Promise<void> {
             return;
         }
         const script = document.createElement('script');
-        script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&v=weekly&loading=async`;
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&v=beta&loading=async`;
         script.async = true;
         script.onload = () => resolve();
         script.onerror = () => {
