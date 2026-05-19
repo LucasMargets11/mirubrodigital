@@ -81,15 +81,15 @@ export default function CartaPage() {
 
             {/* 1 ── Hero ── */}
             <ProductHero
-                label="Carta Online"
-                title="Tu menú digital,"
-                titleAccent="siempre actualizado."
-                subtitle="Publicá tu carta con QR propio, fotos y tu marca. Sin imprimir, sin comisiones, sin apps que nadie descarga."
+                label="Carta Online para Vender Mejor"
+                titlePrimary="Mostrá mejor tus productos."
+                titleSecondary="Facilitá cada pedido."
+                subtitle="Creá una carta visual, actualizada y fácil de usar desde el celular para que tus clientes descubran tus productos, elijan con facilidad y disfruten una mejor experiencia."
                 ctaHref="/entrar"
                 ctaLabel="Crear mi carta gratis"
                 secondaryHref="/pricing?service=menu_qr"
                 secondaryLabel="Ver planes"
-                proofPoints={['QR listo al instante', 'Sin comisiones', 'Funciona en cualquier celular']}
+                proofPoints={['Productos con fotos', 'Precios al día', 'Experiencia en mesa']}
                 mockup={
                     <NextImage
                         src="/images/mockcarta.png"
