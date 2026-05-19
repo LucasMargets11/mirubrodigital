@@ -79,15 +79,15 @@ export default function ResenasPage() {
 
             {/* 1 ── Hero ── */}
             <ProductHero
-                label="QR de Reseñas"
-                title="Más reseñas en Google,"
-                titleAccent="menos quejas públicas."
-                subtitle="Un QR que tus clientes escanean para dejar su opinión. Las buenas van a Google. Las malas quedan como feedback privado para vos."
+                label="Reputación en Google Maps"
+                titlePrimary="Reseñas que inspiran confianza."
+                titleSecondary="Tu negocio gana visibilidad."
+                subtitle="Impulsá tu perfil con opiniones reales, mejor valoración e imágenes de tus clientes para fortalecer tu presencia en Google Maps y generar nuevas oportunidades de venta."
                 ctaHref="/entrar"
-                ctaLabel="Compartir mi QR"
+                ctaLabel="Impulsar mi perfil"
                 secondaryHref="#planes-resenas"
                 secondaryLabel="Ver planes"
-                proofPoints={['Filtro inteligente', 'Desde $25.000/mes', 'Sin apps intermedias']}
+                proofPoints={['Visibilidad local', 'Reputación online', 'Consultas calificadas']}
                 mockup={
                     <NextImage
                         src="/images/mockupopinion.png"
@@ -113,24 +113,24 @@ export default function ResenasPage() {
             <ProductBenefits
                 label="Resultados"
                 title="¿Qué lográs con QR de Reseñas?"
-                subtitle="QR de Reseñas te ayuda a transformar buenas experiencias en más visibilidad, más confianza y más oportunidades de venta."
+                subtitle="Convertí cada buena experiencia en más visibilidad, más confianza y nuevas oportunidades de venta para tu negocio."
                 benefits={[
                     {
                         title: 'Mejorás tu visibilidad en Google Maps',
                         description:
-                            'Cada reseña positiva fortalece la presencia digital de tu negocio y te da más chances de aparecer más arriba cuando alguien busca opciones como la tuya en Google Maps.',
+                            'Cada reseña positiva fortalece la presencia digital de tu negocio y aumenta las chances de aparecer mejor posicionado cuando alguien busca opciones como la tuya.',
                         icon: MapPin,
                     },
                     {
                         title: 'Generás confianza antes del primer contacto',
                         description:
-                            'Cuando un posible cliente ve buenas calificaciones y comentarios reales, tu negocio transmite mayor credibilidad y resulta mucho más fácil de elegir frente a otras opciones.',
+                            'Las buenas calificaciones y comentarios reales transmiten credibilidad, reducen dudas y ayudan a que más personas te elijan frente a otras opciones.',
                         icon: Star,
                     },
                     {
-                        title: 'Llegás a más clientes con una mejor reputación',
+                        title: 'Llegás a más clientes con mejor reputación',
                         description:
-                            'Una ficha bien valorada no solo se ve mejor: también puede atraer más visitas desde búsquedas locales y ayudarte a convertir esa visibilidad en consultas, visitas al local y nuevas ventas.',
+                            'Una ficha bien valorada atrae más visitas desde búsquedas locales y convierte esa visibilidad en consultas, visitas al local y nuevas ventas.',
                         icon: TrendingUp,
                     },
                 ]}
@@ -207,7 +207,7 @@ export default function ResenasPage() {
             />
 
             {/* 7 ── Pricing ── */}
-            <div id="planes-resenas">
+            <div id="planes-resenas" className="scroll-mt-20">
                 <ResenasPricingSection />
             </div>
 

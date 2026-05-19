@@ -6,8 +6,8 @@ import { SiteContainer } from '@/components/layout/site-container';
 
 export type ProductHeroProps = {
     label: string;
-    title: string;
-    titleAccent?: string;
+    titlePrimary: string;
+    titleSecondary?: string;
     subtitle: string;
     ctaHref: string;
     ctaLabel: string;
@@ -20,8 +20,8 @@ export type ProductHeroProps = {
 
 export function ProductHero({
     label,
-    title,
-    titleAccent,
+    titlePrimary,
+    titleSecondary,
     subtitle,
     ctaHref,
     ctaLabel,
@@ -31,7 +31,7 @@ export function ProductHero({
     mockup,
 }: ProductHeroProps) {
     return (
-        <section className="relative w-full overflow-hidden bg-white py-20 lg:py-28">
+        <section className="relative w-full overflow-hidden bg-white pt-10 pb-14 md:pt-12 md:pb-16 lg:pt-14 lg:pb-20">
             {/* Background Decor */}
             <div className="absolute inset-0 -z-10 pointer-events-none overflow-hidden">
                 <div className="absolute top-[-10%] right-[-5%] w-[40%] h-[40%] bg-brand-50/60 rounded-full blur-3xl opacity-50" />
@@ -41,21 +41,18 @@ export function ProductHero({
             <SiteContainer>
                 <div className="grid gap-12 lg:grid-cols-2 lg:gap-16 items-start lg:min-h-[420px]">
                     {/* Text — always starts from the same vertical position */}
-                    <div className="max-w-xl space-y-6 lg:pt-4">
+                    <div className="max-w-xl space-y-6">
                         <p className="text-sm font-semibold uppercase tracking-[0.25em] text-brand-600">
                             {label}
                         </p>
 
                         <h1
-                            className="font-display font-bold text-slate-900 tracking-tight leading-[1.1]"
+                            className="font-display font-bold tracking-tight leading-[1.15]"
                             style={{ fontSize: 'clamp(2rem, 4vw, 3.5rem)' }}
                         >
-                            {title}
-                            {titleAccent && (
-                                <>
-                                    {' '}
-                                    <span className="text-brand-600">{titleAccent}</span>
-                                </>
+                            <span className="block text-slate-900">{titlePrimary}</span>
+                            {titleSecondary && (
+                                <span className="mt-1 block text-brand-600">{titleSecondary}</span>
                             )}
                         </h1>
 
@@ -90,9 +87,9 @@ export function ProductHero({
                         {/* Proof */}
                         {proofPoints && proofPoints.length > 0 && (
                             <div className="pt-4 border-t border-slate-100">
-                                <div className="flex flex-wrap gap-x-6 gap-y-3 text-sm font-medium text-slate-500">
+                                <div className="flex flex-nowrap gap-x-4 text-sm font-medium text-slate-500">
                                     {proofPoints.map((point) => (
-                                        <span key={point} className="flex items-center gap-2">
+                                        <span key={point} className="flex items-center gap-1.5 whitespace-nowrap">
                                             <CheckCircle2 className="h-4 w-4 text-brand-500 flex-shrink-0" />
                                             {point}
                                         </span>

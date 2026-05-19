@@ -18,31 +18,38 @@ export function ProductBenefits({ label, title, subtitle, benefits }: ProductBen
     return (
         <section className="py-16 lg:py-24 bg-slate-50/60">
             <SiteContainer>
-                <div className="space-y-10">
-                    <div className="max-w-2xl space-y-3">
-                        {label && (
-                            <p className="text-sm font-semibold uppercase tracking-[0.25em] text-brand-600">
-                                {label}
-                            </p>
-                        )}
-                        <h2 className="text-3xl font-display font-bold text-slate-900">{title}</h2>
-                        {subtitle && <p className="text-lg text-slate-600">{subtitle}</p>}
-                    </div>
+                <div className="max-w-2xl space-y-3">
+                    {label && (
+                        <p className="text-sm font-semibold uppercase tracking-[0.25em] text-brand-600">
+                            {label}
+                        </p>
+                    )}
+                    <h2 className="text-3xl font-display font-bold text-slate-900">{title}</h2>
+                    {subtitle && (
+                        <p className="text-base leading-relaxed text-slate-600">{subtitle}</p>
+                    )}
+                </div>
 
-                    <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
-                        {benefits.map((b) => {
-                            const Icon = b.icon;
-                            return (
-                                <div key={b.title} className="space-y-3">
-                                    <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-brand-50 text-brand-600 shadow-inner">
-                                        <Icon className="h-5 w-5" aria-hidden />
-                                    </div>
-                                    <h3 className="text-lg font-semibold text-slate-900">{b.title}</h3>
-                                    <p className="text-sm text-slate-600 leading-relaxed">{b.description}</p>
+                <div className="mt-10 grid gap-5 md:grid-cols-2 lg:grid-cols-3">
+                    {benefits.map((b) => {
+                        const Icon = b.icon;
+                        return (
+                            <article
+                                key={b.title}
+                                className="flex h-full flex-col rounded-2xl border border-slate-200/80 bg-white p-6 shadow-sm transition hover:shadow-md"
+                            >
+                                <div className="mb-5 flex h-11 w-11 items-center justify-center rounded-xl border border-brand-100 bg-brand-50 text-brand-600">
+                                    <Icon className="h-5 w-5" aria-hidden />
                                 </div>
-                            );
-                        })}
-                    </div>
+                                <h3 className="text-base font-semibold leading-snug text-slate-950">
+                                    {b.title}
+                                </h3>
+                                <p className="mt-3 text-sm leading-6 text-slate-600">
+                                    {b.description}
+                                </p>
+                            </article>
+                        );
+                    })}
                 </div>
             </SiteContainer>
         </section>

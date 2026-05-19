@@ -81,15 +81,15 @@ export default function GestionPage() {
 
             {/* 1 ── Hero ── */}
             <ProductHero
-                label="Gestión Comercial"
-                title="Todo tu negocio,"
-                titleAccent="en una sola pantalla."
-                subtitle="Ventas, stock, caja y facturación integrados. Sin planillas, sin caos, sin perder plata."
+                label="Gestión Comercial para Crecer"
+                titlePrimary="Ordená la operación diaria."
+                titleSecondary="Tomá decisiones rentables."
+                subtitle="Centralizá ventas, stock, caja y facturación para reducir errores, ordenar el día a día y entender qué pasa en tu negocio con información real."
                 ctaHref="/entrar"
-                ctaLabel="Probalo gratis"
+                ctaLabel="Probar gratis"
                 secondaryHref="/pricing?service=commerce"
                 secondaryLabel="Ver planes"
-                proofPoints={['Setup en minutos', 'Multi-caja', 'Sin tarjeta']}
+                proofPoints={['Stock bajo control', 'Operación ordenada', 'Datos para decidir']}
                 mockup={<GestionMockup />}
             />
 

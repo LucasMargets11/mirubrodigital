@@ -6,7 +6,12 @@ import type { ReviewConfig, ReviewMode } from '@/features/reviews/types';
 import { UpgradeToProButton } from '@/features/reviews/upgrade-to-pro-button';
 import { DowngradeToBaseButton } from '@/features/reviews/downgrade-to-base-button';
 import { GooglePlaceAutocomplete, type GooglePlaceResult } from '@/features/reviews/google-place-autocomplete';
+import { PlaceIdHelpModal } from '@/features/reviews/components/place-id-help';
 import { BusinessBrandingPanel } from '@/features/business/branding';
+
+// Feature flag: set to true when Google Places API is properly configured in Google Cloud.
+// While false, only the manual Place ID flow is shown.
+const GOOGLE_PLACE_SEARCH_ENABLED = false;
 
 const MODE_LABELS: Record<ReviewMode, string> = {
     direct: 'Directo — redirige siempre a Google',
@@ -38,7 +43,8 @@ export function ReviewConfigClient() {
     // Google Place autocomplete flow
     const [placeFlow, setPlaceFlow] = useState<PlaceFlowState>('idle');
     const [pendingPlace, setPendingPlace] = useState<GooglePlaceResult | null>(null);
-    const [manualFallback, setManualFallback] = useState(false);
+    const [manualFallback, setManualFallback] = useState(!GOOGLE_PLACE_SEARCH_ENABLED);
+    const [showPlaceIdHelp, setShowPlaceIdHelp] = useState(false);
 
     useEffect(() => {
         getReviewSettings()
@@ -208,6 +214,7 @@ export function ReviewConfigClient() {
             </header>
 
             <div className="max-w-xl space-y-6">
+                <PlaceIdHelpModal open={showPlaceIdHelp} onClose={() => setShowPlaceIdHelp(false)} />
                 {/* Habilitar */}
                 <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
                     <div className="flex items-center gap-3">
@@ -226,7 +233,16 @@ export function ReviewConfigClient() {
 
                 {/* Negocio de Google — 4-state flow */}
                 <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
-                    <h2 className="text-sm font-semibold text-slate-900">Negocio de Google</h2>
+                    <div className="flex items-center justify-between">
+                        <h2 className="text-sm font-semibold text-slate-900">Negocio de Google</h2>
+                        <button
+                            type="button"
+                            onClick={() => setShowPlaceIdHelp(true)}
+                            className="text-xs font-medium text-brand-600 underline hover:text-brand-700"
+                        >
+                            ¿Cómo obtener mi Place ID?
+                        </button>
+                    </div>
 
                     {/* State: saved — show linked business from our DB */}
                     {hasLinkedPlace && placeFlow === 'idle' && (
@@ -256,7 +272,7 @@ export function ReviewConfigClient() {
                             </div>
                             <button
                                 type="button"
-                                onClick={() => setPlaceFlow('searching')}
+                                onClick={() => GOOGLE_PLACE_SEARCH_ENABLED ? setPlaceFlow('searching') : setManualFallback(true)}
                                 className="text-sm font-medium text-brand-600 hover:text-brand-700 underline"
                             >
                                 Cambiar negocio
@@ -264,36 +280,38 @@ export function ReviewConfigClient() {
                         </div>
                     )}
 
-                    {/* State: empty — CTA to search */}
+                    {/* State: empty — CTA to search or manual */}
                     {!hasLinkedPlace && placeFlow === 'idle' && (
                         <div className="space-y-3">
                             <p className="text-xs text-slate-500">
-                                Vinculá tu negocio de Google para generar automáticamente la URL de reseñas
-                                y que tus clientes puedan dejarte una opinión al escanear el QR.
+                                Para vincular tu negocio, pegá el Place ID de Google. Si no completás la URL de reseñas,
+                                MiRubro la genera automáticamente a partir del Place ID.
                             </p>
-                            <button
-                                type="button"
-                                onClick={() => setPlaceFlow('searching')}
-                                className="inline-flex items-center gap-2 rounded-full bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 transition-colors"
-                            >
-                                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-                                </svg>
-                                Buscar negocio en Google
-                            </button>
+                            {GOOGLE_PLACE_SEARCH_ENABLED && (
+                                <button
+                                    type="button"
+                                    onClick={() => setPlaceFlow('searching')}
+                                    className="inline-flex items-center gap-2 rounded-full bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 transition-colors"
+                                >
+                                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                                    </svg>
+                                    Buscar negocio en Google
+                                </button>
+                            )}
                         </div>
                     )}
 
-                    {/* State: searching — autocomplete loaded */}
-                    {placeFlow === 'searching' && (
+                    {/* State: searching — autocomplete loaded (requires GOOGLE_PLACE_SEARCH_ENABLED) */}
+                    {GOOGLE_PLACE_SEARCH_ENABLED && placeFlow === 'searching' && (
                         <GooglePlaceAutocomplete
                             onSelect={handlePlaceSelected}
                             onCancel={() => setPlaceFlow('idle')}
                         />
                     )}
 
-                    {/* State: confirming — show selected place for confirmation */}
-                    {placeFlow === 'confirming' && pendingPlace && (
+                    {/* State: confirming — show selected place for confirmation (requires GOOGLE_PLACE_SEARCH_ENABLED) */}
+                    {GOOGLE_PLACE_SEARCH_ENABLED && placeFlow === 'confirming' && pendingPlace && (
                         <div className="space-y-4">
                             <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 space-y-1">
                                 <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
@@ -339,7 +357,7 @@ export function ReviewConfigClient() {
                     )}
 
                     {/* Manual fallback — secondary, collapsed */}
-                    {placeFlow === 'idle' && !manualFallback && (
+                    {GOOGLE_PLACE_SEARCH_ENABLED && placeFlow === 'idle' && !manualFallback && (
                         <button
                             type="button"
                             onClick={() => setManualFallback(true)}
