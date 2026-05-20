@@ -142,11 +142,14 @@ class PublicReviewConfigSerializer(serializers.ModelSerializer):
 
     def get_logo_url(self, obj) -> str | None:
         branding = getattr(obj.business, 'branding', None)
-        if branding and branding.logo_square:
+        if not branding:
+            return None
+        logo = branding.logo_horizontal or branding.logo_square
+        if logo:
             request = self.context.get('request')
             if request:
-                return request.build_absolute_uri(branding.logo_square.url)
-            return branding.logo_square.url
+                return request.build_absolute_uri(logo.url)
+            return logo.url
         return None
 
     def get_accent_color(self, obj) -> str | None:

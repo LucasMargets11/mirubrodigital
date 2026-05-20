@@ -87,7 +87,7 @@ export function ProductHero({
                         {/* Proof */}
                         {proofPoints && proofPoints.length > 0 && (
                             <div className="pt-4 border-t border-slate-100">
-                                <div className="flex flex-nowrap gap-x-4 text-sm font-medium text-slate-500">
+                                <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm font-medium text-slate-500">
                                     {proofPoints.map((point) => (
                                         <span key={point} className="flex items-center gap-1.5 whitespace-nowrap">
                                             <CheckCircle2 className="h-4 w-4 text-brand-500 flex-shrink-0" />
@@ -100,7 +100,7 @@ export function ProductHero({
                     </div>
 
                     {/* Mockup — self-centered; never affects text position */}
-                    <div className="relative w-full flex items-center justify-center lg:justify-end lg:self-center select-none max-h-[480px]">
+                    <div className="relative w-full overflow-hidden flex items-center justify-center lg:justify-end lg:self-center select-none max-h-[480px]">
                         {mockup}
                     </div>
                 </div>

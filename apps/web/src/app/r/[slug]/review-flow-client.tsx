@@ -166,7 +166,8 @@ export function ReviewFlowClient({ slug, config }: Props) {
     /* ── Star selector ─────────────────────────────────────── */
     function StarRow({ interactive }: { interactive: boolean }) {
         return (
-            <div className="flex justify-center gap-3">
+            <div className="mt-6 flex w-full justify-center">
+                <div className="flex items-center justify-center gap-3 sm:gap-4">
                 {[1, 2, 3, 4, 5].map((star) => {
                     const filled = interactive
                         ? star <= (hoveredRating || selectedRating)
@@ -179,7 +180,7 @@ export function ReviewFlowClient({ slug, config }: Props) {
                             onClick={() => interactive && handleRatingClick(star)}
                             onMouseEnter={() => interactive && setHoveredRating(star)}
                             onMouseLeave={() => interactive && setHoveredRating(0)}
-                            className={`transition-all duration-200 ${
+                            className={`shrink-0 transition-all duration-200 ${
                                 interactive
                                     ? 'hover:scale-125 active:scale-95 cursor-pointer'
                                     : 'cursor-default'
@@ -189,8 +190,11 @@ export function ReviewFlowClient({ slug, config }: Props) {
                             <svg
                                 xmlns="http://www.w3.org/2000/svg"
                                 className={`h-12 w-12 transition-colors duration-200 ${
-                                    filled ? 'text-yellow-400' : 'text-slate-200'
+                                    filled
+                                        ? config.accent_color ? '' : 'text-yellow-400'
+                                        : 'text-slate-300'
                                 }`}
+                                style={filled && config.accent_color ? { color: config.accent_color } : undefined}
                                 fill={filled ? 'currentColor' : 'none'}
                                 viewBox="0 0 24 24"
                                 stroke="currentColor"
@@ -205,6 +209,7 @@ export function ReviewFlowClient({ slug, config }: Props) {
                         </button>
                     );
                 })}
+                </div>
             </div>
         );
     }
@@ -212,7 +217,7 @@ export function ReviewFlowClient({ slug, config }: Props) {
     /* ── Step: Rating ─────────────────────────────────────── */
     if (step === 'rating') {
         return (
-            <Shell businessName={config.business_name}>
+            <Shell businessName={config.business_name} logoUrl={config.logo_url} accentColor={config.accent_color}>
                 <FadeIn>
                     <h2 className="text-lg font-semibold text-slate-800">
                         {COPY.ratingTitle(config.business_name)}
@@ -242,7 +247,7 @@ export function ReviewFlowClient({ slug, config }: Props) {
     /* ── Step: Feedback (low rating) ────────────────────── */
     if (step === 'feedback') {
         return (
-            <Shell businessName={config.business_name}>
+            <Shell businessName={config.business_name} logoUrl={config.logo_url} accentColor={config.accent_color}>
                 <FadeIn>
                     <StarRow interactive={false} />
 
@@ -304,7 +309,7 @@ export function ReviewFlowClient({ slug, config }: Props) {
     /* ── Step: Redirect (high rating → Google) ─────────── */
     if (step === 'redirect') {
         return (
-            <Shell businessName={config.business_name}>
+            <Shell businessName={config.business_name} logoUrl={config.logo_url} accentColor={config.accent_color}>
                 <FadeIn>
                     <StarRow interactive={false} />
 
@@ -314,13 +319,15 @@ export function ReviewFlowClient({ slug, config }: Props) {
                         <p className="text-sm text-slate-500">{COPY.redirectCta}</p>
                     </div>
 
-                    <button
-                        onClick={handleRedirectClick}
-                        className="inline-flex items-center gap-2 rounded-full bg-brand-600 px-8 py-3 text-sm font-semibold text-white shadow-md hover:bg-brand-500 active:bg-brand-700 transition-colors"
-                    >
-                        <GoogleIcon />
-                        {COPY.redirectButton}
-                    </button>
+                    <div className="mt-4 flex w-full justify-center">
+                        <button
+                            onClick={handleRedirectClick}
+                            className="inline-flex min-w-[220px] items-center justify-center gap-2 rounded-full bg-brand-600 px-8 py-3 text-sm font-semibold text-white shadow-md hover:bg-brand-500 active:bg-brand-700 transition-colors"
+                        >
+                            <GoogleIcon />
+                            {COPY.redirectButton}
+                        </button>
+                    </div>
 
                     <div className="space-y-1">
                         <CountdownBar seconds={REDIRECT_DELAY_S} />
@@ -335,7 +342,7 @@ export function ReviewFlowClient({ slug, config }: Props) {
 
     /* ── Step: Thank you ───────────────────────────────── */
     return (
-        <Shell businessName={config.business_name}>
+        <Shell businessName={config.business_name} logoUrl={config.logo_url} accentColor={config.accent_color}>
             <FadeIn>
                 <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-green-50">
                     <svg
@@ -375,13 +382,44 @@ export function ReviewFlowClient({ slug, config }: Props) {
 
 /* ── Layout shell ──────────────────────────────────────────── */
 
-function Shell({ businessName, children }: { businessName: string; children: React.ReactNode }) {
+function Shell({
+    businessName,
+    logoUrl,
+    accentColor,
+    children,
+}: {
+    businessName: string;
+    logoUrl?: string | null;
+    accentColor?: string | null;
+    children: React.ReactNode;
+}) {
+    const [logoFailed, setLogoFailed] = useState(false);
+    const shouldShowLogo = Boolean(logoUrl) && !logoFailed;
+
     return (
-        <div className="flex min-h-dvh items-center justify-center bg-gradient-to-b from-white via-slate-50 to-slate-100 px-4 py-12">
-            <div className="w-full max-w-md space-y-8 text-center">
-                {/* Business identity */}
-                <div className="space-y-3">
-                    <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-50 ring-1 ring-brand-200/40">
+        <div className="flex min-h-[100svh] flex-col bg-slate-50">
+            {/* Brand header */}
+            <header className="flex flex-col items-center px-4 pt-10 pb-6 text-center">
+                {shouldShowLogo ? (
+                    <div className="mb-2 flex h-14 max-w-[220px] items-center justify-center">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                            src={logoUrl ?? ''}
+                            alt={`Logo de ${businessName}`}
+                            className="max-h-14 max-w-[220px] object-contain"
+                            onError={() => setLogoFailed(true)}
+                        />
+                    </div>
+                ) : (
+                    <div
+                        className="mb-2 flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-50 ring-1 ring-brand-200/40"
+                        style={
+                            accentColor
+                                ? { borderColor: `${accentColor}33`, color: accentColor }
+                                : undefined
+                        }
+                        aria-hidden="true"
+                    >
                         <svg
                             xmlns="http://www.w3.org/2000/svg"
                             className="h-7 w-7 text-brand-600"
@@ -397,16 +435,27 @@ function Shell({ businessName, children }: { businessName: string; children: Rea
                             />
                         </svg>
                     </div>
-                    <h1 className="text-xl font-display font-bold text-slate-900">{businessName}</h1>
-                </div>
+                )}
+                <h1 className="mt-2 text-xl font-semibold text-slate-900">{businessName}</h1>
+            </header>
 
-                {/* Content card */}
-                <div className="rounded-2xl bg-white/80 p-6 shadow-sm ring-1 ring-slate-900/5 backdrop-blur-sm space-y-6">
+            {/* Card area */}
+            <main className="flex flex-1 items-center justify-center px-3 py-6">
+                <div className="w-full max-w-md rounded-2xl bg-white/80 p-6 shadow-md ring-1 ring-slate-200/70 backdrop-blur-sm space-y-6">
                     {children}
                 </div>
+            </main>
 
-                <p className="text-[10px] text-slate-300">Powered by mirubro.com</p>
-            </div>
+            <footer className="mt-auto pb-6 pt-4 text-center text-[11px] text-slate-400">
+                Impulsado por{' '}
+                <a
+                    href="/resenas"
+                    className={`font-semibold transition-colors hover:underline${accentColor ? '' : ' text-brand-600'}`}
+                    style={accentColor ? { color: accentColor } : undefined}
+                >
+                    MiRubro
+                </a>
+            </footer>
         </div>
     );
 }
