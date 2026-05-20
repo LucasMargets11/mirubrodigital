@@ -5,6 +5,33 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Global payment-methods configuration for subscription plans
+# ─────────────────────────────────────────────────────────────────────────────
+
+def get_mp_subscription_payment_methods_allowed() -> dict:
+    """
+    Returns the canonical payment_methods_allowed payload for ALL preapproval
+    plans created in Mi Rubro.
+
+    Explicitly includes prepaid_card so that cards like Tarjeta Mercado Pago,
+    Astro and Lemon are accepted.  Without this field MP defaults to its own
+    allow-list, which may exclude prepaid/virtual cards.
+
+    Must be applied to every create_preapproval_plan() call so the config is
+    consistent across all products (Gestión Comercial, Carta Online / Menú QR,
+    Restaurante Inteligente, QR de Reseñas, future bundles).
+    """
+    return {
+        "payment_types": [
+            {"id": "credit_card"},
+            {"id": "debit_card"},
+            {"id": "prepaid_card"},
+        ],
+        "payment_methods": [],
+    }
+
+
 class MercadoPagoService:
     def __init__(self):
         self.sdk = mercadopago.SDK(settings.MP_ACCESS_TOKEN)
@@ -34,10 +61,15 @@ class MercadoPagoService:
             "auto_recurring": auto_recurring,
             "back_url": back_url,
             "status": "active",
+            "payment_methods_allowed": get_mp_subscription_payment_methods_allowed(),
         }
         if external_reference:
             plan_data["external_reference"] = external_reference
 
+        logger.info(
+            "[MPService] create_preapproval_plan payload reason=%r payment_methods_allowed=%s",
+            reason, plan_data["payment_methods_allowed"],
+        )
         result = self.sdk.plan().create(plan_data)
         if result["status"] == 201:
             logger.info(
@@ -48,6 +80,37 @@ class MercadoPagoService:
         else:
             logger.error("[MPService] Error creating preapproval_plan: %s", result)
             raise Exception(f"MP plan creation failed: {result}")
+
+    def update_preapproval_plan(self, plan_id: str, update_data: dict) -> dict:
+        """
+        Updates an existing preapproval plan in MercadoPago.
+
+        Typical usage: patch payment_methods_allowed on a plan that was created
+        before this field was introduced, so existing active subscribers accept
+        prepaid/virtual cards on their next charge.
+
+        Args:
+            plan_id:     The MP preapproval plan ID.
+            update_data: Dict with fields to update.
+
+        Returns:
+            The MP response dict.
+
+        Raises:
+            Exception: If the MP API returns an error.
+        """
+        result = self.sdk.plan().update(plan_id, update_data)
+        if result["status"] == 200:
+            logger.info(
+                "[MPService] preapproval_plan updated id=%s fields=%s",
+                plan_id, list(update_data.keys()),
+            )
+            return result["response"]
+        else:
+            logger.error(
+                "[MPService] Error updating preapproval_plan %s: %s", plan_id, result,
+            )
+            raise Exception(f"MP plan update failed: status={result['status']}")
 
     def get_preapproval_plan(self, plan_id: str) -> dict | None:
         """
