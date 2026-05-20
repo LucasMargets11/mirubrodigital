@@ -151,6 +151,25 @@ class PublicSerializerBrandingTests(TestCase):
         self.assertEqual(data['accent_color'], '#0066CC')
         self.assertTrue(data['is_pro'])
 
+    # ── logo_url horizontal-first fallback ─────────────────────
+
+    def test_logo_url_prefers_horizontal_over_square(self):
+        """When both logo_horizontal and logo_square exist,
+        the public serializer must expose logo_horizontal in logo_url."""
+        self.branding.logo_horizontal.save('horiz.png', ContentFile(b'\x89PNG fake'), save=True)
+        self.branding.logo_square.save('square.png', ContentFile(b'\x89PNG fake'), save=True)
+        data = self._serialize()
+        self.assertIsNotNone(data['logo_url'])
+        self.assertIn('horiz', data['logo_url'])
+        self.assertNotIn('square', data['logo_url'])
+
+    def test_logo_url_falls_back_to_square_when_no_horizontal(self):
+        """When only logo_square exists, the public serializer must expose logo_square in logo_url."""
+        self.branding.logo_square.save('sq-only.png', ContentFile(b'\x89PNG fake'), save=True)
+        data = self._serialize()
+        self.assertIsNotNone(data['logo_url'])
+        self.assertIn('sq-only', data['logo_url'])
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 2. Direct mode — public integration

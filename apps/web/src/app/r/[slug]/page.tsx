@@ -2,7 +2,7 @@ import { cache } from 'react';
 import { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 
-import { getServerApiBaseUrl } from '@/lib/api-url';
+import { getServerApiBaseUrl, buildMediaUrl } from '@/lib/api-url';
 import type { PublicReviewConfig } from '@/features/reviews/types';
 import { ReviewFlowClient } from './review-flow-client';
 import { ReviewLandingClient } from './review-landing-client';
@@ -21,7 +21,11 @@ const getReviewData = cache(async (slug: string) => {
         cache: 'no-store',
     });
     if (!res.ok) return null;
-    return res.json() as Promise<PublicReviewConfig>;
+    const data = await res.json() as PublicReviewConfig;
+    return {
+        ...data,
+        logo_url: buildMediaUrl(data.logo_url),
+    };
 });
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {

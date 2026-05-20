@@ -18,8 +18,10 @@ interface Props {
  * Pro businesses get their logo and accent color applied.
  */
 export function ReviewLandingClient({ config }: Props) {
-    const { business_name, redirect_url, thank_you_message, logo_url, accent_color, is_pro } = config;
+    const { business_name, redirect_url, thank_you_message, logo_url, accent_color } = config;
     const [countdown, setCountdown] = useState(3);
+    const [logoFailed, setLogoFailed] = useState(false);
+    const shouldShowLogo = Boolean(logo_url) && !logoFailed;
 
     const hasRedirect = Boolean(redirect_url);
 
@@ -54,54 +56,59 @@ export function ReviewLandingClient({ config }: Props) {
         : undefined;
 
     return (
-        <div className="flex min-h-dvh items-center justify-center bg-gradient-to-b from-white via-slate-50 to-slate-100 px-4 py-12">
-            <div className="w-full max-w-md text-center space-y-6">
-                {/* Business identity */}
-                <div className="space-y-3" style={accentStyle}>
-                    {logo_url ? (
-                        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/60 overflow-hidden">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                                src={logo_url}
-                                alt={business_name}
-                                className="h-12 w-12 object-contain"
-                            />
-                        </div>
-                    ) : (
-                        <div
-                            className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-100"
-                            style={accent_color ? { backgroundColor: `${accent_color}1a` } : undefined}
-                        >
-                            <StarIcon color={accent_color} />
-                        </div>
-                    )}
-
-                    <div>
-                        <h1 className="text-2xl font-bold text-slate-900">{business_name}</h1>
-                        <p className="mt-2 text-slate-600">
-                            {thank_you_message || '¡Gracias por visitarnos! Contanos tu experiencia.'}
-                        </p>
+        <div className="flex min-h-[100svh] flex-col bg-slate-50">
+            {/* Brand header */}
+            <header className="flex flex-col items-center px-4 pt-10 pb-6 text-center" style={accentStyle}>
+                {shouldShowLogo ? (
+                    <div className="mb-2 flex h-14 max-w-[220px] items-center justify-center">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                            src={logo_url ?? ''}
+                            alt={`Logo de ${business_name}`}
+                            className="max-h-14 max-w-[220px] object-contain"
+                            onError={() => setLogoFailed(true)}
+                        />
                     </div>
-                </div>
+                ) : (
+                    <div
+                        className="mb-2 flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-50 ring-1 ring-brand-200/40"
+                        style={
+                            accent_color
+                                ? { backgroundColor: `${accent_color}1a`, borderColor: `${accent_color}33`, color: accent_color }
+                                : undefined
+                        }
+                        aria-hidden="true"
+                    >
+                        <StarIcon color={accent_color} />
+                    </div>
+                )}
+                <h1 className="mt-2 text-xl font-semibold text-slate-900">{business_name}</h1>
+                <p className="mt-1 text-sm text-slate-500">
+                    {thank_you_message || '¡Gracias por visitarnos! Contanos tu experiencia.'}
+                </p>
+            </header>
 
-                {/* Card */}
-                <div className="rounded-2xl bg-white/80 p-6 shadow-sm ring-1 ring-slate-900/5 backdrop-blur-sm space-y-5">
+            {/* Card area */}
+            <main className="flex flex-1 items-center justify-center px-3 py-6">
+                <div className="w-full max-w-md rounded-2xl bg-white/80 p-6 shadow-md ring-1 ring-slate-200/70 backdrop-blur-sm space-y-5">
                     {hasRedirect ? (
                         <>
                             <p className="text-sm text-slate-500">
                                 Tu opinión nos ayuda a mejorar
                             </p>
 
-                            <a
-                                href={redirect_url}
-                                className={btnClass}
-                                style={btnStyle}
-                            >
-                                <span className="inline-flex items-center gap-2">
-                                    <GoogleIcon />
-                                    Dejar una reseña en Google
-                                </span>
-                            </a>
+                            <div className="flex w-full justify-center">
+                                <a
+                                    href={redirect_url}
+                                    className={`${btnClass} min-w-[220px] text-center`}
+                                    style={btnStyle}
+                                >
+                                    <span className="inline-flex items-center justify-center gap-2">
+                                        <GoogleIcon />
+                                        Dejar una reseña en Google
+                                    </span>
+                                </a>
+                            </div>
 
                             <div className="space-y-1">
                                 <CountdownBar seconds={3} accentColor={accent_color} />
@@ -116,11 +123,18 @@ export function ReviewLandingClient({ config }: Props) {
                         </p>
                     )}
                 </div>
+            </main>
 
-                <p className="text-[10px] text-slate-300">
-                    {is_pro ? `Reseñas de ${business_name}` : 'Powered by mirubro.com'}
-                </p>
-            </div>
+            <footer className="mt-auto pb-6 pt-4 text-center text-[11px] text-slate-400">
+                Impulsado por{' '}
+                <a
+                    href="/resenas"
+                    className={`font-semibold transition-colors hover:underline${accent_color ? '' : ' text-brand-600'}`}
+                    style={accent_color ? { color: accent_color } : undefined}
+                >
+                    MiRubro
+                </a>
+            </footer>
         </div>
     );
 }
