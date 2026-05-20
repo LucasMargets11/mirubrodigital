@@ -338,11 +338,16 @@ def _handle_authorized_payment(authorized_payment_id: str, delivery: WebhookDeli
         raise ValueError(f"Could not fetch authorized_payment {authorized_payment_id} from MP")
 
     ap_status         = ap_data.get('status', '')
+    ap_status_detail  = ap_data.get('status_detail', '')
     preapproval_id    = ap_data.get('preapproval_id', '')
     payment_id        = str(ap_data.get('payment_id', '') or ap_data.get('id', ''))
     amount            = ap_data.get('transaction_amount') or ap_data.get('total_paid_amount') or 0
     currency          = ap_data.get('currency_id', 'ARS')
     paid_at_str       = ap_data.get('date_approved') or ap_data.get('date_created')
+    # Payment method fields — useful when diagnosing card rejections (e.g. prepaid/virtual).
+    # These fields are present on the linked payment object when available.
+    payment_method_id = ap_data.get('payment_method_id', '')
+    payment_type_id   = ap_data.get('payment_type_id', '')
 
     # ── Fix 5: Cross-validate authoritative response before processing ────────
     returned_id = str(ap_data.get('id', ''))
@@ -362,8 +367,9 @@ def _handle_authorized_payment(authorized_payment_id: str, delivery: WebhookDeli
 
     logger.info(
         "[webhook/authorized_payment] delivery=%s auth_payment_id=%s status=%s "
-        "preapproval_id=%s amount=%s",
-        delivery.id, authorized_payment_id, ap_status, preapproval_id, amount,
+        "status_detail=%s preapproval_id=%s amount=%s payment_method_id=%s payment_type_id=%s",
+        delivery.id, authorized_payment_id, ap_status, ap_status_detail,
+        preapproval_id, amount, payment_method_id, payment_type_id,
     )
 
     # Tracks whether activate_subscription_from_invoice() returned True this call.
@@ -468,8 +474,9 @@ def _handle_authorized_payment(authorized_payment_id: str, delivery: WebhookDeli
                 )
         elif ap_status != 'authorized':
             logger.info(
-                "[webhook/authorized_payment] Payment status=%s — not activating (delivery=%s)",
-                ap_status, delivery.id,
+                "[webhook/authorized_payment] Payment status=%s status_detail=%s "
+                "payment_method_id=%s payment_type_id=%s — not activating (delivery=%s)",
+                ap_status, ap_status_detail, payment_method_id, payment_type_id, delivery.id,
             )
 
     # Step 5: handle promotional discount cycles.

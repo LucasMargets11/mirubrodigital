@@ -55,6 +55,7 @@ services:
         NEXT_PUBLIC_NEW_ONBOARDING_ENABLED: "true"
         NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID}
         NEXT_PUBLIC_AUTH_BETA_GOOGLE_ONLY: ${NEXT_PUBLIC_AUTH_BETA_GOOGLE_ONLY}
+        NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: ${NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}
     container_name: mirubro-web
     restart: unless-stopped
     env_file:
@@ -68,6 +69,7 @@ services:
       API_URL_INTERNAL: http://api:8000
       INTERNAL_API_URL: http://api:8000
       API_HOSTNAME: api
+      NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: ${NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}
     ports:
       - '127.0.0.1:3000:3000'
     depends_on:
