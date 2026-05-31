@@ -14,6 +14,9 @@ export interface ReviewConfig {
     redirect_threshold: number;
     collect_contact: boolean;
     thank_you_message: string;
+    public_display_name: string;
+    public_subtitle: string;
+    public_question: string;
     redirect_url: string; // read-only computed
     mode: ReviewMode;
     effective_mode: ReviewMode;
@@ -40,12 +43,18 @@ export interface ReviewConfigPayload {
     redirect_threshold?: number;
     collect_contact?: boolean;
     thank_you_message?: string;
+    public_display_name?: string;
+    public_subtitle?: string;
+    public_question?: string;
     mode?: ReviewMode;
 }
 
 /** Public config returned by GET /api/v1/reviews/public/<slug>/ */
 export interface PublicReviewConfig {
     business_name: string;
+    display_name: string;
+    subtitle: string;
+    question: string;
     redirect_url: string;
     redirect_threshold: number;
     collect_contact: boolean;

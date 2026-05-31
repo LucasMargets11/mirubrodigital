@@ -214,15 +214,20 @@ export function ReviewFlowClient({ slug, config }: Props) {
         );
     }
 
+    /* ── Public display strings (with fallback to legacy fields) ─ */
+    const displayName = config.display_name || config.business_name;
+    const ratingTitle = config.question || COPY.ratingTitle(displayName);
+    const ratingSubtitle = config.subtitle || COPY.ratingSubtitle;
+
     /* ── Step: Rating ─────────────────────────────────────── */
     if (step === 'rating') {
         return (
-            <Shell businessName={config.business_name} logoUrl={config.logo_url} accentColor={config.accent_color}>
+            <Shell businessName={displayName} logoUrl={config.logo_url} accentColor={config.accent_color}>
                 <FadeIn>
                     <h2 className="text-lg font-semibold text-slate-800">
-                        {COPY.ratingTitle(config.business_name)}
+                        {ratingTitle}
                     </h2>
-                    <p className="text-sm text-slate-500">{COPY.ratingSubtitle}</p>
+                    <p className="text-sm text-slate-500">{ratingSubtitle}</p>
 
                     <div className="pt-2">
                         <StarRow interactive />
@@ -247,7 +252,7 @@ export function ReviewFlowClient({ slug, config }: Props) {
     /* ── Step: Feedback (low rating) ────────────────────── */
     if (step === 'feedback') {
         return (
-            <Shell businessName={config.business_name} logoUrl={config.logo_url} accentColor={config.accent_color}>
+            <Shell businessName={displayName} logoUrl={config.logo_url} accentColor={config.accent_color}>
                 <FadeIn>
                     <StarRow interactive={false} />
 
@@ -309,7 +314,7 @@ export function ReviewFlowClient({ slug, config }: Props) {
     /* ── Step: Redirect (high rating → Google) ─────────── */
     if (step === 'redirect') {
         return (
-            <Shell businessName={config.business_name} logoUrl={config.logo_url} accentColor={config.accent_color}>
+            <Shell businessName={displayName} logoUrl={config.logo_url} accentColor={config.accent_color}>
                 <FadeIn>
                     <StarRow interactive={false} />
 
@@ -342,7 +347,7 @@ export function ReviewFlowClient({ slug, config }: Props) {
 
     /* ── Step: Thank you ───────────────────────────────── */
     return (
-        <Shell businessName={config.business_name} logoUrl={config.logo_url} accentColor={config.accent_color}>
+        <Shell businessName={displayName} logoUrl={config.logo_url} accentColor={config.accent_color}>
             <FadeIn>
                 <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-green-50">
                     <svg
