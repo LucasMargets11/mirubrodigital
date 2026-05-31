@@ -29,6 +29,9 @@ class ReviewConfigSerializer(serializers.ModelSerializer):
             'redirect_threshold',
             'collect_contact',
             'thank_you_message',
+            'public_display_name',
+            'public_subtitle',
+            'public_question',
             'redirect_url',
             'mode',
             'effective_mode',
@@ -67,6 +70,27 @@ class ReviewConfigSerializer(serializers.ModelSerializer):
         if value and not value.startswith('https://'):
             raise serializers.ValidationError('La URL debe comenzar con https://.')
         return value
+
+    # ── Public landing text fields ─────────────────────────────────
+    def _clean_public_text(self, value, field_label):
+        if value is None:
+            return ''
+        # Trim + reject whitespace-only strings + strip HTML/script.
+        cleaned = value.strip()
+        if value and not cleaned:
+            raise serializers.ValidationError(f'{field_label} no puede contener solo espacios.')
+        if '<' in cleaned or '>' in cleaned:
+            raise serializers.ValidationError(f'{field_label} no puede contener HTML ni caracteres < o >.')
+        return cleaned
+
+    def validate_public_display_name(self, value):
+        return self._clean_public_text(value, 'El nombre público')
+
+    def validate_public_subtitle(self, value):
+        return self._clean_public_text(value, 'El texto auxiliar')
+
+    def validate_public_question(self, value):
+        return self._clean_public_text(value, 'La pregunta personalizada')
 
     def validate_mode(self, value):
         """Prevent Base plans from persisting smart_filter without entitlement."""
@@ -117,7 +141,10 @@ class ReviewConfigSerializer(serializers.ModelSerializer):
 class PublicReviewConfigSerializer(serializers.ModelSerializer):
     """Public serializer — only exposes what the landing page needs."""
 
-    business_name = serializers.CharField(source='business.name', read_only=True)
+    business_name = serializers.SerializerMethodField()
+    display_name = serializers.SerializerMethodField()
+    subtitle = serializers.SerializerMethodField()
+    question = serializers.SerializerMethodField()
     redirect_url = serializers.ReadOnlyField()
     effective_mode = serializers.ReadOnlyField()
     logo_url = serializers.SerializerMethodField()
@@ -128,6 +155,9 @@ class PublicReviewConfigSerializer(serializers.ModelSerializer):
         model = ReviewConfig
         fields = [
             'business_name',
+            'display_name',
+            'subtitle',
+            'question',
             'redirect_url',
             'redirect_threshold',
             'collect_contact',
@@ -139,6 +169,20 @@ class PublicReviewConfigSerializer(serializers.ModelSerializer):
             'accent_color',
             'is_pro',
         ]
+
+    # Public name: keep field name stable for legacy consumers, but expose
+    # the effective display name so existing UI picks it up automatically.
+    def get_business_name(self, obj) -> str:
+        return obj.effective_display_name
+
+    def get_display_name(self, obj) -> str:
+        return obj.effective_display_name
+
+    def get_subtitle(self, obj) -> str:
+        return obj.effective_subtitle
+
+    def get_question(self, obj) -> str:
+        return obj.effective_question
 
     def get_logo_url(self, obj) -> str | None:
         branding = getattr(obj.business, 'branding', None)

@@ -40,6 +40,11 @@ export function ReviewConfigClient() {
     const [thankYouMessage, setThankYouMessage] = useState('');
     const [mode, setMode] = useState<ReviewMode>('direct');
 
+    // Public landing text customisation
+    const [publicDisplayName, setPublicDisplayName] = useState('');
+    const [publicSubtitle, setPublicSubtitle] = useState('');
+    const [publicQuestion, setPublicQuestion] = useState('');
+
     // Google Place autocomplete flow
     const [placeFlow, setPlaceFlow] = useState<PlaceFlowState>('idle');
     const [pendingPlace, setPendingPlace] = useState<GooglePlaceResult | null>(null);
@@ -60,6 +65,9 @@ export function ReviewConfigClient() {
                 setCollectContact(data.collect_contact ?? false);
                 setThankYouMessage(data.thank_you_message ?? '');
                 setMode(data.mode ?? 'direct');
+                setPublicDisplayName(data.public_display_name ?? '');
+                setPublicSubtitle(data.public_subtitle ?? '');
+                setPublicQuestion(data.public_question ?? '');
             })
             .catch(() => {
                 // First time — no config yet
@@ -130,6 +138,9 @@ export function ReviewConfigClient() {
             const payload: Parameters<typeof updateReviewSettings>[0] = {
                 enabled,
                 thank_you_message: thankYouMessage || undefined,
+                public_display_name: publicDisplayName.trim(),
+                public_subtitle: publicSubtitle.trim(),
+                public_question: publicQuestion.trim(),
             };
 
             if (canEditMode) {
@@ -515,6 +526,17 @@ export function ReviewConfigClient() {
                     </div>
                 )}
 
+                {/* Texto visible en tu QR — landing pública */}
+                <PublicTextCard
+                    displayName={publicDisplayName}
+                    onDisplayNameChange={setPublicDisplayName}
+                    subtitle={publicSubtitle}
+                    onSubtitleChange={setPublicSubtitle}
+                    question={publicQuestion}
+                    onQuestionChange={setPublicQuestion}
+                    fallbackName={config?.google_place_name || ''}
+                />
+
                 {/* Mensaje — visible in direct mode (shown on landing page) */}
                 {!isSmartFilter && (
                 <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
@@ -640,5 +662,120 @@ export function ReviewConfigClient() {
                 </button>
             </div>
         </>
+    );
+}
+
+/* ── PublicTextCard ──────────────────────────────────────────────── */
+
+const DISPLAY_NAME_MAX = 120;
+const SUBTITLE_MAX = 180;
+const QUESTION_MAX = 180;
+const DEFAULT_SUBTITLE = 'Tu opinión nos ayuda a mejorar 💛';
+
+function PublicTextCard({
+    displayName,
+    onDisplayNameChange,
+    subtitle,
+    onSubtitleChange,
+    question,
+    onQuestionChange,
+    fallbackName,
+}: {
+    displayName: string;
+    onDisplayNameChange: (v: string) => void;
+    subtitle: string;
+    onSubtitleChange: (v: string) => void;
+    question: string;
+    onQuestionChange: (v: string) => void;
+    fallbackName: string;
+}) {
+    const effectiveName = displayName.trim() || fallbackName || 'tu negocio';
+    const effectiveSubtitle = subtitle.trim() || DEFAULT_SUBTITLE;
+    const effectiveQuestion = question.trim() || `¿Cómo fue tu experiencia en ${effectiveName}?`;
+
+    return (
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
+            <div>
+                <h2 className="text-sm font-semibold text-slate-900">Texto visible en tu QR</h2>
+                <p className="mt-1 text-xs text-slate-500">
+                    Personalizá lo que ven tus clientes en la landing pública. La URL del QR no cambia.
+                </p>
+            </div>
+
+            <div>
+                <label htmlFor="public-display-name" className="block text-sm font-medium text-slate-700">
+                    Nombre público
+                </label>
+                <p className="mt-0.5 text-xs text-slate-400">
+                    Se muestra como título de la página. Si lo dejás vacío, usamos el nombre de tu negocio.
+                </p>
+                <input
+                    id="public-display-name"
+                    type="text"
+                    value={displayName}
+                    onChange={(e) => onDisplayNameChange(e.target.value)}
+                    maxLength={DISPLAY_NAME_MAX}
+                    placeholder={fallbackName || 'Nombre de tu negocio'}
+                    className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-1 focus:ring-brand-500"
+                />
+                <p className="mt-1 text-[11px] text-slate-400 text-right">
+                    {displayName.length}/{DISPLAY_NAME_MAX}
+                </p>
+            </div>
+
+            <div>
+                <label htmlFor="public-question" className="block text-sm font-medium text-slate-700">
+                    Pregunta principal
+                </label>
+                <p className="mt-0.5 text-xs text-slate-400">
+                    Opcional. Si la dejás vacía se genera con el nombre público.
+                </p>
+                <input
+                    id="public-question"
+                    type="text"
+                    value={question}
+                    onChange={(e) => onQuestionChange(e.target.value)}
+                    maxLength={QUESTION_MAX}
+                    placeholder={`¿Cómo fue tu experiencia en ${effectiveName}?`}
+                    className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-1 focus:ring-brand-500"
+                />
+                <p className="mt-1 text-[11px] text-slate-400 text-right">
+                    {question.length}/{QUESTION_MAX}
+                </p>
+            </div>
+
+            <div>
+                <label htmlFor="public-subtitle" className="block text-sm font-medium text-slate-700">
+                    Texto auxiliar
+                </label>
+                <p className="mt-0.5 text-xs text-slate-400">
+                    Aparece debajo de la pregunta. Opcional.
+                </p>
+                <input
+                    id="public-subtitle"
+                    type="text"
+                    value={subtitle}
+                    onChange={(e) => onSubtitleChange(e.target.value)}
+                    maxLength={SUBTITLE_MAX}
+                    placeholder={DEFAULT_SUBTITLE}
+                    className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-1 focus:ring-brand-500"
+                />
+                <p className="mt-1 text-[11px] text-slate-400 text-right">
+                    {subtitle.length}/{SUBTITLE_MAX}
+                </p>
+            </div>
+
+            {/* Live preview */}
+            <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                    Vista previa
+                </p>
+                <div className="mt-2 space-y-1">
+                    <p className="text-base font-semibold text-slate-900">{effectiveName}</p>
+                    <p className="text-sm font-medium text-slate-700">{effectiveQuestion}</p>
+                    <p className="text-xs text-slate-500">{effectiveSubtitle}</p>
+                </div>
+            </div>
+        </div>
     );
 }

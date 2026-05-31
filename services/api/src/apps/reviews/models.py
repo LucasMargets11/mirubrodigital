@@ -38,6 +38,28 @@ class ReviewConfig(models.Model):
         blank=True,
         default='¡Gracias por tu opinión!',
     )
+    # ── Public landing customisation (does NOT affect slug or routing) ──
+    public_display_name = models.CharField(
+        max_length=120,
+        blank=True,
+        default='',
+        help_text='Nombre público que se muestra en la landing de QR de Reseñas. '
+                  'Si está vacío, se usa Business.name.',
+    )
+    public_subtitle = models.CharField(
+        max_length=180,
+        blank=True,
+        default='',
+        help_text='Texto auxiliar debajo de la pregunta. '
+                  'Si está vacío, se usa el texto por defecto.',
+    )
+    public_question = models.CharField(
+        max_length=180,
+        blank=True,
+        default='',
+        help_text='Pregunta personalizada del componente de calificación. '
+                  'Si está vacío, se genera con el nombre público.',
+    )
     mode = models.CharField(
         max_length=16,
         choices=ReviewMode.choices,
@@ -88,6 +110,29 @@ class ReviewConfig(models.Model):
         if self.google_review_url:
             return self.google_review_url
         return None
+
+    # ── Public landing helpers ─────────────────────────────────────
+    DEFAULT_PUBLIC_SUBTITLE = 'Tu opinión nos ayuda a mejorar 💛'
+
+    @property
+    def effective_display_name(self) -> str:
+        """Public name shown on the landing (fallback: Business.name)."""
+        name = (self.public_display_name or '').strip()
+        if name:
+            return name
+        return (getattr(self.business, 'name', '') or '').strip()
+
+    @property
+    def effective_subtitle(self) -> str:
+        subtitle = (self.public_subtitle or '').strip()
+        return subtitle or self.DEFAULT_PUBLIC_SUBTITLE
+
+    @property
+    def effective_question(self) -> str:
+        question = (self.public_question or '').strip()
+        if question:
+            return question
+        return f'¿Cómo fue tu experiencia en {self.effective_display_name}?'
 
 
 class ReviewSource(models.TextChoices):
