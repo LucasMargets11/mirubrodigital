@@ -566,6 +566,8 @@ class CheckoutSessionStatusView(APIView):
                 'provider_subscription_id': sub.provider_sub_id or '',
                 'provider_status': sub.status,
                 'is_active': sub.is_active,
+                'service_type': sub.service_type or '',
+                'plan_code': sub.plan_code or '',
             }
 
         # Last authorized payment.

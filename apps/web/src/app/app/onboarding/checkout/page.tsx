@@ -62,8 +62,29 @@ type StartCheckoutPayload = {
 
 type SessionPollData = {
     status: string;
-    subscription: { is_active: boolean; provider_status: string } | null;
+    subscription: {
+        is_active: boolean;
+        provider_status: string;
+        service_type?: string;
+        plan_code?: string;
+    } | null;
 };
+
+// Map a service_type to the entry route after activation.
+function routeForService(serviceType?: string): string {
+    switch (serviceType) {
+        case 'qr_reviews':
+            return '/app/resenas/configuracion';
+        case 'menu_qr':
+        case 'menu_qr_visual':
+        case 'menu_qr_marca':
+            return '/app/carta';
+        case 'gestion':
+            return '/app/gestion';
+        default:
+            return '/app/dashboard';
+    }
+}
 
 type PagePhase =
     | 'pre_checkout'        // promo input form — before initiating checkout
@@ -114,10 +135,15 @@ export default function OnboardingCheckoutPage() {
         }
     }
 
+    // Where to send the user once activation is confirmed.  Set from the
+    // poll response so we can route into the service-specific entry page
+    // (e.g. /app/resenas/configuracion for QR de Reseñas).
+    const redirectTargetRef = useRef<string>('/app/dashboard');
+
     function scheduleAppRedirect() {
         // Give the user a moment to read the success message before navigating.
         setTimeout(() => {
-            window.location.assign('/app/dashboard');
+            window.location.assign(redirectTargetRef.current);
         }, 3_000);
     }
 
@@ -158,6 +184,9 @@ export default function OnboardingCheckoutPage() {
 
                 if (data.status === 'activated' || data.subscription?.is_active) {
                     stopPolling();
+                    redirectTargetRef.current = routeForService(
+                        data.subscription?.service_type,
+                    );
                     setPhase('activated');
                     scheduleAppRedirect();
                 } else if (data.status === 'failed' || data.status === 'expired') {
@@ -510,7 +539,7 @@ export default function OnboardingCheckoutPage() {
                         Serás redirigido a tu panel en unos segundos...
                     </p>
                     <a
-                        href="/app/dashboard"
+                        href={redirectTargetRef.current}
                         className="text-sm font-medium text-slate-900 underline underline-offset-2"
                     >
                         Ir al panel ahora
@@ -544,15 +573,35 @@ export default function OnboardingCheckoutPage() {
                         </a>{' '}
                         con tu email y te ayudamos.
                     </p>
-                    <button
-                        onClick={() => {
-                            setPollingSlowWarning(false);
-                            startPolling();
-                        }}
-                        className="text-sm text-slate-600 underline underline-offset-2 hover:text-slate-900"
-                    >
-                        Seguir esperando
-                    </button>
+                    <div className="flex flex-col items-center gap-3">
+                        <button
+                            onClick={() => {
+                                // Force a server-side reconciliation and restart
+                                // polling from scratch.
+                                const sid = sessionIdRef.current;
+                                if (sid) {
+                                    fetch(
+                                        `${API_URL}/api/v1/billing/checkout-sessions/${sid}/reconcile/`,
+                                        { method: 'POST', credentials: 'include' },
+                                    ).catch(() => {});
+                                }
+                                setPollingSlowWarning(false);
+                                startPolling();
+                            }}
+                            className="px-4 py-2 text-sm font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-colors"
+                        >
+                            Reintentar verificación
+                        </button>
+                        <button
+                            onClick={() => {
+                                setPollingSlowWarning(false);
+                                startPolling();
+                            }}
+                            className="text-sm text-slate-600 underline underline-offset-2 hover:text-slate-900"
+                        >
+                            Seguir esperando
+                        </button>
+                    </div>
                 </div>
             )}
 
