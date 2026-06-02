@@ -88,16 +88,16 @@ export const REVIEWS_BASE: PlanDef = {
   code: 'qr_reviews_base',
   vertical: 'qr_reviews',
   name: 'Reseñas Base',
-  priceMonthly: 25000,
-  priceYearly: 240000,
+  priceMonthly: 20000,
+  priceYearly: 192000,
 };
 
 export const REVIEWS_PRO: PlanDef = {
   code: 'qr_reviews_pro',
   vertical: 'qr_reviews',
   name: 'Reseñas Pro',
-  priceMonthly: 40000,
-  priceYearly: 384000,
+  priceMonthly: 28000,
+  priceYearly: 268800,
 };
 
 export const REVIEWS_EMPRESARIAL: PlanDef = {

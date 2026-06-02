@@ -12,6 +12,7 @@ import {
     TOOLTIP_BASE_STYLE,
     primaryAreaGradient,
 } from '@/lib/charts/theme';
+import { UpgradeToProButton } from '@/features/reviews/upgrade-to-pro-button';
 
 /* ── Color maps ────────────────────────────────────────────── */
 
@@ -134,6 +135,28 @@ export function AnalyticsClient() {
         return (
             <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-center">
                 <p className="text-sm font-semibold text-red-700">{error}</p>
+            </div>
+        );
+    }
+
+    const isReviewsPro = config?.is_reviews_pro ?? false;
+
+    // PR-A: Analytics avanzadas son Pro-only. Base ve un upsell.
+    if (!isReviewsPro) {
+        return (
+            <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center space-y-4 shadow-sm">
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-indigo-100">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                    </svg>
+                </div>
+                <div className="space-y-1">
+                    <p className="font-semibold text-slate-800">Analytics avanzadas son parte de Reseñas Pro</p>
+                    <p className="text-sm text-slate-500">
+                        Métricas de conversión, tendencias por día y distribución de estados están disponibles en el plan Pro.
+                    </p>
+                </div>
+                <UpgradeToProButton />
             </div>
         );
     }

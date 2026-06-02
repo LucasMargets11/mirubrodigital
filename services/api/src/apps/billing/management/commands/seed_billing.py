@@ -415,8 +415,8 @@ class Command(BaseCommand):
                 'description': 'Generá reseñas en Google de forma simple.',
                 'vertical': 'qr_reviews',
                 'pricing_mode': 'fixed_price',
-                'fixed_price_monthly': plan_price('qr_reviews_base', 'monthly'),  # 25000
-                'fixed_price_yearly': plan_price('qr_reviews_base', 'yearly'),    # 240000
+                'fixed_price_monthly': plan_price('qr_reviews_base', 'monthly'),  # 20000
+                'fixed_price_yearly': plan_price('qr_reviews_base', 'yearly'),    # 192000
                 'is_default_recommended': False,
                 'is_active': True,
                 'badge': '',
@@ -434,8 +434,8 @@ class Command(BaseCommand):
                 'description': 'Elegí qué llega a Google y qué queda como feedback privado.',
                 'vertical': 'qr_reviews',
                 'pricing_mode': 'fixed_price',
-                'fixed_price_monthly': plan_price('qr_reviews_pro', 'monthly'),  # 40000
-                'fixed_price_yearly': plan_price('qr_reviews_pro', 'yearly'),    # 384000
+                'fixed_price_monthly': plan_price('qr_reviews_pro', 'monthly'),  # 28000
+                'fixed_price_yearly': plan_price('qr_reviews_pro', 'yearly'),    # 268800
                 'is_default_recommended': True,
                 'is_active': True,
                 'badge': 'Recomendado',

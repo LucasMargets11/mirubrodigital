@@ -204,6 +204,13 @@ class ReviewDetailView(APIView):
 
     def patch(self, request, id):
         business = getattr(request, 'business')
+        # PR-A: advanced status management is Pro-only. Base can read feedback
+        # but cannot change statuses (new / read / contacted / resolved).
+        if not is_reviews_pro(business):
+            return Response(
+                {'detail': 'La gestión de estados de feedback requiere QR de Reseñas Pro.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         review = get_object_or_404(Review, id=id, business=business)
         old_status = review.status
         serializer = ReviewStatusUpdateSerializer(
@@ -262,12 +269,35 @@ class ReviewStatsView(APIView):
         cached = cache.get(ck)
         if cached is not None:
             logger.debug("[Reviews] Stats cache hit business=%s", business.id)
-            return Response(cached)
+            return Response(self._filter_for_plan(cached, business))
 
         logger.debug("[Reviews] Stats cache miss business=%s — recomputing", business.id)
         payload = self._compute_stats(business)
         cache.set(ck, payload, _STATS_CACHE_TTL)
-        return Response(payload)
+        return Response(self._filter_for_plan(payload, business))
+
+    # PR-A: fields gated behind QR de Reseñas Pro.
+    _PRO_ONLY_STATS_FIELDS = frozenset({
+        'conversion_rate',
+        'resolution_rate',
+        'positive_rate',
+        'negative_rate',
+        'contacted_reviews',
+        'resolved_reviews',
+        'status_distribution',
+        'reviews_last_7_days',
+        'reviews_last_30_days',
+        'visits_last_7_days',
+        'visits_last_30_days',
+        'daily_trend',
+    })
+
+    @classmethod
+    def _filter_for_plan(cls, payload: dict, business) -> dict:
+        """Strip Pro-only metrics from the cached payload for non-Pro businesses."""
+        if is_reviews_pro(business):
+            return payload
+        return {k: v for k, v in payload.items() if k not in cls._PRO_ONLY_STATS_FIELDS}
 
     @staticmethod
     def _compute_stats(business) -> dict:
@@ -391,7 +421,12 @@ class ReviewStatsView(APIView):
 class ActivateTrialView(APIView):
     """
     POST /api/v1/reviews/trial/activate/
-    Starts the 7-day smart-filter trial for Base-plan businesses.
+
+    Legacy endpoint: starts the 7-day smart-filter trial.
+
+    NOTE: Smart-filter is now included in the Base tier. This endpoint is
+    preserved for backwards-compatibility but will return 409 because any
+    active reviews subscription already grants the capability.
     """
     permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
     permission_map = {
@@ -403,10 +438,15 @@ class ActivateTrialView(APIView):
     def post(self, request):
         business = getattr(request, 'business')
 
-        if is_reviews_pro(business):
-            logger.info("[Reviews] Trial rejected business=%s reason=already_pro", business.id)
+        # Smart-filter is part of Base tier — no trial needed when allowed.
+        from .entitlements import smart_filter_allowed
+        if smart_filter_allowed(business):
+            logger.info(
+                "[Reviews] Trial rejected business=%s reason=already_allowed",
+                business.id,
+            )
             return Response(
-                {'detail': 'Tu plan Pro ya incluye el filtro inteligente.'},
+                {'detail': 'Tu plan ya incluye el filtro inteligente.'},
                 status=status.HTTP_409_CONFLICT,
             )
 

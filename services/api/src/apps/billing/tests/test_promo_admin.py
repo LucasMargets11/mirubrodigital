@@ -314,7 +314,7 @@ class PromoCodeOptionsTest(PromoAdminBaseTest):
             code='qr_reviews_pro',
             defaults=dict(
                 name='Reseñas Pro',
-                price=D('40000'),
+                price=D('28000'),
                 interval='monthly',
                 currency='ARS',
                 frequency=1,
@@ -349,12 +349,12 @@ class PromoCodeOptionsTest(PromoAdminBaseTest):
         from apps.billing.models import Plan as PlanModel
         PlanModel.objects.update_or_create(
             code='qr_reviews',
-            defaults=dict(name='QR de Reseñas', price=D('25000'), interval='monthly',
+            defaults=dict(name='QR de Reseñas', price=D('20000'), interval='monthly',
                           currency='ARS', frequency=1, frequency_type='months', plan_status='active'),
         )
         PlanModel.objects.update_or_create(
             code='qr_reviews_pro',
-            defaults=dict(name='Reseñas Pro', price=D('40000'), interval='monthly',
+            defaults=dict(name='Reseñas Pro', price=D('28000'), interval='monthly',
                           currency='ARS', frequency=1, frequency_type='months', plan_status='active'),
         )
         self._auth()

@@ -35,8 +35,10 @@ User = get_user_model()
 # ---------------------------------------------------------------------------
 
 def _create_business(name='Stats Biz', slug='stats-biz'):
+    # PR-A: advanced stats and status PATCH are Pro-only, so these tests
+    # need a Pro business to exercise the full response.
     biz = Business.objects.create(name=name, default_service='qr_reviews', slug=slug)
-    Subscription.objects.create(business=biz, plan='qr_reviews', service='qr_reviews', status='active')
+    Subscription.objects.create(business=biz, plan='qr_reviews_pro', service='qr_reviews', status='active')
     ReviewConfig.objects.create(business=biz, redirect_threshold=4)
     return biz
 

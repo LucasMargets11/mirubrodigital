@@ -308,7 +308,8 @@ class ReviewListViewTests(APITestCase):
 class ReviewDetailViewTests(APITestCase):
 
     def setUp(self):
-        self.biz = _create_business(slug='detail-biz')
+        # PR-A: status changes (PATCH) require Pro entitlement.
+        self.biz = _create_business(slug='detail-biz', plan='qr_reviews_pro')
         self.user = _auth_client(self.client, self.biz)
         self.review = Review.objects.create(business=self.biz, rating=3)
 
@@ -396,7 +397,8 @@ class ReviewStatusTransitionTests(APITestCase):
     """Verify all valid status transitions pass and invalid ones are rejected."""
 
     def setUp(self):
-        self.biz = _create_business(slug='status-biz')
+        # PR-A: status transitions require Pro entitlement.
+        self.biz = _create_business(slug='status-biz', plan='qr_reviews_pro')
         self.user = _auth_client(self.client, self.biz)
 
     def _create_review(self, initial_status='new'):
@@ -558,7 +560,9 @@ class ReviewStatsViewTests(APITestCase):
     """Tests for GET /api/v1/reviews/stats/ analytics endpoint."""
 
     def setUp(self):
-        self.biz = _create_business(slug='stats-biz')
+        # PR-A: advanced stats fields (conversion_rate, resolution_rate,
+        # status_distribution, reviews_last_*_days, ...) are Pro-only.
+        self.biz = _create_business(slug='stats-biz', plan='qr_reviews_pro')
         self.user = _auth_client(self.client, self.biz)
 
     def test_empty_stats(self):
@@ -783,60 +787,33 @@ class DirectModeSubmitTests(APITestCase):
 
 
 # ---------------------------------------------------------------------------
-# Bloque 6: Trial activation
+# Bloque 6: Trial activation (LEGACY — smart_filter is now Base-tier)
 # ---------------------------------------------------------------------------
 
 class ActivateTrialTests(APITestCase):
-    """POST /api/v1/reviews/trial/activate/ — 7-day smart-filter trial."""
+    """POST /api/v1/reviews/trial/activate/ — legacy 7-day smart-filter trial.
+
+    Smart-filter has been moved to the Base tier, so this endpoint now always
+    returns 409 for any business with reviews access. The endpoint is kept
+    for backwards-compatibility with legacy clients/links.
+    """
 
     def setUp(self):
         self.biz = _create_business(slug='trial-biz')
-        self.user = _auth_client(self.client, self.biz)
+        _auth_client(self.client, self.biz)
 
-    def test_activate_trial_happy_path(self):
-        """Base plan business can activate trial once."""
-        resp = self.client.post('/api/v1/reviews/trial/activate/')
-        self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        self.assertTrue(resp.data['trial_active'])
-        self.assertTrue(resp.data['trial_used'])
-        self.assertIsNotNone(resp.data['trial_ends_at'])
-        self.assertEqual(resp.data['mode'], 'smart_filter')
-        self.assertEqual(resp.data['effective_mode'], 'smart_filter')
-
-        # Verify DB
-        config = ReviewConfig.objects.get(business=self.biz)
-        self.assertTrue(config.trial_used)
-        self.assertIsNotNone(config.trial_ends_at)
-        self.assertEqual(config.mode, 'smart_filter')
-
-    def test_activate_trial_sets_7_day_duration(self):
-        """Trial ends_at is ~7 days from now."""
-        from django.utils import timezone
-        from datetime import timedelta
-
-        before = timezone.now()
-        resp = self.client.post('/api/v1/reviews/trial/activate/')
-        after = timezone.now()
-
-        self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        config = ReviewConfig.objects.get(business=self.biz)
-        self.assertGreaterEqual(config.trial_ends_at, before + timedelta(days=7) - timedelta(seconds=1))
-        self.assertLessEqual(config.trial_ends_at, after + timedelta(days=7) + timedelta(seconds=1))
-
-    def test_trial_already_used_returns_409(self):
-        """Cannot activate trial twice."""
-        ReviewConfig.objects.create(business=self.biz, trial_used=True)
+    def test_activate_trial_returns_409_when_smart_filter_already_allowed(self):
+        """Any active reviews subscription already includes smart_filter → 409."""
         resp = self.client.post('/api/v1/reviews/trial/activate/')
         self.assertEqual(resp.status_code, status.HTTP_409_CONFLICT)
-        self.assertIn('ya fue utilizado', resp.data['detail'])
+        self.assertIn('ya incluye', resp.data['detail'])
 
     def test_pro_plan_returns_409(self):
-        """Pro businesses cannot activate trial."""
+        """Pro businesses also get 409 (already-allowed branch)."""
         pro_biz = _create_business(slug='pro-biz', plan='qr_reviews_pro')
         _auth_client(self.client, pro_biz)
         resp = self.client.post('/api/v1/reviews/trial/activate/')
         self.assertEqual(resp.status_code, status.HTTP_409_CONFLICT)
-        self.assertIn('Pro', resp.data['detail'])
 
     def test_trial_requires_auth(self):
         """Anonymous users cannot activate trial."""
@@ -846,15 +823,17 @@ class ActivateTrialTests(APITestCase):
         resp = anon.post('/api/v1/reviews/trial/activate/')
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    def test_trial_creates_config_if_missing(self):
-        """If ReviewConfig doesn't exist yet, it's auto-created."""
-        self.assertFalse(ReviewConfig.objects.filter(business=self.biz).exists())
-        resp = self.client.post('/api/v1/reviews/trial/activate/')
-        self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        self.assertTrue(ReviewConfig.objects.filter(business=self.biz).exists())
 
-    def test_trial_idempotent_rejection(self):
-        """Second activation attempt after first succeeds returns 409."""
-        self.client.post('/api/v1/reviews/trial/activate/')
-        resp = self.client.post('/api/v1/reviews/trial/activate/')
-        self.assertEqual(resp.status_code, status.HTTP_409_CONFLICT)
+class _LegacyActivateTrialDisabledTests(APITestCase):
+    """Pre-existing happy-path tests are now obsolete (smart_filter ∈ Base).
+
+    Kept as a single placeholder so the migration is auditable; the original
+    tests asserted that a Base business could activate the trial, which is no
+    longer the contract.
+    """
+
+    def test_legacy_trial_flow_no_longer_grants_smart_filter(self):
+        """Smart-filter is granted by the plan itself, not by the trial."""
+        from apps.reviews.entitlements import smart_filter_allowed
+        biz = _create_business(slug='legacy-trial-biz', plan='qr_reviews_base')
+        self.assertTrue(smart_filter_allowed(biz))

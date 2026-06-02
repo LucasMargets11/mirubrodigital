@@ -449,23 +449,23 @@ class EffectiveModePublicTests(APITestCase):
         from django.core.cache import cache
         cache.clear()
 
-    def test_base_with_smart_filter_mode_falls_back_to_direct(self):
-        """Base plan with mode=smart_filter → effective_mode=direct."""
+    def test_base_with_smart_filter_mode_stays_smart_filter(self):
+        """PR-A: Base plan with mode=smart_filter → effective_mode=smart_filter."""
         biz = _biz(slug='base-sf', plan='qr_reviews')
         _cfg(biz, mode='smart_filter')
 
         resp = self.client.get('/api/v1/reviews/public/base-sf/')
         self.assertEqual(resp.data['mode'], 'smart_filter')
-        self.assertEqual(resp.data['effective_mode'], 'direct')
+        self.assertEqual(resp.data['effective_mode'], 'smart_filter')
 
-    def test_base_smart_filter_submit_always_redirects(self):
-        """Submit on Base-plan smart_filter config → redirect (effective_mode=direct)."""
+    def test_base_smart_filter_submit_creates_feedback(self):
+        """PR-A: Submit on Base-plan smart_filter config → low rating creates Review."""
         biz = _biz(slug='base-sf-sub', plan='qr_reviews')
         _cfg(biz, mode='smart_filter')
 
         resp = self.client.post('/api/v1/reviews/public/base-sf-sub/submit/', {'rating': 1})
-        self.assertEqual(resp.data['action'], 'redirect')
-        self.assertEqual(Review.objects.count(), 0)
+        self.assertEqual(resp.data['action'], 'submitted')
+        self.assertEqual(Review.objects.count(), 1)
 
     def test_pro_with_smart_filter_stays_smart_filter(self):
         """Pro plan with mode=smart_filter → effective_mode=smart_filter."""
@@ -513,8 +513,8 @@ class EffectiveModePublicTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
         self.assertEqual(Review.objects.count(), 1)
 
-    def test_trial_expired_falls_back_to_direct(self):
-        """Expired trial on Base plan → effective_mode=direct."""
+    def test_trial_expired_still_smart_filter_under_base_plan(self):
+        """After PR-A, smart_filter is granted by the plan; expired trial does NOT downgrade Base."""
         biz = _biz(slug='trial-exp', plan='qr_reviews')
         _cfg(
             biz,
@@ -525,10 +525,10 @@ class EffectiveModePublicTests(APITestCase):
 
         resp = self.client.get('/api/v1/reviews/public/trial-exp/')
         self.assertEqual(resp.data['mode'], 'smart_filter')
-        self.assertEqual(resp.data['effective_mode'], 'direct')
+        self.assertEqual(resp.data['effective_mode'], 'smart_filter')
 
-    def test_trial_expired_submit_redirects(self):
-        """Expired trial → low rating submit still redirects (effective_mode=direct)."""
+    def test_trial_expired_submit_still_creates_review(self):
+        """After PR-A, expired trial on Base still routes low ratings to feedback."""
         biz = _biz(slug='trial-exp-sub', plan='qr_reviews')
         _cfg(
             biz,
@@ -538,8 +538,8 @@ class EffectiveModePublicTests(APITestCase):
         )
 
         resp = self.client.post('/api/v1/reviews/public/trial-exp-sub/submit/', {'rating': 1})
-        self.assertEqual(resp.data['action'], 'redirect')
-        self.assertEqual(Review.objects.count(), 0)
+        self.assertEqual(resp.data['action'], 'submitted')
+        self.assertEqual(Review.objects.count(), 1)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

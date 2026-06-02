@@ -37,8 +37,10 @@ export const CTA_DOWNGRADE_TO_BASE = {
     loadingLabel: 'Procesando…',
     confirmTitle: 'Volver a Reseñas Base',
     confirmMessage:
-        'Al volver a Reseñas Base perderás el acceso al filtro inteligente, ' +
-        'feedback privado y analytics avanzadas. Tus datos se conservan.',
+        'Al volver a Reseñas Base seguirás teniendo el filtro inteligente y el feedback privado básico, ' +
+        'pero perderás las funciones Pro: analytics avanzadas, métricas de conversión, ' +
+        'gestión de estados, carteles profesionales y personalización avanzada. ' +
+        'Tus datos se conservan.',
     confirmButton: 'Confirmar downgrade',
     cancelButton: 'Cancelar',
 } as const;
@@ -86,29 +88,30 @@ import { REVIEWS_BASE, REVIEWS_PRO, formatPrice } from '@/lib/pricing';
 export const REVIEW_PRICING_CARDS: PricingCardData[] = [
     {
         name: REVIEWS_BASE.name,
-        tagline: 'Generá reseñas en Google de forma simple.',
+        tagline: 'Filtrá qué llega a Google y empezá a recibir feedback privado.',
         price: formatPrice(REVIEWS_BASE.priceMonthly),
         period: '/mes',
         highlights: [
-            'QR listo para compartir',
-            'Recepción de reseñas',
+            'QR listo para compartir y descargar',
             'Redirección directa a Google',
+            'Filtro inteligente por calificación',
+            'Feedback privado básico',
         ],
         ctaHref: '/entrar',
         ctaLabel: 'Activar Reseñas Base',
     },
     {
         name: REVIEWS_PRO.name,
-        tagline: 'Elegí qué llega a Google y qué queda como feedback privado.',
+        tagline: 'Gestioná tu reputación con métricas, estados y carteles profesionales.',
         price: formatPrice(REVIEWS_PRO.priceMonthly),
         period: '/mes',
         highlights: [
             'Todo lo de Base',
-            'Filtro inteligente por calificación',
-            'Feedback privado automático',
-            'Gestión de estados',
             'Analytics avanzadas',
-            'Carteles personalizados para tu local',
+            'Métricas de conversión',
+            'Estados de gestión avanzados',
+            'Carteles profesionales imprimibles',
+            'Personalización avanzada',
         ],
         ctaHref: '/entrar',
         ctaLabel: 'Activar Reseñas Pro',
