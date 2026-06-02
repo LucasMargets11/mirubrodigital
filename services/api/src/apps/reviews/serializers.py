@@ -93,14 +93,14 @@ class ReviewConfigSerializer(serializers.ModelSerializer):
         return self._clean_public_text(value, 'La pregunta personalizada')
 
     def validate_mode(self, value):
-        """Prevent Base plans from persisting smart_filter without entitlement."""
+        """Prevent businesses without active reviews access from persisting smart_filter."""
         if value == ReviewMode.SMART_FILTER:
             business = self.instance.business if self.instance else None
             if business:
                 from .entitlements import smart_filter_allowed
                 if not smart_filter_allowed(business):
                     raise serializers.ValidationError(
-                        'El filtro inteligente no está disponible en tu plan actual.'
+                        'El filtro inteligente requiere una suscripción activa de QR de Reseñas.'
                     )
         return value
 

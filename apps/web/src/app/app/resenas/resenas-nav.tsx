@@ -56,9 +56,6 @@ export function ResenasNav() {
         return () => window.removeEventListener('reviews-config-changed', handler);
     }, [refreshStats]);
 
-    const isPro = config
-        ? config.smart_filter_allowed && !config.trial_active
-        : false;
     const isReviewsPro = config?.is_reviews_pro ?? false;
     const feedbackAccessible = config?.smart_filter_allowed ?? false;
     const newCount = stats?.new_reviews ?? 0;
@@ -74,7 +71,7 @@ export function ResenasNav() {
             label: 'Feedback',
             badge: feedbackAccessible && newCount > 0 ? newCount : undefined,
         },
-        ...(isPro
+        ...(isReviewsPro
             ? [{ href: '/app/resenas/analytics', label: 'Analytics' }]
             : []),
         { href: '/app/resenas/configuracion', label: 'Configuración' },

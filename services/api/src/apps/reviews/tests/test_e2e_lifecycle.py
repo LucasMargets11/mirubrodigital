@@ -129,12 +129,52 @@ class BaseDirectLifecycleTests(TestCase):
         self.assertEqual(res.data['total_reviews'], 0)
         self.assertEqual(res.data['total_visits'], 2)
 
-    def test_digest_returns_none_for_base(self):
-        """Base plan is not eligible for digest (no smart_filter_allowed)."""
+    def test_digest_returns_false_for_base(self):
+        """``send_digest_for_business`` is a no-op (always False) per product policy."""
         _landing(self.api, 'base-direct')  # create a visit
-        # send_digest_for_business checks smart_filter_allowed first.
         result = send_digest_for_business(self.biz)
         self.assertFalse(result)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 1b. Base plan with smart_filter (NEW — smart_filter is now Base-tier)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+class BaseSmartFilterLifecycleTests(TestCase):
+    """Base plan can use smart_filter; high ratings redirect, low ratings → feedback."""
+
+    def setUp(self):
+        cache.clear()
+        mail.outbox.clear()
+        patcher = patch('apps.accounts.admin_notification_service.create_admin_notification', return_value=None)
+        self.mock_notif = patcher.start()
+        self.addCleanup(patcher.stop)
+        self.owner = _user('base-sf@test.com')
+        self.biz = _business(self.owner, plan='qr_reviews_base', slug='base-sf')
+        self.config = _cfg(self.biz, mode='smart_filter')
+        self.api = APIClient()
+        self.auth = _client(self.owner)
+
+    def tearDown(self):
+        cache.clear()
+
+    def test_entitlements_for_base(self):
+        self.assertTrue(reviews_allowed(self.biz))
+        self.assertTrue(smart_filter_allowed(self.biz))
+        self.assertFalse(is_reviews_pro(self.biz))
+
+    def test_high_rating_redirects(self):
+        res = _submit(self.api, 'base-sf', 5)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data['action'], 'redirect')
+
+    def test_low_rating_creates_feedback(self):
+        res = _submit(self.api, 'base-sf', 2, comment='Base feedback')
+        self.assertEqual(res.status_code, 201)
+        self.assertEqual(res.data['action'], 'submitted')
+        self.assertEqual(Review.objects.filter(business=self.biz).count(), 1)
+        self.mock_notif.assert_called_once()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -286,92 +326,37 @@ class TrialLifecycleTests(TestCase):
         cache.clear()
 
     def test_trial_available_before_activation(self):
+        """trial_available checks the DB flag only; remains True for fresh configs."""
         self.assertTrue(trial_available(self.biz))
         self.assertFalse(trial_active(self.biz))
 
-    def test_activate_trial_switches_to_smart_filter(self):
+    def test_activate_trial_returns_409(self):
+        """Trial endpoint is legacy: smart_filter is granted by the plan → 409."""
         res = self.auth.post('/api/v1/reviews/trial/activate/')
-        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.status_code, 409)
+        self.assertIn('ya incluye', res.data['detail'])
 
-        self.config.refresh_from_db()
-        self.assertEqual(self.config.mode, 'smart_filter')
-        self.assertTrue(self.config.trial_used)
-        self.assertIsNotNone(self.config.trial_ends_at)
-        self.assertTrue(trial_active(self.biz))
-        self.assertFalse(trial_available(self.biz))
+    def test_submit_on_base_creates_feedback_without_trial(self):
+        """No trial activation needed — Base plan grants smart_filter directly."""
+        self.config.mode = 'smart_filter'
+        self.config.save(update_fields=['mode'])
 
-    def test_submit_during_active_trial_creates_feedback(self):
-        """Active trial allows smart_filter → low rating creates Review."""
-        self.auth.post('/api/v1/reviews/trial/activate/')
-
-        mail.outbox.clear()
-        res = _submit(self.api, 'trial-life', 2, comment='During trial')
+        res = _submit(self.api, 'trial-life', 2, comment='Base feedback')
         self.assertEqual(res.status_code, 201)
         self.assertEqual(res.data['action'], 'submitted')
 
         review = Review.objects.get(business=self.biz)
         self.assertEqual(review.rating, 2)
-
-        # Admin notification queued for support team (smart_filter_allowed = True)
         self.mock_notif.assert_called_once()
 
-    def test_expired_trial_falls_back_to_direct(self):
-        """After trial expires, effective_mode=direct → all ratings redirect."""
-        self.auth.post('/api/v1/reviews/trial/activate/')
-
-        # Expire the trial
-        self.config.refresh_from_db()
-        self.config.trial_ends_at = timezone.now() - timedelta(hours=1)
-        self.config.save(update_fields=['trial_ends_at'])
-
-        self.assertFalse(trial_active(self.biz))
-        self.config.refresh_from_db()
-        self.assertEqual(self.config.effective_mode, 'direct')
-
-        # Submit now redirects even for low rating
-        res = _submit(self.api, 'trial-life', 1)
-        self.assertEqual(res.status_code, 200)
-        self.assertEqual(res.data['action'], 'redirect')
-
-    def test_cannot_reactivate_trial(self):
-        """Trial can only be used once."""
-        self.auth.post('/api/v1/reviews/trial/activate/')
-
-        # Expire it
-        self.config.refresh_from_db()
-        self.config.trial_ends_at = timezone.now() - timedelta(hours=1)
-        self.config.save(update_fields=['trial_ends_at'])
-
-        # Try again
-        res = self.auth.post('/api/v1/reviews/trial/activate/')
-        self.assertEqual(res.status_code, 409)
-
     def test_trial_not_available_for_pro(self):
-        """Pro plan gets 409 — they already have smart_filter."""
+        """Pro plan also gets 409 (already-allowed branch)."""
         sub = self.biz.subscription
         sub.plan = 'qr_reviews_pro'
         sub.save()
 
         res = self.auth.post('/api/v1/reviews/trial/activate/')
         self.assertEqual(res.status_code, 409)
-
-    def test_data_survives_trial_expiry(self):
-        """Reviews created during trial are still visible after expiry."""
-        self.auth.post('/api/v1/reviews/trial/activate/')
-        _submit(self.api, 'trial-life', 2, comment='Trial feedback')
-
-        # Expire trial
-        self.config.refresh_from_db()
-        self.config.trial_ends_at = timezone.now() - timedelta(hours=1)
-        self.config.save(update_fields=['trial_ends_at'])
-
-        # Reviews still accessible via stats and list
-        res = self.auth.get('/api/v1/reviews/stats/')
-        self.assertEqual(res.data['total_reviews'], 1)
-
-        res = self.auth.get('/api/v1/reviews/')
-        self.assertEqual(len(res.data), 1)
-        self.assertEqual(res.data[0]['comment'], 'Trial feedback')
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -399,16 +384,18 @@ class UpgradeLifecycleTests(TestCase):
     def tearDown(self):
         cache.clear()
 
-    def test_before_upgrade_effective_mode_is_direct(self):
-        """Base plan with mode=smart_filter → effective_mode=direct."""
-        self.assertEqual(self.config.effective_mode, 'direct')
+    def test_before_upgrade_base_has_smart_filter(self):
+        """Base plan now grants smart_filter; only Pro flag is False before upgrade."""
+        self.assertEqual(self.config.effective_mode, 'smart_filter')
         self.assertFalse(is_reviews_pro(self.biz))
-        self.assertFalse(smart_filter_allowed(self.biz))
+        self.assertTrue(smart_filter_allowed(self.biz))
 
-    def test_submit_before_upgrade_redirects(self):
+    def test_submit_before_upgrade_creates_feedback(self):
+        """Base + smart_filter → low rating creates feedback even before Pro upgrade."""
         res = _submit(self.api, 'upgrade-life', 1)
-        self.assertEqual(res.data['action'], 'redirect')
-        self.assertEqual(Review.objects.filter(business=self.biz).count(), 0)
+        self.assertEqual(res.status_code, 201)
+        self.assertEqual(res.data['action'], 'submitted')
+        self.assertEqual(Review.objects.filter(business=self.biz).count(), 1)
 
     def test_after_upgrade_smart_filter_works(self):
         """apply_reviews_plan_upgrade → smart_filter is now effective."""
@@ -446,21 +433,16 @@ class UpgradeLifecycleTests(TestCase):
         self.assertEqual(res.data['total_visits'], 1)
         self.assertEqual(res.data['total_reviews'], 1)
 
-    def test_upgrade_during_active_trial(self):
-        """Upgrade while trial is active → Pro entitlements take over, trial irrelevant."""
-        # Activate trial first
-        self.auth.post('/api/v1/reviews/trial/activate/')
-        self.config.refresh_from_db()
-        self.assertTrue(trial_active(self.biz))
+    def test_upgrade_from_base_grants_pro_flag(self):
+        """Upgrade from Base → Pro: smart_filter was already True, is_reviews_pro flips True."""
+        self.assertTrue(smart_filter_allowed(self.biz))
+        self.assertFalse(is_reviews_pro(self.biz))
 
-        # Upgrade
         apply_reviews_plan_upgrade(self.biz, 'qr_reviews_pro')
 
-        # Pro entitlement active, trial still technically "active" but irrelevant
         self.assertTrue(is_reviews_pro(self.biz))
         self.assertTrue(smart_filter_allowed(self.biz))
 
-        # Submit works
         res = _submit(self.api, 'upgrade-life', 2)
         self.assertEqual(res.status_code, 201)
 
@@ -529,23 +511,24 @@ class DowngradeLifecycleTests(TestCase):
         self.assertEqual(res.status_code, 201)
         self.assertEqual(Review.objects.filter(business=self.biz).count(), 1)
 
-    def test_after_downgrade_effective_mode_is_direct(self):
+    def test_after_downgrade_smart_filter_still_allowed(self):
+        """Downgrade Pro → Base: smart_filter stays True, only is_reviews_pro flips False."""
         apply_reviews_plan_downgrade(self.biz, 'qr_reviews_base', user=self.owner)
 
         self.biz.subscription.refresh_from_db()
         self.assertFalse(is_reviews_pro(self.biz))
-        self.assertFalse(smart_filter_allowed(self.biz))
+        self.assertTrue(smart_filter_allowed(self.biz))
         self.config.refresh_from_db()
-        self.assertEqual(self.config.effective_mode, 'direct')
-        # mode field is NOT changed by downgrade — only effective_mode changes
+        self.assertEqual(self.config.effective_mode, 'smart_filter')
         self.assertEqual(self.config.mode, 'smart_filter')
 
-    def test_submit_after_downgrade_redirects(self):
+    def test_submit_after_downgrade_still_creates_feedback(self):
+        """Base still has smart_filter, so low ratings still create feedback."""
         apply_reviews_plan_downgrade(self.biz, 'qr_reviews_base', user=self.owner)
 
         res = _submit(self.api, 'downgrade-life', 1)
-        self.assertEqual(res.status_code, 200)
-        self.assertEqual(res.data['action'], 'redirect')
+        self.assertEqual(res.status_code, 201)
+        self.assertEqual(res.data['action'], 'submitted')
 
     def test_existing_reviews_survive_downgrade(self):
         """Reviews created pre-downgrade are still accessible."""
@@ -795,9 +778,10 @@ class EdgeCaseHardeningTests(TestCase):
         # Reviews preserved
         self.assertEqual(Review.objects.filter(business=biz).count(), 2)
 
-        # Submit now redirects (effective_mode → direct)
-        res = _submit(self.api, 'roundtrip', 1, remote_addr='10.0.0.3')
-        self.assertEqual(res.data['action'], 'redirect')
+        # PR-A: Base keeps smart filter, so a low rating is still stored as private feedback.
+        res = _submit(self.api, 'roundtrip', 1, remote_addr='10.0.0.3', comment='After downgrade')
+        self.assertEqual(res.data['action'], 'submitted')
+        self.assertEqual(Review.objects.filter(business=biz).count(), 3)
 
         # Re-upgrade
         apply_reviews_plan_upgrade(biz, 'qr_reviews_pro')
@@ -805,7 +789,7 @@ class EdgeCaseHardeningTests(TestCase):
         # Smart filter works again + old reviews are still there
         res = _submit(self.api, 'roundtrip', 1, remote_addr='10.0.0.4', comment='Round 3')
         self.assertEqual(res.status_code, 201)
-        self.assertEqual(Review.objects.filter(business=biz).count(), 3)
+        self.assertEqual(Review.objects.filter(business=biz).count(), 4)
 
     def test_trial_expired_with_prior_data_and_then_upgrade(self):
         """
@@ -829,9 +813,10 @@ class EdgeCaseHardeningTests(TestCase):
         config.trial_ends_at = timezone.now() - timedelta(hours=1)
         config.save(update_fields=['trial_ends_at'])
 
-        # Now redirects
-        res = _submit(self.api, 'texp', 1, remote_addr='10.0.0.2')
-        self.assertEqual(res.data['action'], 'redirect')
+        # PR-A: Base now includes smart filter natively, so low ratings
+        # are still captured as private feedback after the trial expires.
+        res = _submit(self.api, 'texp', 1, remote_addr='10.0.0.2', comment='Post-trial')
+        self.assertEqual(res.data['action'], 'submitted')
 
         # Upgrade to Pro
         apply_reviews_plan_upgrade(biz, 'qr_reviews_pro')
@@ -839,7 +824,7 @@ class EdgeCaseHardeningTests(TestCase):
         # Smart filter works again
         res = _submit(self.api, 'texp', 1, remote_addr='10.0.0.3', comment='After Pro')
         self.assertEqual(res.status_code, 201)
-        self.assertEqual(Review.objects.filter(business=biz).count(), 2)
+        self.assertEqual(Review.objects.filter(business=biz).count(), 3)
 
     def test_v2_sync_created_on_upgrade_and_updated_on_downgrade(self):
         """SubscriptionV2 is created on upgrade and updated on downgrade."""

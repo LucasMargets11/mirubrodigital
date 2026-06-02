@@ -131,7 +131,7 @@ describe('onboarding catalog-driven flow', () => {
     const servicioSource = readFileSync(servicioPath, 'utf8');
     const planSource = readFileSync(planPath, 'utf8');
 
-    const pricingLiteralRegex = /\b(18000|25000|30000|36000|40000|50000|55000|75000)\b/;
+    const pricingLiteralRegex = /\b(18000|20000|25000|28000|30000|36000|40000|50000|55000|75000)\b/;
 
     expect(servicioSource).not.toMatch(pricingLiteralRegex);
     expect(planSource).not.toMatch(pricingLiteralRegex);

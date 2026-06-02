@@ -32,17 +32,17 @@ interface QrReviewsPlanBuilderProps {
 
 const QR_REVIEWS_PLANS: QrReviewsPlanEntry[] = [
     {
-        plan: 'reviews_base',
+        plan: REVIEWS_BASE.code,
         label: REVIEWS_BASE.name,
-        description: 'Generá reseñas en Google de forma simple.',
+        description: 'Filtrá qué llega a Google y empezá a recibir feedback privado.',
         priceMonthly: REVIEWS_BASE.priceMonthly,
         priceYearly: REVIEWS_BASE.priceYearly,
         ctaLabel: 'Activar Reseñas Base',
     },
     {
-        plan: 'reviews_pro',
+        plan: REVIEWS_PRO.code,
         label: REVIEWS_PRO.name,
-        description: 'Elegí qué llega a Google y qué queda como feedback privado.',
+        description: 'Gestioná tu reputación con métricas, estados y carteles profesionales.',
         priceMonthly: REVIEWS_PRO.priceMonthly,
         priceYearly: REVIEWS_PRO.priceYearly,
         badge: '⭐ Recomendado',
@@ -52,23 +52,25 @@ const QR_REVIEWS_PLANS: QrReviewsPlanEntry[] = [
 ];
 
 const PLAN_KEY_FEATURES: Record<string, string[]> = {
-    reviews_base: [
-        'QR listo para compartir',
-        'Recepción de reseñas',
+    [REVIEWS_BASE.code]: [
+        'QR listo para compartir y descargar',
         'Redirección directa a Google',
-    ],
-    reviews_pro: [
-        'Todo lo de Base',
         'Filtro inteligente por calificación',
-        'Feedback privado automático',
-        'Gestión de estados',
+        'Feedback privado básico',
+    ],
+    [REVIEWS_PRO.code]: [
+        'Todo lo de Base',
         'Analytics avanzadas',
+        'Métricas de conversión',
+        'Estados de gestión avanzados',
+        'Carteles profesionales imprimibles',
+        'Personalización avanzada',
     ],
 };
 
 const PLAN_META: Record<string, { highlight: string }> = {
-    reviews_base: { highlight: 'Reseñas en Google, simple y directo' },
-    reviews_pro: { highlight: 'Filtrá qué llega a Google' },
+    [REVIEWS_BASE.code]: { highlight: 'Filtro inteligente + feedback privado' },
+    [REVIEWS_PRO.code]: { highlight: 'Analytics, métricas y carteles profesionales' },
 };
 
 // ---------------------------------------------------------------------------

@@ -289,6 +289,44 @@ def reconcile_session(session_id: str) -> dict:
         except Exception as exc:
             logger.warning("[reconcile_session] Safety net check failed: %s", exc)
 
+        # ── Service-specific companion artifacts (legacy sub, ReviewConfig…) ──
+        # Idempotent — repairs state when the webhook activated V2 + Business
+        # but the per-service hook had not yet run (e.g. older deployments).
+        try:
+            from .service_activation import ensure_service_activation
+            from apps.business.models import Business
+
+            tenant = Business.objects.filter(pk=session.tenant_id).first()
+            active_v2 = None
+            if tenant is not None:
+                from .models import SubscriptionV2
+                active_v2 = (
+                    SubscriptionV2.objects
+                    .filter(business=tenant, is_active=True)
+                    .order_by('-updated_at')
+                    .first()
+                )
+            if tenant is not None and active_v2 is not None:
+                ensure_service_activation(
+                    business=tenant,
+                    owner=session.user,
+                    plan_code=active_v2.plan_code or '',
+                    service_type=(
+                        active_v2.service_type
+                        or getattr(tenant, 'default_service', '')
+                        or ''
+                    ),
+                    subscription_v2=active_v2,
+                    source='reconcile',
+                    external_reference=active_v2.external_reference or '',
+                    provider='mercadopago',
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "[reconcile_session] service_activation hook failed session=%s: %s",
+                session_id, exc,
+            )
+
     return result
 
 

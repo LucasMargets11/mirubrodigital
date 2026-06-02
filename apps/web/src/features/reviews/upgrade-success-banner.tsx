@@ -31,7 +31,7 @@ type Props = {
 export function UpgradeSuccessBanner({ initialConfig, onUpgradeConfirmed }: Props) {
     const router = useRouter();
     const [state, setState] = useState<BannerState>(() =>
-        initialConfig?.smart_filter_allowed ? 'success' : 'activating',
+        initialConfig?.is_reviews_pro ? 'success' : 'activating',
     );
     const [dismissed, setDismissed] = useState(false);
     const pollCount = useRef(0);
@@ -40,7 +40,7 @@ export function UpgradeSuccessBanner({ initialConfig, onUpgradeConfirmed }: Prop
     const poll = useCallback(async () => {
         try {
             const cfg = await getReviewSettings();
-            if (cfg?.smart_filter_allowed) {
+            if (cfg?.is_reviews_pro) {
                 setState('success');
                 onUpgradeConfirmed?.(cfg);
                 // Notify nav + other components

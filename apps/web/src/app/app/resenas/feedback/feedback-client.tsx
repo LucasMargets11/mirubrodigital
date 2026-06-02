@@ -187,20 +187,24 @@ export function FeedbackClient() {
             })()}
 
             {/* ── Main content (only when accessible) ────────── */}
-            {(configLoading || !config || config.smart_filter_allowed) && (
+            {(configLoading || !config || config.smart_filter_allowed) && (() => {
+                const isPro = config?.is_reviews_pro ?? false;
+                return (
             <>
             <div className="flex flex-wrap gap-3">
-                <select
-                    value={filterStatus}
-                    onChange={(e) => setFilterStatus(e.target.value)}
-                    className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-1 focus:ring-brand-500"
-                >
-                    <option value="">Todos los estados</option>
-                    <option value="new">Nuevos</option>
-                    <option value="read">Leídos</option>
-                    <option value="contacted">Contactados</option>
-                    <option value="resolved">Resueltos</option>
-                </select>
+                {isPro && (
+                    <select
+                        value={filterStatus}
+                        onChange={(e) => setFilterStatus(e.target.value)}
+                        className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-1 focus:ring-brand-500"
+                    >
+                        <option value="">Todos los estados</option>
+                        <option value="new">Nuevos</option>
+                        <option value="read">Leídos</option>
+                        <option value="contacted">Contactados</option>
+                        <option value="resolved">Resueltos</option>
+                    </select>
+                )}
 
                 <select
                     value={filterRating}
@@ -226,6 +230,17 @@ export function FeedbackClient() {
                     <option value="rating">Menor puntaje</option>
                 </select>
             </div>
+
+            {!isPro && (
+                <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-xs text-indigo-800">
+                    Estás viendo el feedback privado básico.
+                    {' '}
+                    <span className="font-semibold">Activá Reseñas Pro</span>
+                    {' '}
+                    para gestionar estados (nuevo · leído · contactado · resuelto),
+                    analytics avanzadas y métricas de conversión.
+                </div>
+            )}
 
             {error && <p className="text-sm text-red-600">{error}</p>}
 
@@ -262,9 +277,11 @@ export function FeedbackClient() {
                                     </p>
                                 </div>
 
-                                <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_COLORS[review.status]}`}>
-                                    {STATUS_LABELS[review.status]}
-                                </span>
+                                {isPro && (
+                                    <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_COLORS[review.status]}`}>
+                                        {STATUS_LABELS[review.status]}
+                                    </span>
+                                )}
                             </div>
 
                             {review.comment && (
@@ -277,18 +294,20 @@ export function FeedbackClient() {
                                 </p>
                             )}
 
-                            <div className="flex gap-2 pt-1">
-                                {STATUS_TRANSITIONS[review.status]?.map(({ target, label }) => (
-                                    <button
-                                        key={target}
-                                        onClick={() => handleStatusChange(review.id, target)}
-                                        disabled={transitioningId === review.id}
-                                        className="rounded-full border border-slate-300 px-3 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-wait"
-                                    >
-                                        {transitioningId === review.id ? 'Guardando…' : label}
-                                    </button>
-                                ))}
-                            </div>
+                            {isPro && (
+                                <div className="flex gap-2 pt-1">
+                                    {STATUS_TRANSITIONS[review.status]?.map(({ target, label }) => (
+                                        <button
+                                            key={target}
+                                            onClick={() => handleStatusChange(review.id, target)}
+                                            disabled={transitioningId === review.id}
+                                            className="rounded-full border border-slate-300 px-3 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-wait"
+                                        >
+                                            {transitioningId === review.id ? 'Guardando…' : label}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
 
                             {cardErrors[review.id] && (
                                 <p className="text-xs text-red-600">{cardErrors[review.id]}</p>
@@ -298,7 +317,8 @@ export function FeedbackClient() {
                 </div>
             )}
             </>
-            )}
+                );
+            })()}
         </>
     );
 }

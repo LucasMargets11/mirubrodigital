@@ -193,14 +193,20 @@ class SignalIntegrationTests(TestCase):
 
         self.mock_notif.assert_not_called()
 
-    def test_signal_skipped_for_base_plan(self):
-        """Base plan (no smart_filter_allowed) should NOT trigger notification."""
-        biz = _biz(slug='sig-base', plan='qr_reviews')
+    def test_signal_skipped_when_no_reviews_subscription(self):
+        """Business without any qr_reviews subscription → no smart_filter → no notification.
+
+        Smart-filter is now part of the Base tier, so the only "skip" case is a
+        business that has no reviews entitlement at all.
+        """
+        biz = Business.objects.create(
+            name='No Sub Biz', slug='sig-nosub', default_service='qr_reviews',
+        )
         _cfg(biz, mode='direct')
-        _owner(biz, email='sigbase@example.com')
+        _owner(biz, email='signosub@example.com')
 
         Review.objects.create(
-            business=biz, rating=1, comment='Base test',
+            business=biz, rating=1, comment='No sub test',
             source='qr', ip_hash='sig3',
         )
 
@@ -224,8 +230,8 @@ class SignalIntegrationTests(TestCase):
 
         self.mock_notif.assert_called_once()
 
-    def test_signal_skipped_for_expired_trial(self):
-        """Expired trial should NOT trigger notification."""
+    def test_signal_still_fires_for_expired_trial_on_base_plan(self):
+        """Smart-filter is now plan-granted, so an expired trial does NOT block the signal."""
         biz = _biz(slug='sig-exp', plan='qr_reviews')
         _cfg(
             biz,
@@ -240,7 +246,7 @@ class SignalIntegrationTests(TestCase):
             source='qr', ip_hash='sig5',
         )
 
-        self.mock_notif.assert_not_called()
+        self.mock_notif.assert_called_once()
 
     def test_positive_review_no_notification(self):
         """Rating > 3 does not trigger notification even for Pro plan."""

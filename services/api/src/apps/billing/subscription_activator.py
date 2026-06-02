@@ -150,6 +150,10 @@ def activate_subscription_from_invoice(
         # ── 4. Ensure a Membership exists for the originating user ────────────
         _ensure_owner_membership(subscription)
 
+        # ── 5. Service-specific companion artifacts (legacy sub, ReviewConfig…) ─
+        # Idempotent, never raises out of the transaction.
+        _run_service_activation_hook(subscription, source='webhook')
+
     logger.info(
         "[activator] Activation complete. "
         "prev_sub_status=%s new_sub_status=%s prev_is_active=%s "
@@ -373,6 +377,49 @@ def _ensure_owner_membership(subscription: SubscriptionV2) -> None:
         logger.info(
             "[activator] Created owner Membership user=%s business=%s",
             user.pk, tenant.pk,
+        )
+
+
+def _run_service_activation_hook(subscription: SubscriptionV2, *, source: str) -> None:
+    """
+    Invoke the per-service activation hook to sync legacy/companion artifacts
+    (e.g. business.Subscription legacy row, reviews.ReviewConfig).
+
+    Idempotent and defensive: never raises out of this function.  Failures
+    are logged but must not revert the canonical activation already
+    committed by ``activate_subscription_from_invoice``.
+    """
+    try:
+        from .service_activation import ensure_service_activation
+
+        tenant = getattr(subscription, 'business', None)
+        if tenant is None and subscription.checkout_session:
+            tenant = subscription.checkout_session.tenant
+        if tenant is None:
+            return
+
+        owner = None
+        if subscription.checkout_session:
+            owner = subscription.checkout_session.user
+
+        ensure_service_activation(
+            business=tenant,
+            owner=owner,
+            plan_code=subscription.plan_code or '',
+            service_type=(
+                subscription.service_type
+                or getattr(tenant, 'default_service', '')
+                or ''
+            ),
+            subscription_v2=subscription,
+            source=source,
+            external_reference=subscription.external_reference or '',
+            provider='mercadopago',
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception(
+            "[activator] service_activation hook failed sub=%s source=%s: %s",
+            subscription.pk, source, exc,
         )
 
 

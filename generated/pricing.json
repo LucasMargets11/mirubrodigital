@@ -88,16 +88,16 @@
       "code": "qr_reviews_base",
       "vertical": "qr_reviews",
       "name": "Reseñas Base",
-      "price_monthly": 25000,
-      "price_yearly": 240000,
+      "price_monthly": 20000,
+      "price_yearly": 192000,
       "is_custom": false
     },
     {
       "code": "qr_reviews_pro",
       "vertical": "qr_reviews",
       "name": "Reseñas Pro",
-      "price_monthly": 40000,
-      "price_yearly": 384000,
+      "price_monthly": 28000,
+      "price_yearly": 268800,
       "is_custom": false
     },
     {
