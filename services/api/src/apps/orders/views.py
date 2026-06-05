@@ -20,6 +20,7 @@ from .models import Order, OrderDraft, OrderDraftItem, OrderItem
 from .rules import LOCKED_ORDER_MESSAGE, is_order_editable, is_order_paid
 from .serializers import (
 	OrderCloseSerializer,
+	CounterOrderCreateSerializer,
 	OrderCreateSaleSerializer,
 	OrderCreateSerializer,
 	OrderDraftAssignTableSerializer,
@@ -357,6 +358,24 @@ class OrderListCreateView(generics.ListCreateAPIView):
 		context['business'] = getattr(self.request, 'business')
 		context['allow_table_assignment'] = request_has_permission(self.request, 'manage_order_table')
 		return context
+
+
+class CounterOrderCreateView(APIView):
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	required_permission = 'create_orders'
+
+	def post(self, request):
+		business = getattr(request, 'business')
+		serializer = CounterOrderCreateSerializer(
+			data=request.data,
+			context={'business': business, 'request': request},
+		)
+		serializer.is_valid(raise_exception=True)
+		order = serializer.save()
+		return Response(
+			OrderSerializer(order, context={'request': request, 'business': business}).data,
+			status=status.HTTP_201_CREATED,
+		)
 
 
 class OrderDetailView(APIView):

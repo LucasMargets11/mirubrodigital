@@ -4,6 +4,7 @@ from .views import (
 	OrderCancelView,
 	OrderCloseView,
 	OrderCheckoutView,
+	CounterOrderCreateView,
 	OrderDetailView,
 	OrderCreateSaleView,
 	OrderDraftAssignTableView,
@@ -33,6 +34,7 @@ urlpatterns = [
     path('kitchen/items/<uuid:pk>/', KitchenItemStatusView.as_view(), name='kitchen-item-status'),
     path('kitchen/orders/<uuid:pk>/bulk/', KitchenOrderBulkUpdateView.as_view(), name='kitchen-order-bulk'),
 
+	path('counter/', CounterOrderCreateView.as_view(), name='order-counter-create'),
 	path('drafts/', OrderDraftListCreateView.as_view(), name='order-draft-list'),
 	path('drafts/<uuid:pk>/', OrderDraftDetailView.as_view(), name='order-draft-detail'),
 	path('drafts/<uuid:pk>/items/', OrderDraftItemCreateView.as_view(), name='order-draft-items'),

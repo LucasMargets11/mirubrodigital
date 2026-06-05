@@ -978,6 +978,105 @@ class OrderCreateSerializer(serializers.Serializer):
     return OrderSerializer(instance, context=self.context).data
 
 
+class CounterOrderItemInputSerializer(serializers.Serializer):
+  product_id = serializers.UUIDField(required=False)
+  product = serializers.UUIDField(required=False)
+  quantity = serializers.DecimalField(max_digits=10, decimal_places=2)
+  note = serializers.CharField(max_length=255, required=False, allow_blank=True)
+
+  def validate_quantity(self, value: Decimal) -> Decimal:
+    if value <= 0:
+      raise serializers.ValidationError('La cantidad debe ser mayor a cero.')
+    return value
+
+  def validate(self, attrs):
+    attrs = super().validate(attrs)
+    product_id = attrs.get('product_id') or attrs.get('product')
+    if not product_id:
+      raise serializers.ValidationError({'product_id': 'El producto es obligatorio.'})
+    attrs['product_id'] = product_id
+    attrs.pop('product', None)
+    return attrs
+
+
+class CounterOrderCreateSerializer(serializers.Serializer):
+  items = CounterOrderItemInputSerializer(many=True)
+  customer_name = serializers.CharField(max_length=128, required=False, allow_blank=True)
+  note = serializers.CharField(required=False, allow_blank=True)
+  send_to_kitchen = serializers.BooleanField(required=False, default=True)
+
+  def validate_items(self, value: List[dict]) -> List[dict]:
+    if not value:
+      raise serializers.ValidationError('Agregá al menos un item al pedido.')
+    return value
+
+  def _resolve_product(self, business, product_id) -> Product:
+    try:
+      product = Product.objects.get(pk=product_id, business=business)
+    except Product.DoesNotExist as exc:
+      raise serializers.ValidationError({'product_id': 'Producto no encontrado en este negocio.'}) from exc
+    if not product.is_active:
+      raise serializers.ValidationError({'product_id': 'El producto está inactivo.'})
+    return product
+
+  @transaction.atomic
+  def create(self, validated_data):
+    business = self.context['business']
+    request = self.context.get('request')
+    user = getattr(request, 'user', None) if request else None
+    send_to_kitchen = validated_data.get('send_to_kitchen', True)
+
+    last_number = (
+      Order.objects.select_for_update()
+      .filter(business=business)
+      .order_by('-number')
+      .values_list('number', flat=True)
+      .first()
+    ) or 0
+
+    order = Order.objects.create(
+      business=business,
+      number=last_number + 1,
+      channel=Order.Channel.PICKUP,
+      status=Order.Status.SENT if send_to_kitchen else Order.Status.OPEN,
+      table=None,
+      table_name='',
+      customer_name=(validated_data.get('customer_name') or '').strip(),
+      note=(validated_data.get('note') or '').strip(),
+      created_by=user if getattr(user, 'is_authenticated', False) else None,
+      updated_by=user if getattr(user, 'is_authenticated', False) else None,
+    )
+
+    total = Decimal('0')
+    bulk_items: List[OrderItem] = []
+    for payload in validated_data['items']:
+      product = self._resolve_product(business, payload['product_id'])
+      quantity = Decimal(payload['quantity'])
+      unit_price = Decimal(product.price)
+      line_total = quantity * unit_price
+      total += line_total
+      bulk_items.append(
+        OrderItem(
+          order=order,
+          product=product,
+          name=product.name,
+          note=(payload.get('note') or '').strip(),
+          quantity=quantity,
+          unit_price=unit_price,
+          total_price=line_total,
+          kitchen_status=OrderItem.KitchenStatus.PENDING,
+        )
+      )
+
+    OrderItem.objects.bulk_create(bulk_items)
+    order.total_amount = total
+    order.save(update_fields=['total_amount', 'updated_at'])
+    return order
+
+  def to_representation(self, instance):
+    return OrderSerializer(instance, context=self.context).data
+
+
 class OrderStatusSerializer(serializers.Serializer):
   status = serializers.ChoiceField(choices=Order.Status.choices)
 
