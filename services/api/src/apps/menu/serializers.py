@@ -5,6 +5,7 @@ from typing import Any, Iterable, List
 
 from rest_framework import serializers
 
+from apps.catalog.models import Product
 from .qr_entitlements import get_subscription_for_business, resolve_menu_qr_flags, NEW_MENU_QR_PLANS
 from .models import (
     MenuBrandingSettings,
@@ -53,6 +54,11 @@ class MenuItemBaseSerializer(serializers.ModelSerializer):
     tags = TagListField(required=False, allow_empty=True)
     category_name = serializers.SerializerMethodField(read_only=True)
     category_id = serializers.UUIDField(required=False, allow_null=True)
+    product = serializers.UUIDField(source='product_id', required=False, allow_null=True)
+    product_name = serializers.SerializerMethodField(read_only=True)
+    product_price = serializers.SerializerMethodField(read_only=True)
+    product_category = serializers.SerializerMethodField(read_only=True)
+    product_is_active = serializers.SerializerMethodField(read_only=True)
     image_url = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
@@ -61,6 +67,11 @@ class MenuItemBaseSerializer(serializers.ModelSerializer):
             'id',
             'category_id',
             'category_name',
+            'product',
+            'product_name',
+            'product_price',
+            'product_category',
+            'product_is_active',
             'name',
             'description',
             'price',
@@ -89,6 +100,20 @@ class MenuItemBaseSerializer(serializers.ModelSerializer):
             if request and url.startswith('/'):
                 return request.build_absolute_uri(url)
         return url
+
+    def get_product_name(self, instance: MenuItem) -> str | None:
+        return instance.product.name if instance.product else None
+
+    def get_product_price(self, instance: MenuItem):
+        return instance.product.price if instance.product else None
+
+    def get_product_category(self, instance: MenuItem) -> str | None:
+        if instance.product and instance.product.category:
+            return instance.product.category.name
+        return None
+
+    def get_product_is_active(self, instance: MenuItem):
+        return instance.product.is_active if instance.product else None
 
     def _prepare_tags(self, validated_data: dict) -> None:
         tags: List[str] | None = validated_data.pop('tags', None)
@@ -120,17 +145,36 @@ class MenuItemBaseSerializer(serializers.ModelSerializer):
     def validate_sku(self, value: str) -> str:
         return value.strip()
 
+    def validate_product(self, value):
+        if value is None:
+            return value
+        request = self.context.get('request')
+        business = getattr(request, 'business', None) if request else None
+        if business is None:
+            return value
+        if not Product.objects.filter(pk=value, business=business).exists():
+            raise serializers.ValidationError('El producto no existe en este negocio.')
+        return value
+
     def create(self, validated_data: dict):
         category_id = validated_data.pop('category_id', None)
+        has_product_id = 'product_id' in validated_data
+        product_id = validated_data.pop('product_id', None)
         if category_id:
             validated_data['category_id'] = category_id
+        if has_product_id:
+            validated_data['product_id'] = product_id
         self._prepare_tags(validated_data)
         return super().create(validated_data)
 
     def update(self, instance: MenuItem, validated_data: dict):
         category_id = validated_data.pop('category_id', None)
+        has_product_id = 'product_id' in validated_data
+        product_id = validated_data.pop('product_id', None)
         if category_id is not None:
             validated_data['category_id'] = category_id
+        if has_product_id:
+            validated_data['product_id'] = product_id
         self._prepare_tags(validated_data)
         return super().update(instance, validated_data)
 
@@ -260,6 +304,13 @@ class MenuBrandingSettingsSerializer(serializers.ModelSerializer):
 
 
 class PublicMenuItemSerializer(serializers.ModelSerializer):
+    display_name = serializers.SerializerMethodField()
+    display_price = serializers.SerializerMethodField()
+    display_available = serializers.SerializerMethodField()
+    product_name = serializers.SerializerMethodField()
+    product_price = serializers.SerializerMethodField()
+    product_category = serializers.SerializerMethodField()
+    product_is_active = serializers.SerializerMethodField()
     image_url = serializers.SerializerMethodField()
 
     class Meta:
@@ -267,12 +318,58 @@ class PublicMenuItemSerializer(serializers.ModelSerializer):
         fields = [
             'id',
             'name',
+            'display_name',
             'description',
             'price',
+            'display_price',
             'is_available',
+            'display_available',
             'tags',
+            'product',
+            'product_name',
+            'product_price',
+            'product_category',
+            'product_is_active',
             'image_url',
         ]
+
+    def to_representation(self, instance: MenuItem):  # type: ignore[override]
+        payload = super().to_representation(instance)
+        payload['name'] = payload['display_name']
+        payload['price'] = payload['display_price']
+        payload['is_available'] = payload['display_available']
+        payload['tags'] = instance.tag_list
+        return payload
+
+    def get_display_name(self, instance: MenuItem) -> str:
+        product_name = instance.product.name if instance.product else ''
+        return (instance.name or '').strip() or product_name
+
+    def get_display_price(self, instance: MenuItem):
+        if instance.price is not None:
+            return instance.price
+        if instance.product:
+            return instance.product.price
+        return None
+
+    def get_display_available(self, instance: MenuItem) -> bool:
+        if instance.product:
+            return bool(instance.is_available and instance.product.is_active)
+        return bool(instance.is_available)
+
+    def get_product_name(self, instance: MenuItem) -> str | None:
+        return instance.product.name if instance.product else None
+
+    def get_product_price(self, instance: MenuItem):
+        return instance.product.price if instance.product else None
+
+    def get_product_category(self, instance: MenuItem) -> str | None:
+        if instance.product and instance.product.category:
+            return instance.product.category.name
+        return None
+
+    def get_product_is_active(self, instance: MenuItem):
+        return instance.product.is_active if instance.product else None
 
     def get_image_url(self, instance: MenuItem) -> str | None:
         url = instance.image_url_value

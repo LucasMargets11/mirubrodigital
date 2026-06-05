@@ -53,6 +53,13 @@ class MenuCategory(models.Model):
 class MenuItem(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     business = models.ForeignKey('business.Business', related_name='menu_items', on_delete=models.CASCADE)
+    product = models.ForeignKey(
+        'catalog.Product',
+        related_name='menu_items',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
     category = models.ForeignKey(
         MenuCategory,
         related_name='items',

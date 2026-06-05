@@ -172,7 +172,7 @@ class MenuItemListCreateView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         business = getattr(self.request, 'business')
-        queryset = MenuItem.objects.filter(business=business).select_related('category')
+        queryset = MenuItem.objects.filter(business=business).select_related('category', 'product', 'product__category')
 
         category_id = self.request.query_params.get('category')
         if category_id:
@@ -217,7 +217,7 @@ class MenuItemDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     def get_queryset(self):
         business = getattr(self.request, 'business')
-        return MenuItem.objects.filter(business=business).select_related('category')
+        return MenuItem.objects.filter(business=business).select_related('category', 'product', 'product__category')
 
     def get_serializer_class(self):
         if self.request.method in {'PATCH', 'PUT'}:
@@ -236,7 +236,7 @@ class MenuStructureView(APIView):
         business = getattr(request, 'business')
         items_qs = (
             MenuItem.objects.filter(business=business, is_available=True)
-            .select_related('category')
+            .select_related('category', 'product', 'product__category')
             .order_by('position', 'name')
         )
         categories = (
@@ -473,6 +473,8 @@ class PublicMenuBySlugView(APIView):
         branding = ensure_menu_branding(config.business)
         items_qs = (
             MenuItem.objects.filter(business=config.business, is_available=True)
+            .filter(Q(product__isnull=True) | Q(product__is_active=True))
+            .select_related('product', 'product__category')
             .order_by('position', 'name')
         )
         categories = (
