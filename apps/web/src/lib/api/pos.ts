@@ -19,6 +19,10 @@
  */
 import { ApiError } from '@/lib/api/client';
 import type {
+  CounterOrderPayload,
+  CounterOrderResponse,
+} from '@/features/orders/types';
+import type {
   EmployeeCapabilities,
   EmployeeLoginRequest,
   EmployeeLoginResponse,
@@ -259,6 +263,20 @@ export function posCreateSale(
   payload: PosSalePayload,
 ): Promise<PosSaleCreateResponse> {
   return posFetch<PosSaleCreateResponse>('/api/v1/pos/sales/', token, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+/**
+ * POST /api/v1/pos/orders/counter/
+ * Creates a pickup order intended for the kitchen flow from the POS cart.
+ */
+export function posCreateCounterOrder(
+  token: string,
+  payload: CounterOrderPayload,
+): Promise<CounterOrderResponse> {
+  return posFetch<CounterOrderResponse>('/api/v1/pos/orders/counter/', token, {
     method: 'POST',
     body: JSON.stringify(payload),
   });

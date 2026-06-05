@@ -9,6 +9,10 @@ import { TableMapEmbed } from '@/components/orders/table-map-embed';
 import { useCommercialSettingsQuery } from '@/features/gestion/hooks';
 import { cancelOrder, createOrderItem, startOrder } from '@/features/orders/api';
 import type { Order } from '@/features/orders/types';
+import {
+    getEffectiveRestaurantOperationSettings,
+    useRestaurantOperationSettings,
+} from '@/features/resto/hooks';
 import { tablesKeys, useRestaurantTablesMapState } from '@/features/tables/hooks';
 import type { RestaurantTableNode } from '@/features/tables/types';
 import { ApiError } from '@/lib/api/client';
@@ -50,6 +54,9 @@ export function NewOrderClient({ canViewCommercialSettings = false }: NewOrderCl
     const [formError, setFormError] = useState<string | null>(null);
 
     const mapStateQuery = useRestaurantTablesMapState();
+    const operationSettingsQuery = useRestaurantOperationSettings();
+    const operationSettings = getEffectiveRestaurantOperationSettings(operationSettingsQuery.data);
+    const allowDineInOrders = operationSettings.allow_dine_in_orders;
     const settingsQuery = useCommercialSettingsQuery({
         enabled: canViewCommercialSettings,
         skipIfForbidden: !canViewCommercialSettings,
@@ -79,6 +86,10 @@ export function NewOrderClient({ canViewCommercialSettings = false }: NewOrderCl
 
     const handleSelectTable = (nextId: string, snapshot?: RestaurantTableNode | null) => {
         setFormError(null);
+        if (!allowDineInOrders) {
+            setBlockedMessage('El canal salón está deshabilitado para este negocio.');
+            return;
+        }
         if (snapshot?.state === 'PAUSED') {
             setBlockedMessage('Esta mesa está pausada. Reactivala desde la configuración para tomar pedidos.');
             return;
@@ -199,6 +210,10 @@ export function NewOrderClient({ canViewCommercialSettings = false }: NewOrderCl
     });
 
     const handleConfirmOrder = () => {
+        if (!allowDineInOrders) {
+            setFormError('Los pedidos dine in por mesa están deshabilitados para este negocio.');
+            return;
+        }
         if (!tableId) {
             setFormError('Seleccioná una mesa antes de confirmar.');
             return;
@@ -213,7 +228,7 @@ export function NewOrderClient({ canViewCommercialSettings = false }: NewOrderCl
 
     const tablesLoading = mapStateQuery.isLoading;
     const tablesError = mapStateQuery.isError ? 'No pudimos cargar las mesas. Intentá nuevamente.' : null;
-    const submitDisabled = !tableId || cartItems.length === 0 || createOrderMutation.isPending;
+    const submitDisabled = !allowDineInOrders || !tableId || cartItems.length === 0 || createOrderMutation.isPending;
 
     return (
         <section data-testid="new-order-root" className="space-y-6">
@@ -224,6 +239,11 @@ export function NewOrderClient({ canViewCommercialSettings = false }: NewOrderCl
                     Seleccioná una mesa desde el mapa y agregá productos para abrir una orden inmediata en la vista principal.
                 </p>
             </header>
+            {!allowDineInOrders ? (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                    El canal salón (dine in) está desactivado. Esta pantalla queda solo en modo lectura.
+                </div>
+            ) : null}
             <div className="grid gap-6 lg:grid-cols-[420px_1fr] xl:grid-cols-[480px_1fr]">
                 <TableMapEmbed
                     tables={tables}
