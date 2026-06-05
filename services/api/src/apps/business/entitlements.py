@@ -11,6 +11,8 @@ from typing import Set
 
 logger = logging.getLogger(__name__)
 
+POS_OFFLINE_CONTINGENCY_ENTITLEMENT = 'gestion.restaurant_pos_offline_contingency'
+
 
 # Entitlements por plan — 4 planes oficiales + aliases legacy
 PLAN_ENTITLEMENTS = {
@@ -244,6 +246,16 @@ def has_entitlement(business, entitlement_code: str) -> bool:
             business.pk, entitlement_code,
         )
         return False
+
+
+def has_pos_offline_contingency_access(business) -> bool:
+    """
+    Domain helper for future POS Offline Contingency gating.
+
+    Returns True only when the current business has the dedicated entitlement
+    enabled under the existing V2/legacy subscription resolution flow.
+    """
+    return has_entitlement(business, POS_OFFLINE_CONTINGENCY_ENTITLEMENT)
 
 
 def get_upgrade_hint(entitlement_code: str) -> str:
