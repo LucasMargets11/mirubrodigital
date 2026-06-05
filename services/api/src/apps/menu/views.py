@@ -83,6 +83,7 @@ class MenuCategoryListCreateView(generics.ListCreateAPIView):
         business = getattr(self.request, 'business')
         return (
             MenuCategory.objects.filter(business=business)
+            .select_related('product_category')
             .annotate(item_count=Count('items'))
             .order_by('position', 'name')
         )
@@ -104,6 +105,7 @@ class MenuCategoryDetailView(generics.RetrieveUpdateDestroyAPIView):
         business = getattr(self.request, 'business')
         return (
             MenuCategory.objects.filter(business=business)
+            .select_related('product_category')
             .annotate(item_count=Count('items'))
             .order_by('position', 'name')
         )
@@ -241,6 +243,7 @@ class MenuStructureView(APIView):
         )
         categories = (
             MenuCategory.objects.filter(business=business, is_active=True)
+            .select_related('product_category')
             .prefetch_related(Prefetch('items', queryset=items_qs))
             .order_by('position', 'name')
         )
@@ -479,6 +482,7 @@ class PublicMenuBySlugView(APIView):
         )
         categories = (
             MenuCategory.objects.filter(business=config.business, is_active=True)
+            .select_related('product_category')
             .prefetch_related(Prefetch('items', queryset=items_qs))
             .order_by('position', 'name')
         )
