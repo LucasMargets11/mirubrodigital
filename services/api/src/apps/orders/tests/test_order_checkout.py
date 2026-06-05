@@ -190,4 +190,3 @@ class OrderCheckoutFlowTests(APITestCase):
     )
 
     self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
-*** End File
