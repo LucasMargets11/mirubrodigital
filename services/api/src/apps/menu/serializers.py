@@ -54,6 +54,10 @@ class MenuItemBaseSerializer(serializers.ModelSerializer):
     tags = TagListField(required=False, allow_empty=True)
     category_name = serializers.SerializerMethodField(read_only=True)
     category_id = serializers.UUIDField(required=False, allow_null=True)
+    display_name = serializers.SerializerMethodField(read_only=True)
+    display_price = serializers.SerializerMethodField(read_only=True)
+    display_available = serializers.SerializerMethodField(read_only=True)
+    canonical_sku = serializers.SerializerMethodField(read_only=True)
     product = serializers.UUIDField(source='product_id', required=False, allow_null=True)
     product_name = serializers.SerializerMethodField(read_only=True)
     product_price = serializers.SerializerMethodField(read_only=True)
@@ -67,6 +71,10 @@ class MenuItemBaseSerializer(serializers.ModelSerializer):
             'id',
             'category_id',
             'category_name',
+            'display_name',
+            'display_price',
+            'display_available',
+            'canonical_sku',
             'product',
             'product_name',
             'product_price',
@@ -103,6 +111,18 @@ class MenuItemBaseSerializer(serializers.ModelSerializer):
 
     def get_product_name(self, instance: MenuItem) -> str | None:
         return instance.product.name if instance.product else None
+
+    def get_display_name(self, instance: MenuItem) -> str:
+        return resolve_menu_item_display_name(instance)
+
+    def get_display_price(self, instance: MenuItem):
+        return resolve_menu_item_display_price(instance)
+
+    def get_display_available(self, instance: MenuItem) -> bool:
+        return resolve_menu_item_display_available(instance)
+
+    def get_canonical_sku(self, instance: MenuItem) -> str:
+        return resolve_menu_item_canonical_sku(instance)
 
     def get_product_price(self, instance: MenuItem):
         return instance.product.price if instance.product else None
@@ -303,10 +323,38 @@ class MenuBrandingSettingsSerializer(serializers.ModelSerializer):
         return branding
 
 
+def resolve_menu_item_display_name(item: MenuItem) -> str:
+    """MenuItem is the public presentation layer; Product is fallback when available."""
+    product_name = item.product.name if item.product else ''
+    return (item.name or '').strip() or product_name
+
+
+def resolve_menu_item_display_price(item: MenuItem):
+    """Product is the commercial source of truth when linked; legacy MenuItem price otherwise."""
+    if item.product:
+        return item.product.price
+    return item.price
+
+
+def resolve_menu_item_display_available(item: MenuItem) -> bool:
+    """Public availability combines menu curation and product active state."""
+    if item.product:
+        return bool(item.is_available and item.product.is_active)
+    return bool(item.is_available)
+
+
+def resolve_menu_item_canonical_sku(item: MenuItem) -> str:
+    """Expose canonical commercial SKU from Product when linked, fallback to legacy MenuItem SKU."""
+    if item.product and item.product.sku:
+        return item.product.sku
+    return item.sku
+
+
 class PublicMenuItemSerializer(serializers.ModelSerializer):
     display_name = serializers.SerializerMethodField()
     display_price = serializers.SerializerMethodField()
     display_available = serializers.SerializerMethodField()
+    canonical_sku = serializers.SerializerMethodField()
     product_name = serializers.SerializerMethodField()
     product_price = serializers.SerializerMethodField()
     product_category = serializers.SerializerMethodField()
@@ -325,6 +373,7 @@ class PublicMenuItemSerializer(serializers.ModelSerializer):
             'is_available',
             'display_available',
             'tags',
+            'canonical_sku',
             'product',
             'product_name',
             'product_price',
@@ -342,20 +391,16 @@ class PublicMenuItemSerializer(serializers.ModelSerializer):
         return payload
 
     def get_display_name(self, instance: MenuItem) -> str:
-        product_name = instance.product.name if instance.product else ''
-        return (instance.name or '').strip() or product_name
+        return resolve_menu_item_display_name(instance)
 
     def get_display_price(self, instance: MenuItem):
-        if instance.price is not None:
-            return instance.price
-        if instance.product:
-            return instance.product.price
-        return None
+        return resolve_menu_item_display_price(instance)
 
     def get_display_available(self, instance: MenuItem) -> bool:
-        if instance.product:
-            return bool(instance.is_available and instance.product.is_active)
-        return bool(instance.is_available)
+        return resolve_menu_item_display_available(instance)
+
+    def get_canonical_sku(self, instance: MenuItem) -> str:
+        return resolve_menu_item_canonical_sku(instance)
 
     def get_product_name(self, instance: MenuItem) -> str | None:
         return instance.product.name if instance.product else None
