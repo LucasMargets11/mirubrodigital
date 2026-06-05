@@ -34,6 +34,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 from decimal import Decimal
+from uuid import uuid4
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import make_password
@@ -49,6 +50,7 @@ from apps.business.models import Business, CommercialSettings
 from apps.cash.models import CashSession, Payment
 from apps.catalog.models import Product
 from apps.inventory.models import StockMovement
+from apps.inventory.services import ensure_stock_record
 from apps.sales.models import Sale
 
 User = get_user_model()
@@ -462,3 +464,213 @@ class PosSplitPaymentTests(TestCase):
         self.assertEqual(sale.total, Decimal('150.00'))
         # No Payment records should be created for legacy flow
         self.assertEqual(Payment.objects.filter(sale=sale).count(), 0)
+
+
+class PosSaleIdempotencyTests(TestCase):
+
+    def setUp(self):
+        self.business = _make_business(name='PosIdempotencyBiz')
+        self.employee = _make_employee(self.business, code='EMP-ID01')
+        self.product = _make_product(self.business, name='Milanesa', price='200.00')
+        self.client = _employee_client(self.employee, self.business)
+        self._ensure_settings()
+        self._set_stock(self.product, '10.00')
+
+    def _ensure_settings(self):
+        cs, _ = CommercialSettings.objects.get_or_create(business=self.business)
+        cs.block_sales_if_no_open_cash_session = False
+        cs.require_customer_for_sales = False
+        cs.save()
+
+    def _payload(self, **extra):
+        payload = {
+            'payment_method': 'cash',
+            'items': [
+                {
+                    'product_id': str(self.product.pk),
+                    'quantity': 1,
+                }
+            ],
+        }
+        payload.update(extra)
+        return payload
+
+    def _set_stock(self, product: Product, quantity) -> None:
+        stock = ensure_stock_record(product.business, product)
+        stock.quantity = Decimal(str(quantity))
+        stock.save(update_fields=['quantity', 'updated_at'])
+
+    def test_sale_without_client_order_id_still_works(self):
+        resp = self.client.post(URL_SALES, self._payload(), format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        self.assertFalse(resp.json()['duplicate'])
+        self.assertEqual(Sale.objects.filter(business=self.business).count(), 1)
+        sale = Sale.objects.get(business=self.business)
+        self.assertIsNone(sale.client_order_id)
+
+    def test_new_client_order_id_is_saved(self):
+        client_order_id = uuid4()
+        resp = self.client.post(
+            URL_SALES,
+            self._payload(client_order_id=str(client_order_id)),
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        self.assertFalse(resp.json()['duplicate'])
+        sale = Sale.objects.get(pk=resp.json()['sale']['id'])
+        self.assertEqual(sale.client_order_id, client_order_id)
+        self.assertEqual(resp.json()['server_id'], str(sale.pk))
+
+    def test_duplicate_client_order_id_returns_existing_sale(self):
+        client_order_id = str(uuid4())
+        first = self.client.post(URL_SALES, self._payload(client_order_id=client_order_id), format='json')
+        second = self.client.post(URL_SALES, self._payload(client_order_id=client_order_id), format='json')
+
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED, first.data)
+        self.assertEqual(second.status_code, status.HTTP_200_OK, second.data)
+        self.assertEqual(Sale.objects.filter(business=self.business).count(), 1)
+        self.assertEqual(second.json()['sale']['id'], first.json()['sale']['id'])
+        self.assertTrue(second.json()['duplicate'])
+
+    def test_same_client_order_id_can_be_reused_in_another_business(self):
+        other_business = _make_business(name='OtherIdempotencyBiz')
+        other_employee = _make_employee(other_business, code='EMP-ID02')
+        other_product = _make_product(other_business, name='Pizza', price='220.00')
+        other_client = _employee_client(other_employee, other_business)
+        cs, _ = CommercialSettings.objects.get_or_create(business=other_business)
+        cs.block_sales_if_no_open_cash_session = False
+        cs.require_customer_for_sales = False
+        cs.save()
+        other_stock = ensure_stock_record(other_business, other_product)
+        other_stock.quantity = Decimal('10.00')
+        other_stock.save(update_fields=['quantity', 'updated_at'])
+
+        client_order_id = str(uuid4())
+        first = self.client.post(URL_SALES, self._payload(client_order_id=client_order_id), format='json')
+        second = other_client.post(
+            URL_SALES,
+            {
+                'payment_method': 'cash',
+                'client_order_id': client_order_id,
+                'items': [{'product_id': str(other_product.pk), 'quantity': 1}],
+            },
+            format='json',
+        )
+
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED, first.data)
+        self.assertEqual(second.status_code, status.HTTP_201_CREATED, second.data)
+        self.assertEqual(Sale.objects.filter(client_order_id=client_order_id).count(), 2)
+
+    def test_invalid_client_order_id_returns_400(self):
+        resp = self.client.post(
+            URL_SALES,
+            self._payload(client_order_id='not-a-uuid'),
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('client_order_id', resp.json())
+        self.assertEqual(Sale.objects.filter(business=self.business).count(), 0)
+
+    def test_failed_validation_does_not_leave_partial_sale(self):
+        payload = self._payload(
+            client_order_id=str(uuid4()),
+            payments=[{'method': 'cash', 'amount': '999.00'}],
+        )
+        resp = self.client.post(URL_SALES, payload, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Sale.objects.filter(business=self.business).count(), 0)
+        self.assertEqual(Payment.objects.filter(business=self.business).count(), 0)
+
+    def test_cash_session_failure_does_not_leave_partial_sale(self):
+        cs, _ = CommercialSettings.objects.get_or_create(business=self.business)
+        cs.block_sales_if_no_open_cash_session = True
+        cs.require_customer_for_sales = False
+        cs.save()
+
+        resp = self.client.post(
+            URL_SALES,
+            self._payload(client_order_id=str(uuid4())),
+            format='json',
+        )
+
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(resp.json()['error']['code'], 'CASH_SESSION_REQUIRED')
+        self.assertEqual(Sale.objects.filter(business=self.business).count(), 0)
+        self.assertEqual(Payment.objects.filter(business=self.business).count(), 0)
+
+    def test_stock_failure_does_not_leave_partial_sale(self):
+        cs, _ = CommercialSettings.objects.get_or_create(business=self.business)
+        cs.allow_sell_without_stock = False
+        cs.block_sales_if_no_open_cash_session = False
+        cs.require_customer_for_sales = False
+        cs.save()
+
+        self._set_stock(self.product, '0.00')
+
+        resp = self.client.post(
+            URL_SALES,
+            self._payload(client_order_id=str(uuid4())),
+            format='json',
+        )
+
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Sale.objects.filter(business=self.business).count(), 0)
+        self.assertEqual(Payment.objects.filter(business=self.business).count(), 0)
+        self.assertEqual(
+            StockMovement.objects.filter(
+                business=self.business,
+                product=self.product,
+                movement_type=StockMovement.MovementType.OUT,
+            ).count(),
+            0,
+        )
+
+    def test_duplicate_retry_does_not_deduct_stock_twice(self):
+        client_order_id = str(uuid4())
+        payload = self._payload(client_order_id=client_order_id)
+        initial_stock = ensure_stock_record(self.business, self.product).quantity
+
+        first = self.client.post(URL_SALES, payload, format='json')
+        stock_after_first = ensure_stock_record(self.business, self.product).quantity
+        stock_movements_after_first = StockMovement.objects.filter(
+            business=self.business,
+            product=self.product,
+            movement_type=StockMovement.MovementType.OUT,
+        ).count()
+        second = self.client.post(URL_SALES, payload, format='json')
+        stock_after_second = ensure_stock_record(self.business, self.product).quantity
+        stock_movements_after_second = StockMovement.objects.filter(
+            business=self.business,
+            product=self.product,
+            movement_type=StockMovement.MovementType.OUT,
+        ).count()
+
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED, first.data)
+        self.assertEqual(second.status_code, status.HTTP_200_OK, second.data)
+        self.assertEqual(stock_after_first, initial_stock - Decimal('1.00'))
+        self.assertEqual(stock_after_second, stock_after_first)
+        self.assertEqual(stock_movements_after_first, 1)
+        self.assertEqual(stock_movements_after_second, 1)
+
+    def test_duplicate_retry_does_not_duplicate_payment_or_cash_totals(self):
+        from apps.cash.services import compute_session_totals
+
+        session = _make_open_session(self.employee, self.business)
+        client_order_id = str(uuid4())
+        payload = {
+            'client_order_id': client_order_id,
+            'items': [{'product_id': str(self.product.pk), 'quantity': 1}],
+            'payments': [{'method': 'cash', 'amount': '200.00'}],
+        }
+
+        first = self.client.post(URL_SALES, payload, format='json')
+        totals_after_first = compute_session_totals(session)
+        second = self.client.post(URL_SALES, payload, format='json')
+        totals_after_second = compute_session_totals(session)
+
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED, first.data)
+        self.assertEqual(second.status_code, status.HTTP_200_OK, second.data)
+        self.assertEqual(Payment.objects.filter(sale_id=first.json()['sale']['id']).count(), 1)
+        self.assertEqual(Payment.objects.filter(session=session).count(), 1)
+        self.assertEqual(totals_after_first['cash_expected_total'], totals_after_second['cash_expected_total'])
+        self.assertEqual(totals_after_first['payments_total'], totals_after_second['payments_total'])

@@ -2,6 +2,7 @@ import uuid
 
 from django.conf import settings
 from django.db import models
+from django.db.models import Q
 from django.utils import timezone
 
 
@@ -71,6 +72,7 @@ class Sale(models.Model):
     blank=True,
     on_delete=models.SET_NULL,
   )
+  client_order_id = models.UUIDField(null=True, blank=True, db_index=True)
   created_at = models.DateTimeField(auto_now_add=True)
   updated_at = models.DateTimeField(auto_now=True)
   cancelled_at = models.DateTimeField(null=True, blank=True)
@@ -79,6 +81,11 @@ class Sale(models.Model):
     ordering = ['-created_at', '-number']
     constraints = [
       models.UniqueConstraint(fields=['business', 'number'], name='sales_business_number_unique'),
+      models.UniqueConstraint(
+        fields=['business', 'client_order_id'],
+        condition=Q(client_order_id__isnull=False),
+        name='sales_business_client_order_id_unique',
+      ),
     ]
     indexes = [
       models.Index(fields=['business', 'status']),
