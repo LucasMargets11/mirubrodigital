@@ -67,6 +67,7 @@ PLAN_ENTITLEMENTS = {
         'gestion.transfers',
         'gestion.consolidated_reports',
         'gestion.tax_backup',
+        'gestion.restaurant_pos_offline_contingency',
     },
     'enterprise': {
         # Todos los de BUSINESS
@@ -92,6 +93,7 @@ PLAN_ENTITLEMENTS = {
         'gestion.transfers',
         'gestion.consolidated_reports',
         'gestion.tax_backup',
+        'gestion.restaurant_pos_offline_contingency',
     },
     
     # Legacy aliases — mapean a los planes canónicos
@@ -153,6 +155,7 @@ ENTITLEMENT_UPGRADE_HINTS = {
     'gestion.transfers': 'BUSINESS',
     'gestion.consolidated_reports': 'BUSINESS',
     'gestion.tax_backup': 'BUSINESS',
+    'gestion.restaurant_pos_offline_contingency': 'BUSINESS',
     'gestion.print_signage': 'PRO',
     'qr_reviews.print_posters': 'Reseñas PRO',
 }
