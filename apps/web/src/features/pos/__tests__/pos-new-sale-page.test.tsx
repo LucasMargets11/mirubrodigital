@@ -5,15 +5,27 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PosProduct } from '@/types/pos-cash';
 import { PosNewSalePage } from '../components/PosNewSalePage';
 
 const mocks = vi.hoisted(() => ({
   routerPush: vi.fn(),
+  routerReplace: vi.fn(),
   createSaleMutateAsync: vi.fn(),
   createCounterOrderMutateAsync: vi.fn(),
   handleError: vi.fn((err: unknown) => (err instanceof Error ? err.message : 'Error inesperado.')),
+  useRestaurantOperationSettings: vi.fn(),
+  offlineCatalog: {
+    isOffline: false,
+    status: 'online' as string,
+    snapshot: null as unknown,
+    savedAt: null as string | null,
+    products: [] as unknown[],
+    categories: [] as unknown[],
+    paymentMethods: [] as unknown[],
+    canBuildCart: false,
+  },
   operationSettings: {
     tables_enabled: true,
     kitchen_enabled: true,
@@ -38,7 +50,7 @@ const productFixture: PosProduct = {
 };
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: mocks.routerPush }),
+  useRouter: () => ({ push: mocks.routerPush, replace: mocks.routerReplace }),
 }));
 
 vi.mock('../context', () => ({
@@ -77,12 +89,59 @@ vi.mock('../cash-hooks', () => ({
 }));
 
 vi.mock('@/features/resto/hooks', () => ({
-  useRestaurantOperationSettings: () => ({
-    data: mocks.operationSettings,
-    isLoading: false,
-    isError: false,
-  }),
+  useRestaurantOperationSettings: () => {
+    mocks.useRestaurantOperationSettings();
+    return {
+      data: mocks.operationSettings,
+      isLoading: false,
+      isError: false,
+    };
+  },
   getEffectiveRestaurantOperationSettings: (value: unknown) => value,
+}));
+
+vi.mock('@/features/pos/offline/pos-operation-settings', () => ({
+  usePosOperationSettings: () => mocks.operationSettings,
+}));
+
+vi.mock('@/features/pos/offline/offline-catalog', () => ({
+  usePosOfflineCatalog: () => mocks.offlineCatalog,
+}));
+
+vi.mock('@/features/pos/offline/OfflineProductCatalogPanel', () => ({
+  OfflineProductCatalogPanel: () => <div data-testid="offline-catalog-panel" />,
+}));
+
+vi.mock('@/features/pos/offline/offline-sales-hooks', () => ({
+  usePosCaptureOfflineSale: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  usePosOfflineSalesCount: () => 0,
+  OfflineSaleValidationError: class OfflineSaleValidationError extends Error {},
+}));
+
+vi.mock('@/features/pos/offline/offline-guard', () => ({
+  usePosOfflineGuard: () => ({
+    isOffline: false,
+    snapshot: null,
+    savedAt: null,
+    expiry: {
+      expiresAt: null,
+      isExpired: false,
+      isExpiringSoon: false,
+      hoursUntilExpiry: null,
+    },
+    unsyncedCount: 0,
+    atPendingLimit: false,
+    blockReason: null,
+    warningMessage: null,
+  }),
+}));
+
+vi.mock('@/features/pos/offline/OfflineContingencyNotice', () => ({
+  OfflineContingencyNotice: () => <div data-testid="offline-contingency-notice" />,
+}));
+
+vi.mock('@/features/pos/offline/offline-sales-panel', () => ({
+  OfflineSalesPanel: () => <div data-testid="offline-sales-panel" />,
 }));
 
 vi.mock('../components/ProductSearchPanel', () => ({
@@ -157,6 +216,7 @@ describe('PosNewSalePage kitchen counter mode', () => {
     mocks.createSaleMutateAsync.mockReset();
     mocks.createCounterOrderMutateAsync.mockReset();
     mocks.handleError.mockClear();
+    mocks.useRestaurantOperationSettings.mockClear();
     mocks.createSaleMutateAsync.mockResolvedValue({
       sale: {
         id: 'sale-1',
@@ -208,6 +268,16 @@ describe('PosNewSalePage kitchen counter mode', () => {
       allow_delivery_orders: false,
       default_pos_mode: 'quick_sale',
     };
+    mocks.offlineCatalog = {
+      isOffline: false,
+      status: 'online',
+      snapshot: null,
+      savedAt: null,
+      products: [],
+      categories: [],
+      paymentMethods: [],
+      canBuildCart: false,
+    };
   });
 
   it('hides kitchen mode when kitchen_enabled is false', () => {
@@ -229,6 +299,13 @@ describe('PosNewSalePage kitchen counter mode', () => {
   it('shows kitchen mode when kitchen and counter orders are enabled', () => {
     render(<PosNewSalePage />);
     expect(screen.getByRole('button', { name: 'Pedido con cocina' })).toBeInTheDocument();
+  });
+
+  it('does not read the owner/admin operation-settings endpoint (PR-OFF-10)', () => {
+    render(<PosNewSalePage />);
+    // The POS must derive flags from the offline snapshot, never from the
+    // owner/admin hook that calls /api/v1/resto/settings/operation/.
+    expect(mocks.useRestaurantOperationSettings).not.toHaveBeenCalled();
   });
 
   it('keeps quick sale as default and calls posCreateSale', async () => {
@@ -318,5 +395,95 @@ describe('PosNewSalePage kitchen counter mode', () => {
       expect(screen.getByTestId('cart-state').textContent).toBe('carrito-vacio');
     });
     expect(screen.getByText(/Pedido #31 enviado a cocina/i).textContent).toContain('Pedido #31 enviado a cocina');
+  });
+});
+
+describe('PosNewSalePage back navigation (PR-OFF-11)', () => {
+  const originalLocation = window.location;
+
+  beforeEach(() => {
+    mocks.routerPush.mockReset();
+    mocks.routerReplace.mockReset();
+    mocks.offlineCatalog = {
+      isOffline: false,
+      status: 'online',
+      snapshot: null,
+      savedAt: null,
+      products: [],
+      categories: [],
+      paymentMethods: [],
+      canBuildCart: false,
+    };
+  });
+
+  afterEach(() => {
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      writable: true,
+      value: originalLocation,
+    });
+  });
+
+  it('online: "Volver al terminal" uses router.replace to /pos/terminal', () => {
+    render(<PosNewSalePage />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Volver al terminal' }));
+
+    expect(mocks.routerReplace).toHaveBeenCalledWith('/pos/terminal');
+    expect(mocks.routerPush).not.toHaveBeenCalled();
+  });
+
+  it('offline: "Volver al terminal" uses router.replace and never hard-navigates', () => {
+    const assign = vi.fn();
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      writable: true,
+      value: { ...originalLocation, assign },
+    });
+    mocks.offlineCatalog = {
+      isOffline: true,
+      status: 'offline',
+      snapshot: null,
+      savedAt: '2026-06-07T10:00:00Z',
+      products: [],
+      categories: [],
+      paymentMethods: [],
+      canBuildCart: true,
+    };
+
+    render(<PosNewSalePage />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Volver al terminal' }));
+
+    expect(mocks.routerReplace).toHaveBeenCalledWith('/pos/terminal');
+    expect(assign).not.toHaveBeenCalled();
+    expect(mocks.routerPush).not.toHaveBeenCalled();
+  });
+
+  it('offline: "Cancelar" also uses router.replace to /pos/terminal', () => {
+    const assign = vi.fn();
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      writable: true,
+      value: { ...originalLocation, assign },
+    });
+    mocks.offlineCatalog = {
+      isOffline: true,
+      status: 'offline',
+      snapshot: null,
+      savedAt: '2026-06-07T10:00:00Z',
+      products: [],
+      categories: [],
+      paymentMethods: [],
+      canBuildCart: true,
+    };
+
+    render(<PosNewSalePage />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+
+    expect(mocks.routerReplace).toHaveBeenCalledWith('/pos/terminal');
+    expect(assign).not.toHaveBeenCalled();
+    expect(mocks.routerPush).not.toHaveBeenCalled();
   });
 });
