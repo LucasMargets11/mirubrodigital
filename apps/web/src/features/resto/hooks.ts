@@ -34,6 +34,31 @@ export function getEffectiveRestaurantOperationSettings(
   return settings ?? DEFAULT_RESTAURANT_OPERATION_SETTINGS;
 }
 
+export type OrderChannelKey = 'dine_in' | 'pickup' | 'delivery';
+
+/**
+ * Derive the order channels a business can currently create, based on its
+ * operative configuration. Channels are granular and independent:
+ *  - dine_in: requires both tables and salón orders to be enabled.
+ *  - pickup:  available whenever pickup/mostrador orders are enabled.
+ *  - delivery: available whenever delivery orders are enabled.
+ */
+export function getAvailableOrderChannels(
+  settings: RestaurantOperationSettings,
+): OrderChannelKey[] {
+  const channels: OrderChannelKey[] = [];
+  if (settings.tables_enabled && settings.allow_dine_in_orders) {
+    channels.push('dine_in');
+  }
+  if (settings.allow_pickup_orders) {
+    channels.push('pickup');
+  }
+  if (settings.allow_delivery_orders) {
+    channels.push('delivery');
+  }
+  return channels;
+}
+
 export function useUpdateRestaurantOperationSettings() {
   const queryClient = useQueryClient();
 

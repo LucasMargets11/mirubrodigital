@@ -23,7 +23,7 @@ class CounterOrderCreateTests(APITestCase):
 
   def _create_business(self, name: str = 'Counter Orders Biz') -> Business:
     business = Business.objects.create(name=name, default_service='restaurante')
-    Subscription.objects.create(business=business, plan=BusinessPlan.PLUS, status='active')
+    Subscription.objects.create(business=business, plan=BusinessPlan.PLUS, service='restaurante', status='active')
     return business
 
   def _authenticate(self, business: Business, role: str = 'owner'):

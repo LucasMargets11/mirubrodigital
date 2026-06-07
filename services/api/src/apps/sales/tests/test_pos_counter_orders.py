@@ -29,7 +29,7 @@ User = get_user_model()
 
 def _make_business(name: str = 'PosCounterBiz') -> Business:
     business = Business.objects.create(name=name, default_service='restaurante', status='active')
-    Subscription.objects.create(business=business, plan=BusinessPlan.PLUS, status='active')
+    Subscription.objects.create(business=business, plan=BusinessPlan.PLUS, service='restaurante', status='active')
     return business
 
 
