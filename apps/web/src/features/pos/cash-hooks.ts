@@ -20,6 +20,7 @@ import { ApiError } from '@/lib/api/client';
 import {
   posCloseCurrentCashSession,
   posCreateCashMovement,
+  posCreateCounterOrder,
   posCreateCustomer,
   posCreateSale,
   posGetCategories,
@@ -30,6 +31,10 @@ import {
   posOpenCashSession,
   posSearchCustomers,
 } from '@/lib/api/pos';
+import type {
+  CounterOrderPayload,
+  CounterOrderResponse,
+} from '@/features/orders/types';
 import type {
   PosCashCloseRequest,
   PosCashCurrentMovementsResponse,
@@ -366,6 +371,21 @@ export function usePosCreateSale() {
     onSuccess: () => {
       // Refresh cash session totals after a sale is registered
       queryClient.invalidateQueries({ queryKey: ['pos', 'cash'] });
+    },
+  });
+}
+
+/**
+ * POST /api/v1/orders/counter/
+ * Creates a pickup order for kitchen preparation without registering a sale.
+ */
+export function usePosCreateCounterOrder() {
+  const { token } = useTokenGuard();
+
+  return useMutation<CounterOrderResponse, ApiError, CounterOrderPayload>({
+    mutationFn: (payload) => {
+      if (!token) throw new Error('No hay token de sesión operativa');
+      return posCreateCounterOrder(token, payload);
     },
   });
 }

@@ -629,6 +629,8 @@ function makePosProduct(overrides: Partial<PosProduct> = {}): PosProduct {
     sku: 'CAF-001',
     price: '150.00',
     stock_quantity: '50',
+    stock_min: '0',
+    category_id: null,
     is_active: true,
     ...overrides,
   };

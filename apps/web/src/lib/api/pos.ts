@@ -21,6 +21,9 @@ import { ApiError } from '@/lib/api/client';
 import type {
   CounterOrderPayload,
   CounterOrderResponse,
+  KitchenItem,
+  KitchenOrder,
+  KitchenStatus,
 } from '@/features/orders/types';
 import type {
   EmployeeCapabilities,
@@ -46,6 +49,11 @@ import type {
   PosSaleCreateResponse,
   PosSalePayload,
 } from '@/types/pos-cash';
+import type { PosOfflineBootstrapPayload } from '@/features/pos/offline/types';
+import type {
+  OfflineSalePayload,
+  OfflineSaleSyncResult,
+} from '@/features/pos/offline/offline-sales-types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
 
@@ -127,6 +135,22 @@ export function posGetCapabilities(token: string): Promise<EmployeeCapabilities>
  */
 export function posGetHealth(token: string): Promise<PosHealthResponse> {
   return posFetch<PosHealthResponse>('/api/v1/pos/health/', token, {
+    method: 'GET',
+  });
+}
+
+// ── Offline bootstrap snapshot ────────────────────────────────────────────────
+
+/**
+ * GET /api/v1/pos/offline/bootstrap/
+ * Returns the minimal offline contingency snapshot (products, categories,
+ * payment methods, settings, cash session, offline policy) for the employee's
+ * business. Read-only; never contains tokens, PINs or other sensitive data.
+ */
+export function posGetOfflineBootstrap(
+  token: string,
+): Promise<PosOfflineBootstrapPayload> {
+  return posFetch<PosOfflineBootstrapPayload>('/api/v1/pos/offline/bootstrap/', token, {
     method: 'GET',
   });
 }
@@ -269,6 +293,36 @@ export function posCreateSale(
 }
 
 /**
+ * POST /api/v1/pos/sales/ — submit a queued OFFLINE sale (PR-OFF-05).
+ *
+ * Reuses the same endpoint as {@link posCreateSale}. The stored offline
+ * `sale_payload` is mapped to the backend request shape (items use `product_id`,
+ * `note` → `notes`). `client_order_id` provides idempotency: re-submitting the
+ * same id returns the existing sale with `duplicate: true` instead of creating a
+ * second one. NO price recalculation happens here — the backend is the source of
+ * truth for totals/stock/cash.
+ */
+export function posCreateSaleFromOffline(
+  token: string,
+  payload: OfflineSalePayload,
+): Promise<OfflineSaleSyncResult> {
+  const body = {
+    client_order_id: payload.client_order_id,
+    items: payload.items.map((item) => ({
+      product_id: item.product,
+      quantity: item.quantity,
+    })),
+    payments: payload.payments.map((p) => ({ method: p.method, amount: p.amount })),
+    notes: payload.note,
+    source: payload.source,
+  };
+  return posFetch<OfflineSaleSyncResult>('/api/v1/pos/sales/', token, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+/**
  * POST /api/v1/pos/orders/counter/
  * Creates a pickup order intended for the kitchen flow from the POS cart.
  */
@@ -279,6 +333,42 @@ export function posCreateCounterOrder(
   return posFetch<CounterOrderResponse>('/api/v1/pos/orders/counter/', token, {
     method: 'POST',
     body: JSON.stringify(payload),
+  });
+}
+
+export function posFetchKitchenBoard(
+  token: string,
+  params: { updated_after?: string; include_done?: boolean } = {},
+): Promise<KitchenOrder[]> {
+  const query = new URLSearchParams();
+  if (params.updated_after) query.append('updated_after', params.updated_after);
+  if (params.include_done) query.append('include_done', 'true');
+  const queryString = query.toString() ? `?${query.toString()}` : '';
+
+  return posFetch<KitchenOrder[]>(`/api/v1/pos/orders/kitchen/board/${queryString}`, token, {
+    method: 'GET',
+  });
+}
+
+export function posUpdateKitchenItemStatus(
+  token: string,
+  itemId: string,
+  status: KitchenStatus,
+): Promise<KitchenItem> {
+  return posFetch<KitchenItem>(`/api/v1/pos/orders/kitchen/items/${itemId}/`, token, {
+    method: 'PATCH',
+    body: JSON.stringify({ kitchen_status: status }),
+  });
+}
+
+export function posUpdateKitchenOrderBulk(
+  token: string,
+  orderId: string,
+  status: KitchenStatus,
+): Promise<KitchenOrder> {
+  return posFetch<KitchenOrder>(`/api/v1/pos/orders/kitchen/orders/${orderId}/bulk/`, token, {
+    method: 'PATCH',
+    body: JSON.stringify({ kitchen_status: status }),
   });
 }
 

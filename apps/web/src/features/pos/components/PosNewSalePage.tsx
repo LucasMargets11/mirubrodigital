@@ -34,10 +34,7 @@ import {
   usePosCreateSale,
   usePosErrorHandler,
 } from '@/features/pos/cash-hooks';
-import {
-  getEffectiveRestaurantOperationSettings,
-  useRestaurantOperationSettings,
-} from '@/features/resto/hooks';
+import { usePosOperationSettings } from '@/features/pos/offline/pos-operation-settings';
 import { formatCurrency } from '@/features/cash/utils';
 import type { PosCustomerSummary, PosProduct } from '@/types/pos-cash';
 
@@ -52,8 +49,29 @@ import { SplitPaymentPanel, createPaymentLine, toApiPaymentLineMethod } from './
 import type { PaymentLine } from './SplitPaymentPanel';
 import { SaleSummaryCard } from './SaleSummaryCard';
 import { ProductCatalogPanel } from './ProductCatalogPanel';
+import { usePosOfflineCatalog } from '@/features/pos/offline/offline-catalog';
+import { OfflineProductCatalogPanel } from '@/features/pos/offline/OfflineProductCatalogPanel';
+import { OfflineSalesPanel } from '@/features/pos/offline/offline-sales-panel';
+import { OfflineContingencyNotice } from '@/features/pos/offline/OfflineContingencyNotice';
+import { usePosOfflineGuard } from '@/features/pos/offline/offline-guard';
+import {
+  usePosCaptureOfflineSale,
+  OfflineSaleValidationError,
+} from '@/features/pos/offline/offline-sales-hooks';
+import {
+  validateOfflineSale,
+  OFFLINE_PAYMENT_METHODS,
+  OFFLINE_PAYMENT_LABELS,
+} from '@/features/pos/offline/offline-sale-build';
+import type { OfflinePaymentMethodCode } from '@/features/pos/offline/offline-sales-types';
 
 type SaleFlowMode = 'quick-sale' | 'kitchen-order';
+
+/** Shown while offline when the snapshot does not allow building a sale. */
+const OFFLINE_DISABLED_MESSAGE =
+  'Sin conexión. El catálogo offline no está disponible para este negocio.';
+/** Confirmation shown after a sale is queued for later sync. */
+const OFFLINE_SAVE_SUCCESS = 'Venta guardada para sincronizar.';
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -63,8 +81,31 @@ export function PosNewSalePage() {
   const createSaleMutation = usePosCreateSale();
   const createCounterOrderMutation = usePosCreateCounterOrder();
   const handleError = usePosErrorHandler();
-  const operationSettingsQuery = useRestaurantOperationSettings();
-  const operationSettings = getEffectiveRestaurantOperationSettings(operationSettingsQuery.data);
+  // PR-OFF-10: read operation flags from the POS bootstrap snapshot (employee
+  // token) instead of the owner/admin endpoint, which 401s for POS sessions.
+  const operationSettings = usePosOperationSettings();
+
+  // ── Offline catalog source (PR-OFF-03) ──────────────────────────────────────
+  // When the device is offline we browse the locally-persisted snapshot instead
+  // of the online catalog. Confirmed sales are queued locally (PR-OFF-04).
+  const offlineCatalog = usePosOfflineCatalog();
+  const isOffline = offlineCatalog.isOffline;
+
+  // Safe return to the terminal (PR-OFF-09, refined in PR-OFF-11). We always
+  // use an SPA `router.replace('/pos/terminal')`: the terminal route is
+  // precached by the service worker, so this resolves both online and offline
+  // without hitting the network for an uncached RSC payload. We never call
+  // `router.back()` (the previous history entry may be an uncached route) and
+  // we never hard-navigate (a `window.location.assign` could let the SW fall
+  // back to /pos/login). `replace` also avoids stacking new-sale in history.
+  const navigateToTerminal = useCallback(() => {
+    router.replace('/pos/terminal');
+  }, [router]);
+
+  const offlineGuard = usePosOfflineGuard();
+  const captureOfflineSale = usePosCaptureOfflineSale();
+  const [offlinePaymentMethod, setOfflinePaymentMethod] =
+    useState<OfflinePaymentMethodCode>('cash');
 
   // ── Cart state ────────────────────────────────────────────────────────────
 
@@ -133,28 +174,31 @@ export function PosNewSalePage() {
   const total = useMemo(() => Math.max(0, subtotal - discountAmount), [subtotal, discountAmount]);
   const isQuickSaleEnabled = operationSettings.pos_quick_sale_enabled;
   const isKitchenOrderEnabled = operationSettings.kitchen_enabled && operationSettings.counter_orders_enabled;
+  // PR-OFF-08: "Pedido con cocina" is never available offline. The offline MVP
+  // only supports quick sales, so we hide the mode and harden the submit path.
+  const kitchenOrderAvailable = isKitchenOrderEnabled && !isOffline;
   const availableModes = useMemo<SaleFlowMode[]>(() => {
     const modes: SaleFlowMode[] = [];
     if (isQuickSaleEnabled) modes.push('quick-sale');
-    if (isKitchenOrderEnabled) modes.push('kitchen-order');
+    if (kitchenOrderAvailable) modes.push('kitchen-order');
     return modes;
-  }, [isQuickSaleEnabled, isKitchenOrderEnabled]);
+  }, [isQuickSaleEnabled, kitchenOrderAvailable]);
   const hasOperationModeAvailable = availableModes.length > 0;
 
   const preferredMode = useMemo<SaleFlowMode | null>(() => {
     if (availableModes.length === 0) return null;
 
     const defaultMode = operationSettings.default_pos_mode;
-    if (defaultMode === 'kitchen_order' && isKitchenOrderEnabled) {
+    if (defaultMode === 'kitchen_order' && kitchenOrderAvailable) {
       return 'kitchen-order';
     }
     if (defaultMode === 'quick_sale' && isQuickSaleEnabled) {
       return 'quick-sale';
     }
     if (isQuickSaleEnabled) return 'quick-sale';
-    if (isKitchenOrderEnabled) return 'kitchen-order';
+    if (kitchenOrderAvailable) return 'kitchen-order';
     return null;
-  }, [availableModes.length, operationSettings.default_pos_mode, isKitchenOrderEnabled, isQuickSaleEnabled]);
+  }, [availableModes.length, operationSettings.default_pos_mode, kitchenOrderAvailable, isQuickSaleEnabled]);
 
   useEffect(() => {
     if (!preferredMode) return;
@@ -251,10 +295,57 @@ export function PosNewSalePage() {
     hasOperationModeAvailable,
   ]);
 
+  // ── Offline capture validation (PR-OFF-04) ─────────────────────────────────
+
+  const offlineEmployeeId = session.status === 'authenticated' ? session.employee.id : null;
+  const offlineEmployeeCode =
+    session.status === 'authenticated' ? session.employee.employee_code : null;
+
+  const offlineValidation = useMemo(() => {
+    if (!isOffline) return { ok: true } as const;
+    if (!offlineEmployeeId || !offlineEmployeeCode) {
+      return { ok: false as const, message: 'Sin sesión operativa. Recargá la página.' };
+    }
+    return validateOfflineSale({
+      snapshot: offlineCatalog.snapshot,
+      cart,
+      paymentMethod: offlinePaymentMethod,
+      employee: { id: offlineEmployeeId, code: offlineEmployeeCode },
+    });
+  }, [
+    isOffline,
+    offlineCatalog.snapshot,
+    cart,
+    offlinePaymentMethod,
+    offlineEmployeeId,
+    offlineEmployeeCode,
+  ]);
+
+  const isCapturingOffline = captureOfflineSale.isPending;
+  // PR-OFF-07: block offline confirmation on snapshot expiry / pending-limit too.
+  const offlineBlockReason = isOffline ? offlineGuard.blockReason : null;
+  const offlineConfirmDisabled =
+    isOffline && (!offlineValidation.ok || isCapturingOffline || offlineBlockReason !== null);
+
   const isPending =
     saleMode === 'quick-sale'
       ? createSaleMutation.isPending
       : createCounterOrderMutation.isPending;
+
+  // Effective confirm gating: offline uses the snapshot validation instead.
+  const submitDisabled = isOffline ? offlineConfirmDisabled : confirmDisabled;
+  const submitPending = isOffline ? isCapturingOffline : isPending;
+
+  // Helper line under the confirm button while offline.
+  const offlineHelperText: string | undefined = (() => {
+    if (!isOffline) return undefined;
+    if (!offlineCatalog.canBuildCart) return OFFLINE_DISABLED_MESSAGE;
+    if (offlineBlockReason) return offlineBlockReason;
+    if (offlineValidation.ok === false && cart.length > 0) {
+      return offlineValidation.message;
+    }
+    return 'La venta se guardará para sincronizar cuando vuelva la conexión.';
+  })();
 
   function resetDraftState() {
     setCart([]);
@@ -294,7 +385,7 @@ export function PosNewSalePage() {
       // Ctrl+Enter → confirm sale
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
-        if (!confirmDisabled && !isPending) {
+        if (!submitDisabled && !submitPending) {
           void handleSubmit();
         }
       }
@@ -303,11 +394,16 @@ export function PosNewSalePage() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [confirmDisabled, isPending]);
+  }, [submitDisabled, submitPending]);
 
   // ── Cart helpers ──────────────────────────────────────────────────────────
 
   const addToCart = useCallback((product: PosProduct) => {
+    // Offline: only allow building a cart from a valid, enabled snapshot, and
+    // never while the snapshot is expired or the pending queue is full (PR-OFF-07).
+    if (isOffline && (!offlineCatalog.canBuildCart || offlineBlockReason !== null)) {
+      return;
+    }
     setCart((prev) => {
       const existing = prev.find((i) => i.product.id === product.id);
       const next = existing
@@ -327,7 +423,7 @@ export function PosNewSalePage() {
       return next;
     });
     setError('');
-  }, []);
+  }, [isOffline, offlineCatalog.canBuildCart, offlineBlockReason]);
 
   const removeFromCart = useCallback((productId: string) => {
     setCart((prev) => {
@@ -376,9 +472,65 @@ export function PosNewSalePage() {
 
   // ── Submit ────────────────────────────────────────────────────────────────
 
+  /**
+   * Offline contingency (PR-OFF-04): validate against the snapshot and queue the
+   * sale locally. No backend call, no real stock decrement — sync comes later.
+   */
+  async function handleOfflineSubmit() {
+    setError('');
+    setSuccessMsg('');
+
+    if (session.status !== 'authenticated') {
+      setError('Sin sesión operativa. Recargá la página.');
+      return;
+    }
+
+    // Hard rule (PR-OFF-08): only quick sales may be captured offline. Never
+    // create an OfflineSaleQueueItem from a kitchen order.
+    if (saleMode !== 'quick-sale') {
+      setError('Pedido con cocina no está disponible sin conexión. Cambiá a Venta rápida.');
+      return;
+    }
+
+    try {
+      await captureOfflineSale.mutateAsync({
+        snapshot: offlineCatalog.snapshot,
+        cart,
+        paymentMethod: offlinePaymentMethod,
+        employee: {
+          id: session.employee.id,
+          code: session.employee.employee_code,
+        },
+        note: 'Venta offline',
+      });
+
+      setSuccessMsg(OFFLINE_SAVE_SUCCESS);
+      setAnnouncement('Venta guardada para sincronizar cuando vuelva la conexión.');
+      resetDraftState();
+      setOfflinePaymentMethod('cash');
+    } catch (err) {
+      if (err instanceof OfflineSaleValidationError) {
+        setError(err.message);
+      } else {
+        setError('No se pudo guardar la venta offline. Intentá de nuevo.');
+      }
+    }
+  }
+
   async function handleSubmit() {
     setError('');
     setSuccessMsg('');
+
+    // Offline contingency: capture the sale locally (PR-OFF-04).
+    if (isOffline) {
+      // Hard rule (PR-OFF-08): kitchen orders cannot be captured offline.
+      if (saleMode !== 'quick-sale') {
+        setError('Pedido con cocina no está disponible sin conexión. Cambiá a Venta rápida.');
+        return;
+      }
+      await handleOfflineSubmit();
+      return;
+    }
 
     // Local validations
     if (cart.length === 0) {
@@ -507,7 +659,7 @@ export function PosNewSalePage() {
         <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={() => router.push('/pos/terminal')}
+            onClick={navigateToTerminal}
             aria-label="Volver al terminal"
             className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-slate-500 transition-colors hover:bg-slate-50"
           >
@@ -525,7 +677,7 @@ export function PosNewSalePage() {
           </span>
           <button
             type="button"
-            onClick={() => router.push('/pos/terminal')}
+            onClick={navigateToTerminal}
             className="rounded-xl border border-slate-200 px-4 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50"
           >
             Cancelar
@@ -557,14 +709,28 @@ export function PosNewSalePage() {
           {/* Divider */}
           <hr className="border-slate-100" />
 
-          {/* Catalog browser — shows inline search results or category chips */}
-          <ProductCatalogPanel
-            onAdd={addToCart}
-            disabled={isPending}
-            searchQuery={searchQuery}
-            selectedCategoryId={activeCategoryId}
-            onCategorySelect={handleCategorySelect}
-          />
+          {/* Contingency security notice (PR-OFF-07) */}
+          {isOffline ? <OfflineContingencyNotice guard={offlineGuard} /> : null}
+
+          {/* Catalog browser — offline snapshot or online API */}
+          {isOffline ? (
+            <OfflineProductCatalogPanel
+              catalog={offlineCatalog}
+              onAdd={addToCart}
+              disabled={isPending || !offlineCatalog.canBuildCart || offlineBlockReason !== null}
+              searchQuery={searchQuery}
+              selectedCategoryId={activeCategoryId}
+              onCategorySelect={handleCategorySelect}
+            />
+          ) : (
+            <ProductCatalogPanel
+              onAdd={addToCart}
+              disabled={isPending}
+              searchQuery={searchQuery}
+              selectedCategoryId={activeCategoryId}
+              onCategorySelect={handleCategorySelect}
+            />
+          )}
 
           {/* Divider */}
           <hr className="border-slate-100" />
@@ -630,7 +796,7 @@ export function PosNewSalePage() {
                     Venta rápida
                   </button>
                 ) : null}
-                {isKitchenOrderEnabled ? (
+                {kitchenOrderAvailable ? (
                   <button
                     type="button"
                     onClick={() => {
@@ -659,6 +825,13 @@ export function PosNewSalePage() {
               </div>
             ) : null}
 
+            {/* PR-OFF-08: kitchen orders are not available offline. */}
+            {isOffline && isKitchenOrderEnabled ? (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                Pedido con cocina no está disponible sin conexión. Solo podés registrar ventas rápidas.
+              </div>
+            ) : null}
+
             {!hasOperationModeAvailable ? (
               <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
                 Este negocio no tiene modos de operación POS habilitados. Revisá la configuración operativa de Restaurante Inteligente.
@@ -674,8 +847,38 @@ export function PosNewSalePage() {
 
           <hr className="border-slate-100" />
 
-          {/* Customer */}
-          {saleMode === 'quick-sale' ? (
+          {/* Offline payment method (PR-OFF-04) */}
+          {isOffline ? (
+            <section aria-label="Pago de la venta offline" className="space-y-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Método de pago
+              </h3>
+              <div className="grid grid-cols-2 gap-2">
+                {OFFLINE_PAYMENT_METHODS.map((method) => (
+                  <button
+                    key={method}
+                    type="button"
+                    onClick={() => {
+                      setOfflinePaymentMethod(method);
+                      setError('');
+                    }}
+                    disabled={isCapturingOffline}
+                    aria-pressed={offlinePaymentMethod === method}
+                    className={`rounded-xl border px-4 py-2 text-sm font-semibold transition-colors disabled:opacity-60 ${
+                      offlinePaymentMethod === method
+                        ? 'border-slate-900 bg-slate-900 text-white'
+                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    {OFFLINE_PAYMENT_LABELS[method]}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-slate-400">
+                La venta se guardará localmente y se sincronizará cuando vuelva la conexión.
+              </p>
+            </section>
+          ) : saleMode === 'quick-sale' ? (
             <CustomerPanel
               customerType={customerType}
               onCustomerTypeChange={handleCustomerTypeChange}
@@ -738,7 +941,7 @@ export function PosNewSalePage() {
           <hr className="border-slate-100" />
 
           {/* Discount */}
-          {saleMode === 'quick-sale' ? (
+          {!isOffline && (saleMode === 'quick-sale' ? (
             <>
               <DiscountPanel
                 enabled={discountEnabled}
@@ -770,7 +973,7 @@ export function PosNewSalePage() {
             <section className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-600">
               Los pagos quedan deshabilitados en este modo para evitar crear una venta directa.
             </section>
-          )}
+          ))}
 
           {/* Spacer to push summary to bottom on taller screens */}
           <div className="flex-1" />
@@ -790,19 +993,36 @@ export function PosNewSalePage() {
               total={effectiveTotal}
               onConfirm={() => void handleSubmit()}
               onCancel={() => router.push('/pos/terminal')}
-              isPending={isPending}
-              disabled={confirmDisabled}
+              isPending={submitPending}
+              disabled={submitDisabled}
               error={error}
               successMsg={successMsg}
-              confirmLabel={saleMode === 'quick-sale' ? 'Cobrar venta' : 'Enviar a cocina'}
-              pendingLabel={saleMode === 'quick-sale' ? 'Cobrando…' : 'Enviando…'}
+              confirmLabel={
+                isOffline
+                  ? 'Guardar venta offline'
+                  : saleMode === 'quick-sale'
+                    ? 'Cobrar venta'
+                    : 'Enviar a cocina'
+              }
+              pendingLabel={
+                isOffline
+                  ? 'Guardando…'
+                  : saleMode === 'quick-sale'
+                    ? 'Cobrando…'
+                    : 'Enviando…'
+              }
               helperText={
-                saleMode === 'kitchen-order'
-                  ? 'Este pedido no registra pago ni descuenta stock en esta etapa.'
-                  : undefined
+                isOffline
+                  ? offlineHelperText
+                  : saleMode === 'kitchen-order'
+                    ? 'Este pedido no registra pago ni descuenta stock en esta etapa.'
+                    : undefined
               }
             />
           </div>
+
+          {/* Offline pending sales queue (PR-OFF-04) */}
+          <OfflineSalesPanel />
         </aside>
       </main>
     </div>

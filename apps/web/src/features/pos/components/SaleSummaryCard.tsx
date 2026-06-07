@@ -27,6 +27,9 @@ interface SaleSummaryCardProps {
   error: string;
   /** Success message after confirmed */
   successMsg: string;
+  confirmLabel?: string;
+  pendingLabel?: string;
+  helperText?: string;
 }
 
 export function SaleSummaryCard({
@@ -39,6 +42,9 @@ export function SaleSummaryCard({
   disabled,
   error,
   successMsg,
+  confirmLabel = 'Confirmar venta',
+  pendingLabel = 'Confirmando…',
+  helperText,
 }: SaleSummaryCardProps) {
   return (
     <div className="rounded-2xl bg-slate-900 p-5 text-white">
@@ -80,6 +86,12 @@ export function SaleSummaryCard({
         </div>
       </dl>
 
+      {helperText && (
+        <p className="mt-4 rounded-xl bg-slate-800 px-4 py-3 text-sm text-slate-300">
+          {helperText}
+        </p>
+      )}
+
       {/* Error */}
       {error && (
         <p
@@ -99,7 +111,7 @@ export function SaleSummaryCard({
           aria-disabled={disabled || isPending}
           className="w-full rounded-xl bg-white py-3 text-sm font-bold text-slate-900 transition-colors hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-slate-900"
         >
-          {isPending ? 'Confirmando…' : 'Confirmar venta'}
+          {isPending ? pendingLabel : confirmLabel}
         </button>
 
         <button
