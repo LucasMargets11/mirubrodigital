@@ -87,6 +87,12 @@ const NAV_CONFIG: Record<string, NavGroup[]> = {
                             featureKey: 'resto_menu',
                         },
                         {
+                            href: '/app/resto/settings/operation',
+                            label: 'Operacion del restaurante',
+                            permissionKey: 'manage_tables',
+                            featureKey: 'settings',
+                        },
+                        {
                             href: '/app/resto/settings/tables',
                             label: 'Configurar mesas',
                             permissionKey: 'manage_tables',

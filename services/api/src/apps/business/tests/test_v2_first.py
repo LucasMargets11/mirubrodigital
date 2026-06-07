@@ -185,6 +185,25 @@ class BuildBusinessContextV2FirstTest(TestCase):
         self.assertEqual(ctx['_subscription_source'], 'legacy')
         self.assertIsInstance(ctx['features'], dict)
 
+    def test_restaurante_plus_keeps_gestion_in_enabled_services(self):
+        biz = _make_business(service='restaurante')
+        _attach_legacy(biz, plan='plus', status='active')
+
+        ctx = build_business_context(biz)
+
+        self.assertIn('restaurante', ctx['enabled_services'])
+        self.assertIn('gestion', ctx['enabled_services'])
+
+    def test_restaurante_plus_has_gestion_operational_entitlements(self):
+        biz = _make_business(service='restaurante')
+        _attach_legacy(biz, plan='plus', status='active')
+
+        self.assertTrue(has_entitlement(biz, 'gestion.products'))
+        self.assertTrue(has_entitlement(biz, 'gestion.inventory_basic'))
+        self.assertTrue(has_entitlement(biz, 'gestion.sales_basic'))
+        self.assertTrue(has_entitlement(biz, 'gestion.cash'))
+        self.assertTrue(has_entitlement(biz, 'gestion.reports'))
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # HasEntitlementV2FirstTest
