@@ -122,12 +122,12 @@ class EnabledServicesTests(TestCase):
         self.assertNotIn('gestion', services)
 
     def test_plus_plan_enables_both_restaurante_and_menu_qr(self):
-        """Restaurant plan (plus) should enable both services because it includes QR features."""
+        """Restaurant plan (plus) enables restaurante + menu_qr + gestion base."""
         flags = feature_flags_for_plan('plus')
         services = enabled_services('plus', flags)
         self.assertIn('restaurante', services)
         self.assertIn('menu_qr', services)
-        self.assertNotIn('gestion', services)
+        self.assertIn('gestion', services)
 
     def test_start_plan_enables_only_gestion(self):
         flags = feature_flags_for_plan('start')
@@ -255,5 +255,6 @@ class BusinessContextTests(TestCase):
         ctx = build_business_context(b)
         self.assertEqual(ctx['service'], 'restaurante')
         self.assertIn('restaurante', ctx['enabled_services'])
+        self.assertIn('gestion', ctx['enabled_services'])
         # Restaurant plan now also includes menu_qr features
         self.assertIn('menu_qr', ctx['enabled_services'])
