@@ -1,0 +1,35 @@
+{
+  "name": "MiRubro POS",
+  "short_name": "MiRubro POS",
+  "description": "Punto de venta operativo de MiRubro para venta rápida.",
+  "id": "/pos/",
+  "start_url": "/pos/login",
+  "scope": "/pos/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#ffffff",
+  "theme_color": "#4f46e5",
+  "lang": "es",
+  "dir": "ltr",
+  "categories": ["business", "productivity"],
+  "icons": [
+    {
+      "src": "/logo/rubroicono.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/logo/rubroicono.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
