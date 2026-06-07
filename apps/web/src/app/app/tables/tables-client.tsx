@@ -118,7 +118,7 @@ export function TablesClient() {
                         <div className="space-y-3 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-600">
                             <p className="font-semibold text-slate-900">El módulo de mesas está desactivado.</p>
                             <p>
-                                Activalo en <a href="/app/resto/settings/tables" className="font-semibold text-slate-900 underline-offset-2 hover:underline">Configuración &gt; Mesas</a> para volver a operar con salón.
+                                Activálo desde <a href="/app/resto/settings/operation" className="font-semibold text-slate-900 underline-offset-2 hover:underline">Configuración operativa del restaurante</a> para volver a operar con salón.
                             </p>
                         </div>
                     ) : mapStateQuery.isLoading ? (
@@ -135,7 +135,7 @@ export function TablesClient() {
                         <div className="space-y-3 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-600">
                             <p className="font-semibold text-slate-900">Todavía no cargaste mesas en este salón.</p>
                             <p>
-                                Configurá mesas en <a href="/app/resto/settings/tables" className="font-semibold text-slate-900 underline-offset-2 hover:underline">Configuración &gt; Mesas</a> para verlas acá.
+                                Configurá mesas desde <a href="/app/resto/settings/operation" className="font-semibold text-slate-900 underline-offset-2 hover:underline">Configuración operativa del restaurante</a> para verlas acá.
                             </p>
                         </div>
                     ) : (

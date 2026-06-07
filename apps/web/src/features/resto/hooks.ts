@@ -1,8 +1,11 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { ApiError } from '@/lib/api/client';
 
-import { fetchRestaurantOperationSettings } from './api';
+import {
+  fetchRestaurantOperationSettings,
+  updateRestaurantOperationSettings,
+} from './api';
 import {
   DEFAULT_RESTAURANT_OPERATION_SETTINGS,
   type RestaurantOperationSettings,
@@ -29,4 +32,21 @@ export function getEffectiveRestaurantOperationSettings(
   settings: RestaurantOperationSettings | undefined,
 ): RestaurantOperationSettings {
   return settings ?? DEFAULT_RESTAURANT_OPERATION_SETTINGS;
+}
+
+export function useUpdateRestaurantOperationSettings() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: Partial<RestaurantOperationSettings>) =>
+      updateRestaurantOperationSettings(payload),
+    onSuccess: (data) => {
+      queryClient.setQueryData(restoOperationKeys.settings(), data);
+      queryClient.invalidateQueries({ queryKey: restoOperationKeys.settings() });
+      queryClient.invalidateQueries({ queryKey: ['resto'] });
+      queryClient.invalidateQueries({ queryKey: ['tables'] });
+      queryClient.invalidateQueries({ queryKey: ['kitchen-board'] });
+      queryClient.invalidateQueries({ queryKey: ['pos'] });
+    },
+  });
 }
