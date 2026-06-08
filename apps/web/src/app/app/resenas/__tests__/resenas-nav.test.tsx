@@ -1,13 +1,18 @@
 /**
  * PR-A — Nav gating regression.
  *
- * For a Base user (is_reviews_pro=false, smart_filter_allowed=true):
+ * For a Base user (is_reviews_pro=false, print_posters_allowed=false):
  *   • Feedback tab is visible.
  *   • Carteles tab is NOT visible.
  *   • Analytics tab is NOT visible.
  *
- * For a Pro user (is_reviews_pro=true):
+ * For a Pro user (is_reviews_pro=true, print_posters_allowed=true):
  *   • Feedback, Carteles and Analytics are all visible.
+ *
+ * For a Restaurante Inteligente bundle user (is_reviews_pro=false but
+ * print_posters_allowed=true):
+ *   • Carteles tab is visible (Carteles is included in the bundle).
+ *   • Analytics tab stays hidden (Pro-only).
  */
 
 import React from 'react';
@@ -44,6 +49,7 @@ function baseConfig(overrides: any = {}) {
         redirect_threshold: 4,
         thank_you_message: '',
         is_reviews_pro: false,
+        print_posters_allowed: false,
         smart_filter_allowed: true,
         trial_active: false,
         trial_available: false,
@@ -74,7 +80,7 @@ describe('ResenasNav — PR-A gating', () => {
     });
 
     it('Pro user: Feedback, Carteles and Analytics all visible', async () => {
-        mockSettings.mockResolvedValue(baseConfig({ is_reviews_pro: true }));
+        mockSettings.mockResolvedValue(baseConfig({ is_reviews_pro: true, print_posters_allowed: true }));
 
         render(<ResenasNav />);
 
@@ -97,6 +103,22 @@ describe('ResenasNav — PR-A gating', () => {
         await waitFor(() => {
             expect(screen.getByText('Feedback')).toBeTruthy();
         });
+        expect(screen.queryByText('Analytics')).toBeNull();
+    });
+
+    it('Restaurante Inteligente bundle: Carteles visible, Analytics hidden', async () => {
+        // Bundle plans include Carteles (print_posters_allowed=true) but are not
+        // on the Pro tier (is_reviews_pro=false), so Analytics stays hidden.
+        mockSettings.mockResolvedValue(
+            baseConfig({ is_reviews_pro: false, print_posters_allowed: true }),
+        );
+
+        render(<ResenasNav />);
+
+        await waitFor(() => {
+            expect(screen.getByText('Carteles')).toBeTruthy();
+        });
+        expect(screen.getByText('Feedback')).toBeTruthy();
         expect(screen.queryByText('Analytics')).toBeNull();
     });
 });

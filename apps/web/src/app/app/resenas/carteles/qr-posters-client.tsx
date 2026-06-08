@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 
 import { getReviewSettings } from '@/features/reviews/api';
 import type { ReviewConfig } from '@/features/reviews/types';
@@ -49,8 +49,9 @@ interface Props {
 }
 
 export function QrPostersClient({ businessName: _businessName }: Props) {
-    const router = useRouter();
     const [config, setConfig] = useState<ReviewConfig | null>(null);
+    const [accessDenied, setAccessDenied] = useState(false);
+    const [loadError, setLoadError] = useState(false);
     const [loading, setLoading] = useState(true);
     const [payload, setPayload] = useState<GenerateQrPosterPayload>(INITIAL_PAYLOAD);
     /**
@@ -62,19 +63,17 @@ export function QrPostersClient({ businessName: _businessName }: Props) {
     useEffect(() => {
         getReviewSettings()
             .then((cfg) => {
-                if (cfg.is_reviews_pro) {
-                    setConfig(cfg);
-                } else {
-                    // Plan básico: redirigir silenciosamente al módulo QR base
-                    router.replace('/app/resenas/qr');
-                }
+                setConfig(cfg);
+                // Carteles está incluido en QR de Reseñas Pro y en paquetes que
+                // lo agrupan (Restaurante Inteligente). Si el plan no lo incluye,
+                // mostramos un estado bloqueado claro — NO redirigimos a /qr.
+                setAccessDenied(!cfg.print_posters_allowed);
             })
             .catch(() => {
-                // Si falla la carga de config, redirigir al módulo QR base
-                router.replace('/app/resenas/qr');
+                setLoadError(true);
             })
             .finally(() => setLoading(false));
-    }, [router]);
+    }, []);
 
     function handleChange(patch: Partial<GenerateQrPosterPayload>) {
         setPayload((prev) => ({ ...prev, ...patch }));
@@ -109,8 +108,8 @@ export function QrPostersClient({ businessName: _businessName }: Props) {
         [],
     );
 
-    // ── Loading / redirecting skeleton ───────────────────────────────────────
-    if (loading || !config) {
+    // ── Loading skeleton ─────────────────────────────────────────────────────
+    if (loading) {
         return (
             <div className="space-y-4">
                 <div className="h-6 w-40 animate-pulse rounded-lg bg-slate-200" />
@@ -119,7 +118,41 @@ export function QrPostersClient({ businessName: _businessName }: Props) {
         );
     }
 
-    // ── Editor + Preview + Diseños guardados (solo llega aquí si isPro) ───────
+    // ── Error cargando configuración ─────────────────────────────────────────
+    if (loadError || !config) {
+        return (
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+                <p className="text-sm text-slate-600">
+                    No pudimos cargar la configuración de Carteles. Actualizá la página e intentá de nuevo.
+                </p>
+            </div>
+        );
+    }
+
+    // ── Plan sin Carteles: estado bloqueado claro (no redirige a /qr) ────────
+    if (accessDenied) {
+        return (
+            <div className="rounded-2xl border border-brand-100 bg-brand-50/60 p-8 text-center shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-wide text-brand-500">
+                    Función Pro
+                </p>
+                <h2 className="mt-2 text-xl font-display font-bold text-slate-900">
+                    Carteles QR no está incluido en tu plan
+                </h2>
+                <p className="mx-auto mt-2 max-w-md text-sm text-slate-600">
+                    Generá carteles imprimibles con tu QR de reseñas actualizando a QR de Reseñas Pro.
+                </p>
+                <Link
+                    href="/app/resenas"
+                    className="mt-5 inline-flex items-center justify-center rounded-xl bg-brand-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-600"
+                >
+                    Volver al panel de Reseñas
+                </Link>
+            </div>
+        );
+    }
+
+    // ── Editor + Preview + Diseños guardados (acceso a Carteles confirmado) ──
     return (
         <div className="space-y-6">
             {/* Aviso: diseño cargado con imagen de fondo guardada */}

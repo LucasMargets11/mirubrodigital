@@ -1,6 +1,6 @@
 const SERVICE_ENTRY_ROUTES: Record<string, string> = {
     gestion: '/app/gestion/dashboard',
-    restaurante: '/app/orders',
+    restaurante: '/app/resto',
     menu_qr: '/app/carta',
     qr_reviews: '/app/resenas',
 };

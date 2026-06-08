@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
+import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
 import { getPublicMenuConfig, updatePublicMenuConfig } from '@/features/menu/api';
 import { useMenuQrCode } from '@/features/menu/hooks';
 import type { PublicMenuConfig, MenuQrResponse } from '@/features/menu/types';
@@ -27,6 +28,7 @@ export function PublicacionClient({ businessId, businessName, initialQrData, cus
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [copied, setCopied] = useState(false);
+    const [publishError, setPublishError] = useState<string | null>(null);
 
     const { data: qrData, isLoading: qrLoading, refetch: refetchQr, isFetching: qrFetching } = useMenuQrCode(businessId);
     const qr = qrData ?? initialQrData;
@@ -57,6 +59,25 @@ export function PublicacionClient({ businessId, businessName, initialQrData, cus
             setConfig(updated);
         } catch (e) {
             console.error(e);
+        } finally {
+            setSaving(false);
+        }
+    }
+
+    async function handleTogglePublish() {
+        if (!config) return;
+        const next = !config.enabled;
+        setSaving(true);
+        setPublishError(null);
+        try {
+            const updated = await updatePublicMenuConfig({
+                enabled: next,
+                slug: config.slug,
+            });
+            setConfig(updated);
+        } catch (e) {
+            console.error(e);
+            setPublishError('No pudimos actualizar el estado de la carta. Intentá de nuevo.');
         } finally {
             setSaving(false);
         }
@@ -110,16 +131,67 @@ export function PublicacionClient({ businessId, businessName, initialQrData, cus
                 <div className="space-y-6">
 
             {/* ── Habilitar / Deshabilitar ──────────────────────────────────── */}
-            <div className="flex items-center space-x-4 bg-white p-4 rounded-lg border shadow-sm">
-                <Switch
-                    checked={config.enabled}
-                    onCheckedChange={(c: boolean) => setConfig({ ...config, enabled: c })}
-                />
-                <div>
-                    <label className="text-sm font-medium">Habilitar Carta Pública</label>
-                    <p className="text-xs text-slate-500">Cuando está activa, tu carta es visible para cualquier persona con el enlace.</p>
+            <div
+                className={cn(
+                    'flex flex-col gap-4 rounded-lg border p-4 shadow-sm transition-colors sm:flex-row sm:items-center sm:justify-between',
+                    config.enabled
+                        ? 'border-emerald-300 bg-emerald-50'
+                        : 'border-slate-300 bg-slate-100',
+                )}
+            >
+                <div className="flex items-start gap-3">
+                    <span
+                        className={cn(
+                            'mt-1 inline-flex h-3 w-3 shrink-0 rounded-full',
+                            config.enabled ? 'bg-emerald-500' : 'bg-slate-400',
+                        )}
+                        aria-hidden="true"
+                    />
+                    <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold text-slate-900">Carta pública</span>
+                            <Badge
+                                className={cn(
+                                    'border-transparent',
+                                    config.enabled
+                                        ? 'bg-emerald-600 text-white hover:bg-emerald-600'
+                                        : 'bg-slate-200 text-slate-700 hover:bg-slate-200',
+                                )}
+                            >
+                                {config.enabled ? 'Publicada' : 'Desactivada'}
+                            </Badge>
+                        </div>
+                        <p className="text-xs text-slate-600">
+                            {config.enabled
+                                ? 'Tu carta está publicada y es visible para cualquier persona con el enlace o el QR.'
+                                : 'Tu carta está desactivada. Activala para generar el QR y compartir el enlace.'}
+                        </p>
+                    </div>
                 </div>
+                <Button
+                    onClick={handleTogglePublish}
+                    disabled={saving}
+                    variant={config.enabled ? 'outline' : 'default'}
+                    className={cn(
+                        'shrink-0',
+                        config.enabled
+                            ? 'border-slate-300 text-slate-700 hover:bg-slate-50'
+                            : 'bg-emerald-600 text-white hover:bg-emerald-700',
+                    )}
+                >
+                    {saving
+                        ? 'Guardando…'
+                        : config.enabled
+                            ? 'Desactivar carta'
+                            : 'Activar carta'}
+                </Button>
             </div>
+
+            {publishError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                    {publishError}
+                </div>
+            )}
 
             {!config.enabled && (
                 <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-center text-sm text-slate-500">

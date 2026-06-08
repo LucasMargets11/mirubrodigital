@@ -44,10 +44,31 @@ const NAV_CONFIG: Record<string, NavGroup[]> = {
         {
             title: 'Restaurante Inteligente',
             items: [
+                { href: '/app/resto', label: 'Inicio', featureKey: 'resto_orders' },
                 { href: '/app/tables', label: 'Mapa de mesas', permissionKey: 'view_tables', featureKey: 'resto_tables' },
                 { href: '/app/orders', label: 'Órdenes', permissionKey: 'view_orders', featureKey: 'resto_orders' },
                 { href: '/app/kitchen', label: 'Cocina en vivo', permissionKey: 'view_kitchen_board', featureKey: 'resto_kitchen' },
-                { href: '/app/carta', label: 'Carta', permissionKey: 'view_menu', featureKey: 'resto_menu' },
+                {
+                    label: 'Carta Online',
+                    permissionKey: 'view_menu',
+                    featureKey: 'resto_menu',
+                    children: [
+                        { href: '/app/carta/publicacion', label: 'Mi Carta / QR' },
+                        { href: '/app/carta/productos', label: 'Productos de la carta' },
+                        { href: '/app/carta/apariencia', label: 'Configuración' },
+                    ],
+                },
+                {
+                    label: 'QR de Reseñas',
+                    permissionKey: 'manage_reviews',
+                    featureKey: 'qr_reviews_core',
+                    children: [
+                        { href: '/app/resenas/qr', label: 'Mi QR' },
+                        { href: '/app/resenas/feedback', label: 'Feedback' },
+                        { href: '/app/resenas/configuracion', label: 'Configuración' },
+                        { href: '/app/resenas/carteles', label: 'Carteles' },
+                    ],
+                },
             ],
         },
         {
@@ -80,12 +101,6 @@ const NAV_CONFIG: Record<string, NavGroup[]> = {
                         { href: '/app/settings', label: 'General' },
                         { href: '/app/settings/access', label: 'Roles & Accesos', permissionKey: 'manage_users' },
                         { href: '/app/settings/branches', label: 'Sucursales', permissionKey: 'manage_settings' }, // Access check in page
-                        {
-                            href: '/app/carta/apariencia',
-                            label: 'Personalización (Carta)',
-                            permissionKey: 'manage_settings',
-                            featureKey: 'resto_menu',
-                        },
                         {
                             href: '/app/resto/settings/operation',
                             label: 'Operacion del restaurante',

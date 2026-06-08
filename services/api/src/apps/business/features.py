@@ -79,6 +79,10 @@ PLAN_FEATURES: Dict[str, Iterable[str]] = {
     'menu_item_images',
     'menu_qr_reviews',
     'menu_qr_tips',
+    # QR de Reseñas standalone incluido en Restaurante Inteligente (plan 'plus').
+    # Habilita el servicio 'qr_reviews' en enabled_services, equivalente a cómo
+    # el plan hereda Gestión Comercial y Carta Online.
+    'qr_reviews_core',
   ),
   # Menu QR Básico (standalone — sin imágenes)
   'menu_qr': (

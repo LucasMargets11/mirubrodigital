@@ -881,6 +881,8 @@ class OrderCreateSerializer(serializers.Serializer):
   table_id = serializers.UUIDField(required=False, allow_null=True)
   customer_name = serializers.CharField(max_length=128, required=False, allow_blank=True)
   note = serializers.CharField(required=False, allow_blank=True)
+  submit = serializers.BooleanField(required=False, default=True)
+  send_to_kitchen = serializers.BooleanField(required=False, default=False)
   items = OrderItemInputSerializer(many=True)
 
   def validate_items(self, value: List[dict]) -> List[dict]:
@@ -923,6 +925,15 @@ class OrderCreateSerializer(serializers.Serializer):
     request = self.context.get('request')
     created_by = getattr(request, 'user', None) if request else None
     table = validated_data.pop('table', None)
+    submit = validated_data.get('submit', True)
+    send_to_kitchen = validated_data.get('send_to_kitchen', False)
+
+    if not submit:
+      order_status = Order.Status.DRAFT
+    elif send_to_kitchen:
+      order_status = Order.Status.SENT
+    else:
+      order_status = Order.Status.OPEN
 
     last_number = (
       Order.objects.select_for_update()
@@ -938,6 +949,7 @@ class OrderCreateSerializer(serializers.Serializer):
       business=business,
       number=last_number + 1,
       channel=validated_data.get('channel', Order.Channel.DINE_IN),
+      status=order_status,
       table=table,
       table_name=raw_table_name,
       customer_name=validated_data.get('customer_name', ''),
@@ -945,6 +957,7 @@ class OrderCreateSerializer(serializers.Serializer):
       created_by=created_by if getattr(created_by, 'is_authenticated', False) else None,
     )
 
+    item_kitchen_status = OrderItem.KitchenStatus.PENDING
     total = Decimal('0')
     items_payload: List[dict] = validated_data['items']
     bulk_items: List[OrderItem] = []
@@ -966,6 +979,7 @@ class OrderCreateSerializer(serializers.Serializer):
           quantity=quantity,
           unit_price=unit_price,
           total_price=line_total,
+          kitchen_status=item_kitchen_status,
         )
       )
 

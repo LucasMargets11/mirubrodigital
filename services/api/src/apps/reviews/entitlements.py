@@ -83,6 +83,41 @@ def is_reviews_pro(business) -> bool:
     return getattr(subscription, 'plan', '') in _PRO_PLAN_CODES
 
 
+# Bundle plans that ship QR de Reseñas Carteles as part of a larger package
+# (e.g. Restaurante Inteligente → resolves to tier 'plus'). These businesses
+# get Carteles even though they are not on the standalone qr_reviews_pro tier.
+_POSTER_BUNDLE_PLAN_CODES = frozenset({'plus'})
+
+
+def print_posters_allowed(business) -> bool:
+    """
+    Return True if *business* can generate printable QR posters (Carteles).
+
+    Granted to:
+      - Standalone Pro tier (``qr_reviews_pro``) — via :func:`is_reviews_pro`.
+      - Bundle plans that include Carteles as part of a larger package
+        (Restaurante Inteligente → ``plus``), provided reviews access is
+        currently active.
+
+    Standalone Base (``qr_reviews`` / ``qr_reviews_base``) does **not** get
+    Carteles — it remains a Pro-tier upsell for the standalone product.
+    """
+    if is_reviews_pro(business):
+        return True
+
+    # Bundle path: Restaurante Inteligente includes Carteles for businesses
+    # whose reviews access is active.
+    try:
+        from apps.billing.runtime import resolve_subscription
+        resolved = resolve_subscription(business)
+        if resolved.access_granted and resolved.plan in _POSTER_BUNDLE_PLAN_CODES:
+            return reviews_allowed(business)
+    except Exception:  # noqa: BLE001 — defensive, fall through to deny
+        pass
+
+    return False
+
+
 def smart_filter_allowed(business) -> bool:
     """
     Return True if the business can use ``mode=smart_filter``.

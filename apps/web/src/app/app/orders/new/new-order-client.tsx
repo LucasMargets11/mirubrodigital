@@ -203,6 +203,7 @@ export function NewOrderClient({ canViewCommercialSettings = false }: NewOrderCl
             if (payloadChannel !== 'dine_in') {
                 return createOrderWithItems({
                     channel: payloadChannel,
+                    submit: true,
                     customer_name: namePayload.trim() || undefined,
                     note: notePayload.trim() || undefined,
                     items: items.map((item) => ({

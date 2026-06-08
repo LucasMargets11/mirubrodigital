@@ -72,6 +72,26 @@ class QrPostersBaseTest(APITestCase):
         self.client.cookies['bid'] = str(business.id)
         return business
 
+    def _bootstrap_restaurante(self, plan: str = 'plus') -> Business:
+        """
+        Crea un Business de Restaurante Inteligente (default_service='restaurante')
+        con Subscription de paquete que incluye QR de Reseñas + Carteles.
+        """
+        business = Business.objects.create(
+            name=f'Resto {plan}',
+            default_service='restaurante',
+        )
+        Subscription.objects.create(
+            business=business,
+            plan=plan,
+            service='restaurante',
+            status='active',
+        )
+        Membership.objects.create(user=self.user, business=business, role='owner')
+        self.client.force_authenticate(user=self.user)
+        self.client.cookies['bid'] = str(business.id)
+        return business
+
 
 # ── Acceso por plan ───────────────────────────────────────────────────────────
 
@@ -101,6 +121,14 @@ class PlanAccessTests(QrPostersBaseTest):
         response = self.client.post(URL, _minimal_payload(), format='json')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.data.get('code'), 'plan_entitlement_required')
+
+    def test_restaurante_inteligente_bundle_returns_200_pdf(self):
+        """Restaurante Inteligente (plan 'plus') incluye Carteles → 200 PDF."""
+        self._bootstrap_restaurante(plan='plus')
+        response = self.client.post(URL, _minimal_payload(), format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response['Content-Type'], 'application/pdf')
+        self.assertGreater(len(response.content), 100)
 
     def test_unauthenticated_returns_403_or_401(self):
         business = Business.objects.create(name='Unauth Biz', default_service='qr_reviews')

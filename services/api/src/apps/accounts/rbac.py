@@ -70,6 +70,10 @@ RESTAURANT_PERMISSIONS: Set[str] = {
   'manage_menu_branding',
   'view_menu_admin',
   'view_public_menu',
+  # QR de Reseñas — incluido en el paquete Restaurante Inteligente.
+  # Permite que owner/admin/manager gestionen reseñas sin contratar el
+  # servicio standalone (ver service_catalog/features qr_reviews_core).
+  'manage_reviews',
 }
 
 MENU_QR_PERMISSIONS: Set[str] = {

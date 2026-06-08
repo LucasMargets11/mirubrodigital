@@ -168,7 +168,7 @@ describe('NewOrderClient channels', () => {
       expect(mocks.createOrderWithItems).toHaveBeenCalledTimes(1);
     });
     expect(mocks.createOrderWithItems).toHaveBeenCalledWith(
-      expect.objectContaining({ channel: 'pickup' }),
+      expect.objectContaining({ channel: 'pickup', submit: true }),
     );
     expect(mocks.startOrder).not.toHaveBeenCalled();
   });
@@ -190,7 +190,7 @@ describe('NewOrderClient channels', () => {
 
     await waitFor(() => {
       expect(mocks.createOrderWithItems).toHaveBeenCalledWith(
-        expect.objectContaining({ channel: 'delivery' }),
+        expect.objectContaining({ channel: 'delivery', submit: true }),
       );
     });
   });

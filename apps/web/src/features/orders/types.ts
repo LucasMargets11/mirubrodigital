@@ -70,6 +70,8 @@ export type OrderPayload = {
     table_id?: string | null;
     customer_name?: string;
     note?: string;
+    submit?: boolean;
+    send_to_kitchen?: boolean;
     items: OrderItemPayload[];
 };
 
