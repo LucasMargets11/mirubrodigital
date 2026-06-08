@@ -24,6 +24,12 @@ export interface ReviewConfig {
     trial_used: boolean;
     smart_filter_allowed: boolean;
     is_reviews_pro: boolean;
+    /**
+     * True when the business can generate printable QR posters (Carteles).
+     * Granted to standalone Pro (qr_reviews_pro) and bundle plans that include
+     * Carteles (Restaurante Inteligente).
+     */
+    print_posters_allowed: boolean;
     trial_active: boolean;
     trial_available: boolean;
     updated_at: string;

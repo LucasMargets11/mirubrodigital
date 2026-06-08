@@ -12,6 +12,7 @@ Differences from the admin serializer:
 from __future__ import annotations
 
 from django.db import transaction
+from rest_framework import serializers
 
 from .serializers import SaleCreateSerializer
 
@@ -37,6 +38,8 @@ class PosSaleCreateSerializer(SaleCreateSerializer):
         - CommercialSettings guards (block_sales_if_no_open_cash_session, etc.)
         - Atomic create + SaleItem bulk_create + StockMovement registration
     """
+
+    client_order_id = serializers.UUIDField(required=False, allow_null=True)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

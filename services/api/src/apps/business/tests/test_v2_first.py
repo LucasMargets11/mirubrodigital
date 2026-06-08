@@ -30,7 +30,12 @@ from django.utils import timezone
 
 from apps.billing.models import SubscriptionV2
 from apps.business.context import build_business_context
-from apps.business.entitlements import has_entitlement
+from apps.business.entitlements import (
+    POS_OFFLINE_CONTINGENCY_ENTITLEMENT,
+    get_plan_entitlements,
+    has_entitlement,
+    has_pos_offline_contingency_access,
+)
 from apps.business.models import Business, BusinessPlan, Subscription as BizSubscription
 
 
@@ -180,12 +185,41 @@ class BuildBusinessContextV2FirstTest(TestCase):
         self.assertEqual(ctx['_subscription_source'], 'legacy')
         self.assertIsInstance(ctx['features'], dict)
 
+    def test_restaurante_plus_keeps_gestion_in_enabled_services(self):
+        biz = _make_business(service='restaurante')
+        _attach_legacy(biz, plan='plus', status='active')
+
+        ctx = build_business_context(biz)
+
+        self.assertIn('restaurante', ctx['enabled_services'])
+        self.assertIn('gestion', ctx['enabled_services'])
+
+    def test_restaurante_plus_has_gestion_operational_entitlements(self):
+        biz = _make_business(service='restaurante')
+        _attach_legacy(biz, plan='plus', status='active')
+
+        self.assertTrue(has_entitlement(biz, 'gestion.products'))
+        self.assertTrue(has_entitlement(biz, 'gestion.inventory_basic'))
+        self.assertTrue(has_entitlement(biz, 'gestion.sales_basic'))
+        self.assertTrue(has_entitlement(biz, 'gestion.cash'))
+        self.assertTrue(has_entitlement(biz, 'gestion.reports'))
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # HasEntitlementV2FirstTest
 # ─────────────────────────────────────────────────────────────────────────────
 
 class HasEntitlementV2FirstTest(TestCase):
+
+    def test_plan_catalog_includes_pos_offline_contingency_entitlement(self):
+        self.assertIn(
+            POS_OFFLINE_CONTINGENCY_ENTITLEMENT,
+            get_plan_entitlements('business'),
+        )
+        self.assertIn(
+            POS_OFFLINE_CONTINGENCY_ENTITLEMENT,
+            get_plan_entitlements('enterprise'),
+        )
 
     def test_entitlement_granted_with_v2_valid(self):
         """V2 active with pro plan → pro entitlements are granted."""
@@ -195,6 +229,30 @@ class HasEntitlementV2FirstTest(TestCase):
         self.assertTrue(has_entitlement(biz, 'gestion.customers'))
         self.assertTrue(has_entitlement(biz, 'gestion.cash'))
         self.assertTrue(has_entitlement(biz, 'gestion.reports'))
+
+    def test_pos_offline_contingency_denied_without_entitlement(self):
+        biz = _make_business()
+        _attach_v2(biz, plan_code='pro', status=SubscriptionV2.Status.ACTIVE)
+
+        self.assertFalse(has_pos_offline_contingency_access(biz))
+
+    def test_pos_offline_contingency_granted_with_business_tier(self):
+        biz = _make_business()
+        _attach_v2(biz, plan_code='business', status=SubscriptionV2.Status.ACTIVE)
+
+        self.assertTrue(has_pos_offline_contingency_access(biz))
+
+    def test_pos_offline_contingency_granted_with_enterprise_tier(self):
+        biz = _make_business()
+        _attach_v2(biz, plan_code='enterprise', status=SubscriptionV2.Status.ACTIVE)
+
+        self.assertTrue(has_pos_offline_contingency_access(biz))
+
+    def test_pos_offline_contingency_legacy_fallback_keeps_behavior(self):
+        biz = _make_business()
+        _attach_legacy(biz, plan='business', status='active')
+
+        self.assertTrue(has_pos_offline_contingency_access(biz))
 
     def test_entitlement_fallback_to_legacy_when_no_v2(self):
         """No V2 → falls back to legacy plan entitlements."""

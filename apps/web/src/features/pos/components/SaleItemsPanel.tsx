@@ -18,6 +18,7 @@ import { SaleItemRow } from './SaleItemRow';
 export interface CartItem {
   product: PosProduct;
   quantity: number;
+  note?: string;
 }
 
 interface SaleItemsPanelProps {

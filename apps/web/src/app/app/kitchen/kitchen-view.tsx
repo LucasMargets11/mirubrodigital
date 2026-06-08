@@ -5,6 +5,10 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { fetchKitchenBoard, updateKitchenItemStatus, updateKitchenOrderBulk } from '@/features/orders/api';
+import {
+    getEffectiveRestaurantOperationSettings,
+    useRestaurantOperationSettings,
+} from '@/features/resto/hooks';
 import type { KitchenStatus } from '@/features/orders/types';
 
 import { KitchenBoard } from './components/kitchen-board';
@@ -13,6 +17,9 @@ import { KitchenHero } from './components/kitchen-hero';
 export function KitchenView() {
     const [autoRefresh, setAutoRefresh] = useState(true);
     const queryClient = useQueryClient();
+    const operationSettingsQuery = useRestaurantOperationSettings();
+    const operationSettings = getEffectiveRestaurantOperationSettings(operationSettingsQuery.data);
+    const kitchenEnabled = operationSettings.kitchen_enabled;
 
     const {
         data: orders,
@@ -24,6 +31,7 @@ export function KitchenView() {
     } = useQuery({
         queryKey: ['kitchen-board'],
         queryFn: () => fetchKitchenBoard(),
+        enabled: kitchenEnabled,
         refetchInterval: autoRefresh ? 3000 : false,
         refetchOnWindowFocus: true,
     });
@@ -62,6 +70,12 @@ export function KitchenView() {
 
     return (
         <div className="flex h-[calc(100vh-6rem)] flex-col gap-4 p-4 lg:p-6">
+            {!kitchenEnabled ? (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-900">
+                    Cocina desactivada para este negocio. Si necesitás usar KDS, activalo en configuración operativa.
+                </div>
+            ) : null}
+
             <KitchenHero
                 metrics={metrics}
                 isConnected={!isError}
@@ -72,7 +86,11 @@ export function KitchenView() {
                 toggleAutoRefresh={() => setAutoRefresh(!autoRefresh)}
             />
 
-            {isLoading && !orders ? (
+            {!kitchenEnabled ? (
+                <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-white text-slate-500">
+                    El tablero de cocina está deshabilitado para esta operación.
+                </div>
+            ) : isLoading && !orders ? (
                 <div className="flex h-full items-center justify-center text-slate-400">
                     Cargando tablero...
                 </div>

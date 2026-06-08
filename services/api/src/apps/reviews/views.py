@@ -12,16 +12,22 @@ from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.permissions import IsAuthenticated, AllowAny, BasePermission
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle, ScopedRateThrottle
 from rest_framework.views import APIView
 
-from apps.accounts.permissions import HasBusinessMembership, HasEntitlement, HasPermission
+from apps.accounts.permissions import HasBusinessMembership, HasPermission
 from common.ip import hash_ip
 from common.qr import build_qr_svg
 
-from .entitlements import is_reviews_pro, reviews_allowed, smart_filter_allowed, trial_available
+from .entitlements import (
+    is_reviews_pro,
+    print_posters_allowed,
+    reviews_allowed,
+    smart_filter_allowed,
+    trial_available,
+)
 from .models import Review, ReviewConfig, ReviewMode, ReviewQrPosterDesign, ReviewVisit
 from .qr_poster_design_serializer import QrPosterDesignSerializer
 from .qr_poster_serializer import GenerateQrPosterSerializer
@@ -64,6 +70,29 @@ def _build_review_landing_url(slug: str) -> str:
 
 class ReviewSubmitThrottle(AnonRateThrottle):
     rate = '30/hour'
+
+
+class HasPrintPostersCapability(BasePermission):
+    """
+    Plan/bundle gate for QR poster (Carteles) endpoints.
+
+    Allows standalone Pro (``qr_reviews_pro``) and bundle plans that include
+    Carteles (Restaurante Inteligente → ``plus``). Membership and role gating
+    (``manage_reviews``) are enforced separately by ``HasBusinessMembership``
+    and ``HasPermission``.
+    """
+    message = {
+        'code': 'plan_entitlement_required',
+        'entitlement': 'qr_reviews.print_posters',
+        'reason_code': 'plan_entitlement_required',
+        'message': 'Tu plan actual no incluye Carteles QR.',
+    }
+
+    def has_permission(self, request, view) -> bool:
+        business = getattr(request, 'business', None)
+        if business is None:
+            return False
+        return print_posters_allowed(business)
 
 
 # ---------------------------------------------------------------------------
@@ -660,8 +689,10 @@ class GenerateQrPosterPdfView(APIView):
 
     Response exitosa: application/pdf con el cartel listo para imprimir.
     """
-    permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement]
-    required_entitlement = 'qr_reviews.print_posters'
+    permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission, HasPrintPostersCapability]
+    permission_map = {
+        'POST': 'manage_reviews',
+    }
 
     _MAX_BG_IMAGE_BYTES = 10 * 1024 * 1024          # 10 MB
     _ALLOWED_IMAGE_FORMATS = frozenset({'JPEG', 'PNG'})
@@ -789,8 +820,11 @@ class QrPosterDesignListCreateView(APIView):
     The `payload` field must be a valid JSON object matching the cartel configuration.
     """
 
-    permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement]
-    required_entitlement = 'qr_reviews.print_posters'
+    permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission, HasPrintPostersCapability]
+    permission_map = {
+        'GET': 'manage_reviews',
+        'POST': 'manage_reviews',
+    }
 
     def get(self, request):
         business = request.business
@@ -864,8 +898,12 @@ class QrPosterDesignDetailView(APIView):
     Tenant isolation: queries always filter by business=request.business.
     """
 
-    permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement]
-    required_entitlement = 'qr_reviews.print_posters'
+    permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission, HasPrintPostersCapability]
+    permission_map = {
+        'GET': 'manage_reviews',
+        'PATCH': 'manage_reviews',
+        'DELETE': 'manage_reviews',
+    }
 
     def _get_design(self, request, id):
         return get_object_or_404(ReviewQrPosterDesign, id=id, business=request.business)
@@ -958,8 +996,10 @@ class GenerateQrPosterPdfFromDesignView(APIView):
     Requiere entitlement 'qr_reviews.print_posters'.
     """
 
-    permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement]
-    required_entitlement = 'qr_reviews.print_posters'
+    permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission, HasPrintPostersCapability]
+    permission_map = {
+        'POST': 'manage_reviews',
+    }
 
     def post(self, request, id):
         business = request.business

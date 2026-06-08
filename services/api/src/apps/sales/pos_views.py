@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import logging
 
+from django.db import IntegrityError
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -33,6 +34,7 @@ from apps.accounts.operative_permissions import resolve_pos_capabilities
 from apps.accounts.permissions import EmployeeIsAuthenticated, PinChangeNotRequired
 from apps.cash.models import CashSession
 
+from .models import Sale
 from .pos_serializers import PosSaleCreateSerializer
 from .serializers import SaleDetailSerializer
 
@@ -88,6 +90,15 @@ def _audit_sale_created(employee, business, sale) -> None:
             sale.pk,
             employee.pk,
         )
+
+
+def _build_sale_response(*, sale, request, duplicate: bool) -> dict:
+    response_data = SaleDetailSerializer(sale, context={'request': request}).data
+    return {
+        'sale': response_data,
+        'duplicate': duplicate,
+        'server_id': str(sale.pk),
+    }
 
 
 # ── Views ──────────────────────────────────────────────────────────────────────
@@ -163,9 +174,38 @@ class PosSaleCreateView(APIView):
             },
         )
         serializer.is_valid(raise_exception=True)
-        sale = serializer.save()
+        client_order_id = serializer.validated_data.get('client_order_id')
+
+        if client_order_id is not None:
+            existing_sale = Sale.objects.filter(
+                business=business,
+                client_order_id=client_order_id,
+            ).first()
+            if existing_sale is not None:
+                return Response(
+                    _build_sale_response(sale=existing_sale, request=request, duplicate=True),
+                    status=status.HTTP_200_OK,
+                )
+
+        try:
+            sale = serializer.save()
+        except IntegrityError:
+            if client_order_id is None:
+                raise
+            existing_sale = Sale.objects.filter(
+                business=business,
+                client_order_id=client_order_id,
+            ).first()
+            if existing_sale is None:
+                raise
+            return Response(
+                _build_sale_response(sale=existing_sale, request=request, duplicate=True),
+                status=status.HTTP_200_OK,
+            )
 
         _audit_sale_created(employee, business, sale)
 
-        response_data = SaleDetailSerializer(sale, context={'request': request}).data
-        return Response({'sale': response_data}, status=status.HTTP_201_CREATED)
+        return Response(
+            _build_sale_response(sale=sale, request=request, duplicate=False),
+            status=status.HTTP_201_CREATED,
+        )

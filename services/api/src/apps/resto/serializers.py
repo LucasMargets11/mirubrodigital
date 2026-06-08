@@ -8,6 +8,7 @@ from apps.orders.models import Order
 from apps.resto.services import ensure_table_available
 
 from .models import Table, TableLayout
+from .models import RestaurantOperationSettings, Table, TableLayout
 
 
 class TableSerializer(serializers.ModelSerializer):
@@ -175,3 +176,18 @@ class TableConfigurationWriteSerializer(serializers.Serializer):
 			if missing:
 				raise serializers.ValidationError({'layout': f'Las ubicaciones hacen referencia a mesas desconocidas: {", ".join(sorted(missing))}.'})
 		return attrs
+
+
+class RestaurantOperationSettingsSerializer(serializers.ModelSerializer):
+	class Meta:
+		model = RestaurantOperationSettings
+		fields = [
+			'tables_enabled',
+			'kitchen_enabled',
+			'counter_orders_enabled',
+			'pos_quick_sale_enabled',
+			'allow_pickup_orders',
+			'allow_dine_in_orders',
+			'allow_delivery_orders',
+			'default_pos_mode',
+		]

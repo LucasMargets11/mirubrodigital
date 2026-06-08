@@ -3,6 +3,7 @@ from django.urls import path
 from .views import (
 	OrderTableAssignmentView,
 	RestoOrderCreateView,
+	RestaurantOperationSettingsView,
 	TableConfigurationView,
 	TableLayoutView,
 	TableListView,
@@ -12,6 +13,7 @@ from .views import (
 app_name = 'resto'
 
 urlpatterns = [
+	path('settings/operation/', RestaurantOperationSettingsView.as_view(), name='operation-settings'),
 	path('tables/', TableListView.as_view(), name='table-list'),
 	path('tables/layout/', TableLayoutView.as_view(), name='table-layout'),
 	path('tables/status/', TableStatusView.as_view(), name='table-status'),

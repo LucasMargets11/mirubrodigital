@@ -7,12 +7,30 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { MenuPicker, type MenuProductSelection } from '@/components/orders/menu-picker';
 import { TableMapEmbed } from '@/components/orders/table-map-embed';
 import { useCommercialSettingsQuery } from '@/features/gestion/hooks';
-import { cancelOrder, createOrderItem, startOrder } from '@/features/orders/api';
+import { cancelOrder, createOrderItem, createOrderWithItems, startOrder } from '@/features/orders/api';
 import type { Order } from '@/features/orders/types';
+import {
+    getAvailableOrderChannels,
+    getEffectiveRestaurantOperationSettings,
+    useRestaurantOperationSettings,
+    type OrderChannelKey,
+} from '@/features/resto/hooks';
 import { tablesKeys, useRestaurantTablesMapState } from '@/features/tables/hooks';
 import type { RestaurantTableNode } from '@/features/tables/types';
 import { ApiError } from '@/lib/api/client';
 import { formatCurrency } from '@/lib/format';
+
+const CHANNEL_LABELS: Record<OrderChannelKey, string> = {
+    dine_in: 'Salón / Mesa',
+    pickup: 'Mostrador / Retiro',
+    delivery: 'Delivery',
+};
+
+const CHANNEL_HINTS: Record<OrderChannelKey, string> = {
+    dine_in: 'Asigná una mesa desde el mapa para abrir la orden de salón.',
+    pickup: 'Pedido de mostrador o retiro: no requiere mesa.',
+    delivery: 'Pedido de delivery: no requiere mesa.',
+};
 
 type CartItem = {
     id: string;
@@ -24,7 +42,8 @@ type CartItem = {
 };
 
 type OrderSubmissionPayload = {
-    tableId: string;
+    channel: OrderChannelKey;
+    tableId: string | null;
     customerName: string;
     note: string;
     cartItems: CartItem[];
@@ -50,6 +69,33 @@ export function NewOrderClient({ canViewCommercialSettings = false }: NewOrderCl
     const [formError, setFormError] = useState<string | null>(null);
 
     const mapStateQuery = useRestaurantTablesMapState();
+    const operationSettingsQuery = useRestaurantOperationSettings();
+    const operationSettings = getEffectiveRestaurantOperationSettings(operationSettingsQuery.data);
+    const availableChannels = useMemo(
+        () => getAvailableOrderChannels(operationSettings),
+        [operationSettings]
+    );
+    const hasChannels = availableChannels.length > 0;
+    const [channel, setChannel] = useState<OrderChannelKey | null>(null);
+
+    useEffect(() => {
+        if (availableChannels.length === 0) {
+            if (channel !== null) {
+                setChannel(null);
+            }
+            return;
+        }
+        if (channel === null || !availableChannels.includes(channel)) {
+            // Prefer dine_in when available, otherwise fall back to the first
+            // available channel (pickup/mostrador or delivery).
+            const preferred = availableChannels.includes('dine_in')
+                ? 'dine_in'
+                : availableChannels[0];
+            setChannel(preferred);
+        }
+    }, [availableChannels, channel]);
+
+    const isDineIn = channel === 'dine_in';
     const settingsQuery = useCommercialSettingsQuery({
         enabled: canViewCommercialSettings,
         skipIfForbidden: !canViewCommercialSettings,
@@ -79,6 +125,10 @@ export function NewOrderClient({ canViewCommercialSettings = false }: NewOrderCl
 
     const handleSelectTable = (nextId: string, snapshot?: RestaurantTableNode | null) => {
         setFormError(null);
+        if (!isDineIn) {
+            setBlockedMessage('El canal salón está deshabilitado para este negocio.');
+            return;
+        }
         if (snapshot?.state === 'PAUSED') {
             setBlockedMessage('Esta mesa está pausada. Reactivala desde la configuración para tomar pedidos.');
             return;
@@ -147,11 +197,27 @@ export function NewOrderClient({ canViewCommercialSettings = false }: NewOrderCl
     };
 
     const createOrderMutation = useMutation<Order, unknown, OrderSubmissionPayload>({
-        mutationFn: async ({ tableId: payloadTableId, customerName: namePayload, note: notePayload, cartItems: items }) => {
+        mutationFn: async ({ channel: payloadChannel, tableId: payloadTableId, customerName: namePayload, note: notePayload, cartItems: items }) => {
+            // Pickup / delivery orders do not require a table and are created in a
+            // single atomic request via the channel-aware orders endpoint.
+            if (payloadChannel !== 'dine_in') {
+                return createOrderWithItems({
+                    channel: payloadChannel,
+                    submit: true,
+                    customer_name: namePayload.trim() || undefined,
+                    note: notePayload.trim() || undefined,
+                    items: items.map((item) => ({
+                        name: item.name,
+                        quantity: item.quantity,
+                        unit_price: item.price,
+                    })),
+                });
+            }
+
             let createdOrderId: string | null = null;
             try {
                 const started = await startOrder({
-                    table_id: payloadTableId,
+                    table_id: payloadTableId as string,
                     channel: 'dine_in',
                     customer_name: namePayload.trim() || undefined,
                     note: notePayload.trim() || undefined,
@@ -199,7 +265,13 @@ export function NewOrderClient({ canViewCommercialSettings = false }: NewOrderCl
     });
 
     const handleConfirmOrder = () => {
-        if (!tableId) {
+        if (!hasChannels || !channel) {
+            setFormError(
+                'No hay canales de pedido habilitados. Activá retiro, salón o delivery desde Configuración Operativa.'
+            );
+            return;
+        }
+        if (channel === 'dine_in' && !tableId) {
             setFormError('Seleccioná una mesa antes de confirmar.');
             return;
         }
@@ -208,12 +280,23 @@ export function NewOrderClient({ canViewCommercialSettings = false }: NewOrderCl
             return;
         }
         setFormError(null);
-        createOrderMutation.mutate({ tableId, customerName, note, cartItems });
+        createOrderMutation.mutate({
+            channel,
+            tableId: channel === 'dine_in' ? tableId : null,
+            customerName,
+            note,
+            cartItems,
+        });
     };
 
     const tablesLoading = mapStateQuery.isLoading;
     const tablesError = mapStateQuery.isError ? 'No pudimos cargar las mesas. Intentá nuevamente.' : null;
-    const submitDisabled = !tableId || cartItems.length === 0 || createOrderMutation.isPending;
+    const submitDisabled =
+        !hasChannels ||
+        !channel ||
+        (channel === 'dine_in' && !tableId) ||
+        cartItems.length === 0 ||
+        createOrderMutation.isPending;
 
     return (
         <section data-testid="new-order-root" className="space-y-6">
@@ -221,18 +304,77 @@ export function NewOrderClient({ canViewCommercialSettings = false }: NewOrderCl
                 <p className="text-xs uppercase tracking-wide text-slate-400">Nueva orden</p>
                 <h1 className="text-3xl font-semibold text-slate-900">Crear pedido</h1>
                 <p className="text-sm text-slate-500">
-                    Seleccioná una mesa desde el mapa y agregá productos para abrir una orden inmediata en la vista principal.
+                    {isDineIn
+                        ? 'Seleccioná una mesa desde el mapa y agregá productos para abrir una orden inmediata en la vista principal.'
+                        : 'Elegí el canal del pedido y agregá productos para crear la orden.'}
                 </p>
             </header>
+            {!hasChannels ? (
+                <div
+                    data-testid="no-channels-message"
+                    className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900"
+                >
+                    No hay canales de pedido habilitados. Activá retiro, salón o delivery desde Configuración Operativa.
+                </div>
+            ) : (
+                <div className="space-y-3">
+                    <div
+                        role="group"
+                        aria-label="Canal del pedido"
+                        className="flex flex-wrap gap-2"
+                    >
+                        {availableChannels.map((option) => (
+                            <button
+                                key={option}
+                                type="button"
+                                data-testid={`channel-option-${option}`}
+                                aria-pressed={channel === option}
+                                onClick={() => {
+                                    setFormError(null);
+                                    setBlockedMessage(null);
+                                    setChannel(option);
+                                }}
+                                className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
+                                    channel === option
+                                        ? 'border-slate-900 bg-slate-900 text-white'
+                                        : 'border-slate-200 bg-white text-slate-600 hover:border-slate-400'
+                                }`}
+                            >
+                                {CHANNEL_LABELS[option]}
+                            </button>
+                        ))}
+                    </div>
+                    {!availableChannels.includes('dine_in') ? (
+                        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                            El canal salón está desactivado. Podés crear pedidos de mostrador/retiro o delivery si están
+                            habilitados.
+                        </div>
+                    ) : null}
+                    {channel ? (
+                        <p className="text-xs text-slate-500">{CHANNEL_HINTS[channel]}</p>
+                    ) : null}
+                </div>
+            )}
             <div className="grid gap-6 lg:grid-cols-[420px_1fr] xl:grid-cols-[480px_1fr]">
-                <TableMapEmbed
-                    tables={tables}
-                    layout={tablesLayout}
-                    selectedTableId={tableId ?? undefined}
-                    loading={tablesLoading}
-                    error={tablesError}
-                    onSelectTable={(id, snapshot) => handleSelectTable(id, snapshot)}
-                />
+                {isDineIn ? (
+                    <TableMapEmbed
+                        tables={tables}
+                        layout={tablesLayout}
+                        selectedTableId={tableId ?? undefined}
+                        loading={tablesLoading}
+                        error={tablesError}
+                        onSelectTable={(id, snapshot) => handleSelectTable(id, snapshot)}
+                    />
+                ) : (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-500 shadow-sm">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Sin mesa</p>
+                        <p className="mt-2">
+                            {channel === 'delivery'
+                                ? 'Los pedidos de delivery no requieren mesa.'
+                                : 'Los pedidos de mostrador/retiro no requieren mesa.'}
+                        </p>
+                    </div>
+                )}
                 <div className="space-y-4">
                     {blockedMessage ? (
                         <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
@@ -258,39 +400,41 @@ export function NewOrderClient({ canViewCommercialSettings = false }: NewOrderCl
             </div>
             <div className="grid gap-6 lg:grid-cols-[420px_1fr] xl:grid-cols-[480px_1fr]">
                 <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                    <div className="flex items-center justify-between gap-3">
-                        <div>
-                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Mesa asignada</p>
-                            {selectedTable ? (
-                                <div className="text-sm text-slate-600">
-                                    <p className="text-base font-semibold text-slate-900">{selectedTable.name}</p>
-                                    <span className="text-xs text-slate-500">
-                                        Estado: {selectedTable.active_order?.status_label ?? selectedTable.state}
-                                    </span>
-                                    {selectedTable.state === 'OCCUPIED' && selectedTable.active_order ? (
-                                        <span className="block text-xs font-semibold text-rose-600">
-                                            Mesa ocupada por orden #{selectedTable.active_order.number}
+                    {isDineIn ? (
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Mesa asignada</p>
+                                {selectedTable ? (
+                                    <div className="text-sm text-slate-600">
+                                        <p className="text-base font-semibold text-slate-900">{selectedTable.name}</p>
+                                        <span className="text-xs text-slate-500">
+                                            Estado: {selectedTable.active_order?.status_label ?? selectedTable.state}
                                         </span>
-                                    ) : selectedTable.state === 'FREE' ? (
-                                        <span className="block text-xs text-emerald-600">Lista para tomar la orden</span>
-                                    ) : selectedTable.state === 'PAUSED' ? (
-                                        <span className="block text-xs text-amber-600">Mesa pausada. Reactivala desde configuración.</span>
-                                    ) : null}
-                                </div>
-                            ) : (
-                                <p className="text-sm text-slate-500">Seleccioná una mesa para sincronizarla con el mapa.</p>
-                            )}
+                                        {selectedTable.state === 'OCCUPIED' && selectedTable.active_order ? (
+                                            <span className="block text-xs font-semibold text-rose-600">
+                                                Mesa ocupada por orden #{selectedTable.active_order.number}
+                                            </span>
+                                        ) : selectedTable.state === 'FREE' ? (
+                                            <span className="block text-xs text-emerald-600">Lista para tomar la orden</span>
+                                        ) : selectedTable.state === 'PAUSED' ? (
+                                            <span className="block text-xs text-amber-600">Mesa pausada. Reactivala desde configuración.</span>
+                                        ) : null}
+                                    </div>
+                                ) : (
+                                    <p className="text-sm text-slate-500">Seleccioná una mesa para sincronizarla con el mapa.</p>
+                                )}
+                            </div>
+                            {selectedTable ? (
+                                <button
+                                    type="button"
+                                    onClick={handleClearTable}
+                                    className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 hover:border-slate-900 hover:text-slate-900"
+                                >
+                                    Quitar mesa
+                                </button>
+                            ) : null}
                         </div>
-                        {selectedTable ? (
-                            <button
-                                type="button"
-                                onClick={handleClearTable}
-                                className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 hover:border-slate-900 hover:text-slate-900"
-                            >
-                                Quitar mesa
-                            </button>
-                        ) : null}
-                    </div>
+                    ) : null}
                     <form className="space-y-3">
                         <label className="text-sm font-medium text-slate-700">
                             Cliente

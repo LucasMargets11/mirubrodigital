@@ -10,9 +10,10 @@ from apps.business.service_policy import require_service
 from apps.orders.models import Order
 from apps.orders.serializers import OrderCreateSerializer, OrderSerializer
 
-from .models import Table
+from .models import RestaurantOperationSettings, Table
 from .serializers import (
 	OrderTableAssignmentSerializer,
+	RestaurantOperationSettingsSerializer,
 	TableConfigurationWriteSerializer,
 	TableLayoutSerializer,
 	TableSerializer,
@@ -92,6 +93,32 @@ class OrderTableAssignmentView(APIView):
 		serializer.is_valid(raise_exception=True)
 		order = serializer.save()
 		return Response(OrderSerializer(order, context={'request': request, 'business': business}).data)
+
+
+class RestaurantOperationSettingsView(APIView):
+	permission_classes = [IsAuthenticated, HasBusinessMembership, require_service('restaurante'), HasPermission]
+	required_permission = 'manage_tables'
+
+	def _get_settings(self, request):
+		business = getattr(request, 'business')
+		return RestaurantOperationSettings.objects.for_business(business)
+
+	def get(self, request):
+		settings = self._get_settings(request)
+		serializer = RestaurantOperationSettingsSerializer(settings, context={'request': request})
+		return Response(serializer.data)
+
+	def patch(self, request):
+		settings = self._get_settings(request)
+		serializer = RestaurantOperationSettingsSerializer(
+			settings,
+			data=request.data,
+			partial=True,
+			context={'request': request},
+		)
+		serializer.is_valid(raise_exception=True)
+		serializer.save()
+		return Response(serializer.data)
 
 
 class TableConfigurationView(APIView):

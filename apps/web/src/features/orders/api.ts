@@ -46,6 +46,10 @@ export function createOrder(payload: OrderPayload) {
     return apiPost<Order>('/api/v1/resto/orders/', payload);
 }
 
+export function createOrderWithItems(payload: OrderPayload) {
+    return apiPost<Order>('/api/v1/orders/', payload);
+}
+
 export function startOrder(payload: OrderStartPayload) {
     return apiPost<Order>('/api/v1/orders/start/', payload);
 }

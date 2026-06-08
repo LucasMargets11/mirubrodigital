@@ -14,8 +14,12 @@ urlpatterns = [
     path('cash/', include('apps.cash.pos_urls')),
     # Sales domain operative routes
     path('sales/', include('apps.sales.pos_urls')),
+    # Offline bootstrap snapshot (POS Offline MVP — quick-sale only)
+    path('offline/', include('apps.sales.pos_offline_urls')),
     # Catalog operative routes (product search for POS terminal)
     path('catalog/', include('apps.catalog.pos_urls')),
     # Customer operative routes (search + create for POS sale creation)
     path('customers/', include('apps.customers.pos_urls')),
+    # Orders operative routes (counter kitchen orders from POS)
+    path('orders/', include('apps.orders.pos_urls')),
 ]

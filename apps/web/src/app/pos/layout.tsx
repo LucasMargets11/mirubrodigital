@@ -14,6 +14,8 @@ import { useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { EmployeeSessionProvider, useEmployeeSession } from '@/features/pos/context';
 import { Providers } from '@/app/providers';
+import { PosConnectionBanner } from '@/features/pos/components/PosConnectionBanner';
+import { PosPwaRegistrar } from '@/features/pos/components/PosPwaRegistrar';
 
 function PosGuard({ children }: { children: React.ReactNode }) {
   const { session } = useEmployeeSession();
@@ -29,6 +31,21 @@ function PosGuard({ children }: { children: React.ReactNode }) {
         router.replace('/pos/login' as any);
       }
       return;
+    }
+
+    if (session.status === 'authenticated') {
+      const role = session.employee.role_type;
+
+      if (pathname === '/pos/terminal' && role === 'kitchen') {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        router.replace('/pos/kitchen' as any);
+        return;
+      }
+
+      if (pathname === '/pos/kitchen' && role !== 'kitchen' && role !== 'manager_op') {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        router.replace('/pos/terminal' as any);
+      }
     }
   }, [session, pathname, router]);
 
@@ -56,6 +73,8 @@ export default function PosLayout({ children }: { children: React.ReactNode }) {
   return (
     <Providers>
       <EmployeeSessionProvider>
+        <PosPwaRegistrar />
+        <PosConnectionBanner />
         <PosGuard>{children}</PosGuard>
       </EmployeeSessionProvider>
     </Providers>

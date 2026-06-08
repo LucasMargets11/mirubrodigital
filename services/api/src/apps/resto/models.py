@@ -3,6 +3,8 @@ from __future__ import annotations
 import uuid
 
 from django.db import models
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 
 
 class Table(models.Model):
@@ -30,6 +32,49 @@ class Table(models.Model):
 
   def __str__(self) -> str:  # pragma: no cover - representational helper
     return f"Mesa {self.code} · {self.business_id}"
+
+
+class RestaurantOperationSettingsManager(models.Manager):
+  def for_business(self, business):
+    if business is None:
+      raise ValueError('Business is required to resolve restaurant operation settings')
+    settings, _ = self.get_or_create(business=business)
+    return settings
+
+
+class RestaurantOperationSettings(models.Model):
+  class DefaultPosMode(models.TextChoices):
+    QUICK_SALE = 'quick_sale', 'Venta rapida'
+    KITCHEN_ORDER = 'kitchen_order', 'Pedido a cocina'
+
+  business = models.OneToOneField(
+    'business.Business',
+    related_name='resto_operation_settings',
+    on_delete=models.CASCADE,
+  )
+  tables_enabled = models.BooleanField(default=True)
+  kitchen_enabled = models.BooleanField(default=True)
+  counter_orders_enabled = models.BooleanField(default=True)
+  pos_quick_sale_enabled = models.BooleanField(default=True)
+  allow_pickup_orders = models.BooleanField(default=True)
+  allow_dine_in_orders = models.BooleanField(default=True)
+  allow_delivery_orders = models.BooleanField(default=False)
+  default_pos_mode = models.CharField(
+    max_length=32,
+    choices=DefaultPosMode.choices,
+    default=DefaultPosMode.QUICK_SALE,
+  )
+  created_at = models.DateTimeField(auto_now_add=True)
+  updated_at = models.DateTimeField(auto_now=True)
+
+  objects = RestaurantOperationSettingsManager()
+
+  class Meta:
+    verbose_name = 'Restaurant Operation Settings'
+    verbose_name_plural = 'Restaurant Operation Settings'
+
+  def __str__(self) -> str:  # pragma: no cover - representational helper
+    return f"Restaurant operation settings · {self.business_id}"
 
 
 class TableLayout(models.Model):
@@ -71,3 +116,8 @@ class TablePlacement(models.Model):
 
   def __str__(self) -> str:  # pragma: no cover
     return f"Placement {self.table_id} ({self.x},{self.y})"
+
+
+@receiver(post_save, sender='business.Business')
+def ensure_resto_operation_settings(sender, instance, created: bool, **kwargs):  # pragma: no cover
+  RestaurantOperationSettings.objects.get_or_create(business=instance)

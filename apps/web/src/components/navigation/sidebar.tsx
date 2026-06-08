@@ -10,6 +10,10 @@ import { cn } from '@/lib/utils';
 import { logout } from '@/lib/auth/client';
 import { serviceDisplayName, planDisplayName } from '@/lib/services';
 import type { FeatureFlags, PermissionMap } from '@/lib/auth/types';
+import {
+    getEffectiveRestaurantOperationSettings,
+    useRestaurantOperationSettings,
+} from '@/features/resto/hooks';
 
 type AppLink = {
     href?: string;
@@ -40,10 +44,31 @@ const NAV_CONFIG: Record<string, NavGroup[]> = {
         {
             title: 'Restaurante Inteligente',
             items: [
+                { href: '/app/resto', label: 'Inicio', featureKey: 'resto_orders' },
                 { href: '/app/tables', label: 'Mapa de mesas', permissionKey: 'view_tables', featureKey: 'resto_tables' },
                 { href: '/app/orders', label: 'Órdenes', permissionKey: 'view_orders', featureKey: 'resto_orders' },
                 { href: '/app/kitchen', label: 'Cocina en vivo', permissionKey: 'view_kitchen_board', featureKey: 'resto_kitchen' },
-                { href: '/app/carta', label: 'Carta', permissionKey: 'view_menu', featureKey: 'resto_menu' },
+                {
+                    label: 'Carta Online',
+                    permissionKey: 'view_menu',
+                    featureKey: 'resto_menu',
+                    children: [
+                        { href: '/app/carta/publicacion', label: 'Mi Carta / QR' },
+                        { href: '/app/carta/productos', label: 'Productos de la carta' },
+                        { href: '/app/carta/apariencia', label: 'Configuración' },
+                    ],
+                },
+                {
+                    label: 'QR de Reseñas',
+                    permissionKey: 'manage_reviews',
+                    featureKey: 'qr_reviews_core',
+                    children: [
+                        { href: '/app/resenas/qr', label: 'Mi QR' },
+                        { href: '/app/resenas/feedback', label: 'Feedback' },
+                        { href: '/app/resenas/configuracion', label: 'Configuración' },
+                        { href: '/app/resenas/carteles', label: 'Carteles' },
+                    ],
+                },
             ],
         },
         {
@@ -77,10 +102,10 @@ const NAV_CONFIG: Record<string, NavGroup[]> = {
                         { href: '/app/settings/access', label: 'Roles & Accesos', permissionKey: 'manage_users' },
                         { href: '/app/settings/branches', label: 'Sucursales', permissionKey: 'manage_settings' }, // Access check in page
                         {
-                            href: '/app/carta/apariencia',
-                            label: 'Personalización (Carta)',
-                            permissionKey: 'manage_settings',
-                            featureKey: 'resto_menu',
+                            href: '/app/resto/settings/operation',
+                            label: 'Operacion del restaurante',
+                            permissionKey: 'manage_tables',
+                            featureKey: 'settings',
                         },
                         {
                             href: '/app/resto/settings/tables',
@@ -448,6 +473,33 @@ function NavItem({ item, pathname, onNavigate }: { item: AppLink; pathname: stri
     );
 }
 
+function filterRestoLinksByOperationSettings(
+    links: AppLink[],
+    operationSettings: ReturnType<typeof getEffectiveRestaurantOperationSettings>
+): AppLink[] {
+    const shouldShow = (href?: string) => {
+        if (!href) return true;
+        if (href === '/app/tables' || href === '/app/resto/settings/tables') {
+            return operationSettings.tables_enabled;
+        }
+        if (href === '/app/kitchen') {
+            return operationSettings.kitchen_enabled;
+        }
+        return true;
+    };
+
+    return links
+        .filter((link) => shouldShow(link.href))
+        .map((link) => {
+            if (!link.children) return link;
+            return {
+                ...link,
+                children: link.children.filter((child) => shouldShow(child.href)),
+            };
+        })
+        .filter((link) => !link.children || link.children.length > 0);
+}
+
 export function Sidebar({ 
     businessName, 
     branchName,
@@ -462,11 +514,23 @@ export function Sidebar({
     onNavigate 
 }: SidebarProps) {
     const pathname = usePathname() || '';
+    const operationSettingsQuery = useRestaurantOperationSettings({ enabled: service === 'restaurante' });
+    const operationSettings = getEffectiveRestaurantOperationSettings(operationSettingsQuery.data);
 
     // Fallback to empty list or default structure if service not found, 
     // but here we just handle the known ones or fallback to 'gestion' structure if needed.
     // For now assuming service is valid as per previous code.
-    const sections = NAV_CONFIG[service] ?? [];
+    const sections = useMemo(() => {
+        const baseSections = NAV_CONFIG[service] ?? [];
+        if (service !== 'restaurante') {
+            return baseSections;
+        }
+
+        return baseSections.map((section) => ({
+            ...section,
+            items: filterRestoLinksByOperationSettings(section.items, operationSettings),
+        }));
+    }, [service, operationSettings]);
 
     return (
         <aside

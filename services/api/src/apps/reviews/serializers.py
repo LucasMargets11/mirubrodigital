@@ -13,6 +13,7 @@ class ReviewConfigSerializer(serializers.ModelSerializer):
     effective_mode = serializers.ReadOnlyField()
     smart_filter_allowed = serializers.SerializerMethodField()
     is_reviews_pro = serializers.SerializerMethodField()
+    print_posters_allowed = serializers.SerializerMethodField()
     trial_active = serializers.SerializerMethodField()
     trial_available = serializers.SerializerMethodField()
 
@@ -39,6 +40,7 @@ class ReviewConfigSerializer(serializers.ModelSerializer):
             'trial_used',
             'smart_filter_allowed',
             'is_reviews_pro',
+            'print_posters_allowed',
             'trial_active',
             'trial_available',
             'updated_at',
@@ -50,6 +52,7 @@ class ReviewConfigSerializer(serializers.ModelSerializer):
             'trial_used',
             'smart_filter_allowed',
             'is_reviews_pro',
+            'print_posters_allowed',
             'trial_active',
             'trial_available',
             'google_place_updated_at',
@@ -111,6 +114,10 @@ class ReviewConfigSerializer(serializers.ModelSerializer):
     def get_is_reviews_pro(self, obj) -> bool:
         from .entitlements import is_reviews_pro
         return is_reviews_pro(obj.business)
+
+    def get_print_posters_allowed(self, obj) -> bool:
+        from .entitlements import print_posters_allowed
+        return print_posters_allowed(obj.business)
 
     def get_trial_active(self, obj) -> bool:
         from .entitlements import trial_active

@@ -57,13 +57,14 @@ export function ResenasNav() {
     }, [refreshStats]);
 
     const isReviewsPro = config?.is_reviews_pro ?? false;
+    const cartelesAccessible = config?.print_posters_allowed ?? false;
     const feedbackAccessible = config?.smart_filter_allowed ?? false;
     const newCount = stats?.new_reviews ?? 0;
     const isTrial = config?.trial_active ?? false;
 
     const tabs: TabDef[] = [
         ...BASE_TABS,
-        ...(isReviewsPro
+        ...(cartelesAccessible
             ? [{ href: '/app/resenas/carteles', label: 'Carteles' }]
             : []),
         {

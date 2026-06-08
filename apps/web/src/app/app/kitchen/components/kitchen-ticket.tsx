@@ -1,6 +1,6 @@
 'use client';
 
-import { CheckCircle2, Clock, ShoppingBag, Truck, Utensils, XCircle } from 'lucide-react';
+import { CheckCircle2, Clock, ShoppingBag, Truck, Utensils } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -21,7 +21,12 @@ export function KitchenTicket({ order, onUpdateItem, onUpdateOrder }: KitchenTic
     const isVeryLate = elapsed > 900; // 15 mins
 
     const minutes = Math.floor(elapsed / 60);
-    const timeDisplay = minutes > 0 ? `${minutes} min` : 'Ahora';
+    const timeDisplay = minutes >= 1440 ? '+24 h' : minutes > 0 ? `${minutes} min` : 'Ahora';
+
+    const hasPendingItems = order.items.some((item) => item.kitchen_status === 'pending');
+    const hasInProgressItems = order.items.some((item) => item.kitchen_status === 'in_progress');
+    const allReady = order.items.length > 0 && order.items.every((item) => item.kitchen_status === 'ready');
+    const allDone = order.items.length > 0 && order.items.every((item) => item.kitchen_status === 'done');
 
     const getChannelIcon = () => {
         switch (order.channel) {
@@ -35,15 +40,28 @@ export function KitchenTicket({ order, onUpdateItem, onUpdateOrder }: KitchenTic
     };
 
     const handleItemClick = (item: KitchenItem) => {
-        let next: KitchenStatus = 'pending';
-        if (item.kitchen_status === 'pending') next = 'in_progress';
-        else if (item.kitchen_status === 'in_progress') next = 'ready';
-        else if (item.kitchen_status === 'ready') next = 'done';
-        
-        if (item.kitchen_status !== 'done') {
-            onUpdateItem(item.id, next);
+        if (item.kitchen_status === 'pending') {
+            onUpdateItem(item.id, 'in_progress');
+            return;
+        }
+        if (item.kitchen_status === 'in_progress') {
+            onUpdateItem(item.id, 'ready');
         }
     };
+
+    const getItemActionLabel = (item: KitchenItem): string | null => {
+        if (item.kitchen_status === 'pending') return 'Iniciar';
+        if (item.kitchen_status === 'in_progress') return 'Listo';
+        if (item.kitchen_status === 'ready') return 'Listo';
+        if (item.kitchen_status === 'done') return 'Entregado';
+        return null;
+    };
+
+        const bulkAction = allReady || allDone
+        ? null
+        : hasPendingItems && !hasInProgressItems
+          ? { label: 'Marcar en preparación', target: 'in_progress' as KitchenStatus }
+          : { label: 'Marcar listo', target: 'ready' as KitchenStatus };
 
     const renderModifiers = (modifiers: unknown[]) => {
         if (!modifiers || !Array.isArray(modifiers) || modifiers.length === 0) return null;
@@ -99,7 +117,7 @@ export function KitchenTicket({ order, onUpdateItem, onUpdateOrder }: KitchenTic
                         <div
                             key={item.id}
                             className={cn(
-                                'cursor-pointer rounded border p-2 text-sm transition-colors',
+                                'rounded border p-2 text-sm transition-colors',
                                 item.kitchen_status === 'done'
                                     ? 'bg-slate-100 text-slate-500 opacity-60'
                                     : 'bg-white shadow-sm',
@@ -113,7 +131,7 @@ export function KitchenTicket({ order, onUpdateItem, onUpdateOrder }: KitchenTic
                             )}
                             onClick={() => handleItemClick(item)}
                         >
-                            <div className="flex justify-between">
+                            <div className="flex items-center justify-between gap-3">
                                 <span
                                     className={cn(
                                         'font-medium',
@@ -127,7 +145,22 @@ export function KitchenTicket({ order, onUpdateItem, onUpdateOrder }: KitchenTic
                                     )}
                                     {item.name}
                                 </span>
-                                {item.kitchen_status === 'done' && <CheckCircle2 className="h-4 w-4 text-slate-400" />}
+                                <div className="flex items-center gap-2">
+                                    {item.kitchen_status === 'done' && <CheckCircle2 className="h-4 w-4 text-slate-400" />}
+                                    {getItemActionLabel(item) ? (
+                                        <span
+                                            className={cn(
+                                                'rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
+                                                item.kitchen_status === 'pending' && 'bg-orange-100 text-orange-700',
+                                                item.kitchen_status === 'in_progress' && 'bg-blue-100 text-blue-700',
+                                                item.kitchen_status === 'ready' && 'bg-emerald-100 text-emerald-700',
+                                                item.kitchen_status === 'done' && 'bg-slate-200 text-slate-600'
+                                            )}
+                                        >
+                                            {getItemActionLabel(item)}
+                                        </span>
+                                    ) : null}
+                                </div>
                             </div>
                             {renderModifiers(item.modifiers)}
                             {item.note && <div className="mt-1 text-xs italic text-slate-500">&quot;{item.note}&quot;</div>}
@@ -135,15 +168,38 @@ export function KitchenTicket({ order, onUpdateItem, onUpdateOrder }: KitchenTic
                     ))}
                 </div>
             </CardContent>
-            <CardFooter className="border-t bg-white p-2">
-                <Button
-                    className="h-8 w-full text-xs"
-                    variant="outline"
-                    onClick={() => onUpdateOrder(order.id, 'ready')}
-                >
-                    Marcar todo listo
-                </Button>
-            </CardFooter>
+            {allDone ? (
+                <CardFooter className="border-t bg-white p-2">
+                    <div className="w-full rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-center text-xs font-semibold text-emerald-700">
+                        Pedido retirado
+                    </div>
+                </CardFooter>
+            ) : allReady ? (
+                <CardFooter className="border-t bg-white p-2">
+                    <div className="flex w-full flex-col gap-2">
+                        <div className="w-full rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-center text-xs font-semibold text-emerald-700">
+                            Pedido listo
+                        </div>
+                        <Button
+                            className="h-8 w-full text-xs"
+                            variant="outline"
+                            onClick={() => onUpdateOrder(order.id, 'done')}
+                        >
+                            Marcar como retirado
+                        </Button>
+                    </div>
+                </CardFooter>
+            ) : bulkAction ? (
+                <CardFooter className="border-t bg-white p-2">
+                    <Button
+                        className="h-8 w-full text-xs"
+                        variant="outline"
+                        onClick={() => onUpdateOrder(order.id, bulkAction.target)}
+                    >
+                        {bulkAction.label}
+                    </Button>
+                </CardFooter>
+            ) : null}
         </Card>
     );
 }

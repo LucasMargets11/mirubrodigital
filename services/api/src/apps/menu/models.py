@@ -21,6 +21,13 @@ class TipsModeChoices(models.TextChoices):
 class MenuCategory(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     business = models.ForeignKey('business.Business', related_name='menu_categories', on_delete=models.CASCADE)
+    product_category = models.ForeignKey(
+        'catalog.ProductCategory',
+        related_name='menu_categories',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
     name = models.CharField(max_length=120)
     description = models.TextField(blank=True)
     image = models.ImageField(upload_to='menu/categories/', blank=True, null=True, storage=public_media_storage)
@@ -53,6 +60,13 @@ class MenuCategory(models.Model):
 class MenuItem(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     business = models.ForeignKey('business.Business', related_name='menu_items', on_delete=models.CASCADE)
+    product = models.ForeignKey(
+        'catalog.Product',
+        related_name='menu_items',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
     category = models.ForeignKey(
         MenuCategory,
         related_name='items',

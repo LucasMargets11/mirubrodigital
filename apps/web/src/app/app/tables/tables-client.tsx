@@ -4,6 +4,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { TablesMap } from '@/components/tables/tables-map';
+import {
+    getEffectiveRestaurantOperationSettings,
+    useRestaurantOperationSettings,
+} from '@/features/resto/hooks';
 import { useRestaurantTablesMapState } from '@/features/tables/hooks';
 import type { RestaurantTableNode, RestaurantTableState } from '@/features/tables/types';
 
@@ -17,7 +21,12 @@ const STATUS_META: Record<RestaurantTableState, { label: string; badge: string }
 export function TablesClient() {
     const router = useRouter();
     const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
-    const mapStateQuery = useRestaurantTablesMapState();
+    const operationSettingsQuery = useRestaurantOperationSettings();
+    const operationSettings = getEffectiveRestaurantOperationSettings(operationSettingsQuery.data);
+    const tablesEnabled = operationSettings.tables_enabled;
+    const allowDineInOrders = operationSettings.allow_dine_in_orders;
+
+    const mapStateQuery = useRestaurantTablesMapState({ enabled: tablesEnabled });
     const tables = mapStateQuery.data?.tables ?? [];
     const layout = mapStateQuery.data?.layout;
 
@@ -56,6 +65,9 @@ export function TablesClient() {
     };
 
     const handlePrimaryAction = () => {
+        if (!allowDineInOrders) {
+            return;
+        }
         if (!selectedTable) {
             return;
         }
@@ -87,9 +99,29 @@ export function TablesClient() {
                     ))}
                 </div>
             </header>
+
+            {!tablesEnabled ? (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-900">
+                    Mesas desactivadas para este negocio. Activá el módulo de mesas desde configuración operativa.
+                </div>
+            ) : null}
+
+            {tablesEnabled && !allowDineInOrders ? (
+                <div className="rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-4 text-sm text-indigo-900">
+                    El negocio tiene deshabilitado el canal salón (dine in). Podés visualizar el mapa, pero no crear pedidos por mesa.
+                </div>
+            ) : null}
+
             <div className="grid gap-6 lg:grid-cols-[1fr,320px]">
                 <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-                    {mapStateQuery.isLoading ? (
+                    {!tablesEnabled ? (
+                        <div className="space-y-3 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-600">
+                            <p className="font-semibold text-slate-900">El módulo de mesas está desactivado.</p>
+                            <p>
+                                Activálo desde <a href="/app/resto/settings/operation" className="font-semibold text-slate-900 underline-offset-2 hover:underline">Configuración operativa del restaurante</a> para volver a operar con salón.
+                            </p>
+                        </div>
+                    ) : mapStateQuery.isLoading ? (
                         <div className="space-y-4">
                             {Array.from({ length: 3 }).map((_, index) => (
                                 <div key={`skeleton-${index}`} className="h-32 animate-pulse rounded-2xl bg-slate-100" />
@@ -103,7 +135,7 @@ export function TablesClient() {
                         <div className="space-y-3 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-600">
                             <p className="font-semibold text-slate-900">Todavía no cargaste mesas en este salón.</p>
                             <p>
-                                Configurá mesas en <a href="/app/resto/settings/tables" className="font-semibold text-slate-900 underline-offset-2 hover:underline">Configuración &gt; Mesas</a> para verlas acá.
+                                Configurá mesas desde <a href="/app/resto/settings/operation" className="font-semibold text-slate-900 underline-offset-2 hover:underline">Configuración operativa del restaurante</a> para verlas acá.
                             </p>
                         </div>
                     ) : (
@@ -151,9 +183,10 @@ export function TablesClient() {
                                 <button
                                     type="button"
                                     onClick={handlePrimaryAction}
+                                    disabled={!allowDineInOrders}
                                     className="mt-2 w-full rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
                                 >
-                                    Crear pedido en esta mesa
+                                    {allowDineInOrders ? 'Crear pedido en esta mesa' : 'Salón desactivado'}
                                 </button>
                             ) : null}
                             {selectedTable.state === 'OCCUPIED' && selectedTable.active_order ? (

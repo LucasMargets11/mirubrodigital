@@ -21,7 +21,7 @@ class OrderCloseAPITests(APITestCase):
 
   def _create_business(self, name: str = 'La Pizzeria') -> Business:
     business = Business.objects.create(name=name, default_service='restaurante')
-    Subscription.objects.create(business=business, plan=BusinessPlan.PLUS, status='active')
+    Subscription.objects.create(business=business, plan=BusinessPlan.PLUS, service='restaurante', status='active')
     settings = CommercialSettings.objects.for_business(business)
     settings.block_sales_if_no_open_cash_session = False
     settings.save()

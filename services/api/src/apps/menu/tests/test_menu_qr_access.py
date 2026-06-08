@@ -122,12 +122,33 @@ class EnabledServicesTests(TestCase):
         self.assertNotIn('gestion', services)
 
     def test_plus_plan_enables_both_restaurante_and_menu_qr(self):
-        """Restaurant plan (plus) should enable both services because it includes QR features."""
+        """Restaurant plan (plus) enables restaurante + menu_qr + gestion base."""
         flags = feature_flags_for_plan('plus')
         services = enabled_services('plus', flags)
         self.assertIn('restaurante', services)
         self.assertIn('menu_qr', services)
-        self.assertNotIn('gestion', services)
+        self.assertIn('gestion', services)
+
+    def test_plus_plan_enables_qr_reviews_service(self):
+        """Restaurante Inteligente (plus) includes QR de Reseñas as part of the package."""
+        flags = feature_flags_for_plan('plus')
+        self.assertTrue(flags.get('qr_reviews_core'))
+        services = enabled_services('plus', flags)
+        self.assertIn('qr_reviews', services)
+
+    def test_start_plan_does_not_enable_qr_reviews_service(self):
+        """Gestión Comercial Start plan must NOT inherit QR de Reseñas."""
+        flags = feature_flags_for_plan('start')
+        self.assertFalse(flags.get('qr_reviews_core'))
+        services = enabled_services('start', flags)
+        self.assertNotIn('qr_reviews', services)
+
+    def test_business_plan_does_not_enable_qr_reviews_service(self):
+        """Pure Gestión Comercial Business plan must NOT inherit QR de Reseñas."""
+        flags = feature_flags_for_plan('business')
+        self.assertFalse(flags.get('qr_reviews_core'))
+        services = enabled_services('business', flags)
+        self.assertNotIn('qr_reviews', services)
 
     def test_start_plan_enables_only_gestion(self):
         flags = feature_flags_for_plan('start')
@@ -135,6 +156,40 @@ class EnabledServicesTests(TestCase):
         self.assertIn('gestion', services)
         self.assertNotIn('restaurante', services)
         self.assertNotIn('menu_qr', services)
+
+
+# ---------------------------------------------------------------------------
+# Unit tests – RBAC permissions for QR de Reseñas inside Restaurante
+# ---------------------------------------------------------------------------
+
+class RestauranteReviewsPermissionTests(TestCase):
+    """Restaurante owner/admin/manager can manage reviews; operative roles cannot."""
+
+    def test_restaurante_owner_has_manage_reviews(self):
+        from apps.accounts.rbac import permissions_for_service
+        perms = permissions_for_service('restaurante', 'owner')
+        self.assertTrue(perms.get('manage_reviews'))
+
+    def test_restaurante_admin_has_manage_reviews(self):
+        from apps.accounts.rbac import permissions_for_service
+        perms = permissions_for_service('restaurante', 'admin')
+        self.assertTrue(perms.get('manage_reviews'))
+
+    def test_restaurante_manager_has_manage_reviews(self):
+        from apps.accounts.rbac import permissions_for_service
+        perms = permissions_for_service('restaurante', 'manager')
+        self.assertTrue(perms.get('manage_reviews'))
+
+    def test_restaurante_kitchen_role_has_no_manage_reviews(self):
+        from apps.accounts.rbac import permissions_for_service
+        perms = permissions_for_service('restaurante', 'kitchen')
+        self.assertFalse(perms.get('manage_reviews'))
+
+    def test_gestion_owner_has_no_manage_reviews(self):
+        """Pure Gestión Comercial business does not grant reviews access."""
+        from apps.accounts.rbac import permissions_for_service
+        perms = permissions_for_service('gestion', 'owner')
+        self.assertFalse(perms.get('manage_reviews'))
 
 
 # ---------------------------------------------------------------------------
@@ -255,5 +310,9 @@ class BusinessContextTests(TestCase):
         ctx = build_business_context(b)
         self.assertEqual(ctx['service'], 'restaurante')
         self.assertIn('restaurante', ctx['enabled_services'])
+        self.assertIn('gestion', ctx['enabled_services'])
         # Restaurant plan now also includes menu_qr features
         self.assertIn('menu_qr', ctx['enabled_services'])
+        # Restaurante Inteligente includes QR de Reseñas as part of the package
+        self.assertIn('qr_reviews', ctx['enabled_services'])
+        self.assertTrue(ctx['features'].get('qr_reviews_core'))

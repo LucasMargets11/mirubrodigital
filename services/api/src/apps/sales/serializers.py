@@ -289,6 +289,7 @@ class SaleCreateSerializer(serializers.Serializer):
       notes=validated_data.get('notes', ''),
       created_by=user if getattr(user, 'is_authenticated', False) else None,
       cash_session=cash_session,
+      client_order_id=validated_data.get('client_order_id'),
     )
 
     subtotal = Decimal('0')

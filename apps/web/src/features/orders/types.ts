@@ -51,11 +51,27 @@ export type OrderItemPayload = {
     modifiers?: unknown[];
 };
 
+export type CounterOrderItemPayload = {
+    product_id?: string;
+    product?: string;
+    quantity: number;
+    note?: string;
+};
+
+export type CounterOrderPayload = {
+    items: CounterOrderItemPayload[];
+    customer_name?: string;
+    note?: string;
+    send_to_kitchen?: boolean;
+};
+
 export type OrderPayload = {
     channel: OrderChannel;
     table_id?: string | null;
     customer_name?: string;
     note?: string;
+    submit?: boolean;
+    send_to_kitchen?: boolean;
     items: OrderItemPayload[];
 };
 
@@ -155,3 +171,5 @@ export type PayOrderPayload = {
     payments: CheckoutPaymentInput[];
     cash_session_id?: string | null;
 };
+
+export type CounterOrderResponse = Order;

@@ -1,11 +1,12 @@
 import { redirect } from 'next/navigation';
 
 type PageProps = {
-    params: {
+    params: Promise<{
         id: string;
-    };
+    }>;
 };
 
-export default function LegacyRestauranteCashClosureDetailRedirect({ params }: PageProps) {
-    redirect(`/app/resto/operacion/reportes/caja/${params.id}`);
+export default async function LegacyRestauranteCashClosureDetailRedirect({ params }: PageProps) {
+    const { id } = await params;
+    redirect(`/app/resto/operacion/reportes/caja/${id}`);
 }

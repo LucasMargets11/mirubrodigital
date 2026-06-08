@@ -6,16 +6,17 @@ import type { CashClosureDetail } from '@/features/reports/types';
 import { CashSessionDetailView } from '@/modules/reports/cash/cash-session-detail-view';
 
 type PageProps = {
-    params: {
+    params: Promise<{
         id: string;
-    };
+    }>;
 };
 
 export default async function RestauranteCashClosureDetailPage({ params }: PageProps) {
+    const { id } = await params;
     let closure: CashClosureDetail | null = null;
 
     try {
-        closure = await serverApiFetch<CashClosureDetail>(`/api/v1/reports/cash/closures/${params.id}/`);
+        closure = await serverApiFetch<CashClosureDetail>(`/api/v1/reports/cash/closures/${id}/`);
     } catch (error) {
         notFound();
     }

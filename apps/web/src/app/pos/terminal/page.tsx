@@ -15,11 +15,22 @@
 import { useEmployeeSession } from '@/features/pos/context';
 import { PosCashSection } from '@/features/pos/components/PosCashSection';
 import { PosRecentSales } from '@/features/pos/components/PosRecentSales';
+import { PosOfflineStatusCard } from '@/features/pos/offline/bootstrap-status-card';
+import { useRouter } from 'next/navigation';
+import { useEffect } from 'react';
 
 // ── Terminal page ─────────────────────────────────────────────────────────────
 
 export default function PosTerminalPage() {
   const { session, logout } = useEmployeeSession();
+  const router = useRouter();
+
+  // Warm the sale screen so "+ Venta" can open offline (PR-OFF-08). Prefetching
+  // pulls the route's JS chunks, which the service worker then caches.
+  useEffect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    router.prefetch('/pos/terminal/new-sale' as any);
+  }, [router]);
 
   if (session.status !== 'authenticated') {
     // Layout guard should have redirected already; render nothing here
@@ -27,6 +38,10 @@ export default function PosTerminalPage() {
   }
 
   const { employee } = session;
+
+  if (employee.role_type === 'kitchen') {
+    return null;
+  }
 
   const ROLE_LABELS: Record<string, string> = {
     manager_op: 'Gerente Operativo',
@@ -81,6 +96,21 @@ export default function PosTerminalPage() {
         </div>
       </div>
 
+      {employee.role_type === 'manager_op' && (
+        <div className="mb-6 rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-900">
+          <p className="font-semibold">Operación de cocina</p>
+          <p className="mt-1">Podés abrir la terminal de cocina para monitorear y actualizar pedidos.</p>
+          <button
+            type="button"
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            onClick={() => router.push('/pos/kitchen' as any)}
+            className="mt-3 inline-flex rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-100"
+          >
+            Abrir cocina
+          </button>
+        </div>
+      )}
+
       {/* Cash section — only visible to roles with cash capabilities */}
       <div className="mb-6">
         <PosCashSection />
@@ -89,6 +119,11 @@ export default function PosTerminalPage() {
       {/* Recent sales for the current cash session */}
       <div className="mb-6">
         <PosRecentSales />
+      </div>
+
+      {/* Offline contingency snapshot status + download */}
+      <div className="mb-6">
+        <PosOfflineStatusCard />
       </div>
     </div>
   );
