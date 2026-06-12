@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { getBlogPostBySlug, getRelatedPosts, getAllPublishedSlugs } from '../_api';
 import type { BlogPostDetail } from '../_api';
+import { toAbsoluteUrl } from '@/lib/url';
 import { BlogPostHero } from './_components/BlogPostHero';
 import { ShareSidebar } from './_components/ShareSidebar';
 import { BlogPostContent } from './_components/BlogPostContent';
@@ -28,57 +29,48 @@ export async function generateMetadata({ params }: BlogPostPageProps): Promise<M
         return { title: 'Artículo no encontrado | Mirubro' };
     }
 
-    const url = `${SITE_URL}/blog/${post.slug}`;
-    const title = post.metaTitle ?? post.title;
-    const description = post.metaDescription ?? post.excerpt;
-    const ogImage = post.ogImageUrl
-        ? post.ogImageUrl.startsWith('/')
-            ? `${SITE_URL}${post.ogImageUrl}`
-            : post.ogImageUrl
-        : post.coverImageUrl.startsWith('/')
-            ? `${SITE_URL}${post.coverImageUrl}`
-            : post.coverImageUrl;
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || SITE_URL;
+
+    const canonicalUrl = toAbsoluteUrl(post.canonicalUrl) || `${siteUrl}/blog/${post.slug}`;
+
+    const title = post.ogTitle ?? post.metaTitle ?? post.title;
+    const description = post.ogDescription ?? post.metaDescription ?? post.excerpt;
+
+    const resolvedOgImage =
+        toAbsoluteUrl(post.ogImageUrl) || toAbsoluteUrl(post.coverImageUrl) || `${siteUrl}/blog/default-og.jpg`;
 
     // SVG images are not supported by Facebook/LinkedIn OG crawlers.
     // When the resolved image is SVG, omit it so the file-convention
     // opengraph-image.tsx generates a compatible PNG fallback.
-    const isSvg = ogImage?.toLowerCase().endsWith('.svg');
+    const isSvg = resolvedOgImage?.toLowerCase().endsWith('.svg');
 
     return {
         title: `${title} | Mirubro`,
         description,
-        alternates: { canonical: post.canonicalUrl || url },
+        alternates: { canonical: canonicalUrl },
         openGraph: {
-            title: post.ogTitle ?? title,
-            description: post.ogDescription ?? description,
-            url,
+            title,
+            description,
+            url: canonicalUrl,
             siteName: 'Mirubro',
             type: 'article',
             publishedTime: post.date,
             authors: ['Mirubro'],
-            images: ogImage && !isSvg
-                ? [{ url: ogImage, width: 900, alt: post.title }]
-                : undefined,
+            images: resolvedOgImage && !isSvg ? [resolvedOgImage] : undefined,
             locale: 'es_AR',
         },
         twitter: {
             card: 'summary_large_image',
-            title: post.ogTitle ?? title,
-            description: post.ogDescription ?? description,
-            images: ogImage && !isSvg ? [ogImage] : undefined,
+            title,
+            description,
+            images: resolvedOgImage && !isSvg ? [resolvedOgImage] : undefined,
         },
     };
 }
 
 /** JSON-LD: BlogPosting */
 function BlogPostingJsonLd({ post }: { post: BlogPostDetail }) {
-    const ogImage = post.ogImageUrl
-        ? post.ogImageUrl.startsWith('/')
-            ? `${SITE_URL}${post.ogImageUrl}`
-            : post.ogImageUrl
-        : post.coverImageUrl.startsWith('/')
-            ? `${SITE_URL}${post.coverImageUrl}`
-            : post.coverImageUrl;
+    const ogImage = toAbsoluteUrl(post.ogImageUrl) || toAbsoluteUrl(post.coverImageUrl) || `${SITE_URL}/blog/default-og.jpg`;
 
     const schema = {
         '@context': 'https://schema.org',
