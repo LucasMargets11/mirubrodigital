@@ -52,6 +52,9 @@ from .platform_admin_notification_views import (
     AdminNotificationArchiveView,
     AdminNotificationResolveView,
 )
+from apps.reviews.admin_views import (
+    AdminQRReviewsConfigView,
+)
 from apps.blog.admin_views import (
     AdminBlogPostListView,
     AdminBlogPostCreateView,
@@ -82,6 +85,7 @@ urlpatterns = [
     path('clients/', AdminClientListView.as_view(), name='platform-admin-clients'),
     path('clients/kpis/', AdminClientKPIsView.as_view(), name='platform-admin-clients-kpis'),
     path('clients/<int:business_id>/', AdminClientDetailView.as_view(), name='platform-admin-client-detail'),
+    path('clients/<int:business_id>/qr-reviews-config/', AdminQRReviewsConfigView.as_view(), name='platform-admin-client-qr-reviews-config'),
     # ── Subscriptions (Phase 2) ──────────────────────────────────────────
     path('subscriptions/', AdminSubscriptionListView.as_view(), name='platform-admin-subscriptions'),
     path('subscriptions/kpis/', AdminSubscriptionKPIsView.as_view(), name='platform-admin-subscriptions-kpis'),

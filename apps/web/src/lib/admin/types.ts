@@ -665,3 +665,32 @@ export type AdminPromoOptions = {
   billing_periods: { value: string; label: string }[];
   discount_types: { value: string; label: string }[];
 };
+
+// ── QR de Reseñas admin config ─────────────────────────────────────────────
+
+export type AdminQRReviewsConfig = {
+  business_id: number;
+  business_name: string;
+  business_slug: string;
+  public_url: string;
+  service_type: string;
+  review_config_exists: boolean;
+  enabled: boolean;
+  mode: string;
+  redirect_threshold: number;
+  google_place_id: string;
+  google_place_name: string;
+  google_place_formatted_address: string;
+  google_review_url: string;
+  custom_redirect_url: string;
+  google_place_updated_at: string | null;
+};
+
+export type AdminQRReviewsConfigPatch = {
+  slug?: string;
+  google_place_id?: string;
+  google_place_name?: string;
+  google_place_formatted_address?: string;
+  google_review_url?: string;
+  custom_redirect_url?: string;
+};
