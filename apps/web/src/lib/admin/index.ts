@@ -25,6 +25,8 @@ import type {
   AdminPromoCodeRedemptionList,
   AdminPromoOptions,
   AdminPlanOption,
+  AdminQRReviewsConfig,
+  AdminQRReviewsConfigPatch,
 } from './types';
 
 /**
