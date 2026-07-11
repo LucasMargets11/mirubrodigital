@@ -16,7 +16,8 @@ import { serverApiFetch } from '@/lib/api/server';
  * Step → Route mapping:
  *   no_service_type   → /app/onboarding/servicio   (choose service type)
  *   plan_selection    → /app/onboarding/plan        (choose plan)
- *   checkout_pending  → /app/onboarding/checkout?plan=<code>  (MP payment + polling)
+ *   checkout_pending  → /app/onboarding/checkout?session_id=<uuid>  (MP payment + polling)
+ *                       fallback: ?plan=<code> if no session_id is available
  *   done              → /app                         (already active — leave funnel)
  *
  * Incoming searchParams (plan_code, billing_period, vertical) are forwarded
@@ -83,7 +84,7 @@ export default async function OnboardingIndexPage({ searchParams }: Props) {
         redirect((`/app/onboarding/servicio${buildForwardedQuery(params)}`) as never);
     }
 
-    const { step, pending_plan_code } = onboardingStatus;
+    const { step, pending_plan_code, checkout_session_id } = onboardingStatus;
     const fwd = buildForwardedQuery(params);
 
     switch (step) {
@@ -94,13 +95,18 @@ export default async function OnboardingIndexPage({ searchParams }: Props) {
 
         case 'checkout_pending': {
             // Checkout already initiated — resume at the checkout/polling page.
-            // Pass the plan_code so the checkout page can call start-checkout
-            // idempotently and recover the existing init_point.
-            const planParam = pending_plan_code
-                ? `?plan=${encodeURIComponent(pending_plan_code)}`
-                : '';
-            redirect((`${ROUTE_CHECKOUT_BASE}${planParam}`) as never);
-            break;
+            // Prefer the session_id so the checkout page can reconcile directly
+            // without an extra round-trip to start-checkout.
+            // Fallback to plan code if the session_id is not available.
+            // Use explicit returns so execution never falls through — do not
+            // rely solely on redirect() throwing to prevent the next branch.
+            if (checkout_session_id) {
+                return redirect((`${ROUTE_CHECKOUT_BASE}?session_id=${encodeURIComponent(checkout_session_id)}`) as never);
+            }
+            if (pending_plan_code) {
+                return redirect((`${ROUTE_CHECKOUT_BASE}?plan=${encodeURIComponent(pending_plan_code)}`) as never);
+            }
+            return redirect(ROUTE_CHECKOUT_BASE);
         }
 
         case 'plan_selection':
