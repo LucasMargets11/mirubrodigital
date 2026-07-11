@@ -40,7 +40,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 
 import { getClientApiBaseUrl } from '@/lib/api-url';
-import { validatePromoCode } from '@/features/billing/api';
+import { reconcileCheckoutSession, validatePromoCode } from '@/features/billing/api';
 import type { PromoValidationSuccess } from '@/features/billing/subscription-types';
 
 const API_URL = getClientApiBaseUrl();
@@ -50,6 +50,8 @@ const POLL_INTERVAL_MS = 3_000;
 const MAX_POLL_ATTEMPTS = 300;
 // After this many attempts, show the "still processing" soft-warning but keep polling.
 const SOFT_WARNING_ATTEMPTS = 40; // ~2 min
+// Maximum time allowed for the background service-type lookup before falling back.
+const ROUTE_RESOLUTION_TIMEOUT_MS = 5_000;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -123,8 +125,21 @@ export default function OnboardingCheckoutPage() {
     const pollCountRef = useRef(0);
     // Guard: prevent double initiation from React Strict Mode / concurrent effects.
     const initiatingRef = useRef(false);
+    // Guard: prevent concurrent reconcile requests for the same session.
+    const reconcileInFlightRef = useRef(false);
+    // Guard: prevent duplicate activation when reconcile + polling both see 'activated'.
+    const redirectScheduledRef = useRef(false);
+    // Guard: prevent two concurrent route-resolution + activation flows.
+    const activationInFlightRef = useRef(false);
+    // Caches the service_type discovered from any poll response.
+    // Used by activateSession if reconcile wins the race before the first poll fires.
+    const knownServiceTypeRef = useRef<string | null>(null);
     // Track whether the open-session soft warning has been shown.
     const [pollingSlowWarning, setPollingSlowWarning] = useState(false);
+    // Non-destructive reconcile feedback: shown alongside polling, never blocks UX.
+    const [reconcileWarning, setReconcileWarning] = useState<string | null>(null);
+    // True while a reconcile request is in flight (used to disable retry button).
+    const [isReconciling, setIsReconciling] = useState(false);
 
     // ── Polling helpers ────────────────────────────────────────────────────────
 
@@ -132,6 +147,196 @@ export default function OnboardingCheckoutPage() {
         if (pollTimerRef.current) {
             clearInterval(pollTimerRef.current);
             pollTimerRef.current = null;
+        }
+    }
+
+    // ── Shared activation helper ───────────────────────────────────────────────
+    //
+    // Called by BOTH the polling interval and triggerReconcile when the session
+    // reaches 'activated' status.
+    //
+    // Guaranteed order:
+    //   1. Cache serviceType immediately (polling may provide it while reconcile
+    //      is resolving the route in the background).
+    //   2. Guard against concurrent activations and duplicate redirects.
+    //   3. setPhase('activated') — success screen shown immediately.
+    //   4. AWAIT resolveActivatedRoute — route fully resolved before timer starts.
+    //   5. redirectScheduledRef = true and scheduleAppRedirect() called only after
+    //      the route is known.
+    //
+    // This eliminates the race where a slow GET could finish after the 3-second
+    // timer had already fired with the wrong (/app/dashboard) URL.
+    //
+    async function activateSession(serviceType?: string) {
+        // Immediately cache any service type we receive — even if we return early,
+        // the value may be used by a concurrent activation that is already running.
+        if (serviceType) {
+            knownServiceTypeRef.current = serviceType;
+        }
+
+        // Idempotency guards.
+        if (redirectScheduledRef.current || activationInFlightRef.current) {
+            return;
+        }
+        activationInFlightRef.current = true;
+
+        stopPolling();
+        setReconcileWarning(null);
+        // Show the success screen immediately while the route resolves.
+        setPhase('activated');
+
+        try {
+            const sid = sessionIdRef.current;
+            const route = await resolveActivatedRoute(sid, serviceType);
+
+            // Re-check: another activation path may have completed while we were
+            // resolving the route (e.g. a second poll delivered a competing result).
+            if (redirectScheduledRef.current) return;
+
+            redirectTargetRef.current = route;
+            redirectScheduledRef.current = true;
+            scheduleAppRedirect();
+        } finally {
+            activationInFlightRef.current = false;
+        }
+    }
+
+    // ── Service-type resolver ──────────────────────────────────────────────
+    //
+    // Resolves the post-activation redirect route.
+    //
+    // Priority:
+    //   1. explicitServiceType (from polling, which always has subscription data).
+    //   2. knownServiceTypeRef.current (cached from any prior poll).
+    //   3. One GET to the session status endpoint (with AbortController timeout).
+    //   4. Re-check knownServiceTypeRef.current — polling may have updated it
+    //      while the GET was in flight.
+    //   5. routeForService(undefined) — falls back to /app/dashboard which is a
+    //      smart router: it reads the user’s active service and redirects there.
+    //      Safe for all activated services (gestion, qr_reviews, menu_qr, etc.).
+    //
+    async function resolveActivatedRoute(
+        sessionId: string,
+        explicitServiceType?: string,
+    ): Promise<string> {
+        // Priority 1.
+        if (explicitServiceType) {
+            knownServiceTypeRef.current = explicitServiceType;
+            return routeForService(explicitServiceType);
+        }
+
+        // Priority 2.
+        if (knownServiceTypeRef.current) {
+            return routeForService(knownServiceTypeRef.current);
+        }
+
+        // Priority 3: single GET with hard timeout.
+        if (sessionId) {
+            const controller = new AbortController();
+            const timeoutId = window.setTimeout(
+                () => controller.abort(),
+                ROUTE_RESOLUTION_TIMEOUT_MS,
+            );
+            try {
+                const resp = await fetch(
+                    `${API_URL}/api/v1/billing/checkout-sessions/${sessionId}`,
+                    { credentials: 'include', signal: controller.signal },
+                );
+                if (resp.ok) {
+                    const data: SessionPollData = await resp.json();
+                    const st = data.subscription?.service_type;
+                    if (st) {
+                        knownServiceTypeRef.current = st;
+                        return routeForService(st);
+                    }
+                }
+            } catch {
+                // Timeout (AbortError) or network error — fall through.
+            } finally {
+                window.clearTimeout(timeoutId);
+            }
+        }
+
+        // Priority 4: re-check cache (polling may have updated it during the GET).
+        if (knownServiceTypeRef.current) {
+            return routeForService(knownServiceTypeRef.current);
+        }
+
+        // Priority 5: safe universal fallback.
+        // /app/dashboard is a smart server-side router that reads session.current.service
+        // and redirects to the service-specific entry point. Safe for all activated services.
+        return routeForService(undefined);
+    }
+
+    // ── Canonical reconcile ────────────────────────────────────────────────────
+    //
+    // Single entry point for all reconcile calls. Uses the canonical helper from
+    // billing/api.ts which always builds:
+    //   POST /api/v1/billing/checkout-sessions/{sessionId}/reconcile/
+    // with /reconcile/ as a PATH segment — never in a query parameter.
+    //
+    // Result handling:
+    //   status='activated'  → activateSession() immediately (no polling needed).
+    //   other status + error field → show non-technical warning; keep polling.
+    //   HTTP or network error → show warning; keep polling.
+    //   Never creates a new checkout or redirects to MP.
+    //   Concurrency guard prevents two simultaneous requests for the same session.
+    //
+    async function triggerReconcile(sid: string) {
+        if (!sid || reconcileInFlightRef.current) return;
+        reconcileInFlightRef.current = true;
+        setIsReconciling(true);
+        setReconcileWarning(null); // clear any previous warning at start of attempt
+
+        try {
+            const result = await reconcileCheckoutSession(sid);
+
+            if (result.status === 'activated') {
+                // Backend confirmed activation — transition immediately.
+                // No need to wait for the next polling tick.
+                void activateSession();
+                return;
+            }
+
+            // Non-terminal status returned successfully.
+            // If the backend signals an internal issue despite HTTP 200,
+            // show a non-technical warning but keep polling — webhook may still arrive.
+            if (result.error) {
+                console.warn(
+                    '[billing.checkout.reconcile] Server returned error field',
+                    `scope=billing.checkout.reconcile`,
+                    `checkout_session_id=${sid}`,
+                    `status=${result.status}`,
+                );
+                setReconcileWarning(
+                    'Seguimos verificando tu suscripción. Mercado Pago puede tardar unos instantes en ' +
+                    'confirmar la operación. No vuelvas a pagar. ' +
+                    'Podés esperar o volver a verificar el estado.',
+                );
+            }
+            // else: clean non-activated status (e.g. awaiting_webhook, linked) —
+            // warning already cleared above; polling continues normally.
+
+        } catch (err: unknown) {
+            const httpStatus = (err as { httpStatus?: number })?.httpStatus;
+            // Log technical context without sensitive data.
+            console.error(
+                '[billing.checkout.reconcile]',
+                'scope=billing.checkout.reconcile',
+                `checkout_session_id=${sid}`,
+                httpStatus != null ? `http_status=${httpStatus}` : 'error=network',
+                err,
+            );
+            // Show a non-alarmist, non-technical message to the user.
+            // Polling remains active — the webhook can still confirm the payment.
+            setReconcileWarning(
+                'Seguimos verificando tu suscripción. Mercado Pago puede tardar unos instantes en ' +
+                'confirmar la operación. No vuelvas a pagar. ' +
+                'Podés esperar o volver a verificar el estado.',
+            );
+        } finally {
+            reconcileInFlightRef.current = false;
+            setIsReconciling(false);
         }
     }
 
@@ -182,13 +387,16 @@ export default function OnboardingCheckoutPage() {
 
                 const data: SessionPollData = await resp.json();
 
+                // Cache service_type whenever the session provides it.
+                // This lets activateSession use it directly if reconcile fires first.
+                if (data.subscription?.service_type && !knownServiceTypeRef.current) {
+                    knownServiceTypeRef.current = data.subscription.service_type;
+                }
+
                 if (data.status === 'activated' || data.subscription?.is_active) {
-                    stopPolling();
-                    redirectTargetRef.current = routeForService(
-                        data.subscription?.service_type,
-                    );
-                    setPhase('activated');
-                    scheduleAppRedirect();
+                    // Use shared activateSession to avoid duplicate activation
+                    // if reconcile already fired simultaneously.
+                    void activateSession(data.subscription?.service_type);
                 } else if (data.status === 'failed' || data.status === 'expired') {
                     stopPolling();
                     setPhase('failed');
@@ -259,10 +467,8 @@ export default function OnboardingCheckoutPage() {
             const alreadyAtMP = ['awaiting_webhook', 'linked', 'activated'].includes(result.status);
             if (alreadyAtMP) {
                 // Trigger reconciliation then start polling.
-                fetch(
-                    `${API_URL}/api/v1/billing/checkout-sessions/${result.checkout_session_id}/reconcile/`,
-                    { method: 'POST', credentials: 'include' },
-                ).catch(() => {});
+                // triggerReconcile is fire-and-forget here; polling runs in parallel.
+                triggerReconcile(result.checkout_session_id);
                 startPolling();
             } else {
                 setPhase('payment_ready');
@@ -310,17 +516,10 @@ export default function OnboardingCheckoutPage() {
         if (resumeSessionId) {
             sessionIdRef.current = resumeSessionId;
 
-            // Fire-and-forget reconciliation: call the backend which will query
-            // MercadoPago directly and activate the session if payment is confirmed.
-            // We start polling immediately in parallel so the UI stays responsive.
+            // Fire reconcile and start polling in parallel.
+            // triggerReconcile handles errors non-destructively — polling continues.
             startPolling();
-
-            fetch(
-                `${API_URL}/api/v1/billing/checkout-sessions/${resumeSessionId}/reconcile/`,
-                { method: 'POST', credentials: 'include' },
-            ).catch(() => {
-                // Reconciliation failure is non-fatal — webhook will handle activation.
-            });
+            triggerReconcile(resumeSessionId);
 
             return;
         }
@@ -509,7 +708,26 @@ export default function OnboardingCheckoutPage() {
                     <h1 className="text-xl font-semibold text-slate-900 mb-2">
                         Verificando tu pago...
                     </h1>
-                    {pollingSlowWarning ? (
+                    {reconcileWarning ? (
+                        <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-left max-w-sm mx-auto">
+                            <p className="text-sm font-semibold text-amber-800 mb-1">
+                                Seguimos verificando tu suscripción
+                            </p>
+                            <p className="text-xs text-amber-700 mb-3">
+                                {reconcileWarning}
+                            </p>
+                            <button
+                                onClick={() => {
+                                    const sid = sessionIdRef.current;
+                                    if (sid) triggerReconcile(sid);
+                                }}
+                                disabled={isReconciling}
+                                className="text-xs font-medium text-amber-900 underline underline-offset-2 disabled:opacity-60"
+                            >
+                                {isReconciling ? 'Verificando...' : 'Volver a verificar'}
+                            </button>
+                        </div>
+                    ) : pollingSlowWarning ? (
                         <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-left max-w-sm mx-auto">
                             <p className="text-sm font-semibold text-amber-800 mb-1">
                                 Esto está tardando más de lo habitual
@@ -563,6 +781,11 @@ export default function OnboardingCheckoutPage() {
                         Tu cuenta se activará automáticamente cuando Mercado Pago confirme
                         el pago — normalmente en minutos.
                     </p>
+                    {reconcileWarning && (
+                        <p className="text-xs text-amber-800 mb-4 bg-amber-100 rounded-lg p-3 border border-amber-200">
+                            {reconcileWarning}
+                        </p>
+                    )}
                     <p className="text-xs text-slate-500 mb-4">
                         ¿Necesitás ayuda? Escribinos a{' '}
                         <a
@@ -576,21 +799,17 @@ export default function OnboardingCheckoutPage() {
                     <div className="flex flex-col items-center gap-3">
                         <button
                             onClick={() => {
-                                // Force a server-side reconciliation and restart
-                                // polling from scratch.
+                                // Restart polling and trigger a fresh server-side reconcile.
+                                // triggerReconcile clears the previous warning automatically.
                                 const sid = sessionIdRef.current;
-                                if (sid) {
-                                    fetch(
-                                        `${API_URL}/api/v1/billing/checkout-sessions/${sid}/reconcile/`,
-                                        { method: 'POST', credentials: 'include' },
-                                    ).catch(() => {});
-                                }
                                 setPollingSlowWarning(false);
                                 startPolling();
+                                if (sid) triggerReconcile(sid);
                             }}
-                            className="px-4 py-2 text-sm font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-colors"
+                            disabled={isReconciling}
+                            className="px-4 py-2 text-sm font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                         >
-                            Reintentar verificación
+                            {isReconciling ? 'Verificando...' : 'Volver a verificar'}
                         </button>
                         <button
                             onClick={() => {
