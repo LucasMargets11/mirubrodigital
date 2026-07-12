@@ -21,8 +21,7 @@ from .platform_admin_clients_views import (
 from .platform_admin_subscriptions_views import (
     AdminSubscriptionListView,
     AdminSubscriptionDetailView,
-    AdminSubscriptionKPIsView,
-)
+    AdminSubscriptionKPIsView,    AdminSubscriptionCancelView,)
 from .platform_admin_notes_views import (
     AdminInternalNoteListCreateView,
 )
@@ -86,6 +85,7 @@ urlpatterns = [
     path('subscriptions/', AdminSubscriptionListView.as_view(), name='platform-admin-subscriptions'),
     path('subscriptions/kpis/', AdminSubscriptionKPIsView.as_view(), name='platform-admin-subscriptions-kpis'),
     path('subscriptions/<str:subscription_id>/', AdminSubscriptionDetailView.as_view(), name='platform-admin-subscription-detail'),
+    path('subscriptions/<str:subscription_id>/cancel/', AdminSubscriptionCancelView.as_view(), name='platform-admin-subscription-cancel'),
     # ── Internal Notes (Phase 2) ─────────────────────────────────────────
     path('notes/', AdminInternalNoteListCreateView.as_view(), name='platform-admin-notes'),
     # ── Support Tickets (Phase 3) ────────────────────────────────────────

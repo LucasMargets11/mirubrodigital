@@ -275,8 +275,9 @@ def _handle_subscription_preapproval(preapproval_id: str, delivery: WebhookDeliv
         )
 
         # Handle cancellation sync from MercadoPago.
-        # If MP reports the preapproval as cancelled, synchronize local state.
-        if mp_status == 'cancelled' and sub_v2.status != SubscriptionV2.Status.CANCELED:
+        # If MP reports the preapproval as canceled (any spelling), sync local state.
+        from .mp_service import normalize_mp_subscription_status
+        if normalize_mp_subscription_status(mp_status) == 'canceled' and sub_v2.status != SubscriptionV2.Status.CANCELED:
             sub_v2.status = SubscriptionV2.Status.CANCELED
             sub_v2.canceled_at = sub_v2.canceled_at or timezone.now()
             sub_v2.is_active = False

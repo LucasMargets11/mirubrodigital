@@ -361,6 +361,10 @@ export type AdminSubscriptionDetail = {
   cancel_requested_at: string | null;
   cancel_reason: string;
   canceled_at: string | null;
+  canceled_by_email: string | null;
+  canceled_by_name: string | null;
+  /** True when an admin can trigger immediate cancellation from the panel. */
+  can_cancel: boolean;
   price_snapshot: Record<string, unknown> | null;
   created_at: string | null;
   updated_at: string | null;

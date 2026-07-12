@@ -6,6 +6,73 @@ logger = logging.getLogger(__name__)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# MercadoPago-specific exceptions for admin cancellation
+# ─────────────────────────────────────────────────────────────────────────────
+
+class MercadoPagoCancelError(Exception):
+    """Raised when MercadoPago rejects or fails a preapproval cancellation."""
+    pass
+
+
+class MercadoPagoPreapprovalNotFound(MercadoPagoCancelError):
+    """Deprecated: use ProviderSubscriptionNotFound."""
+    pass
+
+
+class ProviderSubscriptionNotFound(MercadoPagoCancelError):
+    """
+    Raised when the preapproval cannot be located at MercadoPago during either
+    the initial PUT or the subsequent GET confirmation.
+
+    The local subscription must NOT be modified; the incident requires manual
+    review in the MercadoPago dashboard.
+    """
+    pass
+
+
+class MercadoPagoAuthError(MercadoPagoCancelError):
+    """Raised when MercadoPago returns 401 or 403."""
+    pass
+
+
+def _mask_preapproval_id(preapproval_id: str) -> str:
+    """Return a partially-hidden version of a preapproval ID for safe logging."""
+    if not preapproval_id:
+        return '(none)'
+    s = str(preapproval_id)
+    if len(s) <= 8:
+        return '***'
+    return f"{s[:4]}...{s[-4:]}"
+
+
+def normalize_mp_subscription_status(value: str | None) -> str:
+    """
+    Normalize a raw MercadoPago preapproval/subscription status string to the
+    canonical internal representation.
+
+    MercadoPago's API historically returned 'cancelled' (British spelling) in
+    webhook payloads and GET responses.  The official REST documentation now
+    specifies 'canceled' (American spelling) for the outgoing PUT payload.
+    Both forms must be accepted on the incoming path to avoid missed state
+    transitions when MP changes its serialisation.
+
+    Canonical mapping:
+      'cancelled'  → 'canceled'   (normalised)
+      'canceled'   → 'canceled'   (already canonical)
+      <anything else> → lowercased, stripped value unchanged
+
+    Usage:
+      - Response body of cancel_preapproval()
+      - webhook_processor preapproval status comparison
+      - Any reconciliation path that reads MP preapproval status
+    """
+    normalized = (value or "").strip().lower()
+    if normalized in {"canceled", "cancelled"}:
+        return "canceled"
+    return normalized
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Global payment-methods configuration for subscription plans
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -246,6 +313,168 @@ class MercadoPagoService:
                 "[MPService] Error updating preapproval %s: %s", preapproval_id, result,
             )
             raise Exception(f"MP preapproval update failed: status={result['status']}")
+
+    def cancel_preapproval(self, preapproval_id: str) -> dict:
+        """
+        Cancel a subscription preapproval in MercadoPago.
+
+        Dedicated method for administrative cancellation.  Validates the MP
+        response strictly — only a confirmed structural ``status=canceled``
+        from MP is treated as success.  No text-based or HTTP-code inference.
+
+        Flow:
+          PUT /preapproval/{id}  {"status": "canceled"}
+            → 200 + status=canceled/cancelled → success (normalised)
+            → 200 + other status              → GET confirmation (Case B)
+            → 400 / 404 / 5xx                 → GET confirmation (Case B)
+            → 401 / 403                        → MercadoPagoAuthError (immediate)
+            → connection/timeout               → MercadoPagoCancelError (immediate)
+
+          GET /preapproval/{id}  (only on ambiguous PUT)
+            → 200 + status=canceled            → success confirmed
+            → 200 + other status               → MercadoPagoCancelError; local unchanged
+            → 404                              → ProviderSubscriptionNotFound; local unchanged
+            → connection/timeout               → MercadoPagoCancelError; local unchanged
+
+        Args:
+            preapproval_id: The MP preapproval ID from SubscriptionV2.provider_sub_id.
+
+        Returns:
+            dict with 'status' normalised to 'canceled' on confirmed success.
+
+        Raises:
+            MercadoPagoAuthError:         MP returned 401 or 403.
+            ProviderSubscriptionNotFound: Preapproval not found in either PUT or GET.
+            MercadoPagoCancelError:       Any other unconfirmed or failed response.
+        """
+        masked = _mask_preapproval_id(preapproval_id)
+        logger.info("[MPService] cancel_preapproval preapproval=%s", masked)
+
+        # ── Step 1: PUT cancel ────────────────────────────────────────────────
+        try:
+            put_result = self.sdk.preapproval().update(preapproval_id, {"status": "canceled"})
+        except Exception as exc:
+            logger.error(
+                "[MPService] cancel_preapproval connection/timeout error preapproval=%s: %s",
+                masked, exc,
+            )
+            raise MercadoPagoCancelError(
+                f"Error de conexión con Mercado Pago: {type(exc).__name__}"
+            ) from exc
+
+        put_status_code = put_result.get("status")
+        put_response = put_result.get("response") or {}
+
+        if put_status_code in (401, 403):
+            logger.error(
+                "[MPService] cancel_preapproval auth error HTTP %s preapproval=%s",
+                put_status_code, masked,
+            )
+            raise MercadoPagoAuthError(
+                f"Error de autenticación con Mercado Pago (HTTP {put_status_code})"
+            )
+
+        if put_status_code == 200:
+            raw_status = put_response.get("status", "")
+            mp_status = normalize_mp_subscription_status(raw_status)
+            if mp_status == "canceled":
+                logger.info(
+                    "[MPService] cancel_preapproval PUT confirmed canceled. preapproval=%s",
+                    masked,
+                )
+                return {**put_response, "status": mp_status}
+            # 200 but status not recognized as canceled → confirm via GET
+            return self._confirm_cancellation_via_get(
+                preapproval_id, masked,
+                f"PUT returned 200 but status={raw_status!r}",
+            )
+
+        # All other codes (400, 404, 5xx, None) are ambiguous — confirm via GET.
+        return self._confirm_cancellation_via_get(
+            preapproval_id, masked,
+            f"PUT returned HTTP {put_status_code}",
+        )
+
+    def _confirm_cancellation_via_get(
+        self,
+        preapproval_id: str,
+        masked: str,
+        put_context: str,
+    ) -> dict:
+        """
+        After an ambiguous PUT response, query the preapproval to confirm its
+        actual state.
+
+        Only ``normalize_mp_subscription_status(status) == "canceled"`` counts
+        as confirmation.  Any other state raises an error and the caller must
+        NOT update the local subscription.
+
+        Raises:
+            ProviderSubscriptionNotFound: GET returned 404.
+            MercadoPagoCancelError:       Any other non-confirmed outcome.
+        """
+        logger.warning(
+            "[MPService] cancel_preapproval ambiguous PUT (%s) — "
+            "confirming via GET. preapproval=%s",
+            put_context, masked,
+        )
+
+        try:
+            get_result = self.sdk.preapproval().get(preapproval_id)
+        except Exception as exc:
+            logger.error(
+                "[MPService] cancel_preapproval GET confirmation connection error "
+                "preapproval=%s: %s",
+                masked, exc,
+            )
+            raise MercadoPagoCancelError(
+                f"Error de conexión en consulta de confirmación GET: {type(exc).__name__}. "
+                "La suscripción no fue modificada localmente."
+            ) from exc
+
+        get_status_code = get_result.get("status")
+        get_response = get_result.get("response") or {}
+
+        if get_status_code == 404:
+            logger.error(
+                "[MPService] cancel_preapproval GET confirmation: 404 not found. "
+                "preapproval=%s",
+                masked,
+            )
+            raise ProviderSubscriptionNotFound(
+                f"Preapproval no encontrado en Mercado Pago al confirmar (ID: {masked}). "
+                "No se pudo verificar el estado. Revisá manualmente en Mercado Pago."
+            )
+
+        if get_status_code == 200:
+            raw_status = get_response.get("status", "")
+            confirmed_status = normalize_mp_subscription_status(raw_status)
+            if confirmed_status == "canceled":
+                logger.info(
+                    "[MPService] cancel_preapproval GET confirmation: "
+                    "status=canceled confirmed. preapproval=%s",
+                    masked,
+                )
+                return {**get_response, "status": confirmed_status}
+            logger.error(
+                "[MPService] cancel_preapproval GET confirmation: "
+                "status=%r is not canceled. preapproval=%s",
+                raw_status, masked,
+            )
+            raise MercadoPagoCancelError(
+                f"No se pudo confirmar la cancelación: Mercado Pago reporta "
+                f"estado {raw_status!r}. La suscripción no fue modificada localmente."
+            )
+
+        logger.error(
+            "[MPService] cancel_preapproval GET confirmation failed: "
+            "HTTP %s. preapproval=%s",
+            get_status_code, masked,
+        )
+        raise MercadoPagoCancelError(
+            f"Consulta de confirmación GET devolvió HTTP {get_status_code}. "
+            "La suscripción no fue modificada localmente."
+        )
 
     # ── Authorized payments (recurring charges) ───────────────────────────────
 

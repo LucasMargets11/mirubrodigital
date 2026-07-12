@@ -422,6 +422,7 @@ class AccessAuditLog(models.Model):
         # ── Admin Backoffice Phase 2 ──────────────────────────────────────
         ('ADMIN_CLIENT_VIEWED',        'Admin Client Viewed'),
         ('ADMIN_SUBSCRIPTION_VIEWED',  'Admin Subscription Viewed'),
+        ('ADMIN_SUBSCRIPTION_CANCELED', 'Admin Subscription Canceled'),
         ('ADMIN_NOTE_CREATED',         'Admin Internal Note Created'),
         # ── Admin Backoffice Phase 3 — Support ────────────────────────────
         ('ADMIN_TICKET_CREATED',       'Admin Ticket Created'),

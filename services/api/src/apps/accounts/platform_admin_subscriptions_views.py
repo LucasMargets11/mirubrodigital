@@ -18,6 +18,16 @@ from apps.billing.models import (
     SubscriptionV2, BillingEvent, PaymentAttempt, BillingInvoiceEvent,
     WebhookDelivery,
 )
+from apps.billing.cancellation_service import (
+    cancel_subscription_immediately,
+    CancellationError,
+    ADMIN_CANCELLABLE_STATUSES,
+)
+from apps.billing.mp_service import (
+    MercadoPagoCancelError,
+    MercadoPagoAuthError,
+    ProviderSubscriptionNotFound,
+)
 from apps.business.models import Business
 
 PAGE_SIZE = 25
@@ -304,6 +314,10 @@ class AdminSubscriptionDetailView(APIView):
             'cancel_requested_at': sub.cancel_requested_at.isoformat() if sub.cancel_requested_at else None,
             'cancel_reason': sub.cancel_reason or '',
             'canceled_at': sub.canceled_at.isoformat() if sub.canceled_at else None,
+            'canceled_by_email': sub.canceled_by.email if sub.canceled_by else None,
+            'canceled_by_name': sub.canceled_by.get_full_name() if sub.canceled_by else None,
+            # True when an admin can trigger immediate cancellation from the panel.
+            'can_cancel': sub.status in ADMIN_CANCELLABLE_STATUSES,
             'price_snapshot': sub.price_snapshot,
             'created_at': sub.created_at.isoformat() if sub.created_at else None,
             'updated_at': sub.updated_at.isoformat() if sub.updated_at else None,
@@ -351,4 +365,126 @@ class AdminSubscriptionKPIsView(APIView):
             'canceled': canceled,
             'checkout_pending': checkout_pending,
             'scheduled_cancel': scheduled_cancel,
+        })
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# AdminSubscriptionCancelView
+# ══════════════════════════════════════════════════════════════════════════════
+
+class AdminSubscriptionCancelView(APIView):
+    """
+    POST /api/v1/platform-admin/subscriptions/<subscription_id>/cancel/
+
+    Immediately cancel a subscription from the admin panel.
+
+    Body:
+        { "reason": "Cuenta utilizada para prueba de checkout" }
+
+    The preapproval_id is always read from the database — never accepted from
+    the request body. Roles allowed: superadmin, operations.
+
+    Responses:
+        200 — successfully canceled (or already canceled — idempotent).
+        400 — invalid state or missing provider_sub_id.
+        403 — insufficient permissions (handled by permission_classes).
+        404 — subscription not found.
+        409 — state conflict (not cancellable).
+        502 — Mercado Pago rejected the cancellation.
+        504 — timeout connecting to Mercado Pago.
+    """
+    permission_classes = [IsAuthenticated, IsPlatformStaff, HasInternalRole]
+    allowed_internal_roles = ['superadmin', 'operations']
+
+    def post(self, request: Request, subscription_id: str) -> Response:
+        # ── 1. Look up subscription ───────────────────────────────────────
+        try:
+            sub = SubscriptionV2.objects.select_related('business', 'canceled_by').get(
+                pk=subscription_id,
+            )
+        except (SubscriptionV2.DoesNotExist, ValueError):
+            return Response({'detail': 'Suscripción no encontrada.'}, status=404)
+
+        # ── 2. Validate request body ──────────────────────────────────────
+        reason = (request.data.get('reason') or '').strip()
+        if not reason:
+            return Response(
+                {'detail': 'El campo "reason" es obligatorio.'},
+                status=400,
+            )
+        if len(reason) > 512:
+            return Response(
+                {'detail': 'El motivo no puede superar 512 caracteres.'},
+                status=400,
+            )
+
+        # ── 3. Delegate to domain service ─────────────────────────────────
+        try:
+            result = cancel_subscription_immediately(
+                subscription=sub,
+                canceled_by=request.user,
+                reason=reason,
+            )
+        except CancellationError as exc:
+            # State conflict: not in a cancellable status, or already handled.
+            status_code = 400
+            if 'incompatible' in str(exc).lower():
+                status_code = 409
+            return Response({'detail': str(exc)}, status=status_code)
+        except ProviderSubscriptionNotFound:
+            # Preapproval not found at MP during PUT or GET confirmation.
+            # Local state was NOT modified; operator must investigate manually.
+            return Response(
+                {'detail': (
+                    'No pudimos confirmar la cancelación en Mercado Pago. '
+                    'La suscripción no fue modificada en MiRubro. '
+                    'Podés volver a intentarlo.'
+                )},
+                status=502,
+            )
+        except MercadoPagoAuthError:
+            return Response(
+                {'detail': (
+                    'Error de autenticación con Mercado Pago. '
+                    'Verificá el access token en la configuración.'
+                )},
+                status=502,
+            )
+        except MercadoPagoCancelError as exc:
+            error_msg = str(exc).lower()
+            # Timeout indicators
+            if 'timeout' in error_msg or 'timed out' in error_msg or 'conexión' in error_msg:
+                return Response(
+                    {'detail': (
+                        'No pudimos confirmar la cancelación en Mercado Pago. '
+                        'La suscripción no fue modificada en MiRubro. '
+                        'Podés volver a intentarlo.'
+                    )},
+                    status=504,
+                )
+            return Response(
+                {'detail': (
+                    'No pudimos confirmar la cancelación en Mercado Pago. '
+                    'La suscripción no fue modificada en MiRubro. '
+                    'Podés volver a intentarlo.'
+                )},
+                status=502,
+            )
+
+        # ── 4. Return success response ────────────────────────────────────
+        # Re-fetch to get the canonical updated data for the response.
+        try:
+            sub.refresh_from_db()
+        except Exception:
+            pass
+
+        return Response({
+            'subscription_id': result['subscription_id'],
+            'business_id': result['business_id'],
+            'previous_status': result['previous_status'],
+            'status': result['status'],
+            'provider_status': result['provider_status'],
+            'is_active': result['is_active'],
+            'canceled_at': result['canceled_at'],
+            'message': 'La suscripción fue cancelada correctamente.',
         })

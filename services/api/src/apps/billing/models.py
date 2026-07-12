@@ -334,6 +334,14 @@ class SubscriptionV2(models.Model):
         help_text='Optional reason provided by the user when cancelling.',
     )
     canceled_at   = models.DateTimeField(null=True, blank=True)
+    # Set when an admin performs an immediate administrative cancellation.
+    canceled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='admin_canceled_subscriptions',
+        help_text='Platform admin user who performed the administrative cancellation.',
+    )
     # Snapshot of pricing at subscription time (guards against catalog price changes)
     price_snapshot = models.JSONField(default=dict)
     # Phase 3: checkout session that originated this subscription

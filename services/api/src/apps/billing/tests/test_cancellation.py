@@ -403,7 +403,7 @@ class ExecuteCancellationTaskTest(TestCase):
 
         mock_mp.update_preapproval.assert_called_once_with(
             'MP-PREAPPROVAL-XYZ',
-            {'status': 'cancelled'},
+            {'status': 'canceled'},
         )
 
     @patch('apps.billing.mp_service.MercadoPagoService')

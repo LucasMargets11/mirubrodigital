@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   Building2,
@@ -13,10 +14,12 @@ import {
   RefreshCw,
   MessageSquare,
   Globe,
+  XCircle,
 } from 'lucide-react';
 
 import { SectionCard } from '@/components/admin/section-card';
 import { StatusBadge } from '@/components/admin/status-badge';
+import { CancelSubscriptionModal } from '@/components/admin/cancel-subscription-modal';
 import {
   statusLabel,
   statusColor,
@@ -35,12 +38,23 @@ import type { AdminSubscriptionDetail } from '@/lib/admin/types';
 
 type Props = {
   subscription: AdminSubscriptionDetail;
+  /** Optional toast callback provided by the parent page. */
+  onToast?: (message: string, type?: 'success' | 'error') => void;
 };
 
-export function SuscripcionDetailContent({ subscription }: Props) {
+export function SuscripcionDetailContent({ subscription, onToast }: Props) {
+  const router = useRouter();
   const [noteBody, setNoteBody] = useState('');
   const [noteSubmitting, setNoteSubmitting] = useState(false);
   const [notes, setNotes] = useState(subscription.notes);
+  const [showCancelModal, setShowCancelModal] = useState(false);
+
+  const handleCancelSuccess = useCallback(() => {
+    setShowCancelModal(false);
+    onToast?.('La suscripción fue cancelada correctamente.', 'success');
+    // Hard refresh to reload the full detail from the server
+    router.refresh();
+  }, [onToast, router]);
 
   const handleNoteSubmit = async () => {
     if (!noteBody.trim() || noteSubmitting) return;
@@ -68,6 +82,15 @@ export function SuscripcionDetailContent({ subscription }: Props) {
 
   return (
     <div className="space-y-6">
+      {/* Cancel subscription modal */}
+      {showCancelModal && (
+        <CancelSubscriptionModal
+          subscription={subscription}
+          onClose={() => setShowCancelModal(false)}
+          onSuccess={handleCancelSuccess}
+        />
+      )}
+
       {/* Risk badges */}
       {subscription.risk_badges.length > 0 && (
         <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
@@ -91,6 +114,17 @@ export function SuscripcionDetailContent({ subscription }: Props) {
             Ver cliente: {subscription.business.name}
             <ExternalLink className="h-3 w-3 text-slate-400" />
           </Link>
+        )}
+        {/* Cancel subscription — only visible when the subscription can be cancelled */}
+        {subscription.can_cancel && (
+          <button
+            onClick={() => setShowCancelModal(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-100"
+            data-testid="cancel-subscription-btn"
+          >
+            <XCircle className="h-4 w-4" />
+            Cancelar suscripción
+          </button>
         )}
       </div>
 
@@ -196,6 +230,14 @@ export function SuscripcionDetailContent({ subscription }: Props) {
                   <dt className="text-slate-500">Motivo</dt>
                   <dd className="mt-0.5">{subscription.cancel_reason || '—'}</dd>
                 </div>
+                {subscription.canceled_by_email && (
+                  <div>
+                    <dt className="text-slate-500">Cancelado por (admin)</dt>
+                    <dd className="mt-0.5">
+                      {subscription.canceled_by_name || subscription.canceled_by_email}
+                    </dd>
+                  </div>
+                )}
               </dl>
             </SectionCard>
           )}
