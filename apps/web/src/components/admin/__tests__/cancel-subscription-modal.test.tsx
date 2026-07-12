@@ -16,12 +16,12 @@
  * 12.  No existe ningún elemento de reembolso en el modal.
  */
 
+import React from 'react';
 import {
   render,
   screen,
   fireEvent,
   waitFor,
-  act,
 } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
@@ -32,7 +32,7 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('next/link', () => ({
   __esModule: true,
-  default: ({ href, children, ...props }: any) => (
+  default: ({ href, children, ...props }: React.ComponentPropsWithoutRef<'a'>) => (
     <a href={href} {...props}>{children}</a>
   ),
 }));
@@ -302,8 +302,7 @@ describe('CancelSubscriptionModal', () => {
 
   // ── Test 11: Double click does not generate two requests ──────────────────
   it('11 - double click does not generate two requests', async () => {
-    let resolveFirst: (v: any) => void;
-    const pendingPromise = new Promise((res) => { resolveFirst = res; });
+    const pendingPromise = new Promise<Response>(() => { /* never resolves */ });
     fetchMock.mockReturnValueOnce(pendingPromise);
 
     const sub = makeSubscription();

@@ -5,6 +5,7 @@
  * request body safety, success/error handling, and router.refresh().
  */
 
+import React from 'react';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
@@ -18,7 +19,7 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('next/link', () => ({
   __esModule: true,
-  default: ({ href, children, ...props }: any) => (
+  default: ({ href, children, ...props }: React.ComponentPropsWithoutRef<'a'>) => (
     <a href={href} {...props}>{children}</a>
   ),
 }));
