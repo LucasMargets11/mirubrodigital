@@ -18,6 +18,7 @@ import {
 
 import { SectionCard } from '@/components/admin/section-card';
 import { StatusBadge } from '@/components/admin/status-badge';
+import { QRResenasCard } from '@/components/admin/qr-reviews-card';
 import { apiPost } from '@/lib/api/client';
 import type { AdminInternalNote } from '@/lib/admin/types';
 import {
@@ -223,6 +224,11 @@ export function ClienteDetailContent({ client }: Props) {
               <p className="text-sm text-slate-500">Sin actividad registrada.</p>
             )}
           </SectionCard>
+
+          {/* QR de Reseñas — only shown for qr_reviews businesses */}
+          {client.service_type === 'qr_reviews' && (
+            <QRResenasCard businessId={client.id} />
+          )}
         </div>
 
         {/* Right column: sidebar */}

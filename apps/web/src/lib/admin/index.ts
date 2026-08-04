@@ -25,6 +25,8 @@ import type {
   AdminPromoCodeRedemptionList,
   AdminPromoOptions,
   AdminPlanOption,
+  AdminQRReviewsConfig,
+  AdminQRReviewsConfigPatch,
 } from './types';
 
 /**
@@ -250,6 +252,18 @@ export async function getAdminPromoOptions(): Promise<AdminPromoOptions | null> 
 
 export { getAdminNotifications, getAdminUnreadCount } from './notifications';
 
+// ── QR de Reseñas admin config ────────────────────────────────────────────
+
+export async function getAdminQRReviewsConfig(businessId: number): Promise<import('./types').AdminQRReviewsConfig | null> {
+  try {
+    return await serverApiFetch<import('./types').AdminQRReviewsConfig>(
+      `/api/v1/platform-admin/clients/${businessId}/qr-reviews-config/`,
+    );
+  } catch {
+    return null;
+  }
+}
+
 export type {
   AdminSession,
   AdminDashboardMetrics,
@@ -275,4 +289,6 @@ export type {
   AdminPromoCodeRedemptionList,
   AdminPromoOptions,
   AdminPlanOption,
+  AdminQRReviewsConfig,
+  AdminQRReviewsConfigPatch,
 };
