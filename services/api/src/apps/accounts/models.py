@@ -423,7 +423,11 @@ class AccessAuditLog(models.Model):
         ('ADMIN_CLIENT_VIEWED',        'Admin Client Viewed'),
         ('ADMIN_SUBSCRIPTION_VIEWED',  'Admin Subscription Viewed'),
         ('ADMIN_SUBSCRIPTION_CANCELED', 'Admin Subscription Canceled'),
+        ('ADMIN_COMPLIMENTARY_ACCESS_GRANTED', 'Admin Complimentary Access Granted'),
         ('ADMIN_NOTE_CREATED',         'Admin Internal Note Created'),
+        # ── Admin Backoffice — Client Provisioning (ADMIN-CLIENTES 02A) ────
+        ('ADMIN_CLIENT_CREATED',       'Admin Client Created'),
+        ('ADMIN_OWNER_PREAUTHORIZED',  'Admin Owner Preauthorized'),
         # ── Admin Backoffice Phase 3 — Support ────────────────────────────
         ('ADMIN_TICKET_CREATED',       'Admin Ticket Created'),
         ('ADMIN_TICKET_UPDATED',       'Admin Ticket Updated'),
@@ -447,7 +451,7 @@ class AccessAuditLog(models.Model):
         ('TENANT_TICKET_REOPENED',     'Tenant Ticket Reopened'),
     ]
     
-    action = models.CharField(max_length=32, choices=ACTION_CHOICES)
+    action = models.CharField(max_length=40, choices=ACTION_CHOICES)
     actor = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         related_name='audit_actions_performed',

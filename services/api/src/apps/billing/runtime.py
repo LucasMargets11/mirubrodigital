@@ -128,7 +128,19 @@ def _v2_grants_access(sub_v2: Any) -> bool:
     if s == SubscriptionV2.Status.ACTIVE:
         return True
     if s == SubscriptionV2.Status.TRIALING:
-        return sub_v2.trial_ends_at is None or sub_v2.trial_ends_at >= now
+        if sub_v2.trial_ends_at is not None:
+            return sub_v2.trial_ends_at >= now
+        # No trial_ends_at set. The current_period_end fallback applies
+        # ONLY for provider=manual (ADMIN-CLIENTES 01A admin-granted
+        # complimentary access, which never populates trial_ends_at and
+        # instead uses current_period_end as the bonification window end).
+        # For Mercado Pago / any other provider, this scope (01C) preserves
+        # the exact pre-01B behavior: trial_ends_at=None grants access
+        # unconditionally (no fallback to current_period_end).
+        if sub_v2.provider == SubscriptionV2.Provider.MANUAL and sub_v2.current_period_end is not None:
+            # End instant itself excluded (denied at/after it).
+            return sub_v2.current_period_end > now
+        return True
     if s == SubscriptionV2.Status.PAST_DUE:
         return sub_v2.grace_until is not None and sub_v2.grace_until >= now
     return False
@@ -139,7 +151,13 @@ def _v2_access_until(sub_v2: Any) -> Optional[datetime]:
     from apps.billing.models import SubscriptionV2
     s = sub_v2.status
     if s == SubscriptionV2.Status.TRIALING:
-        return sub_v2.trial_ends_at
+        if sub_v2.trial_ends_at is not None:
+            return sub_v2.trial_ends_at
+        # See _v2_grants_access: current_period_end fallback is manual-only;
+        # non-manual providers preserve pre-01B semantics (None).
+        if sub_v2.provider == SubscriptionV2.Provider.MANUAL:
+            return sub_v2.current_period_end
+        return None
     if s == SubscriptionV2.Status.PAST_DUE:
         return sub_v2.grace_until
     if s == SubscriptionV2.Status.ACTIVE:

@@ -342,6 +342,20 @@ class SubscriptionV2(models.Model):
         related_name='admin_canceled_subscriptions',
         help_text='Platform admin user who performed the administrative cancellation.',
     )
+    # ── ADMIN-CLIENTES 01A: complimentary access (provider=manual) ───────────
+    # Set when a platform admin grants a complimentary/bonified access period.
+    # NULL for every other provider and for pre-existing rows.
+    manual_granted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='manual_granted_subscriptions',
+        help_text='Platform admin who granted this complimentary access (provider=manual only).',
+    )
+    manual_grant_reason = models.CharField(
+        max_length=255, null=True, blank=True,
+        help_text='Internal reason recorded by the admin who granted complimentary access.',
+    )
     # Snapshot of pricing at subscription time (guards against catalog price changes)
     price_snapshot = models.JSONField(default=dict)
     # Phase 3: checkout session that originated this subscription
