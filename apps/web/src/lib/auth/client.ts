@@ -54,7 +54,7 @@ export async function login(identifier: string, password: string, nextUrl?: stri
     }
 
     return { success: true };
-  } catch (error) {
+  } catch {
     return { success: false, message: 'Error de red al iniciar sesión' };
   }
 }
@@ -67,7 +67,7 @@ export async function register(email: string, password: string): Promise<AuthRes
       return { success: false, message: errorPayload?.detail ?? 'No pudimos crear la cuenta' };
     }
     return { success: true };
-  } catch (error) {
+  } catch {
     return { success: false, message: 'Error de red al crear la cuenta' };
   }
 }
@@ -139,7 +139,13 @@ export async function resendVerification(): Promise<AuthResult> {
 
 // ── Google OAuth ────────────────────────────────────────────────────────────
 
-type GoogleAuthResult = AuthResult & { onboarding?: boolean };
+export type GoogleAuthResult = AuthResult & {
+  onboarding?: boolean;
+  code?: string;
+};
+
+const GOOGLE_ACCOUNT_NOT_AUTHORIZED_MESSAGE =
+  'Esta cuenta de Google no tiene un acceso habilitado. Verificá que estés usando el correo registrado por el administrador.';
 
 export async function googleAuth(credential: string): Promise<GoogleAuthResult> {
   try {
@@ -147,6 +153,34 @@ export async function googleAuth(credential: string): Promise<GoogleAuthResult> 
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}));
       return { success: false, message: payload?.detail ?? 'No pudimos autenticar con Google' };
+    }
+    const data = await response.json().catch(() => ({}));
+    return {
+      success: true,
+      onboarding: data?.onboarding ?? false,
+    };
+  } catch {
+    return { success: false, message: 'Error de red al autenticar con Google' };
+  }
+}
+
+export async function googlePreauthorizedLogin(credential: string): Promise<GoogleAuthResult> {
+  try {
+    const response = await request('/api/v1/auth/google/preauthorized/', { credential });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      if (response.status === 401 && payload?.code === 'google_account_not_authorized') {
+        return {
+          success: false,
+          code: payload.code,
+          message: GOOGLE_ACCOUNT_NOT_AUTHORIZED_MESSAGE,
+        };
+      }
+      return {
+        success: false,
+        code: payload?.code,
+        message: payload?.detail ?? 'No pudimos autenticar con Google',
+      };
     }
     const data = await response.json().catch(() => ({}));
     return {

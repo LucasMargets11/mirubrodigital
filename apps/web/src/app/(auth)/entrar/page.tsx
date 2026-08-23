@@ -1,5 +1,6 @@
 import { Suspense } from 'react';
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { AuthForm } from '@/components/auth/auth-form';
 
 const isGoogleOnlyBeta = process.env.NEXT_PUBLIC_AUTH_BETA_GOOGLE_ONLY === 'true';
@@ -41,6 +42,15 @@ export default function EntrarPage() {
                                     <Suspense>
                                         <AuthForm />
                                     </Suspense>
+                                    <div className="mt-6 border-t border-slate-100 pt-5 text-center">
+                                        <Link
+                                            href={'/entrar/cliente' as never}
+                                            className="text-sm text-slate-500 transition-colors hover:text-brand-600"
+                                        >
+                                            ¿Tu cuenta fue creada por Mi Rubro?{' '}
+                                            <span className="font-medium">Ingresá como cliente</span>
+                                        </Link>
+                                    </div>
                                 </div>
                             </div>
                         </div>

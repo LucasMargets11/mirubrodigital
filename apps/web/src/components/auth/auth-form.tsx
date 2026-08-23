@@ -1,6 +1,5 @@
 'use client';
 
-/* eslint-disable @typescript-eslint/no-namespace */
 declare global {
     interface Window {
         google?: {
@@ -17,10 +16,16 @@ declare global {
 
 import { FormEvent, useState, useCallback, useEffect, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { login, register, googleAuth } from '@/lib/auth/client';
+import { login, register, googleAuth, googlePreauthorizedLogin } from '@/lib/auth/client';
 import { cn } from '@/lib/utils';
 
 type AuthMode = 'login' | 'signup';
+type GoogleEndpoint = 'standard' | 'preauthorized';
+
+type AuthFormProps = {
+    googleEndpoint?: GoogleEndpoint;
+    googleOnly?: boolean;
+};
 
 /* ── Google "G" icon (official multi-color) ─────────────────────────────── */
 function GoogleIcon({ className }: { className?: string }) {
@@ -46,7 +51,7 @@ function GoogleIcon({ className }: { className?: string }) {
     );
 }
 
-export function AuthForm() {
+export function AuthForm({ googleEndpoint = 'standard', googleOnly = false }: AuthFormProps = {}) {
     const searchParams = useSearchParams();
     const next = searchParams.get('next') ?? undefined;
     const isGoogleOnlyBeta = process.env.NEXT_PUBLIC_AUTH_BETA_GOOGLE_ONLY === 'true';
@@ -63,28 +68,38 @@ export function AuthForm() {
     // ── Google Identity Services ────────────────────────────────────────
     const googleWrapperRef = useRef<HTMLDivElement>(null);
     const googleBtnRef = useRef<HTMLDivElement>(null);
+    const googleRequestInFlightRef = useRef(false);
     const [googleReady, setGoogleReady] = useState(false);
     const [googleRendered, setGoogleRendered] = useState(false);
     const [containerWidth, setContainerWidth] = useState(0);
 
     const handleGoogleResponse = useCallback(
         async (response: { credential: string }) => {
+            if (googleRequestInFlightRef.current) return;
+            googleRequestInFlightRef.current = true;
             setError(null);
             setSuccessMessage(null);
             setIsSubmitting(true);
-            const result = await googleAuth(response.credential);
-            setIsSubmitting(false);
-            if (!result.success) {
-                setError(result.message ?? 'No pudimos autenticar con Google');
-                return;
-            }
-            if (result.onboarding) {
-                window.location.assign(next ?? '/app/onboarding');
-            } else {
-                window.location.assign('/app/dashboard');
+            try {
+                const authenticate = googleEndpoint === 'preauthorized'
+                    ? googlePreauthorizedLogin
+                    : googleAuth;
+                const result = await authenticate(response.credential);
+                if (!result.success) {
+                    setError(result.message ?? 'No pudimos autenticar con Google');
+                    return;
+                }
+                if (result.onboarding) {
+                    window.location.assign(next ?? '/app/onboarding');
+                } else {
+                    window.location.assign('/app/dashboard');
+                }
+            } finally {
+                googleRequestInFlightRef.current = false;
+                setIsSubmitting(false);
             }
         },
-        [next],
+        [googleEndpoint, next],
     );
 
     useEffect(() => {
@@ -223,6 +238,7 @@ export function AuthForm() {
             <button
                 type="button"
                 disabled={isSubmitting}
+                aria-busy={isSubmitting}
                 onClick={() => {
                     if (!googleRendered && !process.env.NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID) {
                         setError('Acceso con Google no disponible');
@@ -230,19 +246,39 @@ export function AuthForm() {
                 }}
                 className="w-full flex items-center justify-center gap-3 rounded-lg border border-slate-200 bg-white px-6 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:ring-offset-2 disabled:opacity-60"
             >
-                <GoogleIcon className="h-5 w-5 shrink-0" />
-                Continuar con Google
+                {isSubmitting ? (
+                    <span
+                        aria-hidden="true"
+                        className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-slate-600"
+                    />
+                ) : (
+                    <GoogleIcon className="h-5 w-5 shrink-0" />
+                )}
+                {isSubmitting ? 'Ingresando...' : 'Continuar con Google'}
             </button>
 
             <div
                 ref={googleBtnRef}
                 className={cn(
                     'absolute inset-0 w-full overflow-hidden opacity-0 [&>div]:w-full [&>div]:h-full [&_iframe]:w-full [&_iframe]:h-full',
-                    googleRendered ? 'pointer-events-auto' : 'pointer-events-none',
+                    googleRendered && !isSubmitting ? 'pointer-events-auto' : 'pointer-events-none',
                 )}
             />
         </div>
     );
+
+    if (googleOnly) {
+        return (
+            <div className="mx-auto w-full max-w-[400px] space-y-4">
+                {googleSignIn}
+                {error && (
+                    <div role="alert" className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">
+                        {error}
+                    </div>
+                )}
+            </div>
+        );
+    }
 
     return (
         <div className="mx-auto w-full max-w-[400px] space-y-5">

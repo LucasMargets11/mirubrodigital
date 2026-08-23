@@ -2,12 +2,15 @@
 
 import { useCallback, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
+import type { Route } from 'next';
 import {
   Building2,
   FlaskConical,
   AlertTriangle,
   TrendingDown,
   CreditCard,
+  Plus,
 } from 'lucide-react';
 
 import { StatCard } from '@/components/admin/stat-card';
@@ -29,9 +32,11 @@ type Props = {
   initialData: AdminClientList | null;
   kpis: AdminClientKPIs | null;
   initialParams: Record<string, string>;
+  /** Only 'superadmin' can provision new clients — see ADMIN-CLIENTES 03C. */
+  canCreateClient: boolean;
 };
 
-export function ClientesContent({ initialData, kpis, initialParams }: Props) {
+export function ClientesContent({ initialData, kpis, initialParams, canCreateClient }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -210,12 +215,23 @@ export function ClientesContent({ initialData, kpis, initialParams }: Props) {
           },
         ]}
         actions={
-          <button
-            onClick={handleSearchSubmit}
-            className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
-          >
-            Buscar
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleSearchSubmit}
+              className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
+            >
+              Buscar
+            </button>
+            {canCreateClient && (
+              <Link
+                href={'/admin/clientes/nuevo' as Route}
+                className="flex items-center gap-2 rounded-lg border border-brand-600 px-4 py-2 text-sm font-medium text-brand-600 hover:bg-brand-50"
+              >
+                <Plus className="h-4 w-4" />
+                Nuevo cliente
+              </Link>
+            )}
+          </div>
         }
       />
 

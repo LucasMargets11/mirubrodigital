@@ -85,16 +85,16 @@ class ReviewsUpgradeEndpointTests(TestCase):
         self.assertEqual(pending.status, 'pending_payment')
         self.assertEqual(pending.mp_preference_id, 'pref-123')
 
-        # MP preference was created with canonical Pro monthly price (PR-B: 28000)
+        # MP preference was created with canonical Pro monthly price (20000)
         MockMP.return_value.create_preference.assert_called_once()
         call_kwargs = MockMP.return_value.create_preference.call_args.kwargs
         mp_items = call_kwargs.get('items') or MockMP.return_value.create_preference.call_args.args[0]
         self.assertEqual(len(mp_items), 1)
-        self.assertEqual(mp_items[0]['unit_price'], 28000.0)
+        self.assertEqual(mp_items[0]['unit_price'], 20000.0)
         self.assertEqual(mp_items[0]['currency_id'], 'ARS')
 
         # PendingSubscriptionChange.total_amount also reflects new pricing
-        self.assertEqual(pending.total_amount, 28000)
+        self.assertEqual(pending.total_amount, 20000)
 
     def test_non_owner_gets_403(self):
         employee = _make_user('employee@test.com')

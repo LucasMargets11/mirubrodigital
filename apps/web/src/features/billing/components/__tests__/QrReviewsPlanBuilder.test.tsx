@@ -2,8 +2,7 @@
  * PR-B — QrReviewsPlanBuilder pricing + plan_code regression tests.
  *
  * Validates:
- *   - Mensual Base muestra $20.000 y Pro muestra $28.000.
- *   - Anual Base muestra $192.000 y Pro muestra $268.800.
+ *   - Base muestra $15.000 y Pro muestra $20.000 (solo mensual).
  *   - onSubscribe envía los plan_code canónicos qr_reviews_base / qr_reviews_pro
  *     (NO los códigos legacy reviews_base / reviews_pro).
  *   - Las cards conservan el split de features de PR-A.
@@ -14,30 +13,28 @@ import { render, screen, fireEvent, within } from '@testing-library/react';
 import { QrReviewsPlanBuilder } from '../QrReviewsPlanBuilder';
 
 describe('QrReviewsPlanBuilder — PR-B pricing', () => {
-    it('shows $20.000 for Base and $28.000 for Pro in monthly mode', () => {
+    it('shows $15.000 for Base and $20.000 for Pro in monthly mode', () => {
         render(<QrReviewsPlanBuilder billingPeriod="monthly" onSubscribe={() => {}} />);
 
-        // Two cards (Base + Pro) — name appears in heading AND in CTA, so use getAllByText
         expect(screen.getAllByText(/Reseñas Base/i).length).toBeGreaterThan(0);
         expect(screen.getAllByText(/Reseñas Pro/i).length).toBeGreaterThan(0);
 
-        // Prices visible (currency formatter may emit NBSP between symbol and number)
+        expect(screen.getByText(/15\.000/)).toBeInTheDocument();
         expect(screen.getByText(/20\.000/)).toBeInTheDocument();
-        expect(screen.getByText(/28\.000/)).toBeInTheDocument();
 
-        // Legacy prices not present
         expect(screen.queryByText(/25\.000/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/28\.000/)).not.toBeInTheDocument();
         expect(screen.queryByText(/40\.000/)).not.toBeInTheDocument();
     });
 
-    it('shows $192.000 for Base and $268.800 for Pro in yearly mode', () => {
-        render(<QrReviewsPlanBuilder billingPeriod="yearly" onSubscribe={() => {}} />);
+    it('does not show yearly pricing or annual discount for QR de Reseñas', () => {
+        render(<QrReviewsPlanBuilder billingPeriod="monthly" onSubscribe={() => {}} />);
 
-        expect(screen.getByText(/192\.000/)).toBeInTheDocument();
-        expect(screen.getByText(/268\.800/)).toBeInTheDocument();
-        // No legacy yearly prices
-        expect(screen.queryByText(/240\.000/)).not.toBeInTheDocument();
-        expect(screen.queryByText(/384\.000/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/144\.000/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/192\.000/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/año/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/anual/i)).not.toBeInTheDocument();
+        expect(screen.queryByText(/Ahorrás 20%/)).not.toBeInTheDocument();
     });
 
     it('Base CTA invokes onSubscribe with canonical plan_code "qr_reviews_base"', () => {

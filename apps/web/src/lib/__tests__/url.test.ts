@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { toAbsoluteUrl } from '@/lib/url';
 
 describe('toAbsoluteUrl', () => {

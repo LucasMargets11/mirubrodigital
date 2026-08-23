@@ -6,6 +6,7 @@ Uses SubscriptionV2 as the canonical subscription source.
 """
 import math
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db.models import (
     Count, Q, OuterRef, Subquery, CharField, Value, Case, When, F,
@@ -13,22 +14,201 @@ from django.db.models import (
 )
 from django.db.models.functions import Coalesce
 from django.utils import timezone
+from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.accounts.admin_client_provisioning_service import (
+    ActiveComplimentarySubscriptionConflictError,
+    ComplimentaryGrantFailedError,
+    ComplimentaryPlanNotAvailableError,
+    ComplimentaryPlanServiceMismatchError,
+    DuplicateBusinessSlugError,
+    InactiveOwnerAccountError,
+    InvalidBusinessCountryError,
+    InvalidBusinessCurrencyError,
+    InvalidBusinessNameError,
+    InvalidBusinessSlugError,
+    InvalidComplimentaryGrantReasonError,
+    InvalidComplimentaryPeriodError,
+    InvalidComplimentaryServiceTypeError,
+    InvalidOwnerEmailError,
+    MultipleOwnerAccountsError,
+    UnauthorizedProvisioningActorError,
+    provision_admin_client,
+)
 from apps.accounts.models import AccessAuditLog
 from apps.accounts.admin_internal_note import AdminInternalNote
+from apps.accounts.platform_admin_clients_serializers import (
+    AdminClientProvisioningInputSerializer,
+)
 from apps.accounts.platform_permissions import IsPlatformStaff, HasInternalRole
 from apps.accounts.platform_audit import log_platform_action
 from apps.accounts.support_ticket import SupportTicket
+from apps.billing.complimentary_access_service import list_provisioning_options
 from apps.billing.models import SubscriptionV2, BillingEvent, PaymentAttempt
 from apps.business.models import Business
 
 User = get_user_model()
 
 PAGE_SIZE = 25
+
+
+PROVISIONING_ERROR_RESPONSES = {
+    UnauthorizedProvisioningActorError: (
+        status.HTTP_403_FORBIDDEN,
+        'unauthorized_provisioning_actor',
+        'No tenés permisos para provisionar clientes.',
+        None,
+    ),
+    InvalidOwnerEmailError: (
+        status.HTTP_400_BAD_REQUEST,
+        'invalid_owner_email',
+        'El email del owner no es válido.',
+        'owner_email',
+    ),
+    MultipleOwnerAccountsError: (
+        status.HTTP_409_CONFLICT,
+        'ambiguous_owner_email',
+        'Existen múltiples cuentas con ese email.',
+        'owner_email',
+    ),
+    InactiveOwnerAccountError: (
+        status.HTTP_409_CONFLICT,
+        'inactive_owner_account',
+        'La cuenta existente del owner está inactiva.',
+        'owner_email',
+    ),
+    InvalidBusinessSlugError: (
+        status.HTTP_400_BAD_REQUEST,
+        'invalid_business_slug',
+        'El slug del negocio no es válido.',
+        'business_slug',
+    ),
+    DuplicateBusinessSlugError: (
+        status.HTTP_409_CONFLICT,
+        'business_slug_conflict',
+        'El slug ya está utilizado.',
+        'business_slug',
+    ),
+    InvalidBusinessNameError: (
+        status.HTTP_400_BAD_REQUEST,
+        'invalid_business_name',
+        'El nombre del negocio no es válido.',
+        'business_name',
+    ),
+    InvalidBusinessCountryError: (
+        status.HTTP_400_BAD_REQUEST,
+        'invalid_business_country',
+        'El país del negocio no es válido.',
+        'country',
+    ),
+    InvalidBusinessCurrencyError: (
+        status.HTTP_400_BAD_REQUEST,
+        'invalid_business_currency',
+        'La moneda del negocio no es válida.',
+        'currency',
+    ),
+    InvalidComplimentaryPeriodError: (
+        status.HTTP_400_BAD_REQUEST,
+        'invalid_complimentary_period',
+        'El período bonificado no es válido.',
+        'complimentary_end',
+    ),
+    ComplimentaryPlanNotAvailableError: (
+        status.HTTP_400_BAD_REQUEST,
+        'complimentary_plan_not_available',
+        'El plan no existe o no está activo.',
+        'plan_code',
+    ),
+    ComplimentaryPlanServiceMismatchError: (
+        status.HTTP_400_BAD_REQUEST,
+        'complimentary_plan_service_mismatch',
+        'El plan no es compatible con el servicio solicitado.',
+        'plan_code',
+    ),
+    ActiveComplimentarySubscriptionConflictError: (
+        status.HTTP_409_CONFLICT,
+        'active_complimentary_subscription_conflict',
+        'El negocio ya tiene una suscripción vigente para el servicio.',
+        'service_type',
+    ),
+    InvalidComplimentaryGrantReasonError: (
+        status.HTTP_400_BAD_REQUEST,
+        'invalid_complimentary_grant_reason',
+        'El motivo de la bonificación no es válido.',
+        'grant_reason',
+    ),
+    InvalidComplimentaryServiceTypeError: (
+        status.HTTP_400_BAD_REQUEST,
+        'invalid_complimentary_service_type',
+        'El servicio solicitado no es válido.',
+        'service_type',
+    ),
+    ComplimentaryGrantFailedError: (
+        status.HTTP_422_UNPROCESSABLE_ENTITY,
+        'complimentary_grant_failed',
+        'No se pudo otorgar el acceso bonificado.',
+        None,
+    ),
+}
+
+
+def _provisioning_error_response(exc) -> Response:
+    http_status, code, detail, field = PROVISIONING_ERROR_RESPONSES[type(exc)]
+    return Response(
+        {'code': code, 'detail': detail, 'field': field},
+        status=http_status,
+    )
+
+
+def _provisioning_success_response(result) -> dict:
+    business = result.business
+    owner = result.owner_user
+    membership = result.membership
+    subscription = result.subscription
+    return {
+        'owner_email': owner.email,
+        'owner_user_id': owner.id,
+        'business_id': business.id,
+        'membership_id': membership.id,
+        'login_url': f"{settings.FRONTEND_URL.rstrip('/')}/entrar/cliente",
+        'business': {
+            'id': business.id,
+            'name': business.name,
+            'slug': business.slug,
+            'status': business.status,
+            'service_type': business.service_type,
+            'country': business.country,
+            'currency': business.currency,
+        },
+        'owner': {
+            'id': owner.id,
+            'email': owner.email,
+            'created': result.owner_created,
+        },
+        'membership': {
+            'id': membership.id,
+            'role': membership.role,
+            'status': membership.status,
+        },
+        'subscription': {
+            'id': str(subscription.id),
+            'plan_code': subscription.plan_code,
+            'provider': subscription.provider,
+            'status': subscription.status,
+            'current_period_start': (
+                subscription.current_period_start.isoformat()
+                if subscription.current_period_start else None
+            ),
+            'current_period_end': (
+                subscription.current_period_end.isoformat()
+                if subscription.current_period_end else None
+            ),
+        },
+    }
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -79,13 +259,26 @@ def _risk_badges(business, latest_sub) -> list[str]:
 
 class AdminClientListView(APIView):
     """
-    GET /api/v1/platform-admin/clients/
+    GET  /api/v1/platform-admin/clients/
+    POST /api/v1/platform-admin/clients/
 
-    Paginated list of HQ businesses (clients).
+    Paginated list of HQ businesses, or provision one complete client.
     Query params: search, status, plan, trial, sort, page
     """
     permission_classes = [IsAuthenticated, IsPlatformStaff, HasInternalRole]
-    allowed_internal_roles = ['superadmin', 'operations']
+    allowed_internal_roles_by_method = {
+        'GET': ['superadmin', 'operations'],
+        'HEAD': ['superadmin', 'operations'],
+        'OPTIONS': ['superadmin', 'operations'],
+        'POST': ['superadmin'],
+    }
+
+    def get_permissions(self):
+        self.allowed_internal_roles = self.allowed_internal_roles_by_method.get(
+            self.request.method,
+            ['superadmin'],
+        )
+        return super().get_permissions()
 
     def get(self, request: Request) -> Response:
         qs = Business.objects.filter(parent__isnull=True).select_related()
@@ -202,6 +395,44 @@ class AdminClientListView(APIView):
             'page_size': PAGE_SIZE,
             'total_pages': total_pages,
         })
+
+    def post(self, request: Request) -> Response:
+        serializer = AdminClientProvisioningInputSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            result = provision_admin_client(
+                **serializer.validated_data,
+                granted_by=request.user,
+            )
+        except tuple(PROVISIONING_ERROR_RESPONSES) as exc:
+            return _provisioning_error_response(exc)
+
+        return Response(
+            _provisioning_success_response(result),
+            status=status.HTTP_201_CREATED,
+        )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# AdminClientProvisioningOptionsView
+# ══════════════════════════════════════════════════════════════════════════════
+
+class AdminClientProvisioningOptionsView(APIView):
+    """
+    GET /api/v1/platform-admin/clients/provisioning-options/
+
+    Read-only catalog of the service/plan combinations that
+    provision_admin_client() -> grant_complimentary_access() can currently
+    accept. Consumed by the future /admin/clientes/nuevo form so it never
+    hardcodes plan codes or a plan/service compatibility matrix.
+    """
+    permission_classes = [IsAuthenticated, IsPlatformStaff, HasInternalRole]
+    allowed_internal_roles = ['superadmin']
+
+    def get(self, request: Request) -> Response:
+        return Response({'services': list_provisioning_options()})
 
 
 # ══════════════════════════════════════════════════════════════════════════════

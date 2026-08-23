@@ -166,6 +166,116 @@ export type AdminClientKPIs = {
   plan_distribution: { plan: string; count: number }[];
 };
 
+// ── ADMIN-CLIENTES 03C: Client provisioning (alta desde el panel) ─────────
+
+/** One plan available for a given provisioning service_type. */
+export type AdminProvisioningPlanOption = {
+  code: string;
+  name: string;
+};
+
+/** One service_type and its currently active/compatible plans. */
+export type AdminProvisioningServiceOption = {
+  value: string;
+  label: string;
+  plans: AdminProvisioningPlanOption[];
+};
+
+/** GET /api/v1/platform-admin/clients/provisioning-options/ */
+export type AdminClientProvisioningOptions = {
+  services: AdminProvisioningServiceOption[];
+};
+
+/**
+ * POST /api/v1/platform-admin/clients/ body. Exactly these ten fields —
+ * complimentary_start/end are plain "YYYY-MM-DD" strings (not full ISO
+ * datetimes): the backend's DateTimeField parses a bare date as local
+ * midnight, avoiding a day-shift from UTC conversion.
+ */
+export type AdminClientProvisioningInput = {
+  business_name: string;
+  business_slug: string;
+  service_type: string;
+  country: string;
+  currency: string;
+  owner_email: string;
+  plan_code: string;
+  complimentary_start: string;
+  complimentary_end: string;
+  grant_reason: string;
+};
+
+export type AdminProvisionedBusiness = {
+  id: number;
+  name: string;
+  slug: string;
+  status: string;
+  service_type: string;
+  country: string;
+  currency: string;
+};
+
+export type AdminProvisionedOwner = {
+  id: number;
+  email: string;
+  created: boolean;
+};
+
+export type AdminProvisionedMembership = {
+  id: number;
+  role: string;
+  status: string;
+};
+
+/** subscription.id is a stringified UUID — never assume it's numeric. */
+export type AdminProvisionedSubscription = {
+  id: string;
+  plan_code: string;
+  provider: string;
+  status: string;
+  current_period_start: string | null;
+  current_period_end: string | null;
+};
+
+/** 201 response body for POST /api/v1/platform-admin/clients/ */
+export type AdminClientProvisioningResult = {
+  owner_email: string;
+  owner_user_id: number;
+  business_id: number;
+  membership_id: number;
+  login_url: string;
+  business: AdminProvisionedBusiness;
+  owner: AdminProvisionedOwner;
+  membership: AdminProvisionedMembership;
+  subscription: AdminProvisionedSubscription;
+};
+
+/** Known domain error codes from the provisioning endpoint (400/409/422/403). */
+export type AdminClientProvisioningErrorCode =
+  | 'invalid_business_name'
+  | 'invalid_business_slug'
+  | 'business_slug_conflict'
+  | 'invalid_owner_email'
+  | 'ambiguous_owner_email'
+  | 'inactive_owner_account'
+  | 'invalid_business_country'
+  | 'invalid_business_currency'
+  | 'invalid_complimentary_period'
+  | 'invalid_complimentary_grant_reason'
+  | 'invalid_complimentary_service_type'
+  | 'complimentary_plan_not_available'
+  | 'complimentary_plan_service_mismatch'
+  | 'active_complimentary_subscription_conflict'
+  | 'complimentary_grant_failed'
+  | 'unauthorized_provisioning_actor';
+
+/** Domain error envelope: {code, detail, field}. field is null for general errors. */
+export type AdminClientProvisioningError = {
+  code: AdminClientProvisioningErrorCode | string;
+  detail: string;
+  field: string | null;
+};
+
 export type AdminInternalNote = {
   id: string;
   body: string;

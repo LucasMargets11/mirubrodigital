@@ -77,12 +77,12 @@ class TestPlanPrices(TestCase):
         self.assertEqual(plan_price('menu_qr_marca', 'monthly'), 55000)
 
     def test_qr_reviews_base(self):
-        self.assertEqual(plan_price('qr_reviews_base', 'monthly'), 20000)
-        self.assertEqual(plan_price('qr_reviews_base', 'yearly'), 192000)
+        self.assertEqual(plan_price('qr_reviews_base', 'monthly'), 15000)
+        self.assertEqual(plan_price('qr_reviews_base', 'yearly'), 144000)
 
     def test_qr_reviews_pro(self):
-        self.assertEqual(plan_price('qr_reviews_pro', 'monthly'), 28000)
-        self.assertEqual(plan_price('qr_reviews_pro', 'yearly'), 268800)
+        self.assertEqual(plan_price('qr_reviews_pro', 'monthly'), 20000)
+        self.assertEqual(plan_price('qr_reviews_pro', 'yearly'), 192000)
 
     def test_unknown_plan_raises(self):
         with self.assertRaises(KeyError):

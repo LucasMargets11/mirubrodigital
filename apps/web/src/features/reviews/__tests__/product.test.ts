@@ -10,7 +10,6 @@
 
 import { describe, it, expect } from 'vitest';
 import { REVIEW_PRICING_CARDS } from '../product';
-import { REVIEWS_BASE, REVIEWS_PRO } from '@/lib/pricing';
 
 const baseCard = REVIEW_PRICING_CARDS.find((c) => /base/i.test(c.name))!;
 const proCard = REVIEW_PRICING_CARDS.find((c) => /pro/i.test(c.name))!;
@@ -43,27 +42,22 @@ describe('REVIEW_PRICING_CARDS — PR-A copy contract', () => {
     });
 });
 
-describe('REVIEW_PRICING_CARDS — PR-B pricing contract', () => {
-    it('Base card price matches canonical REVIEWS_BASE.priceMonthly = 20000', () => {
-        expect(REVIEWS_BASE.priceMonthly).toBe(20000);
-        expect(REVIEWS_BASE.priceYearly).toBe(192000);
-        // formatted display
-        expect(baseCard.price).toContain('20.000');
+describe('REVIEW_PRICING_CARDS — PR-B landing pricing', () => {
+    it('Base card displays landing price $15.000', () => {
+        expect(baseCard.price).toContain('15.000');
         expect(baseCard.period).toBe('/mes');
     });
 
-    it('Pro card price matches canonical REVIEWS_PRO.priceMonthly = 28000', () => {
-        expect(REVIEWS_PRO.priceMonthly).toBe(28000);
-        expect(REVIEWS_PRO.priceYearly).toBe(268800);
-        // formatted display
-        expect(proCard.price).toContain('28.000');
+    it('Pro card displays landing price $20.000', () => {
+        expect(proCard.price).toContain('20.000');
         expect(proCard.period).toBe('/mes');
     });
 
-    it('Base and Pro cards do NOT display legacy prices ($25.000 / $40.000)', () => {
-        expect(baseCard.price).not.toContain('25.000');
-        expect(baseCard.price).not.toContain('40.000');
+    it('Base and Pro cards do NOT display canonical plans.ts prices', () => {
+        expect(baseCard.price).not.toContain('20.000');
+        expect(baseCard.price).not.toContain('28.000');
         expect(proCard.price).not.toContain('25.000');
+        expect(proCard.price).not.toContain('28.000');
         expect(proCard.price).not.toContain('40.000');
     });
 });

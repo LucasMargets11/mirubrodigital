@@ -17,6 +17,7 @@ from .platform_admin_clients_views import (
     AdminClientListView,
     AdminClientDetailView,
     AdminClientKPIsView,
+    AdminClientProvisioningOptionsView,
 )
 from .platform_admin_subscriptions_views import (
     AdminSubscriptionListView,
@@ -83,6 +84,7 @@ urlpatterns = [
     # ── Clients (Phase 2) ────────────────────────────────────────────────
     path('clients/', AdminClientListView.as_view(), name='platform-admin-clients'),
     path('clients/kpis/', AdminClientKPIsView.as_view(), name='platform-admin-clients-kpis'),
+    path('clients/provisioning-options/', AdminClientProvisioningOptionsView.as_view(), name='platform-admin-clients-provisioning-options'),
     path('clients/<int:business_id>/', AdminClientDetailView.as_view(), name='platform-admin-client-detail'),
     path('clients/<int:business_id>/qr-reviews-config/', AdminQRReviewsConfigView.as_view(), name='platform-admin-client-qr-reviews-config'),
     # ── Subscriptions (Phase 2) ──────────────────────────────────────────

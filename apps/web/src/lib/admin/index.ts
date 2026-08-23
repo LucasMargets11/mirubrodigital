@@ -6,6 +6,7 @@ import type {
   AdminClientList,
   AdminClientDetail,
   AdminClientKPIs,
+  AdminClientProvisioningOptions,
   AdminSubscriptionList,
   AdminSubscriptionDetail,
   AdminSubscriptionKPIs,
@@ -291,4 +292,5 @@ export type {
   AdminPlanOption,
   AdminQRReviewsConfig,
   AdminQRReviewsConfigPatch,
+  AdminClientProvisioningOptions,
 };

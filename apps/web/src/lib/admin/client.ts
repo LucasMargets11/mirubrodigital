@@ -1,6 +1,12 @@
 'use client';
 
 import { getClientApiBaseUrl } from '../api-url';
+import type {
+  AdminClientProvisioningOptions,
+  AdminClientProvisioningInput,
+  AdminClientProvisioningResult,
+  AdminClientProvisioningError,
+} from './types';
 
 const API_URL = getClientApiBaseUrl();
 
@@ -157,4 +163,128 @@ export async function adminLogout(): Promise<void> {
   } finally {
     window.location.assign('/admin/login');
   }
+}
+
+// ── ADMIN-CLIENTES 03C: Client provisioning (client-safe, browser fetch) ──
+
+export type AdminClientProvisioningOptionsResult =
+  | { status: 'ok'; data: AdminClientProvisioningOptions }
+  | { status: 'session_expired' }
+  | { status: 'error'; message: string };
+
+/**
+ * GET /api/v1/platform-admin/clients/provisioning-options/
+ * Used by the "Nuevo cliente" form to load services/plans, with retry.
+ */
+export async function getAdminClientProvisioningOptions(): Promise<AdminClientProvisioningOptionsResult> {
+  try {
+    const response = await fetch(`${API_URL}/api/v1/platform-admin/clients/provisioning-options/`, {
+      method: 'GET',
+      credentials: 'include',
+      cache: 'no-store',
+    });
+
+    if (response.status === 401) {
+      return { status: 'session_expired' };
+    }
+
+    if (!response.ok) {
+      return { status: 'error', message: 'No pudimos cargar los servicios y planes disponibles.' };
+    }
+
+    const data = (await response.json()) as AdminClientProvisioningOptions;
+    return { status: 'ok', data };
+  } catch {
+    return { status: 'error', message: 'Error de red al cargar las opciones de alta.' };
+  }
+}
+
+export type AdminClientProvisioningResponse =
+  | { status: 'ok'; data: AdminClientProvisioningResult }
+  | { status: 'session_expired' }
+  | { status: 'forbidden' }
+  | {
+      status: 'domain_error';
+      httpStatus: number;
+      error: AdminClientProvisioningError;
+    }
+  | {
+      status: 'field_errors';
+      httpStatus: number;
+      fieldErrors: Record<string, string>;
+    }
+  | { status: 'server_error'; httpStatus: number };
+
+/**
+ * POST /api/v1/platform-admin/clients/ — sends exactly the ten allowed
+ * provisioning fields. Distinguishes DRF structural 400s (field -> [msgs])
+ * from the domain error envelope ({code, detail, field}) so the caller can
+ * map either shape onto the right form control.
+ */
+export async function provisionAdminClient(
+  input: AdminClientProvisioningInput,
+): Promise<AdminClientProvisioningResponse> {
+  const payload: AdminClientProvisioningInput = {
+    business_name: input.business_name,
+    business_slug: input.business_slug,
+    service_type: input.service_type,
+    country: input.country,
+    currency: input.currency,
+    owner_email: input.owner_email,
+    plan_code: input.plan_code,
+    complimentary_start: input.complimentary_start,
+    complimentary_end: input.complimentary_end,
+    grant_reason: input.grant_reason,
+  };
+
+  let response: Response;
+  try {
+    response = await fetch(`${API_URL}/api/v1/platform-admin/clients/`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    return { status: 'server_error', httpStatus: 0 };
+  }
+
+  if (response.status === 201) {
+    // Includes the 04E access-delivery fields. In particular, login_url is
+    // consumed verbatim by the confirmation UI and is never rebuilt here.
+    const data = (await response.json()) as AdminClientProvisioningResult;
+    return { status: 'ok', data };
+  }
+
+  if (response.status === 401) {
+    return { status: 'session_expired' };
+  }
+
+  if (response.status === 403) {
+    return { status: 'forbidden' };
+  }
+
+  const data = await response.json().catch(() => ({}));
+
+  // Domain envelope: {code, detail, field}.
+  if (data && typeof data === 'object' && 'code' in data && 'detail' in data) {
+    return {
+      status: 'domain_error',
+      httpStatus: response.status,
+      error: data as AdminClientProvisioningError,
+    };
+  }
+
+  // DRF structural validation errors: { field: [msg, ...] }.
+  if (data && typeof data === 'object') {
+    const fieldErrors: Record<string, string> = {};
+    for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
+      fieldErrors[key] = Array.isArray(value) ? value.join(' ') : String(value);
+    }
+    if (Object.keys(fieldErrors).length > 0) {
+      return { status: 'field_errors', httpStatus: response.status, fieldErrors };
+    }
+  }
+
+  return { status: 'server_error', httpStatus: response.status };
 }

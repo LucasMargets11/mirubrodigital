@@ -45,6 +45,8 @@ function makeSession(role = 'owner'): Session {
             email: 'test@test.com',
             name: 'Test User',
             email_verified: true,
+            account_mode: 'owner_managed',
+            must_change_password: false,
         },
         memberships: [
             { business: { id: 1, name: 'TestBiz' }, role, service: 'gestion' },

@@ -2,6 +2,7 @@ from django.urls import path
 
 from .views import (
     GoogleAuthView,
+    GooglePreauthorizedLoginView,
     LoginView,
     LogoutView,
     MeView,
@@ -33,6 +34,8 @@ urlpatterns = [
     path('resend-verification/', ResendVerificationView.as_view(), name='auth-resend-verification'),
     # Google OAuth
     path('google/', GoogleAuthView.as_view(), name='auth-google'),
+    # ADMIN-CLIENTES 04C: preauthorized owner login (no autocreation)
+    path('google/preauthorized/', GooglePreauthorizedLoginView.as_view(), name='auth-google-preauthorized'),
     # Self-service password recovery
     path('forgot-password/', ForgotPasswordView.as_view(), name='auth-forgot-password'),
     path('reset-password/', ResetPasswordView.as_view(), name='auth-reset-password'),

@@ -19,7 +19,6 @@ beforeAll(() => {
     }
 
     // jsdom doesn't provide ResizeObserver by default.
-    // @ts-expect-error test runtime shim
     global.ResizeObserver = ResizeObserverMock;
 });
 

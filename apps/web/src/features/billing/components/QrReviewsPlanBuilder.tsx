@@ -79,15 +79,13 @@ const PLAN_META: Record<string, { highlight: string }> = {
 
 function PlanCard({
     plan,
-    billingPeriod,
     onSubscribe,
 }: {
     plan: QrReviewsPlanEntry;
-    billingPeriod: 'monthly' | 'yearly';
     onSubscribe: (p: QrReviewsPlanEntry) => void;
 }) {
     const isRecommended = plan.isRecommended ?? false;
-    const price = billingPeriod === 'monthly' ? plan.priceMonthly : plan.priceYearly;
+    const price = plan.priceMonthly;
 
     return (
         <div
@@ -120,14 +118,9 @@ function PlanCard({
                             {formatPrice(price)}
                         </span>
                         <span className="text-slate-500 text-sm ml-2">
-                            / {billingPeriod === 'yearly' ? 'año' : 'mes'}
+                            / mes
                         </span>
                     </div>
-                    {billingPeriod === 'yearly' && (
-                        <p className="text-green-600 text-xs font-semibold mt-1">
-                            Ahorrás 20% vs mensual
-                        </p>
-                    )}
                 </div>
 
                 {/* Meta bullets */}
@@ -173,7 +166,7 @@ function PlanCard({
 // Main component
 // ---------------------------------------------------------------------------
 
-export function QrReviewsPlanBuilder({ billingPeriod, onSubscribe }: QrReviewsPlanBuilderProps) {
+export function QrReviewsPlanBuilder({ billingPeriod: _billingPeriod, onSubscribe }: QrReviewsPlanBuilderProps) {
     const handleSubscribe = (plan: QrReviewsPlanEntry) => {
         onSubscribe({ planCode: plan.plan });
     };
@@ -185,7 +178,6 @@ export function QrReviewsPlanBuilder({ billingPeriod, onSubscribe }: QrReviewsPl
                     <PlanCard
                         key={plan.plan}
                         plan={plan}
-                        billingPeriod={billingPeriod}
                         onSubscribe={handleSubscribe}
                     />
                 ))}

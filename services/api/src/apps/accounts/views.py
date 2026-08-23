@@ -670,6 +670,171 @@ class GoogleAuthView(APIView):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Google OAuth — preauthorized owner login (ADMIN-CLIENTES 04C)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _GooglePreauthorizedRejected(Exception):
+	"""Internal signal for the single generic 401 — never carries a reason,
+	so GooglePreauthorizedLoginView.post can't accidentally leak WHY."""
+
+
+def _preauthorized_eligible_membership(user) -> Membership:
+	"""
+	Section 3 eligibility: user active, has AccountProfile, has >=1 active
+	owner Membership. Subscription state is irrelevant and never checked.
+	is_platform_staff/internal_role are irrelevant to this endpoint.
+	"""
+	if not user.is_active:
+		raise _GooglePreauthorizedRejected()
+	if getattr(user, 'account_profile', None) is None:
+		raise _GooglePreauthorizedRejected()
+	membership = (
+		Membership.objects
+		.filter(user=user, role='owner', status=Membership.Status.ACTIVE)
+		.order_by('created_at')
+		.first()
+	)
+	if membership is None:
+		raise _GooglePreauthorizedRejected()
+	return membership
+
+
+def _resolve_preauthorized_user(payload):
+	"""
+	Resolve an EXISTING, eligible user for the preauthorized Google login.
+	Never creates User/AccountProfile/Business/Membership/SubscriptionV2.
+	Must run inside transaction.atomic(). Raises _GooglePreauthorizedRejected
+	for every unauthorized case.
+	"""
+	# 1. google_sub is the stable identity: always wins, never reassigned by email.
+	try:
+		profile = AccountProfile.objects.select_for_update().get(google_sub=payload.sub)
+	except AccountProfile.DoesNotExist:
+		profile = None
+
+	if profile is not None:
+		user = profile.user
+		membership = _preauthorized_eligible_membership(user)
+		return user, membership
+
+	# 2. First-time linking — same case-insensitive comparison as /auth/google/.
+	matches = list(User.objects.filter(email__iexact=payload.email))
+	if len(matches) != 1:
+		# 0 matches (unknown) or 2+ matches (ambiguous) — same rejection,
+		# never a User.MultipleObjectsReturned crash.
+		raise _GooglePreauthorizedRejected()
+
+	candidate = matches[0]
+	membership = _preauthorized_eligible_membership(candidate)
+
+	profile = AccountProfile.objects.select_for_update().filter(user=candidate).first()
+	if profile is None:
+		raise _GooglePreauthorizedRejected()
+
+	if profile.google_sub and profile.google_sub != payload.sub:
+		# Already linked to a DIFFERENT sub — never overwritten, never authenticated.
+		raise _GooglePreauthorizedRejected()
+
+	if not profile.google_sub:
+		update_fields = ['google_sub']
+		profile.google_sub = payload.sub
+		if not profile.email_verified:
+			profile.email_verified = True
+			update_fields.append('email_verified')
+		try:
+			with transaction.atomic():
+				profile.save(update_fields=update_fields)
+		except IntegrityError:
+			# Unique collision: another profile grabbed this sub concurrently.
+			winner = (
+				AccountProfile.objects
+				.exclude(pk=profile.pk)
+				.filter(google_sub=payload.sub)
+				.first()
+			)
+			if winner is None or winner.user_id != candidate.pk:
+				raise _GooglePreauthorizedRejected()
+	# else: profile.google_sub == payload.sub already — idempotent, no write.
+
+	return candidate, membership
+
+
+class GooglePreauthorizedLoginView(APIView):
+	"""
+	POST /api/v1/auth/google/preauthorized/
+	Body: { "credential": "<Google ID token>" }
+
+	For owners already provisioned by a platform admin (ADMIN-CLIENTES
+	02A/03A) — logs in an EXISTING, eligible owner via Google. Unlike
+	/api/v1/auth/google/, this endpoint NEVER autocreates a User,
+	AccountProfile, Business, Membership or SubscriptionV2, and never calls
+	_ensure_membership(). See ADMIN-CLIENTES 04C for the full spec.
+
+	Eligibility (checked before any write): user.is_active, has
+	AccountProfile, has an active owner Membership. Subscription state is
+	irrelevant. is_platform_staff/internal_role are never treated as
+	authorization here.
+
+	Every rejection (unknown email, ambiguous email, inactive user, missing
+	profile, missing/inactive owner Membership, sub linked elsewhere, sub
+	conflict) returns the SAME generic 401 —
+	{'code': 'google_account_not_authorized'} — never leaking which
+	condition failed. No cookies and no writes on any rejection.
+	"""
+	permission_classes = [AllowAny]
+	authentication_classes: list = []
+	throttle_classes = [GoogleAuthThrottle]
+
+	def post(self, request: Request) -> Response:
+		credential = (request.data.get('credential') or '').strip()
+		if not credential:
+			return Response(
+				{'detail': 'Token de Google requerido.'},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		from apps.accounts.google_oauth_service import GoogleOAuthService
+
+		# Verify the token BEFORE opening any DB transaction — the external
+		# call never happens inside an open transaction.
+		result = GoogleOAuthService.verify_token(credential)
+		if not result.valid:
+			return Response(
+				{'detail': 'Token de Google inválido o expirado.'},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		payload = result.payload
+		if not payload.email_verified:
+			return Response(
+				{'detail': 'El email de Google no está verificado.'},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		client_ip = _get_client_ip(request)
+
+		try:
+			with transaction.atomic():
+				user, membership = _resolve_preauthorized_user(payload)
+		except _GooglePreauthorizedRejected:
+			return Response(
+				{'code': 'google_account_not_authorized', 'detail': 'Esta cuenta de Google no está autorizada.'},
+				status=status.HTTP_401_UNAUTHORIZED,
+			)
+
+		refresh = RefreshToken.for_user(user)
+		response = Response({
+			'status': 'ok',
+			'onboarding': membership.business.status == 'onboarding',
+			'is_new_user': False,
+		})
+		_set_auth_cookies(response, refresh)
+		_set_business_cookie(response, membership.business_id)
+		security_events.login_success(user_id=user.pk, email=user.email, ip=client_ip)
+		return response
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Self-service Password Recovery
 # ─────────────────────────────────────────────────────────────────────────────
 

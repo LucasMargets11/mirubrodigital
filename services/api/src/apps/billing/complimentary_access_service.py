@@ -105,6 +105,50 @@ def _check_plan_service_compatibility(plan_code: str, service_type: str) -> None
         )
 
 
+def list_provisioning_options() -> list[dict]:
+    """
+    Enumerate the (service_type, plan_code) combinations that
+    ``grant_complimentary_access()`` currently accepts — read-only, no writes.
+
+    For each ``Plan`` with ``plan_status='active'``, derives its service_type
+    from the same canonical vertical mapping (``_VERTICAL_TO_SERVICE_TYPE``)
+    and re-validates the pair through the exact same
+    ``_check_plan_service_compatibility()`` helper ``grant_complimentary_access()``
+    calls — no separate compatibility matrix is created. A plan is included
+    only if its derived service_type is also a real
+    ``SubscriptionV2.ServiceType`` member, mirroring the service_type check
+    ``grant_complimentary_access()`` performs before checking compatibility.
+
+    Returns a list of ``{'value', 'label', 'plans': [{'code', 'name'}, ...]}``
+    dicts, sorted deterministically by service_type then plan code.
+    """
+    services: dict[str, dict] = {}
+    active_plans = Plan.objects.filter(plan_status='active').order_by('code')
+
+    for plan in active_plans:
+        canonical_plan = _get_canonical_plan(plan.code)
+        if canonical_plan is None:
+            continue
+
+        service_type = _VERTICAL_TO_SERVICE_TYPE.get(canonical_plan['vertical'])
+        if service_type is None or service_type not in SubscriptionV2.ServiceType.values:
+            continue
+
+        try:
+            _check_plan_service_compatibility(plan.code, service_type)
+        except PlanServiceMismatchError:
+            continue
+
+        bucket = services.setdefault(service_type, {
+            'value': service_type,
+            'label': SubscriptionV2.ServiceType(service_type).label,
+            'plans': [],
+        })
+        bucket['plans'].append({'code': plan.code, 'name': plan.name})
+
+    return [services[key] for key in sorted(services)]
+
+
 def grant_complimentary_access(
     *,
     business,

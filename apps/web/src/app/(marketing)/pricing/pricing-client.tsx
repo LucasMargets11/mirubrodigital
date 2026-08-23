@@ -105,6 +105,9 @@ export default function PricingClient() {
     const searchParams = useSearchParams();
     const [vertical, setVertical] = useState<VerticalOption>(() => resolveVerticalFromQuery(searchParams.get('service')) ?? DEFAULT_VERTICAL);
     const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>('monthly');
+
+    const effectiveBillingPeriod = vertical === 'qr_reviews' ? 'monthly' : billingPeriod;
+
     const [mode, setMode] = useState<'packs' | 'custom'>('packs');
 
     // PRO state for Menu QR — lifted so the comparison table can react to it
@@ -126,20 +129,18 @@ export default function PricingClient() {
     }, [serviceParam]);
 
     const handleSubscribeBundle = (bundle: Bundle) => {
-        // Logic for public site: Redirect to registration with plan params
         const params = new URLSearchParams({
             plan_code: bundle.code,
-            billing_period: billingPeriod,
+            billing_period: effectiveBillingPeriod,
             vertical
         });
         router.push(`/subscribe?${params.toString()}`);
     };
 
     const handleSubscribeCustom = (config: any) => {
-        // Logic for public site: Redirect to registration with custom params
         const params = new URLSearchParams({
             plan_code: config.bundleCode || 'custom',
-            billing_period: billingPeriod,
+            billing_period: effectiveBillingPeriod,
             vertical,
             branches: config.branches?.toString() || '1',
             add_invoicing: config.addInvoicing ? 'true' : 'false',
@@ -150,17 +151,16 @@ export default function PricingClient() {
     const handleSubscribeGc = (config: GcSubscribeConfig) => {
         const params = new URLSearchParams({
             plan_code: config.planCode,
-            billing_period: billingPeriod,
+            billing_period: effectiveBillingPeriod,
             vertical,
         });
         router.push(`/subscribe?${params.toString()}`);
     };
 
     const handleSubscribeMenuQr = (config: MenuQrSubscribeConfig) => {
-        // Menu QR subscription — encode plan + module choice + add-ons
         const params = new URLSearchParams({
             plan_code: config.planCode,
-            billing_period: billingPeriod,
+            billing_period: effectiveBillingPeriod,
             vertical,
         });
         if (config.proIncludedModule) {
@@ -175,7 +175,7 @@ export default function PricingClient() {
     const handleSubscribeQrReviews = (config: QrReviewsSubscribeConfig) => {
         const params = new URLSearchParams({
             plan_code: config.planCode,
-            billing_period: billingPeriod,
+            billing_period: effectiveBillingPeriod,
             vertical,
         });
         router.push(`/subscribe?${params.toString()}`);
@@ -197,21 +197,23 @@ export default function PricingClient() {
             <div className="flex flex-col items-center mb-12 space-y-6">
                 <ServiceSelectorCards value={vertical} onChange={setVertical} options={SERVICE_OPTIONS} />
 
-                {/* Billing Period Toggle */}
-                <div className="bg-slate-100 p-1 rounded-lg flex shrink-0">
-                    <button
-                        className={`px-6 py-2 rounded-md text-sm font-medium transition-all ${billingPeriod === 'monthly' ? 'bg-white shadow text-slate-900' : 'text-slate-500'}`}
-                        onClick={() => setBillingPeriod('monthly')}
-                    >
-                        Mensual
-                    </button>
-                    <button
-                        className={`px-6 py-2 rounded-md text-sm font-medium transition-all ${billingPeriod === 'yearly' ? 'bg-white shadow text-slate-900' : 'text-slate-500'}`}
-                        onClick={() => setBillingPeriod('yearly')}
-                    >
-                        Anual <span className="text-green-600 text-xs ml-1 font-bold">-20%</span>
-                    </button>
-                </div>
+                {/* Billing Period Toggle — oculto para QR de Reseñas (solo mensual) */}
+                {vertical !== 'qr_reviews' && (
+                    <div className="bg-slate-100 p-1 rounded-lg flex shrink-0">
+                        <button
+                            className={`px-6 py-2 rounded-md text-sm font-medium transition-all ${billingPeriod === 'monthly' ? 'bg-white shadow text-slate-900' : 'text-slate-500'}`}
+                            onClick={() => setBillingPeriod('monthly')}
+                        >
+                            Mensual
+                        </button>
+                        <button
+                            className={`px-6 py-2 rounded-md text-sm font-medium transition-all ${billingPeriod === 'yearly' ? 'bg-white shadow text-slate-900' : 'text-slate-500'}`}
+                            onClick={() => setBillingPeriod('yearly')}
+                        >
+                            Anual <span className="text-green-600 text-xs ml-1 font-bold">-20%</span>
+                        </button>
+                    </div>
+                )}
             </div>
 
             <div className="mb-12">
@@ -230,7 +232,7 @@ export default function PricingClient() {
             {/* Menú QR — custom plan builder shown in packs mode */}
             {mode === 'packs' && vertical === 'menu_qr' && (
                 <MenuQrPlanBuilder
-                    billingPeriod={billingPeriod}
+                    billingPeriod={effectiveBillingPeriod}
                     onSubscribe={handleSubscribeMenuQr}
                     onProStateChange={(mod, addon) => {
                         setQrProModule(mod);
@@ -241,14 +243,14 @@ export default function PricingClient() {
 
             {mode === 'packs' && vertical === 'commercial' && (
                 <GestionComercialPlanBuilder
-                    billingPeriod={billingPeriod}
+                    billingPeriod={effectiveBillingPeriod}
                     onSubscribe={handleSubscribeGc}
                 />
             )}
 
             {mode === 'packs' && vertical === 'qr_reviews' && (
                 <QrReviewsPlanBuilder
-                    billingPeriod={billingPeriod}
+                    billingPeriod={effectiveBillingPeriod}
                     onSubscribe={handleSubscribeQrReviews}
                 />
             )}
@@ -256,7 +258,7 @@ export default function PricingClient() {
             {mode === 'packs' && vertical !== 'menu_qr' && vertical !== 'commercial' && vertical !== 'qr_reviews' && (
                 <PlansBundles
                     vertical={vertical}
-                    billingPeriod={billingPeriod}
+                    billingPeriod={effectiveBillingPeriod}
                     onChooseBundle={handleSubscribeBundle}
                 />
             )}
@@ -265,14 +267,14 @@ export default function PricingClient() {
                 <div className="animate-in fade-in zoom-in duration-300">
                     {vertical === 'commercial' ? (
                         <CommercialPlanBuilder
-                            billingPeriod={billingPeriod}
+                            billingPeriod={effectiveBillingPeriod}
                             onSubscribe={handleSubscribeCustom}
                             onCancel={() => setMode('packs')}
                         />
                     ) : (
                         <PlansBuilderWizard
                             vertical={vertical}
-                            billingPeriod={billingPeriod}
+                            billingPeriod={effectiveBillingPeriod}
                             onSubscribe={(modules, quote) => handleSubscribeCustom({ modules, quote })}
                             onCancel={() => setMode('packs')}
                         />
