@@ -164,9 +164,19 @@ export async function googleAuth(credential: string): Promise<GoogleAuthResult> 
   }
 }
 
-export async function googlePreauthorizedLogin(credential: string): Promise<GoogleAuthResult> {
+const GOOGLE_BUSINESS_REQUIRED_MESSAGE =
+  'Usá el enlace de acceso específico de tu comercio para ingresar.';
+
+export async function googlePreauthorizedLogin(
+  credential: string,
+  businessId?: number | null,
+): Promise<GoogleAuthResult> {
   try {
-    const response = await request('/api/v1/auth/google/preauthorized/', { credential });
+    const body: { credential: string; business_id?: number } = { credential };
+    if (typeof businessId === 'number' && Number.isInteger(businessId) && businessId > 0) {
+      body.business_id = businessId;
+    }
+    const response = await request('/api/v1/auth/google/preauthorized/', body);
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}));
       if (response.status === 401 && payload?.code === 'google_account_not_authorized') {
@@ -174,6 +184,16 @@ export async function googlePreauthorizedLogin(credential: string): Promise<Goog
           success: false,
           code: payload.code,
           message: GOOGLE_ACCOUNT_NOT_AUTHORIZED_MESSAGE,
+        };
+      }
+      if (
+        response.status === 400 &&
+        payload?.code === 'google_preauthorized_business_required'
+      ) {
+        return {
+          success: false,
+          code: payload.code,
+          message: GOOGLE_BUSINESS_REQUIRED_MESSAGE,
         };
       }
       return {

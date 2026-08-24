@@ -81,20 +81,21 @@ class AdminClientAccessDeliveryContractTests(AdminClientEndpointTestBase):
         self.assertEqual(response.data['membership_id'], membership.pk)
 
     @override_settings(FRONTEND_URL='https://www.mirubro.com')
-    def test_03_login_url_uses_frontend_url_without_trailing_slash(self):
+    def test_03_login_url_uses_frontend_url_and_targets_the_new_business(self):
         response = self.post()
 
         self.assertEqual(response.status_code, 201)
-        self.assertEqual(
-            response.data['login_url'],
-            'https://www.mirubro.com/entrar/cliente',
+        expected = (
+            f"https://www.mirubro.com/entrar/cliente?business_id={response.data['business_id']}"
         )
+        self.assertEqual(response.data['login_url'], expected)
         parsed = urlsplit(response.data['login_url'])
-        self.assertEqual((parsed.query, parsed.fragment), ('', ''))
+        self.assertEqual(parsed.query, f"business_id={response.data['business_id']}")
+        self.assertEqual(parsed.fragment, '')
         self.assertNotIn(response.data['owner_email'], response.data['login_url'])
+        # Only the targeted business_id is embedded; the other resource ids stay out.
         for resource_id in (
             response.data['owner_user_id'],
-            response.data['business_id'],
             response.data['membership_id'],
             response.data['subscription']['id'],
         ):
@@ -107,7 +108,7 @@ class AdminClientAccessDeliveryContractTests(AdminClientEndpointTestBase):
         self.assertEqual(response.status_code, 201)
         self.assertEqual(
             response.data['login_url'],
-            'https://www.mirubro.com/entrar/cliente',
+            f"https://www.mirubro.com/entrar/cliente?business_id={response.data['business_id']}",
         )
 
     @override_settings(FRONTEND_URL='https://frontend.example.com')

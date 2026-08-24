@@ -174,7 +174,7 @@ def _provisioning_success_response(result) -> dict:
         'owner_user_id': owner.id,
         'business_id': business.id,
         'membership_id': membership.id,
-        'login_url': f"{settings.FRONTEND_URL.rstrip('/')}/entrar/cliente",
+        'login_url': f"{settings.FRONTEND_URL.rstrip('/')}/entrar/cliente?business_id={business.id}",
         'business': {
             'id': business.id,
             'name': business.name,

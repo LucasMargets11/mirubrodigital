@@ -56,6 +56,18 @@ export function AuthForm({ googleEndpoint = 'standard', googleOnly = false }: Au
     const next = searchParams.get('next') ?? undefined;
     const isGoogleOnlyBeta = process.env.NEXT_PUBLIC_AUTH_BETA_GOOGLE_ONLY === 'true';
 
+    // ADMIN-CLIENTES 04D: the admin-generated access link may carry a
+    // business_id that targets the exact Business the owner should enter.
+    // Read it from the query string, validate it as a positive integer, and
+    // forward it to the preauthorized login. It is never used as authorization
+    // on its own — the backend re-validates it against the Google user's own
+    // active owner Memberships. Malformed values are dropped (undefined).
+    const rawBusinessId = searchParams.get('business_id');
+    const businessId = (() => {
+        const parsed = Number(rawBusinessId);
+        return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+    })();
+
     const [mode, setMode] = useState<AuthMode>('login');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -84,7 +96,9 @@ export function AuthForm({ googleEndpoint = 'standard', googleOnly = false }: Au
                 const authenticate = googleEndpoint === 'preauthorized'
                     ? googlePreauthorizedLogin
                     : googleAuth;
-                const result = await authenticate(response.credential);
+                const result = googleEndpoint === 'preauthorized' && businessId !== undefined
+                    ? await googlePreauthorizedLogin(response.credential, businessId)
+                    : await authenticate(response.credential);
                 if (!result.success) {
                     setError(result.message ?? 'No pudimos autenticar con Google');
                     return;
@@ -99,7 +113,7 @@ export function AuthForm({ googleEndpoint = 'standard', googleOnly = false }: Au
                 setIsSubmitting(false);
             }
         },
-        [googleEndpoint, next],
+        [googleEndpoint, next, businessId],
     );
 
     useEffect(() => {

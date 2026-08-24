@@ -598,3 +598,208 @@ class ExistingGoogleAuthUnaffectedTests(AdminClientes04CBaseTest):
         self.assertEqual(resp.status_code, http_status.HTTP_200_OK)
         self.assertTrue(resp.data['is_new_user'])
         self.assertEqual(User.objects.filter(email__iexact=email).count(), 1)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ADMIN-CLIENTES 04D — business_id targeting (the regression fix)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class GooglePreauthorizedBusinessIdTests(AdminClientes04CBaseTest):
+    """
+    Covers the regression where a Google account with several active owner
+    Memberships must be directed to the EXACT Business created by the admin
+    link, rather than the first one by created_at. The business_id is never
+    trusted on its own — it is re-validated against the resolved Google user's
+    own active owner Memberships.
+    """
+
+    def _provision_for_owner(self, owner_email):
+        return self._provision(owner_email=owner_email)
+
+    def _link_sub(self, owner_email, business_id, sub):
+        with patch('apps.accounts.google_oauth_service.GoogleOAuthService.verify_token') as mock_verify:
+            mock_verify.return_value = _google_success(email=owner_email, sub=sub)
+            resp = APIClient().post(PREAUTH_URL, {'credential': 'valid-token', 'business_id': business_id})
+        return resp
+
+    # 1. Two Businesses, link directed at the SECOND -> selects the second.
+    def test_01_two_businesses_request_second_selects_second(self):
+        first = self._provision()
+        owner_email = first.data['owner_email']
+        second = self._provision(owner_email=owner_email)  # reuses same owner
+        first_id = first.data['business']['id']
+        second_id = second.data['business']['id']
+        Business.objects.filter(pk=second_id).update(status='onboarding')  # distinguish
+
+        with patch('apps.accounts.google_oauth_service.GoogleOAuthService.verify_token') as mock_verify:
+            mock_verify.return_value = _google_success(email=owner_email, sub='sub-04d-second')
+            resp = APIClient().post(PREAUTH_URL, {'credential': 'valid-token', 'business_id': second_id})
+
+        self.assertEqual(resp.status_code, http_status.HTTP_200_OK)
+        self.assertEqual(resp.cookies['bid'].value, str(second_id))
+        self.assertTrue(resp.data['onboarding'])  # computed from the requested business
+
+        # And explicitly requesting the first yields the first (trialing).
+        with patch('apps.accounts.google_oauth_service.GoogleOAuthService.verify_token') as mock_verify2:
+            mock_verify2.return_value = _google_success(email=owner_email, sub='sub-04d-second')
+            resp_first = APIClient().post(PREAUTH_URL, {'credential': 'valid-token', 'business_id': first_id})
+
+        self.assertEqual(resp_first.status_code, http_status.HTTP_200_OK)
+        self.assertEqual(resp_first.cookies['bid'].value, str(first_id))
+        self.assertFalse(resp_first.data['onboarding'])
+
+    # 2. The bid cookie ends up with the requested Business.
+    def test_02_bid_cookie_matches_requested_business(self):
+        first = self._provision()
+        owner_email = first.data['owner_email']
+        second = self._provision(owner_email=owner_email)
+        second_id = second.data['business']['id']
+
+        with patch('apps.accounts.google_oauth_service.GoogleOAuthService.verify_token') as mock_verify:
+            mock_verify.return_value = _google_success(email=owner_email, sub='sub-04d-cookie')
+            resp = APIClient().post(PREAUTH_URL, {'credential': 'valid-token', 'business_id': second_id})
+
+        self.assertEqual(resp.status_code, http_status.HTTP_200_OK)
+        self.assertIn('bid', resp.cookies)
+        self.assertEqual(resp.cookies['bid'].value, str(second_id))
+
+    # 3. onboarding is computed from the requested Business.
+    def test_03_onboarding_computed_from_requested_business(self):
+        first = self._provision()
+        owner_email = first.data['owner_email']
+        second = self._provision(owner_email=owner_email)
+        second_id = second.data['business']['id']
+        Business.objects.filter(pk=second_id).update(status='onboarding')
+
+        with patch('apps.accounts.google_oauth_service.GoogleOAuthService.verify_token') as mock_verify:
+            mock_verify.return_value = _google_success(email=owner_email, sub='sub-04d-onboarding')
+            resp = APIClient().post(PREAUTH_URL, {'credential': 'valid-token', 'business_id': second_id})
+
+        self.assertEqual(resp.status_code, http_status.HTTP_200_OK)
+        self.assertTrue(resp.data['onboarding'])
+
+    # 4. Requested Business belonging to ANOTHER user -> rejected.
+    def test_04_requested_business_belongs_to_other_user_rejected(self):
+        own = self._provision()
+        own_email = own.data['owner_email']
+        own_business_id = own.data['business']['id']
+
+        foreign = self._provision()  # a different owner/user
+        foreign_owner = User.objects.get(pk=foreign.data['owner']['id'])
+        foreign_email = foreign.data['owner']['email']
+        foreign_business_id = foreign.data['business']['id']
+        foreign_sub = 'sub-04d-foreign-owner'
+
+        # Link the foreign owner's sub via their own business.
+        link = self._link_sub(foreign_email, foreign_business_id, foreign_sub)
+        self.assertEqual(link.status_code, http_status.HTTP_200_OK)
+
+        # Now attempt to enter the foreign Business using the foreign owner's sub.
+        with patch('apps.accounts.google_oauth_service.GoogleOAuthService.verify_token') as mock_verify:
+            mock_verify.return_value = _google_success(email=foreign_email, sub=foreign_sub)
+            resp = APIClient().post(PREAUTH_URL, {'credential': 'valid-token', 'business_id': own_business_id})
+
+        self._assert_rejected(resp)
+        foreign_owner.refresh_from_db()  # untouched, no leakage needed
+
+    # 5a. Membership is INACTIVE for the requested Business -> rejected.
+    def test_05a_inactive_membership_rejected(self):
+        provision = self._provision()
+        owner_email = provision.data['owner']['email']
+        business_id = provision.data['business']['id']
+        membership = Membership.objects.get(business_id=business_id, user__email__iexact=owner_email)
+        membership.status = Membership.Status.INACTIVE
+        membership.save(update_fields=['status'])
+
+        with patch('apps.accounts.google_oauth_service.GoogleOAuthService.verify_token') as mock_verify:
+            mock_verify.return_value = _google_success(email=owner_email, sub='sub-04d-inactive')
+            resp = APIClient().post(PREAUTH_URL, {'credential': 'valid-token', 'business_id': business_id})
+
+        self._assert_rejected(resp)
+
+    # 5b. Requester is a member but NOT owner of the requested Business -> rejected.
+    def test_05b_non_owner_membership_rejected(self):
+        owned = self._provision()
+        owner_email = owned.data['owner']['email']
+        owned_business_id = owned.data['business']['id']
+
+        staff_provision = self._provision()
+        staff_user = User.objects.get(pk=staff_provision.data['owner']['id'])
+        staff_email = staff_provision.data['owner']['email']
+        Membership.objects.create(
+            user=staff_user, business_id=owned_business_id, role='staff', status=Membership.Status.ACTIVE,
+        )
+
+        with patch('apps.accounts.google_oauth_service.GoogleOAuthService.verify_token') as mock_verify:
+            mock_verify.return_value = _google_success(email=staff_email, sub='sub-04d-staff')
+            resp = APIClient().post(PREAUTH_URL, {'credential': 'valid-token', 'business_id': owned_business_id})
+
+        self._assert_rejected(resp)
+
+    # 6. No business_id and a SINGLE membership -> legacy behavior still works.
+    def test_06_no_business_id_single_membership_works(self):
+        provision = self._provision()
+        owner_email = provision.data['owner']['email']
+        business_id = provision.data['business']['id']
+
+        with patch('apps.accounts.google_oauth_service.GoogleOAuthService.verify_token') as mock_verify:
+            mock_verify.return_value = _google_success(email=owner_email, sub='sub-04d-single')
+            resp = APIClient().post(PREAUTH_URL, {'credential': 'valid-token'})
+
+        self.assertEqual(resp.status_code, http_status.HTTP_200_OK)
+        self.assertEqual(resp.cookies['bid'].value, str(business_id))
+
+    # 7. No business_id and MULTIPLE memberships -> controlled error, never first silently.
+    def test_07_no_business_id_multiple_memberships_requires_link(self):
+        first = self._provision()
+        owner_email = first.data['owner_email']
+        self._provision(owner_email=owner_email)  # second business for same owner
+
+        with patch('apps.accounts.google_oauth_service.GoogleOAuthService.verify_token') as mock_verify:
+            mock_verify.return_value = _google_success(email=owner_email, sub='sub-04d-multi')
+            resp = APIClient().post(PREAUTH_URL, {'credential': 'valid-token'})
+
+        self.assertEqual(resp.status_code, http_status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(resp.data['code'], 'google_preauthorized_business_required')
+        self.assertNotIn('access_token', resp.cookies)
+        self.assertNotIn('bid', resp.cookies)
+
+    # 8. Repeated login with business_id creates no duplicate resources.
+    def test_08_repeated_login_with_business_id_no_duplicates(self):
+        provision = self._provision()
+        owner_email = provision.data['owner']['email']
+        business_id = provision.data['business']['id']
+
+        users_before = User.objects.count()
+        memberships_before = Membership.objects.count()
+        profiles_before = AccountProfile.objects.count()
+        businesses_before = Business.objects.count()
+
+        with patch('apps.accounts.google_oauth_service.GoogleOAuthService.verify_token') as mock_verify:
+            mock_verify.return_value = _google_success(email=owner_email, sub='sub-04d-repeat')
+            resp1 = APIClient().post(PREAUTH_URL, {'credential': 'valid-token', 'business_id': business_id})
+
+        with patch('apps.accounts.google_oauth_service.GoogleOAuthService.verify_token') as mock_verify2:
+            mock_verify2.return_value = _google_success(email=owner_email, sub='sub-04d-repeat')
+            resp2 = APIClient().post(PREAUTH_URL, {'credential': 'valid-token', 'business_id': business_id})
+
+        self.assertEqual(resp1.status_code, http_status.HTTP_200_OK)
+        self.assertEqual(resp2.status_code, http_status.HTTP_200_OK)
+        self.assertEqual(User.objects.count(), users_before)
+        self.assertEqual(Membership.objects.count(), memberships_before)
+        self.assertEqual(AccountProfile.objects.count(), profiles_before)
+        self.assertEqual(Business.objects.count(), businesses_before)
+
+    # Malformed business_id is ignored (treated as no business_id), not trusted.
+    def test_09_malformed_business_id_treated_as_absent(self):
+        first = self._provision()
+        owner_email = first.data['owner_email']
+        self._provision(owner_email=owner_email)  # multiple memberships now
+
+        with patch('apps.accounts.google_oauth_service.GoogleOAuthService.verify_token') as mock_verify:
+            mock_verify.return_value = _google_success(email=owner_email, sub='sub-04d-malformed')
+            resp = APIClient().post(PREAUTH_URL, {'credential': 'valid-token', 'business_id': 'not-an-int'})
+
+        # Multiple memberships + no usable business_id -> controlled error.
+        self.assertEqual(resp.status_code, http_status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(resp.data['code'], 'google_preauthorized_business_required')

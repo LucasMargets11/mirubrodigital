@@ -678,33 +678,92 @@ class _GooglePreauthorizedRejected(Exception):
 	so GooglePreauthorizedLoginView.post can't accidentally leak WHY."""
 
 
-def _preauthorized_eligible_membership(user) -> Membership:
-	"""
-	Section 3 eligibility: user active, has AccountProfile, has >=1 active
-	owner Membership. Subscription state is irrelevant and never checked.
-	is_platform_staff/internal_role are irrelevant to this endpoint.
-	"""
+class _GooglePreauthorizedBusinessRequired(Exception):
+	"""Internal signal for the case where the identity resolved but the user has
+	MORE THAN ONE active owner Membership and NO business_id was supplied by the
+	admin-generated link. Distinct from _GooglePreauthorizedRejected so the
+	view can return a controlled (but still non-enumerating) 400 telling the
+	caller to use the specific client link — and so we NEVER silently pick the
+	first Business, which is exactly the regression this change fixes."""
+
+
+def _parse_positive_int(value):
+	"""Coerce a query/body value into a positive int, or None. Any malformed,
+	negative or zero value is treated as "no business_id" (never trusted)."""
+	if value is None:
+		return None
+	try:
+		ivalue = int(value)
+	except (TypeError, ValueError):
+		return None
+	if ivalue <= 0:
+		return None
+	return ivalue
+
+
+def _require_preauthorized_user(user):
+	"""Section 3 eligibility: user active and has an AccountProfile. Subscription
+	state is irrelevant and never checked. is_platform_staff/internal_role are
+	irrelevant to this endpoint."""
 	if not user.is_active:
 		raise _GooglePreauthorizedRejected()
 	if getattr(user, 'account_profile', None) is None:
 		raise _GooglePreauthorizedRejected()
-	membership = (
-		Membership.objects
-		.filter(user=user, role='owner', status=Membership.Status.ACTIVE)
-		.order_by('created_at')
-		.first()
-	)
-	if membership is None:
+
+
+def _preauthorized_membership_for_business(user, business_id) -> Membership:
+	"""
+	ADMIN-CLIENTES 04D: when the admin-generated link supplied a business_id,
+	the owner is authorized ONLY for that exact Business. The business_id is
+	NEVER trusted on its own — it is validated against the resolved Google
+	user's own active owner Memberships. Any mismatch (unknown Business, not
+	owner, inactive, or belongs to another user) is rejected with the same
+	generic 401 as every other unauthorized case, never revealing whether the
+	Business exists nor granting access to a foreign one.
+	"""
+	_require_preauthorized_user(user)
+	try:
+		return Membership.objects.get(
+			user=user,
+			business_id=business_id,
+			role='owner',
+			status=Membership.Status.ACTIVE,
+		)
+	except Membership.DoesNotExist:
 		raise _GooglePreauthorizedRejected()
-	return membership
 
 
-def _resolve_preauthorized_user(payload):
+def _preauthorized_eligible_membership(user) -> Membership:
+	"""
+	Compatibility path (NO business_id): the user must have EXACTLY ONE active
+	owner Membership. With 0 it is rejected (generic 401); with >1 the caller
+	must supply the specific business_id via the admin link (raised as
+	_GooglePreauthorizedBusinessRequired). We never silently choose the first
+	Business, because the first by created_at may be the wrong one (the
+	regression this change fixes).
+	"""
+	_require_preauthorized_user(user)
+	memberships = list(
+		Membership.objects.filter(user=user, role='owner', status=Membership.Status.ACTIVE)
+	)
+	if not memberships:
+		raise _GooglePreauthorizedRejected()
+	if len(memberships) > 1:
+		raise _GooglePreauthorizedBusinessRequired()
+	return memberships[0]
+
+
+def _resolve_preauthorized_user(payload, business_id=None):
 	"""
 	Resolve an EXISTING, eligible user for the preauthorized Google login.
 	Never creates User/AccountProfile/Business/Membership/SubscriptionV2.
 	Must run inside transaction.atomic(). Raises _GooglePreauthorizedRejected
-	for every unauthorized case.
+	for every unauthorized case and _GooglePreauthorizedBusinessRequired when a
+	specific business_id is required but was not supplied.
+
+	If `business_id` is provided it is validated against the resolved user's
+	own active owner Memberships; otherwise the single-membership compatibility
+	path is used.
 	"""
 	# 1. google_sub is the stable identity: always wins, never reassigned by email.
 	try:
@@ -714,61 +773,78 @@ def _resolve_preauthorized_user(payload):
 
 	if profile is not None:
 		user = profile.user
+	else:
+		# 2. First-time linking — same case-insensitive comparison as /auth/google/.
+		matches = list(User.objects.filter(email__iexact=payload.email))
+		if len(matches) != 1:
+			# 0 matches (unknown) or 2+ matches (ambiguous) — same rejection,
+			# never a User.MultipleObjectsReturned crash.
+			raise _GooglePreauthorizedRejected()
+
+		candidate = matches[0]
+		profile = AccountProfile.objects.select_for_update().filter(user=candidate).first()
+		if profile is None:
+			raise _GooglePreauthorizedRejected()
+
+		if profile.google_sub and profile.google_sub != payload.sub:
+			# Already linked to a DIFFERENT sub — never overwritten, never authenticated.
+			raise _GooglePreauthorizedRejected()
+
+		if not profile.google_sub:
+			update_fields = ['google_sub']
+			profile.google_sub = payload.sub
+			if not profile.email_verified:
+				profile.email_verified = True
+				update_fields.append('email_verified')
+			try:
+				with transaction.atomic():
+					profile.save(update_fields=update_fields)
+			except IntegrityError:
+				# Unique collision: another profile grabbed this sub concurrently.
+				winner = (
+					AccountProfile.objects
+					.exclude(pk=profile.pk)
+					.filter(google_sub=payload.sub)
+					.first()
+				)
+				if winner is None or winner.user_id != candidate.pk:
+					raise _GooglePreauthorizedRejected()
+		# else: profile.google_sub == payload.sub already — idempotent, no write.
+
+		user = candidate
+
+	if business_id is not None:
+		membership = _preauthorized_membership_for_business(user, business_id)
+	else:
 		membership = _preauthorized_eligible_membership(user)
-		return user, membership
-
-	# 2. First-time linking — same case-insensitive comparison as /auth/google/.
-	matches = list(User.objects.filter(email__iexact=payload.email))
-	if len(matches) != 1:
-		# 0 matches (unknown) or 2+ matches (ambiguous) — same rejection,
-		# never a User.MultipleObjectsReturned crash.
-		raise _GooglePreauthorizedRejected()
-
-	candidate = matches[0]
-	membership = _preauthorized_eligible_membership(candidate)
-
-	profile = AccountProfile.objects.select_for_update().filter(user=candidate).first()
-	if profile is None:
-		raise _GooglePreauthorizedRejected()
-
-	if profile.google_sub and profile.google_sub != payload.sub:
-		# Already linked to a DIFFERENT sub — never overwritten, never authenticated.
-		raise _GooglePreauthorizedRejected()
-
-	if not profile.google_sub:
-		update_fields = ['google_sub']
-		profile.google_sub = payload.sub
-		if not profile.email_verified:
-			profile.email_verified = True
-			update_fields.append('email_verified')
-		try:
-			with transaction.atomic():
-				profile.save(update_fields=update_fields)
-		except IntegrityError:
-			# Unique collision: another profile grabbed this sub concurrently.
-			winner = (
-				AccountProfile.objects
-				.exclude(pk=profile.pk)
-				.filter(google_sub=payload.sub)
-				.first()
-			)
-			if winner is None or winner.user_id != candidate.pk:
-				raise _GooglePreauthorizedRejected()
-	# else: profile.google_sub == payload.sub already — idempotent, no write.
-
-	return candidate, membership
+	return user, membership
 
 
 class GooglePreauthorizedLoginView(APIView):
 	"""
 	POST /api/v1/auth/google/preauthorized/
-	Body: { "credential": "<Google ID token>" }
+	Body: { "credential": "<Google ID token>", "business_id": <optional int> }
 
 	For owners already provisioned by a platform admin (ADMIN-CLIENTES
 	02A/03A) — logs in an EXISTING, eligible owner via Google. Unlike
 	/api/v1/auth/google/, this endpoint NEVER autocreates a User,
 	AccountProfile, Business, Membership or SubscriptionV2, and never calls
 	_ensure_membership(). See ADMIN-CLIENTES 04C for the full spec.
+
+	ADMIN-CLIENTES 04D: an optional `business_id` from the admin-generated
+	access link targets the EXACT Business the owner should enter. It is never
+	trusted on its own — it is re-validated against the resolved Google user's
+	own active owner Memberships (user + business_id + role=owner +
+	status=active). On a match that Membership is used exclusively for the bid
+	cookie and onboarding computation. On a mismatch the SAME generic 401 is
+	returned (never revealing whether the Business exists); access to foreign
+	Businesses is never granted.
+
+	When `business_id` is omitted: eligibility requires EXACTLY ONE active
+	owner Membership. With none it is the generic 401; with more than one a
+	controlled 400 (`google_preauthorized_business_required`) tells the caller
+	to use the specific client link — we never silently pick the first
+	Business (the regression this change fixes).
 
 	Eligibility (checked before any write): user.is_active, has
 	AccountProfile, has an active owner Membership. Subscription state is
@@ -811,15 +887,28 @@ class GooglePreauthorizedLoginView(APIView):
 				status=status.HTTP_400_BAD_REQUEST,
 			)
 
+		# ADMIN-CLIENTES 04D: an optional business_id from the admin-generated
+		# link. Validated as a positive int; malformed values are ignored (treated
+		# as "no business_id") and never trusted as authorization on their own.
+		business_id = _parse_positive_int(request.data.get('business_id'))
+
 		client_ip = _get_client_ip(request)
 
 		try:
 			with transaction.atomic():
-				user, membership = _resolve_preauthorized_user(payload)
+				user, membership = _resolve_preauthorized_user(payload, business_id)
 		except _GooglePreauthorizedRejected:
 			return Response(
 				{'code': 'google_account_not_authorized', 'detail': 'Esta cuenta de Google no está autorizada.'},
 				status=status.HTTP_401_UNAUTHORIZED,
+			)
+		except _GooglePreauthorizedBusinessRequired:
+			return Response(
+				{
+					'code': 'google_preauthorized_business_required',
+					'detail': 'Usá el enlace de acceso específico de tu comercio para ingresar.',
+				},
+				status=status.HTTP_400_BAD_REQUEST,
 			)
 
 		refresh = RefreshToken.for_user(user)

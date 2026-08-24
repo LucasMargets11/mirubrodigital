@@ -129,4 +129,61 @@ describe('googlePreauthorizedLogin — ADMIN-CLIENTES 04D API contract', () => {
 
     expect(localStorageSet).not.toHaveBeenCalled();
   });
+
+  it('sends a valid positive business_id in the body (ADMIN-CLIENTES 04D)', async () => {
+    fetchMock.mockResolvedValueOnce(response({
+      ok: true,
+      status: 200,
+      payload: { status: 'ok', onboarding: true },
+    }));
+
+    const result = await googlePreauthorizedLogin('google-id-credential', 42);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:8000/api/v1/auth/google/preauthorized/',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ credential: 'google-id-credential', business_id: 42 }),
+      },
+    );
+    expect(result).toEqual({ success: true, onboarding: true });
+  });
+
+  it('omits business_id when it is missing or not a positive integer', async () => {
+    fetchMock.mockResolvedValueOnce(response({
+      ok: true,
+      status: 200,
+      payload: { status: 'ok', onboarding: false },
+    }));
+
+    await googlePreauthorizedLogin('google-id-credential', undefined);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:8000/api/v1/auth/google/preauthorized/',
+      expect.objectContaining({
+        body: JSON.stringify({ credential: 'google-id-credential' }),
+      }),
+    );
+  });
+
+  it('maps google_preauthorized_business_required to the specific message', async () => {
+    fetchMock.mockResolvedValueOnce(response({
+      ok: false,
+      status: 400,
+      payload: {
+        code: 'google_preauthorized_business_required',
+        detail: 'Usá el enlace de acceso específico de tu comercio para ingresar.',
+      },
+    }));
+
+    const result = await googlePreauthorizedLogin('credential', 7);
+
+    expect(result).toEqual({
+      success: false,
+      code: 'google_preauthorized_business_required',
+      message: 'Usá el enlace de acceso específico de tu comercio para ingresar.',
+    });
+  });
 });
