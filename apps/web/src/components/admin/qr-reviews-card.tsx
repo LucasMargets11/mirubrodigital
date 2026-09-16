@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Star, Globe, Building2, AlertTriangle, ExternalLink } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Globe, Building2, AlertTriangle, ExternalLink } from 'lucide-react';
 
 import { SectionCard } from '@/components/admin/section-card';
 import { apiGet, apiPatch } from '@/lib/api/client';
@@ -30,6 +30,9 @@ export function QRResenasCard({ businessId }: Props) {
   const [config, setConfig] = useState<AdminQRReviewsConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
+  const toggleInFlight = useRef(false);
+  const [toggleSave, setToggleSave] = useState<SaveState>('idle');
+  const [toggleError, setToggleError] = useState<string | null>(null);
 
   // Slug form state
   const [slugValue, setSlugValue] = useState('');
@@ -68,6 +71,35 @@ export function QRResenasCard({ businessId }: Props) {
   const slugPreview = slugValue.trim()
     ? `https://www.mirubro.com/r/${slugValue.trim()}/`
     : '';
+
+  async function handleToggleEnabled() {
+    if (!config || toggleInFlight.current) return;
+    toggleInFlight.current = true;
+    const enabled = !config.enabled;
+    if (!enabled && !window.confirm(
+      '¿Desactivar el QR de Reseñas? La URL pública dejará de estar disponible hasta volver a activarla.',
+    )) {
+      toggleInFlight.current = false;
+      return;
+    }
+
+    setToggleError(null);
+    setToggleSave('saving');
+    try {
+      const payload: AdminQRReviewsConfigPatch = { enabled };
+      const updated = await apiPatch<AdminQRReviewsConfig>(
+        `/api/v1/platform-admin/clients/${businessId}/qr-reviews-config/`,
+        payload,
+      );
+      setConfig(updated);
+      setToggleSave('saved');
+    } catch (e: unknown) {
+      setToggleError(e instanceof Error ? e.message : 'Error al cambiar el estado del QR.');
+      setToggleSave('error');
+    } finally {
+      toggleInFlight.current = false;
+    }
+  }
 
   async function handleSaveSlug() {
     const err = validateSlug(slugValue);
@@ -168,6 +200,27 @@ export function QRResenasCard({ businessId }: Props) {
             <span className="rounded-full bg-amber-100 px-2.5 py-1 font-medium text-amber-700">
               Sin ReviewConfig — se creará al guardar
             </span>
+          )}
+        </div>
+
+        <div className="space-y-2">
+          <button
+            type="button"
+            onClick={handleToggleEnabled}
+            disabled={toggleSave === 'saving'}
+            className="rounded-md bg-brand-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+          >
+            {toggleSave === 'saving'
+              ? config.enabled ? 'Desactivando…' : 'Activando…'
+              : config.enabled ? 'Desactivar QR' : 'Activar QR'}
+          </button>
+          {toggleSave === 'saved' && (
+            <p role="status" className="text-xs font-medium text-green-700">
+              {config.enabled ? 'QR activado.' : 'QR desactivado.'}
+            </p>
+          )}
+          {toggleError && (
+            <p role="alert" className="text-xs font-medium text-red-600">{toggleError}</p>
           )}
         </div>
 

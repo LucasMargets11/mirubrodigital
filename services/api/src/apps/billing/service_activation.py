@@ -160,7 +160,7 @@ def activate_qr_reviews(
       C) business.Subscription (legacy) — upsert OneToOne row with
          ``plan=plan_code``, ``service='qr_reviews'``, ``status='active'``,
          ``renews_at`` from V2 or now+30d.
-      D) ReviewConfig — ensure exists with ``enabled=True``,
+      D) ReviewConfig — create with ``enabled=True`` when missing,
          ``redirect_threshold=4``, ``mode=smart_filter`` for Pro, without
          overwriting user-edited fields.
     """
@@ -281,16 +281,15 @@ def _qr_reviews_legacy_subscription(
 
 
 def _qr_reviews_review_config(*, business, plan_code: str) -> Optional[int]:
-    """Ensure ReviewConfig exists and is enabled, without overwriting edits."""
+    """Ensure ReviewConfig exists, preserving enabled on existing rows."""
     from apps.reviews.models import ReviewConfig, ReviewMode
 
-    config, created = ReviewConfig.objects.get_or_create(business=business)
+    config, created = ReviewConfig.objects.get_or_create(
+        business=business,
+        defaults={'enabled': True},
+    )
 
     update_fields: list[str] = []
-
-    if not config.enabled:
-        config.enabled = True
-        update_fields.append('enabled')
 
     # redirect_threshold defaults to 4 on the model; only reset to 4 on create
     # to avoid overwriting a value the user picked.

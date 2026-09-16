@@ -204,6 +204,39 @@ class QrReviewsIdempotencyTests(TestCase):
             Membership.objects.filter(user=self.owner, business=self.biz).count(), 1,
         )
 
+    def test_existing_enabled_review_config_remains_enabled(self):
+        config = ReviewConfig.objects.create(business=self.biz, enabled=True)
+
+        _run_hook(self.biz, self.owner, self.v2)
+
+        config.refresh_from_db()
+        self.assertTrue(config.enabled)
+
+    def test_existing_disabled_review_config_remains_disabled_on_reactivation(self):
+        config = ReviewConfig.objects.create(business=self.biz, enabled=False)
+
+        _run_hook(self.biz, self.owner, self.v2)
+
+        config.refresh_from_db()
+        self.assertFalse(config.enabled)
+
+    def test_existing_disabled_review_config_remains_disabled_on_reconcile(self):
+        config = ReviewConfig.objects.create(business=self.biz, enabled=False)
+
+        _run_hook(self.biz, self.owner, self.v2, source='reconcile')
+
+        config.refresh_from_db()
+        self.assertFalse(config.enabled)
+
+    def test_repeated_hook_preserves_disabled_review_config(self):
+        config = ReviewConfig.objects.create(business=self.biz, enabled=False)
+
+        _run_hook(self.biz, self.owner, self.v2)
+        _run_hook(self.biz, self.owner, self.v2, source='reconcile')
+
+        config.refresh_from_db()
+        self.assertFalse(config.enabled)
+
     def test_preserves_operator_review_config_edits(self):
         """ReviewConfig fields set by operator (custom_redirect_url) must
         survive a re-run of the hook."""
