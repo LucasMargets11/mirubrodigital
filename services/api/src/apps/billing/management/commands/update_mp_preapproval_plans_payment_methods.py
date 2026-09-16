@@ -9,9 +9,8 @@ Why this is needed
 Plans are ephemeral: each checkout session creates its own ``preapproval_plan``.
 Going forward every new plan will include ``payment_methods_allowed`` (via the
 updated ``MercadoPagoService.create_preapproval_plan()``).  However, plans that
-were already created are stored in Mercado Pago with no payment-method config,
-and may keep rejecting prepaid/virtual cards (e.g. Tarjeta Mercado Pago, Astro,
-Lemon) for currently-active subscribers.
+were already created are stored in Mercado Pago with no payment-method config.
+The command applies the supported subscription payment types to those plans.
 
 This command updates those plans so their *next* recurring charge uses the correct
 payment-method config.  It does NOT recreate plans, change prices, or affect local
@@ -51,7 +50,7 @@ logger = logging.getLogger(__name__)
 class Command(BaseCommand):
     help = (
         "Patch payment_methods_allowed on existing MP preapproval plans so that "
-        "prepaid/virtual cards (e.g. Tarjeta MP, Astro, Lemon) are accepted."
+        "they use the supported subscription payment types."
     )
 
     def add_arguments(self, parser):

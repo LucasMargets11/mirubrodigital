@@ -81,9 +81,7 @@ def get_mp_subscription_payment_methods_allowed() -> dict:
     Returns the canonical payment_methods_allowed payload for ALL preapproval
     plans created in Mi Rubro.
 
-    Explicitly includes prepaid_card so that cards like Tarjeta Mercado Pago,
-    Astro and Lemon are accepted.  Without this field MP defaults to its own
-    allow-list, which may exclude prepaid/virtual cards.
+    Uses the payment types accepted by Mercado Pago for preapproval plans.
 
     Must be applied to every create_preapproval_plan() call so the config is
     consistent across all products (Gestión Comercial, Carta Online / Menú QR,
@@ -91,9 +89,9 @@ def get_mp_subscription_payment_methods_allowed() -> dict:
     """
     return {
         "payment_types": [
+            {"id": "account_money"},
             {"id": "credit_card"},
             {"id": "debit_card"},
-            {"id": "prepaid_card"},
         ],
         "payment_methods": [],
     }
@@ -153,8 +151,8 @@ class MercadoPagoService:
         Updates an existing preapproval plan in MercadoPago.
 
         Typical usage: patch payment_methods_allowed on a plan that was created
-        before this field was introduced, so existing active subscribers accept
-        prepaid/virtual cards on their next charge.
+        before this field was introduced, using the supported subscription
+        payment types.
 
         Args:
             plan_id:     The MP preapproval plan ID.
