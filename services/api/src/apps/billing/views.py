@@ -703,16 +703,22 @@ class MercadoPagoWebhookView(APIView):
     """
     POST /billing/mercadopago/webhook
 
-    Phase 3 robust webhook handler.
-
     Every inbound call is persisted as a WebhookDelivery BEFORE any business
-    logic runs.  Duplicate detection uses x-request-id + payload hash.
+    logic runs. Duplicate detection uses x-request-id + payload hash.
     Signature is verified via HMAC-SHA256 (MP_WEBHOOK_SECRET env var).
 
-    Routing by topic:
-      - subscription_preapproval      → webhook_processor handles (Phase 3)
-      - subscription_authorized_payment → webhook_processor handles (Phase 3)
-      - payment                        → legacy process_payment_event (plan changes, addons, tips)
+    Slice 5B.4 — all topics (subscription_preapproval,
+    subscription_authorized_payment AND payment) go through the same
+    delivery lifecycle (apps.billing.webhook_lifecycle): one inline attempt
+    here, then automatic retries with backoff (Celery Beat
+    `billing.retry_failed_webhooks`) up to DEAD_LETTER.
+
+    HTTP semantics towards Mercado Pago:
+      - delivery could NOT be persisted          → 503 (MP retries)
+      - invalid signature                         → 400 (unchanged)
+      - duplicate                                 → 200
+      - persisted (whatever the inline attempt's
+        outcome, including a transient failure)   → 200 — MiRubro owns the retry.
 
     Activation rule (STRICT):
       Tenants are NEVER activated from:
@@ -725,227 +731,66 @@ class MercadoPagoWebhookView(APIView):
 
     def post(self, request):
         from .webhook_processor import receive_webhook, dispatch_webhook
+        from .webhook_lifecycle import sanitize_error
         from .models import WebhookDelivery
 
-        topic     = request.data.get('type', '')
-        data_id   = str(request.data.get('data', {}).get('id', ''))
-
         # ── Step 1: Persist delivery and verify signature ─────────────────────
-        delivery, sig_valid = receive_webhook(request)
+        # Must run before any other `request.data` access on this request: DRF
+        # parses `.data` by reading the raw stream directly (without caching
+        # `.body`) the first time it's touched, so a later `.body` access
+        # (inside receive_webhook) raises RawPostDataException.
+        try:
+            delivery, sig_valid = receive_webhook(request)
+        except Exception as exc:
+            # Nothing durable exists for this notification: never ack it.
+            logger.error(
+                "[MPWebhook] delivery could not be persisted — responding 503 so MP retries: %s",
+                sanitize_error(f'{type(exc).__name__}: {exc}'),
+            )
+            return Response({'detail': 'Temporarily unavailable'}, status=503)
 
         # Respond 200 immediately for duplicates (idempotent).
         if delivery.processing_status == WebhookDelivery.ProcessingStatus.DUPLICATED:
             return Response(status=200)
 
-        # Reject bad signatures only when MP_WEBHOOK_SECRET is configured.
         if not sig_valid:
             return Response({'detail': 'Invalid signature'}, status=400)
 
         logger.info(
-            "[MPWebhook] delivery=%s topic=%s resource_id=%s x_request_id=%s",
-            delivery.id, topic, delivery.resource_id, delivery.x_request_id,
+            "[MPWebhook] delivery=%s topic=%s resource_id=%s flow=%s x_request_id=%s",
+            delivery.id, delivery.topic, delivery.resource_id, delivery.flow or '-',
+            delivery.x_request_id,
         )
 
-        # ── Step 2: Phase 3 topics (subscription_preapproval / authorized_payment)
-        if topic in ('subscription_preapproval', 'subscription_authorized_payment'):
-            dispatch_webhook(delivery)
-            # Also write legacy BillingEvent for backward compat.
-            self._write_legacy_billing_event(request, data_id, topic)
-            return Response(status=200)
-
-        # ── Step 3: Legacy topics (payment / tips / addon payments) ───────────
-        # These still go through the legacy handlers, which also create BillingEvent.
-        _be = self._write_legacy_billing_event(request, data_id, topic)
-
-        if topic == 'payment':
-            self.process_payment_event(data_id, billing_event=_be)
-        else:
-            delivery.processing_status = WebhookDelivery.ProcessingStatus.IGNORED
-            delivery.processed_at = timezone.now()
-            delivery.save(update_fields=['processing_status', 'processed_at'])
-            logger.info("[MPWebhook] Unhandled topic=%s delivery=%s", topic, delivery.id)
-
+        # ── Step 2: one inline processing attempt ─────────────────────────────
+        # Never raises; a transient failure leaves the delivery FAILED with a
+        # next_retry_at, so acknowledging with 200 is correct.
+        dispatch_webhook(delivery)
         return Response(status=200)
 
-    # ── Legacy helpers (kept for payment / tip / addon flows) ─────────────────
+    # ── Backward-compatible wrappers (logic lives in payment_webhook.py) ──────
 
-    def _write_legacy_billing_event(self, request, data_id, topic):
-        """Write the legacy BillingEvent + PaymentEvent for backward compat."""
-        event_id = request.headers.get('x-request-id') or data_id
-        if not event_id:
-            return None
+    def process_payment_event(self, payment_id, billing_event=None, query_params=None):
+        """Direct (non-lifecycle) entry kept for existing callers/tests."""
+        from .payment_webhook import process_payment_event
+        from .webhook_lifecycle import WebhookTransientError, sanitize_error
 
-        # Legacy PaymentEvent.
-        if not PaymentEvent.objects.filter(event_id=str(event_id)).exists():
-            try:
-                PaymentEvent.objects.create(
-                    provider='mercadopago',
-                    event_id=str(event_id),
-                    resource_id=str(data_id) if data_id else '',
-                    payload_json=request.data,
-                )
-            except Exception:
-                pass
-
-        # Phase 2A BillingEvent.
-        _event_type = (
-            BillingEvent.EventType.PREAPPROVAL_UPDATED
-            if topic == 'subscription_preapproval'
-            else BillingEvent.EventType.UNKNOWN
-        )
+        query_params = query_params or {}
         try:
-            _be, _ = BillingEvent.objects.get_or_create(
-                provider_event_id=str(event_id),
-                defaults={
-                    'provider': BillingEvent.Provider.MERCADOPAGO,
-                    'event_type': _event_type,
-                    'payload': request.data,
-                    'status': BillingEvent.ProcessingStatus.RECEIVED,
-                    'received_at': timezone.now(),
-                },
+            return process_payment_event(
+                payment_id, flow=query_params.get('flow'), ref=query_params.get('ref'),
+                billing_event=billing_event,
             )
-            return _be
-        except Exception as exc:
-            logger.warning("[MPWebhook] BillingEvent persist failed: %s", exc)
+        except WebhookTransientError as exc:
+            logger.warning(
+                "[MPWebhook] payment_id=%s transient failure (%s): %s",
+                payment_id, exc.category, sanitize_error(exc),
+            )
             return None
-
-    def process_payment_event(self, payment_id, billing_event=None):
-        """Process one-time payments (for subscription changes and addon purchases)."""
-        if not payment_id:
-            return
-
-        from apps.billing.models import PendingSubscriptionChange
-        from apps.billing.services.commercial.apply import apply_subscription_change, apply_addon_activation
-        from apps.billing.reviews_views import apply_reviews_plan_upgrade
-
-        mp_service = MercadoPagoService()
-
-        try:
-            payment_data = mp_service.get_payment(payment_id)
-            if not payment_data:
-                return
-
-            external_reference = payment_data.get('external_reference')
-            payment_status = payment_data.get('status')
-
-            if not external_reference:
-                return
-
-            is_subscription_change = external_reference.startswith('subscription_change_')
-            is_addon_purchase       = external_reference.startswith('addon_purchase_')
-            is_reviews_upgrade      = external_reference.startswith('reviews_upgrade_')
-            is_tip                  = external_reference.startswith('TIP-')
-
-            if is_tip:
-                self.process_tip_payment(external_reference, payment_status, payment_id)
-                return
-
-            if not (is_subscription_change or is_addon_purchase or is_reviews_upgrade):
-                return
-
-            pending_change_id = external_reference.split('_')[-1]
-            try:
-                pending_change = PendingSubscriptionChange.objects.get(id=pending_change_id)
-            except PendingSubscriptionChange.DoesNotExist:
-                logger.warning("[MPWebhook] PendingSubscriptionChange %s not found", pending_change_id)
-                return
-
-            pending_change.mp_payment_id = str(payment_id)
-
-            if payment_status == 'approved':
-                # Idempotency: skip if this upgrade was already completed.
-                # MercadoPago can deliver the same webhook notification more than once.
-                if is_reviews_upgrade and pending_change.status == 'completed':
-                    logger.info(
-                        "[MPWebhook] Skipping already-completed reviews_upgrade %s",
-                        pending_change.id,
-                    )
-                    return
-                pending_change.status = 'processing'
-                pending_change.save()
-                try:
-                    if is_addon_purchase:
-                        addon_codes = [k for k, v in pending_change.config_snapshot.items() if v is True]
-                        if addon_codes:
-                            apply_addon_activation(
-                                business=pending_change.business,
-                                addon_code=addon_codes[0],
-                            )
-                        else:
-                            raise ValueError("No addon code found in config_snapshot")
-                    elif is_reviews_upgrade:
-                        apply_reviews_plan_upgrade(
-                            business=pending_change.business,
-                            target_plan_code=pending_change.target_plan_code,
-                        )
-                    else:
-                        apply_subscription_change(
-                            business=pending_change.business,
-                            target_plan_code=pending_change.target_plan_code,
-                            billing_cycle=pending_change.billing_cycle,
-                            config=pending_change.config_snapshot,
-                        )
-                    pending_change.status = 'completed'
-                    pending_change.applied_at = timezone.now()
-                    pending_change.save()
-                    try:
-                        biz = pending_change.business
-                        svc = 'qr_reviews' if is_reviews_upgrade else biz.default_service
-                        v2 = _resolve_subscriptionv2(biz, svc)
-                        _create_payment_attempt(v2, billing_event, payment_data, payment_id)
-                        if v2:
-                            _update_billing_event(billing_event, sub_v2=v2,
-                                                  new_status=BillingEvent.ProcessingStatus.PROCESSED)
-                    except Exception as exc:
-                        logger.warning("[process_payment_event] PaymentAttempt update failed: %s", exc)
-                except Exception as e:
-                    pending_change.status = 'failed'
-                    pending_change.save()
-                    _update_billing_event(billing_event, new_status=BillingEvent.ProcessingStatus.ERROR,
-                                          error_message=str(e))
-                    logger.error("[MPWebhook] Error applying change %s: %s", pending_change_id, e)
-
-            elif payment_status in ['rejected', 'cancelled']:
-                pending_change.status = 'failed'
-                pending_change.save()
-                try:
-                    biz = pending_change.business
-                    v2 = _resolve_subscriptionv2(biz, biz.default_service)
-                    _create_payment_attempt(v2, billing_event, payment_data, payment_id)
-                    _update_billing_event(billing_event, sub_v2=v2,
-                                          new_status=BillingEvent.ProcessingStatus.PROCESSED)
-                except Exception as exc:
-                    logger.warning("[process_payment_event] PaymentAttempt (rejected) failed: %s", exc)
-            else:
-                pending_change.save()
-
-        except Exception as e:
-            logger.error("[MPWebhook] Error processing payment event %s: %s", payment_id, e)
 
     def process_tip_payment(self, external_reference: str, payment_status: str, payment_id):
-        """Idempotently update a TipTransaction from an MP payment webhook."""
-        from apps.menu.models import TipTransaction
-        try:
-            tip = TipTransaction.objects.get(external_reference=external_reference)
-        except TipTransaction.DoesNotExist:
-            logger.warning("[TipWebhook] TipTransaction not found for ref %s", external_reference)
-            return
-
-        status_map = {
-            'approved': 'approved', 'authorized': 'approved',
-            'rejected': 'rejected', 'cancelled': 'cancelled',
-            'pending': 'pending',   'in_process': 'pending',
-        }
-        new_status = status_map.get(payment_status, tip.status)
-        update_fields = ['updated_at']
-        if tip.status != new_status:
-            tip.status = new_status
-            update_fields.append('status')
-        if payment_id and not tip.mp_payment_id:
-            tip.mp_payment_id = str(payment_id)
-            update_fields.append('mp_payment_id')
-        tip.save(update_fields=update_fields)
-        logger.info("[TipWebhook] %s → %s (mp_payment_id=%s)", external_reference, new_status, payment_id)
+        from .payment_webhook import process_tip_payment
+        process_tip_payment(external_reference, payment_status, payment_id)
 
 
 # ---------------------------------------------------------------------------

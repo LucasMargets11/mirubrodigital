@@ -141,10 +141,28 @@ def _ensure_membership(user: User) -> Membership:
 	return membership
 
 
+def _public_booking_payload(business, context: Dict[str, object]) -> Dict[str, object] | None:
+	if 'appointments' not in (context.get('enabled_services') or []):
+		return None
+	from apps.appointments.public_page import public_booking_snapshot
+	return public_booking_snapshot(business)
+
+
+def _business_timezone_name(business) -> str:
+	"""IANA timezone canónica del Business (Slice 7D.1).
+
+	Misma regla que usa el backend de Turnos (`resolve_business_timezone`):
+	`Business.timezone`, o `settings.TIME_ZONE` si falta o es inválida. Así el
+	panel nunca cae a la zona del navegador ni a UTC.
+	"""
+	from apps.appointments.services.availability import resolve_business_timezone
+	return str(resolve_business_timezone(business))
+
+
 def _session_payload(user: User, membership: Membership, memberships: List[Membership]) -> Dict[str, object]:
 	context = build_business_context(membership.business)
 	service_catalog = serialize_catalog()
-	permissions = permissions_for_service(context['service'], membership.role)
+	permissions = permissions_for_service(context['service'], membership.role, membership.business)
 	profile = getattr(user, 'account_profile', None)
 	return {
 		'user': {
@@ -177,6 +195,12 @@ def _session_payload(user: User, membership: Membership, memberships: List[Membe
 				# 'onboarding' → redirect to subscription setup.
 				# 'active' → normal app access.
 				'status': membership.business.status,
+				# 7B.4: página pública de reservas (/t/<slug>) del Business
+				# actual, con la misma regla que el backend público. Solo si
+				# Turnos está habilitado; nunca incluye ids/tokens.
+				'public_booking': _public_booking_payload(membership.business, context),
+				# 7D.1: zona horaria canónica (solo lectura) para la agenda.
+				'timezone': _business_timezone_name(membership.business),
 			},
 			'role': membership.role,
 			'service': context['service'],

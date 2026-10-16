@@ -79,7 +79,7 @@ const NAV_CONFIG: Record<string, NavGroup[]> = {
                 { href: '/app/gestion/stock', label: 'Stock', permissionKey: 'view_stock', featureKey: 'inventory' },
                 { href: '/app/gestion/ventas', label: 'Ventas', permissionKey: 'view_sales', featureKey: 'sales' },
                 { href: '/app/gestion/facturas', label: 'Facturas', permissionKey: 'view_invoices', featureKey: 'invoices' },
-                { href: '/app/gestion/clientes', label: 'Clientes', permissionKey: 'view_customers', featureKey: 'customers' },
+                { href: '/app/clientes', label: 'Clientes', permissionKey: 'view_customers', featureKey: 'customers' },
                 { href: '/app/gestion/carteles', label: 'Carteles y Etiquetas', featureKey: 'print_signage' },
             ],
         },
@@ -139,7 +139,7 @@ const NAV_CONFIG: Record<string, NavGroup[]> = {
                 { href: '/app/gestion/ventas/presupuestos', label: 'Presupuestos', permissionKey: 'view_quotes', featureKey: 'quotes' },
                 { href: '/app/gestion/facturas', label: 'Facturas', permissionKey: 'view_invoices', featureKey: 'invoices' },
                 { href: '/app/gestion/finanzas', label: 'Finanzas', permissionKey: 'view_finance', featureKey: 'treasury' },
-                { href: '/app/gestion/clientes', label: 'Clientes', permissionKey: 'view_customers', featureKey: 'customers' },
+                { href: '/app/clientes', label: 'Clientes', permissionKey: 'view_customers', featureKey: 'customers' },
                 { href: '/app/gestion/carteles', label: 'Carteles y Etiquetas', featureKey: 'print_signage' },
             ],
         },
@@ -205,6 +205,35 @@ const NAV_CONFIG: Record<string, NavGroup[]> = {
             items: [
                 { href: '/app/resenas/configuracion', label: 'Configuración', permissionKey: 'manage_reviews' },
                 { href: '/app/settings/access', label: 'Roles y accesos', permissionKey: 'manage_users' },
+                { href: '/app/planes', label: 'Plan y facturación' },
+            ],
+        },
+        {
+            title: '',
+            items: [
+                { href: '/app/soporte', label: 'Soporte' },
+            ],
+        },
+    ],
+    appointments: [
+        {
+            title: 'Turnos',
+            items: [
+                { href: '/app/turnos', label: 'Inicio' },
+                { href: '/app/turnos/turnos', label: 'Turnos', permissionKey: 'view_appointments' },
+                // LEADS 05A: flag `leads` (derivado de `appointments.leads`) + `view_leads`.
+                { href: '/app/turnos/leads', label: 'Leads', permissionKey: 'view_leads', featureKey: 'leads' },
+                { href: '/app/turnos/servicios', label: 'Servicios' },
+                { href: '/app/turnos/profesionales', label: 'Profesionales', permissionKey: 'view_appointments' },
+                { href: '/app/turnos/horarios', label: 'Horarios', permissionKey: 'view_appointments' },
+                // Clientes core compartido (CUSTOMER 02): misma ficha canónica que Gestión.
+                { href: '/app/clientes', label: 'Clientes', permissionKey: 'view_customers', featureKey: 'customers' },
+            ],
+        },
+        {
+            title: 'Administración',
+            items: [
+                { href: '/app/turnos/configuracion', label: 'Configuración', permissionKey: 'manage_settings' },
                 { href: '/app/planes', label: 'Plan y facturación' },
             ],
         },

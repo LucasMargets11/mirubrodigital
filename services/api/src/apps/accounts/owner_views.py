@@ -122,7 +122,7 @@ def access_summary(request: Request) -> Response:
     service = context['service']
     
     # Get permissions for user's role
-    permissions = permissions_for_service(service, membership.role)
+    permissions = permissions_for_service(service, membership.role, membership.business)
     granted_perms = {code for code, granted in permissions.items() if granted}
     
     # Group by module with full capability details

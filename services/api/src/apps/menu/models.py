@@ -241,34 +241,10 @@ class MenuEngagementSettings(models.Model):
 
 
 # ---------------------------------------------------------------------------
-# MercadoPagoConnection — per-business OAuth (Fase 2)
+# MercadoPagoConnection now lives in apps.merchant_payments (Slice 5A
+# extraction) — see apps/merchant_payments/models.py. Import it from there;
+# `business.mp_connection` (the reverse OneToOne accessor) is unchanged.
 # ---------------------------------------------------------------------------
-
-class MercadoPagoConnection(models.Model):
-    STATUS_CHOICES = [
-        ('connected', 'Connected'),
-        ('expired', 'Expired'),
-        ('revoked', 'Revoked'),
-        ('error', 'Error'),
-    ]
-
-    business = models.OneToOneField(
-        'business.Business',
-        related_name='mp_connection',
-        on_delete=models.CASCADE,
-    )
-    access_token = models.CharField(max_length=512)
-    refresh_token = models.CharField(max_length=512, blank=True)
-    token_expires_at = models.DateTimeField(null=True, blank=True)
-    mp_user_id = models.CharField(max_length=128, blank=True)
-    scope = models.CharField(max_length=255, blank=True)
-    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default='connected')
-    last_error = models.TextField(blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    def __str__(self) -> str:  # pragma: no cover
-        return f"MPConnection · {self.business_id} ({self.status})"
 
 
 # ---------------------------------------------------------------------------

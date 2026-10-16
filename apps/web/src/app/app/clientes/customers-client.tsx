@@ -3,19 +3,9 @@
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 
-import { Modal } from '@/components/ui/modal';
-import { CustomerFormFields } from '@/features/customers/components/customer-form-fields';
-import { useCreateCustomer, useCustomers, useUpdateCustomer } from '@/features/customers/hooks';
-import type { Customer, CustomerPayload } from '@/features/customers/types';
-import { ApiError } from '@/lib/api/client';
-
-const initialPayload: CustomerPayload = {
-    name: '',
-    type: 'individual',
-    doc_type: 'dni',
-    tax_condition: 'consumer',
-    country: 'Argentina',
-};
+import { CustomerFormModal, resolveCustomerApiError } from '@/features/customers/components/customer-form-modal';
+import { useCustomers, useUpdateCustomer } from '@/features/customers/hooks';
+import type { Customer } from '@/features/customers/types';
 
 type CustomersClientProps = {
     canCreate: boolean;
@@ -30,8 +20,7 @@ export function CustomersClient({ canCreate, canManage }: CustomersClientProps) 
     const [modalOpen, setModalOpen] = useState(false);
     const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
     const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
-    const [form, setForm] = useState<CustomerPayload>(initialPayload);
-    const [formError, setFormError] = useState<string | null>(null);
+    const [actionError, setActionError] = useState<string | null>(null);
 
     useEffect(() => {
         const timeout = setTimeout(() => setDebouncedSearch(search.trim()), 300);
@@ -39,7 +28,6 @@ export function CustomersClient({ canCreate, canManage }: CustomersClientProps) 
     }, [search]);
 
     const customersQuery = useCustomers({ search: debouncedSearch || undefined, includeInactive, limit: 50 });
-    const createMutation = useCreateCustomer();
     const updateMutation = useUpdateCustomer();
 
     const customers = useMemo(() => customersQuery.data?.results ?? [], [customersQuery.data]);
@@ -47,63 +35,18 @@ export function CustomersClient({ canCreate, canManage }: CustomersClientProps) 
     const openCreateModal = () => {
         setModalMode('create');
         setSelectedCustomer(null);
-        setForm(initialPayload);
-        setFormError(null);
         setModalOpen(true);
     };
 
     const openEditModal = (customer: Customer) => {
         setModalMode('edit');
         setSelectedCustomer(customer);
-        setForm(toPayload(customer));
-        setFormError(null);
         setModalOpen(true);
     };
 
     const closeModal = () => {
-        if (createMutation.isPending || updateMutation.isPending) {
-            return;
-        }
         setModalOpen(false);
-    };
-
-    const handleFormChange = (field: keyof CustomerPayload, value: string | boolean | undefined) => {
-        setForm((prev) => ({
-            ...prev,
-            [field]: typeof value === 'string' ? value : value ?? prev[field],
-        }));
-    };
-
-    const handleSave = async () => {
-        if (!form.name.trim()) {
-            setFormError('Ingresá el nombre del cliente.');
-            return;
-        }
-        setFormError(null);
-        const payload: CustomerPayload = {
-            ...form,
-            name: form.name.trim(),
-        };
-        try {
-            if (modalMode === 'create') {
-                if (!canCreate) {
-                    setFormError('No tenés permiso para crear clientes.');
-                    return;
-                }
-                await createMutation.mutateAsync(payload);
-            } else if (selectedCustomer) {
-                if (!canManage) {
-                    setFormError('No tenés permiso para editar clientes.');
-                    return;
-                }
-                await updateMutation.mutateAsync({ id: selectedCustomer.id, payload });
-            }
-            setModalOpen(false);
-            setSelectedCustomer(null);
-            setForm(initialPayload);
-        } catch (error) {
-            setFormError(resolveApiError(error));
-        }
+        setSelectedCustomer(null);
     };
 
     const handleToggleActive = async (customer: Customer) => {
@@ -111,9 +54,10 @@ export function CustomersClient({ canCreate, canManage }: CustomersClientProps) 
             return;
         }
         try {
+            setActionError(null);
             await updateMutation.mutateAsync({ id: customer.id, payload: { is_active: !customer.is_active } });
         } catch (error) {
-            setFormError(resolveApiError(error));
+            setActionError(resolveCustomerApiError(error));
         }
     };
 
@@ -122,7 +66,7 @@ export function CustomersClient({ canCreate, canManage }: CustomersClientProps) 
             <header className="flex flex-col gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:flex-row md:items-center md:justify-between">
                 <div>
                     <h2 className="text-2xl font-semibold text-slate-900">Clientes</h2>
-                    <p className="text-sm text-slate-500">Gestioná la agenda de clientes para vincular ventas e informes.</p>
+                    <p className="text-sm text-slate-500">El padrón de clientes de tu negocio, compartido entre tus servicios.</p>
                 </div>
                 {canCreate ? (
                     <button
@@ -153,6 +97,11 @@ export function CustomersClient({ canCreate, canManage }: CustomersClientProps) 
                         Incluir inactivos
                     </label>
                 </div>
+                {actionError ? (
+                    <p role="alert" className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">
+                        {actionError}
+                    </p>
+                ) : null}
                 <p className="mt-3 text-xs uppercase tracking-wide text-slate-400">{customersQuery.data?.count ?? 0} registros</p>
                 <div className="mt-4 overflow-x-auto">
                     <table className="min-w-full divide-y divide-slate-100 text-sm">
@@ -181,7 +130,7 @@ export function CustomersClient({ canCreate, canManage }: CustomersClientProps) 
                                 customers.map((customer) => (
                                     <tr
                                         key={customer.id}
-                                        onClick={() => router.push(`/app/gestion/clientes/${customer.id}` as any)}
+                                        onClick={() => router.push(`/app/clientes/${customer.id}` as any)}
                                         className="cursor-pointer hover:bg-slate-50"
                                     >
                                         <td className="px-3 py-3">
@@ -234,72 +183,14 @@ export function CustomersClient({ canCreate, canManage }: CustomersClientProps) 
                     </table>
                 </div>
             </div>
-            <Modal
-                open={modalOpen}
-                title={modalMode === 'create' ? 'Nuevo cliente' : 'Editar cliente'}
-                onClose={closeModal}
-            >
-                <CustomerFormFields form={form} onChange={handleFormChange} />
-                {formError ? <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">{formError}</p> : null}
-                <div className="flex items-center justify-end gap-3 pt-2">
-                    <button
-                        type="button"
-                        onClick={closeModal}
-                        className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:border-slate-900 hover:text-slate-900"
-                    >
-                        Cancelar
-                    </button>
-                    <button
-                        type="button"
-                        disabled={(modalMode === 'create' ? createMutation.isPending : updateMutation.isPending) || (!canCreate && modalMode === 'create')}
-                        onClick={handleSave}
-                        className="rounded-full border border-slate-900 bg-slate-900 px-5 py-2 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-200"
-                    >
-                        {modalMode === 'create'
-                            ? createMutation.isPending
-                                ? 'Guardando...'
-                                : 'Crear cliente'
-                            : updateMutation.isPending
-                                ? 'Guardando...'
-                                : 'Guardar cambios'}
-                    </button>
-                </div>
-            </Modal>
+            {modalOpen ? (
+                <CustomerFormModal
+                    mode={modalMode}
+                    customer={selectedCustomer}
+                    canSubmit={modalMode === 'create' ? canCreate : canManage}
+                    onClose={closeModal}
+                />
+            ) : null}
         </section>
     );
-}
-
-function toPayload(customer: Customer): CustomerPayload {
-    return {
-        name: customer.name,
-        type: customer.type,
-        doc_type: customer.doc_type ?? undefined,
-        doc_number: customer.doc_number ?? undefined,
-        tax_condition: customer.tax_condition ?? undefined,
-        email: customer.email ?? undefined,
-        phone: customer.phone ?? undefined,
-        address_line: customer.address_line ?? undefined,
-        city: customer.city ?? undefined,
-        province: customer.province ?? undefined,
-        postal_code: customer.postal_code ?? undefined,
-        country: customer.country ?? undefined,
-        note: customer.note ?? undefined,
-        is_active: customer.is_active,
-    };
-}
-
-function resolveApiError(error: unknown) {
-    if (error instanceof ApiError) {
-        const payload = error.payload as Record<string, string[] | string> | undefined;
-        if (payload) {
-            if (typeof payload.detail === 'string') {
-                return payload.detail;
-            }
-            const first = Object.values(payload).find((value) => Array.isArray(value) && value.length > 0);
-            if (first && Array.isArray(first)) {
-                return first[0];
-            }
-        }
-    }
-    return 'No pudimos guardar el cliente. Intentá nuevamente.';
 }

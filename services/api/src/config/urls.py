@@ -27,9 +27,19 @@ urlpatterns = [
   path('api/v1/sales/', include('apps.sales.urls')),
   path('api/v1/reports/', include('apps.reports.urls')),
   path('api/v1/menu/', include('apps.menu.urls')),
+  # Merchant-side Mercado Pago OAuth (Slice 5A extraction from apps.menu) — mounted
+  # under the same 'menu/mercadopago/' prefix as before so existing frontend calls
+  # and the registered MP redirect URI keep working unchanged.
+  path('api/v1/menu/mercadopago/', include('apps.merchant_payments.urls')),
   path('api/v1/public/menu/<slug:slug>/', PublicMenuBySlugView.as_view(), name='public-menu'),
   path('api/v1/menu-qr/<int:business_id>/', MenuQRCodeView.as_view(), name='menu-qr'),
   path('api/v1/reviews/', include('apps.reviews.urls')),
+  path('api/v1/appointments/', include('apps.appointments.urls')),
+  path('api/v1/notifications/', include('apps.notifications.urls')),
+  # AGENT 02B: ingesta máquina-a-máquina (HMAC).
+  path('api/v1/integrations/agent/', include('apps.leads.integration_urls')),
+  # LEADS 04A: API humana del CRM de Leads (sesión + RBAC view/manage_leads).
+  path('api/v1/leads/', include('apps.leads.urls')),
   path('api/v1/resto/', include('apps.resto.urls')),
   path('api/v1/billing/', include('apps.billing.urls')),
   path('api/v1/treasury/', include('apps.treasury.urls')),

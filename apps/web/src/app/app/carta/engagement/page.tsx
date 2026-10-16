@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
 
+import { canManageMercadoPago } from '@/features/merchant-payments/permissions';
 import { getSession } from '@/lib/auth';
 
 import { EngagementPageClient } from './engagement-client';
@@ -11,5 +12,5 @@ export default async function EngagementPage() {
     const canView = session.permissions?.view_menu ?? false;
     if (!canView) redirect('/app/servicios');
 
-    return <EngagementPageClient />;
+    return <EngagementPageClient canManageMercadoPago={canManageMercadoPago(session)} />;
 }

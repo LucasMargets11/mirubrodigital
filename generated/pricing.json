@@ -25,6 +25,14 @@
       "description": "Sistema de feedback con filtro inteligente y redirección a Google.",
       "is_active": true,
       "order": 3
+    },
+    {
+      "code": "appointments",
+      "vertical": "appointments",
+      "name": "Turnos",
+      "description": "Gestioná tu agenda y recibí reservas online.",
+      "is_active": false,
+      "order": 4
     }
   ],
   "plans": [

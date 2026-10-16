@@ -242,6 +242,34 @@ def _register_gestion_capabilities():
         'Clientes',
         'gestion'
     )
+    register_capability(
+        'manage_customer_notes',
+        'Gestionar Notas Internas de Clientes',
+        'Crear, editar y eliminar notas internas en la ficha del cliente',
+        'Clientes',
+        'gestion'
+    )
+    register_capability(
+        'manage_customer_reminders',
+        'Gestionar Recordatorios de Clientes',
+        'Crear, editar, completar y cancelar recordatorios internos en la ficha del cliente',
+        'Clientes',
+        'gestion'
+    )
+    register_capability(
+        'manage_customer_contact_preferences',
+        'Gestionar Preferencias de Contacto de Clientes',
+        'Registrar canales permitidos, canal preferido, consentimiento y "no contactar" del cliente',
+        'Clientes',
+        'gestion'
+    )
+    register_capability(
+        'view_customer_reminder_notifications',
+        'Ver Avisos de Recordatorios de Clientes',
+        'Recibir en el panel las notificaciones de recordatorios de clientes vencidos (no incluye otras notificaciones del negocio)',
+        'Clientes',
+        'gestion'
+    )
     
     # Cash
     register_capability(
@@ -623,7 +651,42 @@ def _register_menu_qr_capabilities():
     )
 
 
+# ============================================================================
+# APPOINTMENTS (TURNOS) SERVICE CAPABILITIES
+# ============================================================================
+
+def _register_appointments_capabilities():
+    """Register Leads capabilities for Turnos (AGENT 02A).
+
+    Solo los permisos de Leads: el resto de APPOINTMENTS_PERMISSIONS todavía no
+    está en el registry (deuda previa, fuera de este slice).
+    """
+
+    register_capability(
+        'view_leads',
+        'Ver Leads',
+        'Consultar los leads recibidos del agente de WhatsApp y sus notas',
+        'Leads',
+        'appointments'
+    )
+    register_capability(
+        'manage_leads',
+        'Gestionar Leads',
+        'Cambiar estado y resultado, asignar, agregar notas y vincular cliente/turno a un lead',
+        'Leads',
+        'appointments'
+    )
+    register_capability(
+        'manage_agent_channels',
+        'Gestionar Canales del Agente',
+        'Ver, activar y desactivar los números de WhatsApp atendidos por el agente (solo Owner/Admin)',
+        'Leads',
+        'appointments'
+    )
+
+
 # Initialize registry on module load
 _register_gestion_capabilities()
 _register_restaurant_capabilities()
 _register_menu_qr_capabilities()
+_register_appointments_capabilities()

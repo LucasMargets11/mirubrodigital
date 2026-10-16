@@ -40,7 +40,18 @@ FEATURE_KEYS: Iterable[str] = (
   # QR de Reseñas — standalone product flags
   'qr_reviews_core',   # Core access flag for QR de Reseñas standalone product
   'print_signage',      # Carteles y Etiquetas imprimibles (PRO only)
+  # Turnos — standalone product flag
+  'appointments_core',  # Core access flag for Turnos standalone product
+  'leads',              # Bandeja de Leads (derivado de `appointments.leads`, ver ENTITLEMENT_FEATURE_FLAGS)
 )
+
+# Flags de UI que NO se declaran por plan: se derivan del entitlement del plan
+# (`entitlements.PLAN_ENTITLEMENTS` sigue siendo la única fuente de verdad) y
+# solo lo exponen en la sesión (`/me` → `features`) para el gating de
+# navegación/páginas. El backend sigue exigiendo `HasEntitlement`.
+ENTITLEMENT_FEATURE_FLAGS: Dict[str, str] = {
+  'leads': 'appointments.leads',  # LEADS 05A
+}
 
 PLAN_FEATURES: Dict[str, Iterable[str]] = {
   # 4 planes oficiales Gestión Comercial
@@ -156,6 +167,11 @@ PLAN_FEATURES: Dict[str, Iterable[str]] = {
     'qr_reviews_core',
     'print_signage',      # Carteles imprimibles — PRO only
   ),
+  # ── Turnos standalone ────────────────────────────────────────────────────
+  'appointments_base': (
+    'appointments_core',   # Main product access flag
+    'customers',           # Clientes core compartido (Turnos CUSTOMER 02); sin ventas/presupuestos
+  ),
 }
 
 
@@ -169,6 +185,10 @@ def feature_flags_for_plan(plan: str) -> Dict[str, bool]:
     flags[key] = True
   for key in PLAN_FEATURES[normalized_plan]:
     flags[key] = True
+  from apps.business.entitlements import get_plan_entitlements
+  plan_entitlements = get_plan_entitlements(normalized_plan)
+  for key, entitlement in ENTITLEMENT_FEATURE_FLAGS.items():
+    flags[key] = entitlement in plan_entitlements
   return flags
 
 

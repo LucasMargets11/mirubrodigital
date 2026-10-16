@@ -38,6 +38,15 @@ export type SubscriptionReasonCode =
   | 'checkout_pending'
   | 'no_subscription';
 
+export type PublicBookingUnavailableReason = 'missing_slug' | 'service_disabled' | 'not_publishable';
+
+export type PublicBookingPage = {
+  available: boolean;
+  /** URL absoluta `…/t/<slug>`; solo presente cuando `available`. */
+  url: string | null;
+  reason: PublicBookingUnavailableReason | null;
+};
+
 export type Session = {
   user: {
     id: number;
@@ -71,6 +80,17 @@ export type Session = {
        * 'canceled'   — subscription terminated.
        */
       status: 'onboarding' | 'trialing' | 'active' | 'past_due' | 'suspended' | 'canceled';
+      /**
+       * Página pública de reservas de Turnos (`/t/<slug>`), calculada por el
+       * backend con la misma regla que el endpoint público. `null` si el
+       * Business no tiene Turnos habilitado.
+       */
+      public_booking?: PublicBookingPage | null;
+      /**
+       * Zona horaria IANA canónica del Business (Slice 7D.1), ya resuelta por
+       * el backend con su fallback (`settings.TIME_ZONE`). Solo lectura.
+       */
+      timezone?: string;
     };
     role: string;
     service: string;

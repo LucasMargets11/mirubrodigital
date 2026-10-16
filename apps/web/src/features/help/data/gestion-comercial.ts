@@ -144,7 +144,7 @@ export const GESTION_HOWTO_ITEMS: HowToItem[] = [
         id: 'howto.customer',
         title: 'Cargar un cliente',
         description: 'Creá clientes para asociar ventas y llevar historial de compras.',
-        href: '/app/gestion/clientes',
+        href: '/app/clientes',
         minPlan: 'pro',
     },
     {

@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from .models import CommercialSettings, Business, BusinessBillingProfile, BusinessBranding
+from .whatsapp import normalize_whatsapp_phone
 
 
 class BranchSerializer(serializers.ModelSerializer):
@@ -90,9 +91,22 @@ class BusinessBrandingSerializer(serializers.ModelSerializer):
       'logo_square',
       'logo_square_url',
       'accent_color',
+      'whatsapp_phone',
       'updated_at',
     ]
     read_only_fields = ['updated_at', 'logo_horizontal', 'logo_square']
+
+  def validate_whatsapp_phone(self, value):
+    value = (value or '').strip()
+    if not value:
+      return ''
+    business = getattr(self.instance, 'business', None)
+    digits = normalize_whatsapp_phone(value, country=getattr(business, 'country', 'AR'))
+    if digits is None:
+      raise serializers.ValidationError(
+        'Ingresá un número de WhatsApp válido, con código de área y sin 0 ni 15 (ej: +54 9 11 1234-5678).'
+      )
+    return f'+{digits}'
   
   def get_logo_horizontal_url(self, obj):
     if obj.logo_horizontal:

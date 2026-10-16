@@ -109,7 +109,7 @@ export function SmartActions({ permissions, features }: SmartActionsProps) {
             id: 'clients-access',
             title: 'Ver clientes',
             icon: Store,
-            href: '/app/gestion/clientes',
+            href: '/app/clientes',
             visible: permissions.canViewCustomers && features.customers,
             priority: 15
         }

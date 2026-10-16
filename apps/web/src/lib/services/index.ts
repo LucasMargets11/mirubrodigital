@@ -3,6 +3,7 @@ const SERVICE_ENTRY_ROUTES: Record<string, string> = {
     restaurante: '/app/resto',
     menu_qr: '/app/carta',
     qr_reviews: '/app/resenas',
+    appointments: '/app/turnos',
 };
 
 export function getServiceEntryPath(slug: string): string | undefined {
@@ -24,6 +25,7 @@ const SERVICE_DISPLAY_NAMES: Record<string, string> = {
     menu_qr_visual: 'Menú QR Visual',
     menu_qr_marca: 'Menú QR Marca',
     qr_reviews: 'QR de Reseñas',
+    appointments: 'Turnos',
 };
 
 /** Plan code → user-facing plan name. */
@@ -52,6 +54,8 @@ const PLAN_DISPLAY_NAMES: Record<string, string> = {
     qr_reviews: 'Reseñas Base',
     qr_reviews_base: 'Reseñas Base',
     qr_reviews_pro: 'Reseñas Pro',
+    // Turnos
+    appointments_base: 'Turnos Base',
 };
 
 /**

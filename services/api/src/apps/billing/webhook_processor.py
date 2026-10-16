@@ -8,7 +8,8 @@ Responsibilities
 1. Persist every inbound webhook as a WebhookDelivery BEFORE any business logic.
 2. Verify the MP signature (HMAC-SHA256). Always.
 3. Detect duplicates — respond 200 immediately without re-processing.
-4. Dispatch to topic-specific handlers.
+4. Dispatch to topic-specific handlers (payment included, Slice 5B.4) through
+   the retry lifecycle in webhook_lifecycle.py.
 5. NEVER trust the webhook body for activation; always fetch authoritative data
    from MP server-to-server.
 
@@ -16,6 +17,8 @@ Supported topics
 ----------------
 - subscription_preapproval      : a user subscribed to one of our plans
 - subscription_authorized_payment : a recurring charge was processed
+- payment                        : Billing one-time payments + merchant Tips
+                                   (payment_webhook.py)
 
 Deduplication strategy
 ----------------------
@@ -88,12 +91,16 @@ def receive_webhook(request) -> tuple[WebhookDelivery, bool]:
     topic         = request.data.get('type', '')
     resource_id   = str(request.data.get('data', {}).get('id', ''))
     action        = request.data.get('action', '')
+    # Slice 5B.4: persist the deterministic routing hints (5B.2.2) so retries
+    # never depend on the original request's query string.
+    flow, ref     = _routing_hints(request)
 
     sig_valid = _verify_mp_signature(request, x_request_id, x_signature)
 
+    # The raw x-signature is only needed for verification above; it is not
+    # persisted (not required for replay).
     headers_snapshot = {
         'x-request-id': x_request_id,
-        'x-signature':  x_signature,
         'user-agent':   request.headers.get('user-agent', ''),
         'content-type': request.headers.get('content-type', ''),
     }
@@ -127,8 +134,9 @@ def receive_webhook(request) -> tuple[WebhookDelivery, bool]:
         resource_id=resource_id,
         action=action,
         x_request_id=x_request_id,
-        x_signature=x_signature,
         signature_valid=sig_valid,
+        flow=flow,
+        ref=ref,
         payload_hash=payload_hash,
         headers_json=headers_snapshot,
         body_json=request.data,
@@ -147,7 +155,8 @@ def receive_webhook(request) -> tuple[WebhookDelivery, bool]:
     if not sig_valid:
         delivery.processing_status = WebhookDelivery.ProcessingStatus.IGNORED
         delivery.error_message = 'Signature verification failed'
-        delivery.save(update_fields=['processing_status', 'error_message'])
+        delivery.error_category = 'invalid_signature'
+        delivery.save(update_fields=['processing_status', 'error_message', 'error_category'])
         logger.warning(
             "[webhook] Invalid signature — delivery=%s topic=%s resource_id=%s x_request_id=%s",
             delivery.id, topic, resource_id, x_request_id,
@@ -161,43 +170,108 @@ def receive_webhook(request) -> tuple[WebhookDelivery, bool]:
     return delivery, sig_valid
 
 
-def dispatch_webhook(delivery: WebhookDelivery) -> None:
+def _routing_hints(request) -> tuple[str, str]:
+    """flow/ref from the notification_url query string, length-bounded."""
+    params = getattr(request, 'query_params', None) or request.GET
+    flow = str(params.get('flow') or '')[:32]
+    ref = str(params.get('ref') or '')[:128]
+    return flow, ref
+
+
+def dispatch_webhook(delivery: WebhookDelivery) -> str | None:
     """
-    Route a validated, non-duplicate delivery to the appropriate topic handler.
-    Updates delivery.processing_status to PROCESSED or FAILED.
+    Run one processing attempt for a persisted, signature-valid delivery
+    through the Slice 5B.4 lifecycle (claim → execute → PROCESSED / IGNORED
+    / FAILED / DEAD_LETTER). Never raises. Refreshes ``delivery`` in place.
     """
+    from .webhook_lifecycle import process_delivery
+
+    result = process_delivery(delivery.pk)
+    try:
+        delivery.refresh_from_db()
+    except Exception:  # pragma: no cover — the status is in the DB either way
+        pass
+    return result
+
+
+def execute_delivery(delivery: WebhookDelivery):
+    """
+    Route a claimed delivery to its topic handler. Uses ONLY persisted
+    fields — never the original request — so it is safe for retries.
+
+    Returns a WebhookOutcome (or None → PROCESSED). Raises
+    WebhookTransientError for recoverable failures; any other exception is
+    classified as a transient internal error by the lifecycle.
+    """
+    from .webhook_lifecycle import WebhookOutcome
+
     topic = delivery.topic
     resource_id = delivery.resource_id
 
-    try:
-        if topic == 'subscription_preapproval':
-            _handle_subscription_preapproval(resource_id, delivery)
-        elif topic == 'subscription_authorized_payment':
-            _handle_authorized_payment(resource_id, delivery)
-        else:
-            # Other topics (payment, etc.) are handled by the legacy path in views.py
-            # for backward compatibility.  Mark as ignored here so the delivery log
-            # stays accurate.
-            logger.info("[webhook] Topic '%s' not handled by Phase 3 processor — delivery=%s",
-                        topic, delivery.id)
-            delivery.processing_status = WebhookDelivery.ProcessingStatus.IGNORED
-            delivery.processed_at = timezone.now()
-            delivery.save(update_fields=['processing_status', 'processed_at'])
-            return
+    billing_event = _write_legacy_billing_event(delivery)
 
-        delivery.processing_status = WebhookDelivery.ProcessingStatus.PROCESSED
-        delivery.processed_at = timezone.now()
-        delivery.save(update_fields=['processing_status', 'processed_at'])
-
-    except Exception as exc:
-        delivery.processing_status = WebhookDelivery.ProcessingStatus.FAILED
-        delivery.error_message = str(exc)
-        delivery.processed_at = timezone.now()
-        delivery.save(update_fields=['processing_status', 'error_message', 'processed_at'])
-        logger.exception(
-            "[webhook] Processing failed for delivery=%s topic=%s resource_id=%s: %s",
-            delivery.id, topic, resource_id, exc,
+    if topic == 'subscription_preapproval':
+        _handle_subscription_preapproval(resource_id, delivery)
+        return WebhookOutcome.processed()
+    if topic == 'subscription_authorized_payment':
+        _handle_authorized_payment(resource_id, delivery)
+        return WebhookOutcome.processed()
+    if topic == 'payment':
+        from .payment_webhook import process_payment_event
+        return process_payment_event(
+            resource_id, flow=delivery.flow or None, ref=delivery.ref or None,
+            billing_event=billing_event,
         )
+
+    logger.info("[webhook] Unhandled topic=%s delivery=%s", topic, delivery.id)
+    return WebhookOutcome.ignored('unsupported_topic')
+
+
+def _write_legacy_billing_event(delivery: WebhookDelivery):
+    """
+    Legacy PaymentEvent + Phase 2A BillingEvent audit rows, keyed like the
+    pre-5B.4 view did (x-request-id, else resource id). Idempotent, so a
+    retry reuses the rows written by the first attempt. Never raises.
+    """
+    from .models import BillingEvent, PaymentEvent
+
+    event_id = delivery.x_request_id or delivery.resource_id
+    if not event_id:
+        return None
+
+    try:
+        if not PaymentEvent.objects.filter(event_id=str(event_id)).exists():
+            PaymentEvent.objects.create(
+                provider='mercadopago',
+                event_id=str(event_id),
+                resource_id=str(delivery.resource_id or ''),
+                payload_json=delivery.body_json,
+            )
+    except Exception:
+        pass
+
+    event_type = (
+        BillingEvent.EventType.PREAPPROVAL_UPDATED
+        if delivery.topic == 'subscription_preapproval'
+        else BillingEvent.EventType.UNKNOWN
+    )
+    try:
+        billing_event, _ = BillingEvent.objects.get_or_create(
+            provider_event_id=str(event_id),
+            defaults={
+                'provider': BillingEvent.Provider.MERCADOPAGO,
+                'event_type': event_type,
+                'payload': delivery.body_json,
+                'status': BillingEvent.ProcessingStatus.RECEIVED,
+                'received_at': timezone.now(),
+            },
+        )
+        return billing_event
+    except Exception as exc:
+        logger.warning(
+            "[webhook] BillingEvent persist failed delivery=%s: %s", delivery.id, type(exc).__name__,
+        )
+        return None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -226,7 +300,10 @@ def _handle_subscription_preapproval(preapproval_id: str, delivery: WebhookDeliv
     # Step 1: authoritative fetch — NEVER trust the webhook body alone.
     preapproval = mp.get_preapproval(preapproval_id)
     if not preapproval:
-        raise ValueError(f"Could not fetch preapproval {preapproval_id} from MP")
+        from .webhook_lifecycle import WebhookTransientError
+        raise WebhookTransientError(
+            'provider_fetch_failed', f"Could not fetch preapproval {preapproval_id} from MP",
+        )
 
     mp_status = preapproval.get('status', '')
     plan_id   = preapproval.get('preapproval_plan_id', '')
@@ -326,6 +403,7 @@ def _handle_authorized_payment(authorized_payment_id: str, delivery: WebhookDeli
     """
     from .mp_service import MercadoPagoService
     from .subscription_activator import activate_subscription_from_invoice
+    from .webhook_lifecycle import WebhookPermanentError
 
     if not authorized_payment_id:
         logger.warning("[webhook/authorized_payment] Empty authorized_payment_id — delivery=%s", delivery.id)
@@ -336,7 +414,11 @@ def _handle_authorized_payment(authorized_payment_id: str, delivery: WebhookDeli
     # Step 1: authoritative fetch.
     ap_data = mp.get_authorized_payment(authorized_payment_id)
     if not ap_data:
-        raise ValueError(f"Could not fetch authorized_payment {authorized_payment_id} from MP")
+        from .webhook_lifecycle import WebhookTransientError
+        raise WebhookTransientError(
+            'provider_fetch_failed',
+            f"Could not fetch authorized_payment {authorized_payment_id} from MP",
+        )
 
     ap_status         = ap_data.get('status', '')
     ap_status_detail  = ap_data.get('status_detail', '')
@@ -353,7 +435,8 @@ def _handle_authorized_payment(authorized_payment_id: str, delivery: WebhookDeli
     # ── Fix 5: Cross-validate authoritative response before processing ────────
     returned_id = str(ap_data.get('id', ''))
     if returned_id and returned_id != str(authorized_payment_id):
-        raise ValueError(
+        raise WebhookPermanentError(
+            'provider_id_mismatch',
             f"[webhook/authorized_payment] ID mismatch: requested={authorized_payment_id} "
             f"but MP returned id={returned_id}. Possible caching or routing issue."
         )
@@ -361,7 +444,8 @@ def _handle_authorized_payment(authorized_payment_id: str, delivery: WebhookDeli
     if ap_status == 'authorized' and not preapproval_id:
         # Without preapproval_id we cannot correlate to any subscription.
         # Reject rather than log-and-continue to avoid silent data loss.
-        raise ValueError(
+        raise WebhookPermanentError(
+            'provider_missing_preapproval_id',
             f"[webhook/authorized_payment] authorized payment {authorized_payment_id} has no "
             f"preapproval_id in MP response — cannot correlate to a subscription."
         )
@@ -445,7 +529,8 @@ def _handle_authorized_payment(authorized_payment_id: str, delivery: WebhookDeli
             # This should always hold since we looked up by provider_sub_id, but an explicit
             # check prevents silent data corruption if there is ever an index inconsistency.
             if subscription.provider_sub_id != preapproval_id:
-                raise ValueError(
+                raise WebhookPermanentError(
+                    'provider_id_mismatch',
                     f"[webhook/authorized_payment] preapproval_id mismatch: "
                     f"subscription.provider_sub_id={subscription.provider_sub_id!r} but "
                     f"authorized_payment.preapproval_id={preapproval_id!r}. "

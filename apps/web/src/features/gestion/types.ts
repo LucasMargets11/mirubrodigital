@@ -426,12 +426,15 @@ export type BusinessBranding = {
     logo_square: string | null;
     logo_square_url: string | null;
     accent_color: string;
+    /** Slice 6D: WhatsApp público (normalizado `+<E.164>` por el backend). */
+    whatsapp_phone?: string;
     created_at: string;
     updated_at: string;
 };
 
 export type BusinessBrandingPayload = {
     accent_color?: string;
+    whatsapp_phone?: string;
 };
 
 export type DocumentType = 'invoice' | 'quote' | 'receipt' | 'credit_note' | 'debit_note' | 'delivery_note';

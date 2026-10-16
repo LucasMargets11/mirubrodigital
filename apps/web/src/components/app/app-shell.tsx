@@ -9,52 +9,15 @@ import { SubscriptionBanner } from '@/components/app/subscription-banner';
 import { MobileMenuProvider, useMobileMenu } from '@/components/app/mobile-menu-context';
 import { MobileMenuButton } from '@/components/app/mobile-menu-button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetCloseButton } from '@/components/ui/sheet';
+import { isPathRestrictedForService } from '@/components/app/service-path-gating';
 import type { Session } from '@/lib/auth/types';
-
-const MENU_QR_ALLOWED_PATHS = [
-    '/app',
-    '/app/carta',
-    // Legacy paths kept for backward-compat during server redirects
-    '/app/menu',
-    '/app/settings/online-menu',
-    '/app/servicios',
-    '/app/planes',
-    '/app/settings',
-];
-
-const QR_REVIEWS_ALLOWED_PATHS = [
-    '/app',
-    '/app/resenas',
-    '/app/servicios',
-    '/app/planes',
-    '/app/settings',
-];
-
-function pathMatches(pathname: string, allowed: string): boolean {
-    if (pathname === allowed) {
-        return true;
-    }
-    return pathname.startsWith(`${allowed}/`);
-}
-
-function isMenuQrPathAllowed(pathname: string): boolean {
-    return MENU_QR_ALLOWED_PATHS.some((allowed) => pathMatches(pathname, allowed));
-}
 
 function AppShellContent({ session, children }: { session: Session; children: ReactNode }) {
     const pathname = usePathname() ?? '/app';
     const service = session.current.service;
     const { isOpen, close } = useMobileMenu();
 
-    const isRestricted = useMemo(() => {
-        if (service === 'menu_qr') {
-            return !isMenuQrPathAllowed(pathname);
-        }
-        if (service === 'qr_reviews') {
-            return !QR_REVIEWS_ALLOWED_PATHS.some((allowed) => pathMatches(pathname, allowed));
-        }
-        return false;
-    }, [pathname, service]);
+    const isRestricted = useMemo(() => isPathRestrictedForService(service, pathname), [pathname, service]);
 
     return (
         <div className="fixed inset-0 flex bg-slate-50 overflow-hidden">

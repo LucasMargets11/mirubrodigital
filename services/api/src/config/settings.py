@@ -2,6 +2,7 @@ from pathlib import Path
 from datetime import timedelta
 from decimal import Decimal
 import os
+import sys
 
 from dotenv import load_dotenv
 
@@ -53,7 +54,9 @@ INSTALLED_APPS = [
   'apps.cash',
   'apps.reports',
   'apps.menu',
+  'apps.merchant_payments',
   'apps.reviews',
+  'apps.appointments',
   'apps.resto',
   'apps.billing',
   'apps.treasury',
@@ -61,6 +64,7 @@ INSTALLED_APPS = [
   'apps.blog',
   'apps.printables',
   'apps.notifications',
+  'apps.leads',
 ]
 
 MIDDLEWARE = [
@@ -305,18 +309,139 @@ CELERY_BEAT_SCHEDULE = {
         # Every hour at minute 45 — retry failed MP price restorations.
         'schedule': crontab(minute='45'),
     },
+    'billing-retry-failed-webhooks': {
+        'task': 'billing.retry_failed_webhooks',
+        # Every 5 minutes — re-run FAILED MP webhook deliveries whose backoff
+        # elapsed (per-row next_retry_at; see MP_WEBHOOK_RETRY_* below).
+        'schedule': crontab(minute='*/5'),
+    },
+    'appointments-expire-holds': {
+        'task': 'appointments.expire_holds',
+        # Every 2 minutes — normalizes pending_payment → expired in DB. Slot
+        # availability does NOT depend on it (occupying() ignores expired
+        # holds dynamically), so a Beat outage only delays the stored status.
+        'schedule': crontab(minute='*/2'),
+    },
+    'customers-dispatch-due-reminders': {
+        'task': 'customers.dispatch_due_reminders',
+        # Every minute — CustomerReminder pendiente con remind_at vencido →
+        # BusinessNotification interna (una sola por recordatorio; idempotente
+        # y seguro ante Beat duplicado). Un Beat caído solo demora el aviso.
+        'schedule': crontab(),
+    },
+    'customers-retry-due-deliveries': {
+        'task': 'customers.retry_due_deliveries',
+        # Every minute — CustomerMessageDelivery (CUSTOMER 07D.2): reintentos
+        # con next_retry_at vencido + pending con encolado perdido + processing
+        # colgados → failed outcome_unknown. Hoy solo proveedores fake.
+        'schedule': crontab(),
+    },
+    'leads-retry-due-takeover-commands': {
+        'task': 'leads.retry_due_takeover_commands',
+        # Every minute — TakeoverCommand (MIRUBRO TAKEOVER 05A): reintentos con
+        # next_attempt_at vencido, kicks perdidos y envíos colgados (lease
+        # vencido). No hace nada con AGENT_TAKEOVER_ENABLED=false.
+        'schedule': crontab(),
+    },
+    'leads-retry-due-staff-messages': {
+        'task': 'leads.retry_due_staff_messages',
+        # Every minute — LeadStaffMessage (MIRUBRO HUMAN MESSAGES): mismo
+        # barrido que takeover-commands, pero para mensajes de recepción hacia
+        # el paciente. No hace nada con AGENT_TAKEOVER_ENABLED=false.
+        'schedule': crontab(),
+    },
 }
+
+# CUSTOMER 07D.2 — entregas externas al Customer (apps.customers.deliveries).
+# Máximo 3 intentos; espera tras el intento N = BACKOFF[N-1] (1 min, 5 min; el
+# tercero ya no reintenta). Solo existen proveedores fake (sin network): el
+# modo simula success | retryable_failure | permanent_failure para QA.
+CUSTOMER_DELIVERY_MAX_ATTEMPTS = int(os.getenv('CUSTOMER_DELIVERY_MAX_ATTEMPTS', '3'))
+CUSTOMER_DELIVERY_RETRY_BACKOFF_SECONDS = (60, 300, 1800)
+CUSTOMER_DELIVERY_PROCESSING_LEASE_SECONDS = 600
+CUSTOMER_DELIVERY_FAKE_MODE = os.getenv('CUSTOMER_DELIVERY_FAKE_MODE', 'success')
+# CUSTOMER 07D.3A — proveedor de email: 'fake' (default, sin network) | 'ses'.
+# SES real SOLO con opt-in explícito; no se autodetecta por credenciales.
+# Reusa AWS_SES_REGION / AWS_SES_CONFIGURATION_SET (abajo) y la cadena normal
+# de credenciales de boto3 (IAM role en EC2/ECS). Remitente: AWS_SES_FROM_EMAIL
+# (identidad verificada; default = dirección de DEFAULT_FROM_EMAIL) y
+# AWS_SES_FROM_NAME (default = nombre de DEFAULT_FROM_EMAIL).
+CUSTOMER_DELIVERY_PROVIDER_EMAIL = os.getenv('CUSTOMER_DELIVERY_PROVIDER_EMAIL', 'fake').strip().lower()
+# CUSTOMER 07D.4A — guard: la suite de tests SIEMPRE usa el fake, aunque el
+# .env/entorno del contenedor diga 'ses' (los tests de SES lo piden explícito
+# con override_settings y un cliente boto3 mockeado).
+if len(sys.argv) > 1 and sys.argv[1] == 'test':
+    CUSTOMER_DELIVERY_PROVIDER_EMAIL = 'fake'
+# CUSTOMER 07D.4A — recordatorio automático vencido → email al cliente (si el
+# Business lo activó). Si preparar el Delivery falla tras el aviso interno, el
+# barrido de avisos lo reintenta mientras el aviso tenga menos de N minutos.
+CUSTOMER_REMINDER_DELIVERY_RECOVERY_MINUTES = int(os.getenv('CUSTOMER_REMINDER_DELIVERY_RECOVERY_MINUTES', '60'))
+AWS_SES_FROM_EMAIL = os.getenv('AWS_SES_FROM_EMAIL', '').strip()
+AWS_SES_FROM_NAME = os.getenv('AWS_SES_FROM_NAME', '').strip()
 
 REPORTS_LOW_STOCK_THRESHOLD_DEFAULT = Decimal(os.getenv('REPORTS_LOW_STOCK_THRESHOLD_DEFAULT', '5'))
 
 MP_ACCESS_TOKEN = os.getenv('MP_ACCESS_TOKEN')
 MP_WEBHOOK_SECRET = os.getenv('MP_WEBHOOK_SECRET')
+
+# Webhook delivery retry policy (Slice 5B.4 — apps.billing.webhook_lifecycle).
+# Backoff after the Nth failed attempt = BASE * 2**(N-1), capped at
+# MAX_BACKOFF. Defaults: 5m, 10m, 20m, 40m, 80m, 160m, 320m → DEAD_LETTER on
+# the 8th failure (~10.5h of retries). The Beat sweep runs every 5 minutes.
+MP_WEBHOOK_RETRY_MAX_ATTEMPTS = int(os.getenv('MP_WEBHOOK_RETRY_MAX_ATTEMPTS', '8'))
+MP_WEBHOOK_RETRY_BASE_SECONDS = int(os.getenv('MP_WEBHOOK_RETRY_BASE_SECONDS', '300'))
+MP_WEBHOOK_RETRY_MAX_BACKOFF_SECONDS = int(os.getenv('MP_WEBHOOK_RETRY_MAX_BACKOFF_SECONDS', str(6 * 3600)))
+# A PROCESSING delivery older than this is assumed crashed and re-claimable.
+MP_WEBHOOK_PROCESSING_LEASE_SECONDS = int(os.getenv('MP_WEBHOOK_PROCESSING_LEASE_SECONDS', '900'))
 MP_BASE_URL = os.getenv('MP_BASE_URL', 'https://api.mercadopago.com')
 
 # Mercado Pago OAuth per-business (Fase 2 — QR Menu tips)
 MP_CLIENT_ID = os.getenv('MP_CLIENT_ID', '')
 MP_CLIENT_SECRET = os.getenv('MP_CLIENT_SECRET', '')
 MP_REDIRECT_URI = os.getenv('MP_REDIRECT_URI', '')
+
+# Fernet key for encrypting merchants' own MP OAuth tokens at rest
+# (MercadoPagoConnection.access_token / refresh_token). REQUIRED in
+# production. Dedicated key, separate from MFA_ENCRYPTION_KEY, so rotating
+# or compromising one never affects the other.
+# Generate: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+#
+# Production (AWS): store in AWS Secrets Manager and inject via ECS task
+# definition secretsRef or a startup script that calls:
+#   aws secretsmanager get-secret-value --secret-id mirubro/mp-token-encryption-key
+# Never commit this value to source control.
+MP_TOKEN_ENCRYPTION_KEY = os.getenv('MP_TOKEN_ENCRYPTION_KEY', '')
+
+# Fernet key for encrypting the agent-integration HMAC secrets at rest
+# (apps.leads AgentCredential.encrypted_secret, AGENT 02A). Dedicated key,
+# separate from MP_TOKEN_ENCRYPTION_KEY and MFA_ENCRYPTION_KEY. Without it,
+# provisioning/verifying agent credentials fails closed (never plaintext).
+# Generate: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+AGENT_SECRET_ENCRYPTION_KEY = os.getenv('AGENT_SECRET_ENCRYPTION_KEY', '')
+
+# AGENT 02B: habilita el receiver PUT /api/v1/integrations/agent/leads/<uuid>/.
+# Default false: apagado responde 503. Encendido sin AGENT_SECRET_ENCRYPTION_KEY
+# válida → error de system check leads.E001/E002 (falla `check`/`migrate`).
+AGENT_INTEGRATION_ENABLED = os.getenv('AGENT_INTEGRATION_ENABLED', 'False').lower() == 'true'
+
+# MIRUBRO TAKEOVER 05A: comandos humanos MiRubro → Agent (pausar/reanudar el bot
+# de una conversación). Dirección y credencial PROPIAS, separadas de la del
+# receiver (nunca reutilizar AGENT_SECRET_ENCRYPTION_KEY ni la credencial del
+# agente). El secreto vive solo en env: no se persiste ni se loguea.
+# Default false: la acción humana responde 503 y no se envía nada. En true,
+# base URL / key id / secret inválidos → system check leads.E003–E006.
+AGENT_TAKEOVER_ENABLED = os.getenv('AGENT_TAKEOVER_ENABLED', 'False').lower() == 'true'
+AGENT_TAKEOVER_BASE_URL = os.getenv('AGENT_TAKEOVER_BASE_URL', '').strip()
+AGENT_TAKEOVER_KEY_ID = os.getenv('AGENT_TAKEOVER_KEY_ID', '').strip()
+AGENT_TAKEOVER_SECRET = os.getenv('AGENT_TAKEOVER_SECRET', '')
+AGENT_TAKEOVER_TIMEOUT_SECONDS = 10
+# Espera tras el intento N = BACKOFF[N-1] (el último valor se repite). Después
+# de MAX_ATTEMPTS intentos fallidos transitorios el comando queda failed.
+AGENT_TAKEOVER_RETRY_BACKOFF_SECONDS = (30, 60, 120, 240, 480, 900)
+AGENT_TAKEOVER_MAX_ATTEMPTS = int(os.getenv('AGENT_TAKEOVER_MAX_ATTEMPTS', '10'))
+# Un intento `delivering` sin resultado después de esto se vuelve a enviar
+# (el agente es idempotente por versión/event_id).
+AGENT_TAKEOVER_DELIVERY_LEASE_SECONDS = 60
 
 # Public frontend URL (used in QR menu URLs and back_urls for MP checkout)
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:3000')
@@ -568,6 +693,13 @@ REST_FRAMEWORK['DEFAULT_THROTTLE_RATES'].update({
     'public_menu':          os.getenv('PUBLIC_MENU_THROTTLE_RATE', '120/minute'),
     'public_reviews':       os.getenv('PUBLIC_REVIEWS_THROTTLE_RATE', '60/minute'),
     'public_tips':          os.getenv('PUBLIC_TIPS_THROTTLE_RATE', '60/minute'),
+    'public_appointments':  os.getenv('PUBLIC_APPOINTMENTS_THROTTLE_RATE', '120/minute'),
+    # POST de reserva pública (Slice 4B): más restrictivo que la lectura, mismo criterio que auth_register.
+    'public_appointments_booking': os.getenv('PUBLIC_APPOINTMENTS_BOOKING_THROTTLE_RATE', '20/minute'),
+    # POST de checkout de seña (Slice 6A): cada request exitoso puede crear una Preference en MP.
+    'public_appointments_checkout': os.getenv('PUBLIC_APPOINTMENTS_CHECKOUT_THROTTLE_RATE', '10/minute'),
+    # AGENT 02B: requests firmadas por AgentInstance (no por IP).
+    'agent_leads_sync': os.getenv('AGENT_LEADS_SYNC_THROTTLE_RATE', '600/minute'),
 })
 
 # ── Owner/public login 3D rate limiting ──────────────────────────────────────

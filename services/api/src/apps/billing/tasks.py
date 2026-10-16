@@ -545,3 +545,26 @@ def reconcile_promotional_discounts(self):
 
     logger.info("[billing.task] reconcile_promotional_discounts complete: %s", counts)
     return counts
+
+
+@shared_task(
+    bind=True,
+    name='billing.retry_failed_webhooks',
+    acks_late=True,
+)
+def retry_failed_webhooks(self, limit: int = 100):
+    """
+    Slice 5B.4 — re-run eligible Mercado Pago WebhookDelivery rows:
+    FAILED past next_retry_at, PROCESSING with an expired lease, and RECEIVED
+    rows never claimed (see webhook_lifecycle.eligible_for_retry_qs).
+
+    Scheduled via CELERY_BEAT_SCHEDULE. Safe to run concurrently: each
+    delivery is claimed with select_for_update(skip_locked=True). No Celery
+    self-retry: the per-delivery backoff lives on the rows themselves.
+
+    Returns:
+        dict of counts per resulting status (+ 'picked', 'skipped').
+    """
+    from apps.billing.webhook_lifecycle import retry_due_deliveries
+
+    return retry_due_deliveries(limit=limit)

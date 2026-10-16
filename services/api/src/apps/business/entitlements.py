@@ -12,6 +12,11 @@ from typing import Set
 logger = logging.getLogger(__name__)
 
 POS_OFFLINE_CONTINGENCY_ENTITLEMENT = 'gestion.restaurant_pos_offline_contingency'
+# Leads del agente de WhatsApp (AGENT 02A). Registrado pero NO otorgado por
+# ningún plan ni add-on: la asignación comercial (add-on/complimentary) queda
+# pendiente. Gateará el panel de Leads; la ingesta del agente no se gatea por
+# entitlement (canal activo + estado del Business).
+APPOINTMENTS_LEADS_ENTITLEMENT = 'appointments.leads'
 
 
 # Entitlements por plan — 4 planes oficiales + aliases legacy
@@ -132,6 +137,21 @@ PLAN_ENTITLEMENTS['qr_reviews_pro'] = {
 }
 
 
+# Turnos — plan base. No incluye módulos comerciales de Gestión: solo el
+# acceso a Clientes core (entidad compartida, Turnos CUSTOMER 02) y la bandeja
+# de Leads del agente de WhatsApp (LEADS 04A.1).
+PLAN_ENTITLEMENTS['appointments_base'] = {
+    'appointments.customers',
+    APPOINTMENTS_LEADS_ENTITLEMENT,
+}
+
+# Clientes core (`customers.Customer`) es una entidad compartida: alcanza con
+# CUALQUIERA de estos entitlements (Gestión con módulo Clientes, o Turnos).
+# Las secciones comerciales (ventas, presupuestos) siguen exigiendo
+# `gestion.customers` + sus propios permisos.
+CUSTOMER_CORE_ENTITLEMENTS = ('gestion.customers', 'appointments.customers')
+
+
 # Entitlements agregados por add-ons
 ADDON_ENTITLEMENTS = {
     'invoices_module': {'gestion.invoices'},
@@ -160,6 +180,7 @@ ENTITLEMENT_UPGRADE_HINTS = {
     'gestion.restaurant_pos_offline_contingency': 'BUSINESS',
     'gestion.print_signage': 'PRO',
     'qr_reviews.print_posters': 'Reseñas PRO',
+    APPOINTMENTS_LEADS_ENTITLEMENT: 'Turnos Base',
 }
 
 
@@ -256,6 +277,11 @@ def has_pos_offline_contingency_access(business) -> bool:
     enabled under the existing V2/legacy subscription resolution flow.
     """
     return has_entitlement(business, POS_OFFLINE_CONTINGENCY_ENTITLEMENT)
+
+
+def has_appointments_leads_access(business) -> bool:
+    """Domain helper para el futuro gating del panel de Leads (AGENT 02A)."""
+    return has_entitlement(business, APPOINTMENTS_LEADS_ENTITLEMENT)
 
 
 def get_upgrade_hint(entitlement_code: str) -> str:

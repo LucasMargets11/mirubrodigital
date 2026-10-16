@@ -226,7 +226,10 @@ def request_has_permission(request: Request, permission_code: str) -> bool:
     context = resolve_business_context(request, membership)
     permission_map = getattr(request, '_permission_cache', None)
     if permission_map is None:
-        permission_map = permissions_for_service(context['service'], membership.role)
+        # Permisos efectivos: defaults del rol + RolePermissionOverride del
+        # Business de la membership (misma clave con la que escribe el editor
+        # de roles; en herencia HQ → sucursal es el HQ, no `request.business`).
+        permission_map = permissions_for_service(context['service'], membership.role, membership.business)
         request._permission_cache = permission_map
     return bool(permission_map.get(permission_code, False))
 
@@ -353,7 +356,14 @@ class HasEntitlement(BasePermission):
             return False
 
         # ── 2. Entitlement por plan: estado permite acceso pero plan no ───────
-        if required_entitlement not in resolved.entitlements:
+        # Una tupla/lista/set = alcanza con CUALQUIERA (p.ej. Clientes core:
+        # Gestión o Turnos, ver CUSTOMER_CORE_ENTITLEMENTS).
+        if isinstance(required_entitlement, str):
+            accepted = (required_entitlement,)
+        else:
+            accepted = tuple(required_entitlement)
+        if not any(code in resolved.entitlements for code in accepted):
+            required_entitlement = accepted[0]
             upgrade_hint = get_upgrade_hint(required_entitlement)
             self.message = {
                 'code': 'plan_entitlement_required',

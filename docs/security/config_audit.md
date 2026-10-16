@@ -115,6 +115,7 @@ Fase 2B implementada. Rehash transparente verificado.
 | `TRUSTED_PROXY_DEPTH`  | `1`       | ✅ OK  | Ajustar a `2` si CloudFront + ALB. Configurable por env. |
 | `CONN_MAX_AGE`         | `600`     | ✅ OK  | Reutiliza conexiones PG. Configurable por env. |
 | `MFA_ENCRYPTION_KEY`   | Desde env | ✅ OK  | Fernet key. Vacío en dev (MFA deshabilitado). Obligatorio en prod. |
+| `MP_TOKEN_ENCRYPTION_KEY` | Desde env | ✅ OK  | Fernet key dedicada (Slice 5B.3A/5B.3A.1). Cifra en reposo access_token/refresh_token de `MercadoPagoConnection`. Ausente/inválida → `apps.merchant_payments.checks.check_mp_token_encryption_key` la detecta en `manage.py check --deploy` (no bloquea comandos normales); en runtime, `crypto._get_fernet()` falla igual antes de tocar credenciales MP. Obligatoria antes de aplicar la migración `0002_encrypt_mp_tokens`. |
 
 ---
 
@@ -132,6 +133,7 @@ Fase 2B implementada. Rehash transparente verificado.
 | `CORS_ALLOWED_ORIGINS`  | URL(s) del frontend en prod.                    |
 | `POSTGRES_PASSWORD`     | Password de base de datos.                      |
 | `MFA_ENCRYPTION_KEY`    | Fernet key para TOTP secrets.                   |
+| `MP_TOKEN_ENCRYPTION_KEY` | Fernet key para tokens MercadoPago (Slice 5B.3A). Ver §6. |
 | `NEXT_PUBLIC_API_URL`   | URL del API para CSP connect-src en frontend.   |
 
 ### Solo para desarrollo (no deben estar en prod)

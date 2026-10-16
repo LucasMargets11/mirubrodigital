@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import EmailDelivery
+from .models import BusinessNotification, EmailDelivery
 
 
 @admin.register(EmailDelivery)
@@ -32,4 +32,13 @@ class EmailDeliveryAdmin(admin.ModelAdmin):
         "error_message",
         "metadata",
     ]
+    ordering = ["-created_at"]
+
+
+@admin.register(BusinessNotification)
+class BusinessNotificationAdmin(admin.ModelAdmin):
+    list_display = ["kind", "severity", "business", "title", "read_at", "created_at"]
+    list_filter = ["kind", "severity"]
+    search_fields = ["title", "dedupe_key", "related_object_id"]
+    readonly_fields = ["id", "created_at", "dedupe_key"]
     ordering = ["-created_at"]

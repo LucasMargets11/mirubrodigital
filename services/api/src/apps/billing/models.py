@@ -74,6 +74,7 @@ class Module(models.Model):
         ('both', 'Both'),
         ('menu_qr', 'Menu QR'),
         ('qr_reviews', 'QR de Reseñas'),
+        ('appointments', 'Turnos'),
     ]
     CATEGORY_CHOICES = [
         ('operation', 'Operation'),
@@ -103,6 +104,7 @@ class Bundle(models.Model):
         ('restaurant', 'Restaurant'),
         ('menu_qr', 'Menu QR'),
         ('qr_reviews', 'QR de Reseñas'),
+        ('appointments', 'Turnos'),
     ]
     PRICING_MODE_CHOICES = [
         ('fixed_price', 'Fixed Price'),
@@ -273,6 +275,7 @@ class SubscriptionV2(models.Model):
         MENU_QR_VISUAL = 'menu_qr_visual', 'Menú QR Visual'
         MENU_QR_MARCA  = 'menu_qr_marca',  'Menú QR Marca'
         QR_REVIEWS    = 'qr_reviews',     'QR de Reseñas'
+        APPOINTMENTS  = 'appointments',   'Turnos'
 
     class Provider(models.TextChoices):
         MERCADOPAGO = 'mercadopago', 'Mercado Pago'
@@ -743,15 +746,21 @@ class WebhookDelivery(models.Model):
     Processing statuses
     -------------------
     received    : saved, not yet processed
+    processing  : claimed by a worker (lease; see webhook_lifecycle)
     duplicated  : already seen; business logic skipped
-    ignored     : topic not handled
-    processed   : business logic ran successfully
-    failed      : business logic crashed; error_message populated
-    dead_letter : repeated failures; requires manual intervention
+    ignored     : known event deliberately not processed (error_category says why)
+    processed   : business logic ran successfully (or was already applied)
+    failed      : transient failure; retried at next_retry_at
+    dead_letter : failed max attempts; requires manual intervention
+
+    Slice 5B.4: every inbound delivery goes through the same lifecycle —
+    see apps.billing.webhook_lifecycle. Replay never needs the original
+    request: routing hints (flow/ref) are persisted on the row.
     """
 
     class ProcessingStatus(models.TextChoices):
         RECEIVED    = 'received',    'Recibido'
+        PROCESSING  = 'processing',  'Procesando'
         DUPLICATED  = 'duplicated',  'Duplicado'
         IGNORED     = 'ignored',     'Ignorado'
         PROCESSED   = 'processed',   'Procesado'
@@ -778,9 +787,22 @@ class WebhookDelivery(models.Model):
     processed_at    = models.DateTimeField(null=True, blank=True)
     created_at      = models.DateTimeField(auto_now_add=True)
 
+    # ── Slice 5B.4: replay metadata + retry lifecycle ─────────────────────────
+    # Deterministic routing hints taken from the notification_url query string
+    # (set server-side at Preference creation — see 5B.2.2). Persisted so a
+    # retry reproduces exactly the same routing without the original request.
+    flow            = models.CharField(max_length=32, blank=True)
+    ref             = models.CharField(max_length=128, blank=True)
+    attempts        = models.PositiveIntegerField(default=0)
+    last_attempt_at = models.DateTimeField(null=True, blank=True)
+    next_retry_at   = models.DateTimeField(null=True, blank=True)
+    # Short machine-readable reason for FAILED / DEAD_LETTER / IGNORED.
+    error_category  = models.CharField(max_length=64, blank=True)
+
     class Meta:
         indexes = [
             models.Index(fields=['topic', 'resource_id'],           name='wh_delivery_topic_res_idx'),
+            models.Index(fields=['processing_status', 'next_retry_at'], name='wh_delivery_stat_retry_idx'),
             models.Index(fields=['processing_status', 'received_at'], name='wh_delivery_stat_recv_idx'),
             models.Index(fields=['x_request_id'],                   name='wh_delivery_xreq_idx'),
             models.Index(fields=['payload_hash'],                   name='wh_delivery_hash_idx'),

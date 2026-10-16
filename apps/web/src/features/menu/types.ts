@@ -198,12 +198,7 @@ export type PublicMenuEngagement = {
     google_write_review_url: string | null;
 };
 
-export type MercadoPagoConnectionStatus = {
-    connected: boolean;
-    status: 'connected' | 'expired' | 'revoked' | 'error' | null;
-    mp_user_id: string | null;
-    updated_at: string | null;
-};
+export type { MercadoPagoConnectionStatus } from '@/features/merchant-payments/types';
 
 export type TipTransaction = {
     id: string;

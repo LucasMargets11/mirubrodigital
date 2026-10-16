@@ -18,10 +18,6 @@ from .views import (
     MenuLayoutBlockReorderView,
     MenuLayoutBlockApplyPresetView,
     MenuStructureView,
-    MercadoPagoConnectionStatusView,
-    MercadoPagoDisconnectView,
-    MercadoPagoOAuthCallbackView,
-    MercadoPagoOAuthStartView,
     PublicMenuConfigView,
     PublicMenuBySlugView,
     PublicMenuResolveView,
@@ -55,11 +51,9 @@ urlpatterns = [
     # ── Admin: engagement settings (tips + reviews) ────────────────────────
     path('engagement/', MenuEngagementSettingsView.as_view(), name='engagement-settings'),
     path('engagement/upload-qr/', MenuEngagementQRUploadView.as_view(), name='engagement-upload-qr'),
-    # ── Admin: Mercado Pago OAuth per-business (Fase 2) ────────────────────
-    path('mercadopago/connect/start/', MercadoPagoOAuthStartView.as_view(), name='mp-oauth-start'),
-    path('mercadopago/connect/callback/', MercadoPagoOAuthCallbackView.as_view(), name='mp-oauth-callback'),
-    path('mercadopago/connect/status/', MercadoPagoConnectionStatusView.as_view(), name='mp-oauth-status'),
-    path('mercadopago/connect/', MercadoPagoDisconnectView.as_view(), name='mp-oauth-disconnect'),
+    # Mercado Pago OAuth per-business (Fase 2) — moved to apps.merchant_payments,
+    # mounted directly in config.urls at 'mercadopago/' under this same prefix
+    # so the public URLs are unchanged.
     # ── Public: menu by slug ───────────────────────────────────────────────
     path('public/slug/<slug:slug>/', PublicMenuBySlugView.as_view(), name='public-by-slug'),
     path('public/resolve/<uuid:public_id>/', PublicMenuResolveView.as_view(), name='public-resolve'),

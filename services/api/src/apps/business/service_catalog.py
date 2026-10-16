@@ -42,6 +42,13 @@ SERVICE_CATALOG: Iterable[ServiceDefinition] = (
     features=['qr_reviews_core'],
     min_plan=BusinessPlan.QR_REVIEWS,
   ),
+  ServiceDefinition(
+    slug='appointments',
+    name='Turnos',
+    description='Gestioná tu agenda y recibí reservas online.',
+    features=['appointments_core'],
+    min_plan=BusinessPlan.APPOINTMENTS_BASE,
+  ),
 )
 
 
@@ -64,6 +71,8 @@ PLAN_ORDER = {
   BusinessPlan.MENU_QR_MARCA: 2,
   # QR de Reseñas
   BusinessPlan.QR_REVIEWS: 0,
+  # Turnos
+  BusinessPlan.APPOINTMENTS_BASE: 0,
 }
 
 

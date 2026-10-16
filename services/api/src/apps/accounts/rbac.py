@@ -22,6 +22,20 @@ GESTION_PERMISSIONS: Set[str] = {
   'void_invoices',
   'view_customers',
   'manage_customers',
+  # Notas internas del Customer (CUSTOMER 04C.1): separado de
+  # `manage_customers` porque cashier/staff editan clientes desde POS/ventas
+  # pero no deben escribir notas. Solo owner/admin/manager.
+  'manage_customer_notes',
+  # Recordatorios internos del Customer (CUSTOMER 07A): mismo criterio que
+  # las notas, solo owner/admin/manager.
+  'manage_customer_reminders',
+  # Preferencias/consentimiento de contacto del Customer (CUSTOMER 07D.1):
+  # mismo criterio que notas/recordatorios, solo owner/admin/manager.
+  'manage_customer_contact_preferences',
+  # Ver los avisos internos `customer_reminder_due` (CUSTOMER 07C.1):
+  # owner/admin/manager. Solo habilita ESE kind de BusinessNotification; el
+  # resto de las notificaciones sigue siendo owner/admin.
+  'view_customer_reminder_notifications',
   'view_cash',
   'manage_cash',
   'view_reports',
@@ -94,7 +108,30 @@ QR_REVIEWS_PERMISSIONS: Set[str] = {
   'manage_users',
 }
 
-ALL_PERMISSIONS: Set[str] = GESTION_PERMISSIONS.union(RESTAURANT_PERMISSIONS).union(MENU_QR_PERMISSIONS).union(QR_REVIEWS_PERMISSIONS)
+APPOINTMENTS_PERMISSIONS: Set[str] = {
+  'view_appointments',    # Read categorías/servicios de Turnos
+  'manage_appointments',  # Create/edit/deactivate categorías/servicios de Turnos
+  'manage_settings',
+  'manage_users',
+  # Clientes core compartido (Turnos CUSTOMER 02): mismas keys que Gestión.
+  # Solo el padrón/ficha; ventas y presupuestos no forman parte de Turnos.
+  'view_customers',
+  'manage_customers',
+  'manage_customer_notes',  # CUSTOMER 04C.1: owner/admin/manager
+  'manage_customer_reminders',  # CUSTOMER 07A: owner/admin/manager
+  'manage_customer_contact_preferences',  # CUSTOMER 07D.1: owner/admin/manager
+  'view_customer_reminder_notifications',  # CUSTOMER 07C.1: owner/admin/manager
+  # Reglas de recordatorios automáticos (CUSTOMER 07B): solo owner/admin.
+  # El manager las ve (`manage_settings`) pero no las cambia.
+  'manage_reminder_automations',
+  # Leads del agente de WhatsApp (AGENT 02A). Todavía sin endpoints:
+  # view/manage owner/admin/manager; canales del agente solo owner/admin.
+  'view_leads',
+  'manage_leads',
+  'manage_agent_channels',
+}
+
+ALL_PERMISSIONS: Set[str] = GESTION_PERMISSIONS.union(RESTAURANT_PERMISSIONS).union(MENU_QR_PERMISSIONS).union(QR_REVIEWS_PERMISSIONS).union(APPOINTMENTS_PERMISSIONS)
 
 SERVICE_ROLE_PERMISSIONS: Dict[str, Dict[str, Set[str]]] = {
   'gestion': {
@@ -247,6 +284,15 @@ SERVICE_ROLE_PERMISSIONS: Dict[str, Dict[str, Set[str]]] = {
     'manager': QR_REVIEWS_PERMISSIONS - {'manage_users'},
     'viewer': {
       'manage_reviews',  # read-only access to review config
+    },
+  },
+  'appointments': {
+    'owner': set(APPOINTMENTS_PERMISSIONS),
+    'admin': set(APPOINTMENTS_PERMISSIONS),
+    'manager': APPOINTMENTS_PERMISSIONS - {'manage_users', 'manage_reminder_automations', 'manage_agent_channels'},
+    'viewer': {
+      'view_appointments',
+      'view_customers',
     },
   },
 }

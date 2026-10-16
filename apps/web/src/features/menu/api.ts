@@ -2,7 +2,6 @@ import { apiDelete, apiGet, apiGetBlob, apiPatch, apiPost } from '@/lib/api/clie
 
 import type {
     CreateTipPreferenceResponse,
-    MercadoPagoConnectionStatus,
     MenuBrandingSettings,
     MenuCategory,
     MenuCategoryPayload,
@@ -151,17 +150,12 @@ export function uploadEngagementQRImage(file: File) {
 // Mercado Pago OAuth per-business (Fase 2)
 // ---------------------------------------------------------------------------
 
-export function getMercadoPagoConnectionStatus() {
-    return apiGet<MercadoPagoConnectionStatus>('/api/v1/menu/mercadopago/connect/status/');
-}
-
-export function startMercadoPagoOAuth() {
-    return apiGet<{ auth_url: string }>('/api/v1/menu/mercadopago/connect/start/');
-}
-
-export function disconnectMercadoPago() {
-    return apiDelete<{ detail: string }>('/api/v1/menu/mercadopago/connect/');
-}
+// Shared with Turnos — lives in features/merchant-payments (Slice 7B.2).
+export {
+    disconnectMercadoPago,
+    getMercadoPagoConnectionStatus,
+    startMercadoPagoOAuth,
+} from '@/features/merchant-payments/api';
 
 // ---------------------------------------------------------------------------
 // Public: Tip preferences (Fase 2)

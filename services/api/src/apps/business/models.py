@@ -15,6 +15,7 @@ class Business(models.Model):
     ('menu_qr_visual', 'Menú QR Visual'),
     ('menu_qr_marca', 'Menú QR Marca'),
     ('qr_reviews', 'QR de Reseñas'),
+    ('appointments', 'Turnos'),
   ]
 
   # ── Phase 2A: canonical service enum ─────────────────────────────────────
@@ -26,6 +27,7 @@ class Business(models.Model):
     MENU_QR_VISUAL = 'menu_qr_visual', 'Menú QR Visual'
     MENU_QR_MARCA  = 'menu_qr_marca',  'Menú QR Marca'
     QR_REVIEWS   = 'qr_reviews',    'QR de Reseñas'
+    APPOINTMENTS = 'appointments',  'Turnos'
 
   # ── Status choices (Phase 2A extends legacy 3-value set) ─────────────────
   STATUS_CHOICES = [
@@ -128,6 +130,9 @@ class BusinessPlan(models.TextChoices):
   QR_REVIEWS = 'qr_reviews', 'QR de Reseñas'
   QR_REVIEWS_BASE = 'qr_reviews_base', 'Reseñas Base'
   QR_REVIEWS_PRO = 'qr_reviews_pro', 'Reseñas Pro'
+
+  # Turnos (tentative — sin pricing comercial definitivo aún)
+  APPOINTMENTS_BASE = 'appointments_base', 'Turnos Base'
 
   # Legacy plans (mantener para compatibilidad)
   START = 'start', 'Start (Legacy)'
@@ -388,6 +393,14 @@ class BusinessBranding(models.Model):
     max_length=7,
     blank=True,
     help_text='Color hex (ej: #0066CC)'
+  )
+  # Slice 6D: contacto público por WhatsApp (opt-in explícito). Se guarda
+  # normalizado como `+<E.164>`; ver `apps.business.whatsapp`.
+  whatsapp_phone = models.CharField(
+    max_length=20,
+    blank=True,
+    default='',
+    help_text='WhatsApp público del negocio (formato internacional, ej: +5491112345678)'
   )
   
   created_at = models.DateTimeField(auto_now_add=True)

@@ -1,5 +1,6 @@
 import mercadopago
 from django.conf import settings
+from urllib.parse import quote
 import logging
 
 logger = logging.getLogger(__name__)
@@ -523,8 +524,19 @@ class MercadoPagoService:
             "auto_return": "approved",
         }
         if base_public_url:
+            # flow=billing&ref=<external_reference> lets the webhook resolve the
+            # expected PendingSubscriptionChange from the local database BEFORE
+            # it fetches the payment — the fetch always uses the platform's own
+            # token (this method is only ever called for Business → MiRubro
+            # charges), but the hint lets the webhook confirm domain + record
+            # without a speculative "classification" fetch. It is a routing
+            # hint, not proof of payment: the webhook still requires the
+            # fetched payment's own external_reference to match `ref`. MP
+            # echoes the notification_url query string verbatim on every
+            # callback; it is never client-supplied.
+            webhook_base = f"{base_public_url.rstrip('/')}/api/v1/billing/mercadopago/webhook"
             preference_data["notification_url"] = (
-                f"{base_public_url.rstrip('/')}/api/v1/billing/mercadopago/webhook"
+                f"{webhook_base}?flow=billing&ref={quote(external_reference)}"
             )
         else:
             logger.warning(

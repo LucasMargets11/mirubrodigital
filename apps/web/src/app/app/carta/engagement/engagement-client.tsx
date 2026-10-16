@@ -2,7 +2,7 @@
 
 import { EngagementSettingsSection } from '@/components/app/engagement-settings-section';
 
-export function EngagementPageClient() {
+export function EngagementPageClient({ canManageMercadoPago }: { canManageMercadoPago: boolean }) {
     return (
         <div className="p-6 space-y-6 animate-in fade-in">
             <div>
@@ -12,7 +12,7 @@ export function EngagementPageClient() {
                 </p>
             </div>
 
-            <EngagementSettingsSection />
+            <EngagementSettingsSection canManageMercadoPago={canManageMercadoPago} />
         </div>
     );
 }

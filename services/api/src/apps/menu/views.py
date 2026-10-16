@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-import base64
 import hashlib
 import hmac
 import io
 import os
-import secrets
-import urllib.parse
+from urllib.parse import quote
 
-import requests
 import segno
 from django.conf import settings
 from django.core.cache import cache
@@ -29,13 +26,16 @@ from apps.business.service_policy import require_service
 from rest_framework.throttling import ScopedRateThrottle
 from .importer import MenuImportError, apply_menu_import, export_menu_to_workbook
 from .qr_entitlements import resolve_menu_qr_flags, get_subscription_for_business
+from apps.merchant_payments.services import (
+    MerchantPaymentConnectionUnavailable,
+    get_merchant_mp_client,
+)
 from .models import (
     MenuBrandingSettings,
     MenuCategory,
     MenuEngagementSettings,
     MenuLayoutBlock,
     MenuLayoutBlockCategory,
-    MercadoPagoConnection,
     MenuItem,
     PublicMenuConfig,
     TipTransaction,
@@ -54,7 +54,6 @@ from .serializers import (
     MenuLayoutBlockSerializer,
     MenuLayoutBlockReorderSerializer,
     MenuStructureCategorySerializer,
-    MercadoPagoConnectionStatusSerializer,
     PublicMenuConfigSerializer,
     PublicMenuCategorySerializer,
     PublicMenuLayoutBlockSerializer,
@@ -775,158 +774,11 @@ class MenuEngagementQRUploadView(APIView):
 
 
 # ---------------------------------------------------------------------------
-# Private: Mercado Pago OAuth per-business (Fase 2)
+# Mercado Pago OAuth per-business views moved to apps.merchant_payments
+# (Slice 5A extraction) — see apps/merchant_payments/views.py. Tips resolves
+# its MP client via apps.merchant_payments.services (Slice 5B.1), imported
+# above.
 # ---------------------------------------------------------------------------
-
-MP_OAUTH_BASE = 'https://auth.mercadopago.com.ar/authorization'
-MP_TOKEN_URL = 'https://api.mercadopago.com/oauth/token'
-_STATE_CACHE_PREFIX = 'mp_oauth_state:'
-_STATE_TTL = 600  # 10 minutes
-
-
-class MercadoPagoOAuthStartView(APIView):
-    """Start the OAuth flow for connecting a business's Mercado Pago account."""
-    permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
-    required_permission = 'manage_settings'
-
-    def get(self, request):
-        client_id = getattr(settings, 'MP_CLIENT_ID', None)
-        redirect_uri = getattr(settings, 'MP_REDIRECT_URI', None)
-        if not client_id or not redirect_uri:
-            return Response(
-                {'detail': 'MP OAuth no configurado en este servidor.'},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-
-        business = getattr(request, 'business')
-        nonce = secrets.token_urlsafe(24)
-        state_payload = f"{business.id}:{nonce}"
-        state_token = base64.urlsafe_b64encode(state_payload.encode()).decode()
-
-        # Store in cache to validate on callback
-        cache.set(f"{_STATE_CACHE_PREFIX}{state_token}", business.id, _STATE_TTL)
-
-        params = {
-            'client_id': client_id,
-            'response_type': 'code',
-            'platform_id': 'mp',
-            'redirect_uri': redirect_uri,
-            'state': state_token,
-        }
-        auth_url = f"{MP_OAUTH_BASE}?{urllib.parse.urlencode(params)}"
-        return Response({'auth_url': auth_url})
-
-
-class MercadoPagoOAuthCallbackView(APIView):
-    """Handle the OAuth callback and store tokens for a business."""
-    permission_classes = [AllowAny]  # MP redirects here anonymously
-
-    def get(self, request):
-        code = request.query_params.get('code')
-        state_token = request.query_params.get('state')
-        error = request.query_params.get('error')
-
-        frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')
-
-        if error:
-            logger.warning(f"[MP OAuth] Error from MP: {error}")
-            return self._redirect_error(frontend_url, error)
-
-        if not code or not state_token:
-            return self._redirect_error(frontend_url, 'missing_params')
-
-        # Validate state
-        cache_key = f"{_STATE_CACHE_PREFIX}{state_token}"
-        business_id = cache.get(cache_key)
-        if not business_id:
-            logger.warning("[MP OAuth] State token expired or invalid")
-            return self._redirect_error(frontend_url, 'state_expired')
-
-        cache.delete(cache_key)
-
-        client_id = getattr(settings, 'MP_CLIENT_ID', '')
-        client_secret = getattr(settings, 'MP_CLIENT_SECRET', '')
-        redirect_uri = getattr(settings, 'MP_REDIRECT_URI', '')
-
-        # Exchange code for tokens
-        try:
-            resp = requests.post(MP_TOKEN_URL, json={
-                'client_id': client_id,
-                'client_secret': client_secret,
-                'code': code,
-                'grant_type': 'authorization_code',
-                'redirect_uri': redirect_uri,
-            }, timeout=15)
-            resp.raise_for_status()
-            token_data = resp.json()
-        except Exception as exc:
-            logger.error(f"[MP OAuth] Token exchange failed: {exc}", exc_info=True)
-            return self._redirect_error(frontend_url, 'token_exchange_failed')
-
-        from apps.business.models import Business
-        try:
-            business = Business.objects.get(pk=business_id)
-        except Business.DoesNotExist:
-            return self._redirect_error(frontend_url, 'business_not_found')
-
-        import datetime
-        expires_in = token_data.get('expires_in', 0)
-        expires_at = timezone.now() + datetime.timedelta(seconds=expires_in) if expires_in else None
-
-        MercadoPagoConnection.objects.update_or_create(
-            business=business,
-            defaults={
-                'access_token': token_data.get('access_token', ''),
-                'refresh_token': token_data.get('refresh_token', ''),
-                'token_expires_at': expires_at,
-                'mp_user_id': str(token_data.get('user_id', '')),
-                'scope': token_data.get('scope', ''),
-                'status': 'connected',
-                'last_error': '',
-            },
-        )
-
-        logger.info(f"[MP OAuth] Connected business {business_id} → MP user {token_data.get('user_id')}")
-        from django.http import HttpResponseRedirect
-        return HttpResponseRedirect(f"{frontend_url}/app/settings/online-menu?mp_connected=1")
-
-    def _redirect_error(self, frontend_url, reason):
-        from django.http import HttpResponseRedirect
-        return HttpResponseRedirect(
-            f"{frontend_url}/app/settings/online-menu?mp_error={urllib.parse.quote(reason)}"
-        )
-
-
-class MercadoPagoConnectionStatusView(APIView):
-    """Returns the MP connection status for the panel (no tokens exposed)."""
-    permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
-    required_permission = 'manage_settings'
-
-    def get(self, request):
-        business = getattr(request, 'business')
-        try:
-            conn = business.mp_connection
-            return Response({
-                'connected': conn.status == 'connected',
-                'status': conn.status,
-                'mp_user_id': conn.mp_user_id,
-                'updated_at': conn.updated_at,
-            })
-        except MercadoPagoConnection.DoesNotExist:
-            return Response({'connected': False, 'status': None, 'mp_user_id': None, 'updated_at': None})
-
-
-class MercadoPagoDisconnectView(APIView):
-    """Revoke/delete the MP connection for the business."""
-    permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
-    required_permission = 'manage_settings'
-
-    def delete(self, request):
-        business = getattr(request, 'business')
-        deleted, _ = MercadoPagoConnection.objects.filter(business=business).delete()
-        if deleted:
-            return Response({'detail': 'Conexión con Mercado Pago eliminada.'})
-        return Response({'detail': 'No había conexión activa.'}, status=status.HTTP_404_NOT_FOUND)
 
 
 # ---------------------------------------------------------------------------
@@ -937,7 +789,8 @@ class PublicTipCreatePreferenceView(APIView):
     """
     POST /api/v1/menu/public/slug/{slug}/tips/create-preference/
     Creates a TipTransaction + MP preference and returns the init_point.
-    Requires the business to have an active MercadoPagoConnection.
+    Requires the business to have an active merchant Mercado Pago connection
+    (apps.merchant_payments) — no fallback to the platform's global token.
     """
     permission_classes = [AllowAny]
 
@@ -960,27 +813,18 @@ class PublicTipCreatePreferenceView(APIView):
         if not eng.tips_enabled or eng.tips_mode != 'mp_oauth_checkout':
             return Response({'detail': 'Propinas dinámicas no habilitadas para este menú.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # ── Resolve access token ─────────────────────────────────────────────
-        # Priority 1: per-business OAuth connection (Fase 2 / production)
-        # Priority 2: global MP_ACCESS_TOKEN from settings (DEV / testing fallback)
-        access_token = None
+        # ── Resolve merchant MP client ───────────────────────────────────────
+        # Merchant-side payments (Customer → Business) MUST use the Business's
+        # own Mercado Pago connection. No fallback to the platform's global
+        # token — that belongs to apps.billing (Business → MiRubro) only.
         try:
-            conn = business.mp_connection
-            if conn.status == 'connected':
-                access_token = conn.access_token
-            else:
-                logger.warning(f"[TipPreference] MP connection status={conn.status} for business {business.id}")
-        except MercadoPagoConnection.DoesNotExist:
-            pass
-
-        if not access_token:
-            # Fallback: global access token (DEV / when OAuth not configured yet)
-            global_token = getattr(settings, 'MP_ACCESS_TOKEN', None)
-            if global_token:
-                access_token = global_token
-                logger.info(f"[TipPreference] Using global MP_ACCESS_TOKEN for business {business.id} (DEV mode)")
-            else:
-                return Response({'detail': 'Pago no disponible. No hay credenciales de Mercado Pago configuradas.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            sdk = get_merchant_mp_client(business)
+        except MerchantPaymentConnectionUnavailable as exc:
+            logger.warning(f"[TipPreference] {exc}")
+            return Response(
+                {'detail': 'Pago no disponible. Este negocio no tiene Mercado Pago conectado.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
         serializer = TipCreatePreferenceSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -1000,9 +844,7 @@ class PublicTipCreatePreferenceView(APIView):
             table_ref=table_ref,
         )
 
-        # Build preference via MP
-        import mercadopago
-        sdk = mercadopago.SDK(access_token)
+        # Build preference via MP (sdk resolved above from the business's own connection)
         # back_urls point to the *frontend* (user's browser is redirected here after payment)
         # build_public_menu_url() uses PUBLIC_MENU_BASE_URL / FRONTEND_URL — correct for browser redirects
         base_url = build_public_menu_url(slug).rstrip('/')
@@ -1032,9 +874,16 @@ class PublicTipCreatePreferenceView(APIView):
         # notification_url must be the API's public URL (ngrok in DEV, real domain in prod).
         # Only BASE_PUBLIC_URL is appropriate here — frontend URLs (FRONTEND_URL / PUBLIC_MENU_BASE_URL)
         # point to port 3000 (Next.js) and would cause MP to misdeliver webhook POSTs.
+        #
+        # flow=tip&ref=<external_reference> lets the webhook resolve the owning
+        # Business from the local TipTransaction BEFORE it re-fetches the payment,
+        # so the re-fetch can use that Business's own Mercado Pago connection
+        # instead of the platform's global token. MP echoes the notification_url
+        # query string verbatim on every callback; it is never client-supplied.
         api_public_url = getattr(settings, 'BASE_PUBLIC_URL', None)
         if api_public_url:
-            pref_data['notification_url'] = f"{api_public_url.rstrip('/')}/api/v1/billing/mercadopago/webhook"
+            webhook_base = f"{api_public_url.rstrip('/')}/api/v1/billing/mercadopago/webhook"
+            pref_data['notification_url'] = f"{webhook_base}?flow=tip&ref={quote(ext_ref)}"
         else:
             logger.warning("[TipPreference] BASE_PUBLIC_URL not set — notification_url omitted. MP webhooks will NOT fire in DEV.")
 
@@ -1120,25 +969,18 @@ class PublicTipVerifyView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # ── Resolve access token (same priority as create-preference) ────────
-        access_token = None
+        # ── Resolve merchant MP client (same rule as create-preference: the
+        # business's own connection, never the platform's global token) ─────
         try:
-            conn = tip.business.mp_connection
-            if conn.status == 'connected':
-                access_token = conn.access_token
-        except Exception:
-            pass
-        if not access_token:
-            access_token = getattr(settings, 'MP_ACCESS_TOKEN', None)
-        if not access_token:
+            sdk = get_merchant_mp_client(tip.business)
+        except MerchantPaymentConnectionUnavailable as exc:
+            logger.warning(f"[TipVerify] {exc}")
             return Response(
-                {'detail': 'No hay credenciales de Mercado Pago configuradas.'},
+                {'detail': 'No hay credenciales de Mercado Pago configuradas para este negocio.'},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
         # ── Query MP Payments API ────────────────────────────────────────────
-        import mercadopago
-        sdk = mercadopago.SDK(access_token)
         try:
             result = sdk.payment().get(payment_id)
         except Exception as exc:

@@ -55,7 +55,12 @@ function MPConnectionBadge({ status }: { status: MercadoPagoConnectionStatus | n
 }
 
 // ─── main section ─────────────────────────────────────────────────────────────
-export function EngagementSettingsSection() {
+export function EngagementSettingsSection({
+    canManageMercadoPago = false,
+}: {
+    /** OWNER/ADMIN (ver `features/merchant-payments/permissions`); el resto solo ve el estado. */
+    canManageMercadoPago?: boolean
+} = {}) {
     const [eng, setEng] = useState<MenuEngagementSettings | null>(null)
     const [mpStatus, setMpStatus] = useState<MercadoPagoConnectionStatus | null>(null)
     const [loading, setLoading] = useState(true)
@@ -132,6 +137,7 @@ export function EngagementSettingsSection() {
     }
 
     async function handleConnectMP() {
+        if (!canManageMercadoPago) return
         setError(null)
         try {
             const { auth_url } = await startMercadoPagoOAuth()
@@ -142,6 +148,7 @@ export function EngagementSettingsSection() {
     }
 
     async function handleDisconnectMP() {
+        if (!canManageMercadoPago) return
         if (!confirm('¿Desconectar Mercado Pago? Las propinas dinámicas dejarán de funcionar.')) return
         setError(null)
         try {
@@ -283,7 +290,7 @@ export function EngagementSettingsSection() {
                                         <p className="text-xs font-semibold mb-1">Conexión con Mercado Pago</p>
                                         <MPConnectionBadge status={mpStatus} />
                                     </div>
-                                    <div className="flex gap-2 flex-shrink-0">
+                                    {canManageMercadoPago && <div className="flex gap-2 flex-shrink-0">
                                         {mpStatus?.connected ? (
                                             <Button
                                                 type="button"
@@ -301,12 +308,17 @@ export function EngagementSettingsSection() {
                                                 onClick={handleConnectMP}
                                                 className="bg-[#009ee3] hover:bg-[#007ab8] text-white"
                                             >
-                                                Conectar Mercado Pago
+                                                {mpStatus?.status ? 'Reconectar' : 'Conectar Mercado Pago'}
                                             </Button>
                                         )}
-                                    </div>
+                                    </div>}
                                 </div>
-                                {!mpStatus?.connected && (
+                                {!canManageMercadoPago && (
+                                    <p className="text-xs text-slate-500">
+                                        Solo el dueño o un administrador del negocio puede conectar o desconectar Mercado Pago.
+                                    </p>
+                                )}
+                                {canManageMercadoPago && !mpStatus?.connected && (
                                     <p className="text-xs text-slate-500">
                                         Conectá tu cuenta de Mercado Pago para recibir propinas con monto variable directamente. Los clientes eligen el monto y pagan con cualquier método de MP.
                                     </p>
