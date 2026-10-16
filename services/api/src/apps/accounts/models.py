@@ -421,6 +421,7 @@ class AccessAuditLog(models.Model):
         ('ADMIN_SUSPICIOUS_AUTH',      'Admin Suspicious Auth Pattern'),
         # ── Admin Backoffice Phase 2 ──────────────────────────────────────
         ('ADMIN_CLIENT_VIEWED',        'Admin Client Viewed'),
+        ('ADMIN_QR_REVIEWS_CONFIG_UPDATED', 'Admin QR Reviews Config Updated'),
         ('ADMIN_SUBSCRIPTION_VIEWED',  'Admin Subscription Viewed'),
         ('ADMIN_SUBSCRIPTION_CANCELED', 'Admin Subscription Canceled'),
         ('ADMIN_COMPLIMENTARY_ACCESS_GRANTED', 'Admin Complimentary Access Granted'),

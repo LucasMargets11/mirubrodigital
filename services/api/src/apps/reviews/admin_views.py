@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 # Fields accepted by PATCH.
 _PATCHABLE_FIELDS = {
+    'enabled',
     'slug',
     'google_place_id',
     'google_place_name',
@@ -110,8 +111,20 @@ class AdminQRReviewsConfigView(APIView):
                 status=400,
             )
 
+        if 'enabled' in data and type(data['enabled']) is not bool:
+            return Response(
+                {'detail': 'El campo enabled debe ser un booleano JSON.'},
+                status=400,
+            )
+
         try:
-            snapshot = update_admin_qr_reviews_config(biz, data, actor=request.user)
+            snapshot = update_admin_qr_reviews_config(
+                biz,
+                data,
+                actor=request.user,
+                ip_address=request.META.get('REMOTE_ADDR'),
+                user_agent=request.META.get('HTTP_USER_AGENT', ''),
+            )
         except ValueError as exc:
             return Response({'detail': str(exc)}, status=400)
 
@@ -120,14 +133,4 @@ class AdminQRReviewsConfigView(APIView):
             '[Admin] QR Reviews config updated business=%s fields=%s actor=%s',
             biz.id, changed_fields, request.user.email,
         )
-        log_platform_action(
-            action='ADMIN_CLIENT_VIEWED',
-            actor=request.user,
-            entity_type='business',
-            entity_id=str(biz.id),
-            business=biz,
-            ip_address=request.META.get('REMOTE_ADDR'),
-            user_agent=request.META.get('HTTP_USER_AGENT', ''),
-        )
-
         return Response(snapshot)

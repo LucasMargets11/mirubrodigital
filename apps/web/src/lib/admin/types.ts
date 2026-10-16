@@ -801,6 +801,7 @@ export type AdminQRReviewsConfig = {
 };
 
 export type AdminQRReviewsConfigPatch = {
+  enabled?: boolean;
   slug?: string;
   google_place_id?: string;
   google_place_name?: string;
