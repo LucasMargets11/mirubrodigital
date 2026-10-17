@@ -14,17 +14,23 @@ Covers:
 from __future__ import annotations
 
 import json
+import threading
+import time
 import uuid
+from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
+from django.apps import apps as django_apps
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.db import connection
+from django.test import TestCase, TransactionTestCase
 from django.utils import timezone
 from rest_framework.test import APIRequestFactory
 
 from apps.billing.models import (
     BillingEvent,
+    MpCheckoutSession,
     PaymentAttempt,
     PaymentEvent,
     Plan,
@@ -34,6 +40,7 @@ from apps.billing.models import (
 )
 from apps.billing.services.commercial.apply import apply_subscription_change
 from apps.billing.views import MercadoPagoWebhookView, _resolve_subscriptionv2
+from apps.accounts.models import Membership
 from apps.business.models import Business, Subscription as BizSubscription
 
 User = get_user_model()
@@ -125,18 +132,55 @@ def _make_legacy_billing_sub(biz, preapproval_id=None):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 1. StartSubscriptionView — SubscriptionV2 created at birth
+# 1. StartSubscriptionView — secure, idempotent checkout start
 # ─────────────────────────────────────────────────────────────────────────────
 
-class StartSubscriptionViewBirthPathTest(TestCase):
-    """StartSubscriptionView must create SubscriptionV2 at the same time as the intent."""
+INVALID_CREDENTIALS = {'error': 'Credenciales inválidas.'}
+
+
+def _fake_mp_plan(**kwargs):
+    """Stand-in for MercadoPagoService.create_preapproval_plan: unique id per call."""
+    plan_id = f'preapp-plan-{uuid.uuid4()}'
+    url = f'https://mp.example.com/checkout/{plan_id}'
+    return {'id': plan_id, 'init_point': url, 'sandbox_init_point': url}
+
+
+class StartSubscriptionViewContractTest(TestCase):
+    """
+    Contract of POST /billing/start-subscription:
+      - 201 when a checkout session is created (one MP plan creation);
+      - 200 when the open session for the same user + business + plan is
+        reused (same checkout_session_id / init_point, no MP call);
+      - 401 with a generic message when an existing account does not
+        authenticate (wrong password, or no usable password), with no writes
+        and no MP call.
+    """
 
     def setUp(self):
         self.factory = APIRequestFactory()
         self.plan = _make_plan("plan_start_001")
+        # checkout_session_service imports MercadoPagoService locally at call
+        # time, so the mock must replace the symbol at its source module.
+        patcher = patch('apps.billing.mp_service.MercadoPagoService')
+        self.MockMP = patcher.start()
+        self.addCleanup(patcher.stop)
+        self.mp = self.MockMP.return_value
+        self.mp.create_preapproval_plan.side_effect = _fake_mp_plan
 
-    def _post(self, payload):
+    def tearDown(self):
+        self.assertEqual(_network_guard.target_calls, [], 'Real HTTP request attempted')
+
+    # ── helpers ───────────────────────────────────────────────────────────────
+
+    def _post(self, **overrides):
         from apps.billing.views import StartSubscriptionView
+        payload = {
+            'email': 'newuser@test.com',
+            'password': 'Passw0rd!',
+            'business_name': 'My Biz',
+            'plan_code': self.plan.code,
+        }
+        payload.update(overrides)
         request = self.factory.post(
             '/api/v1/billing/start-subscription',
             data=json.dumps(payload),
@@ -144,110 +188,234 @@ class StartSubscriptionViewBirthPathTest(TestCase):
         )
         return StartSubscriptionView.as_view()(request)
 
-    def _mock_mp_service(self):
-        # checkout_session_service imports MercadoPagoService locally at call
-        # time, so the mock must replace the symbol at its source module.
-        mock_svc = MagicMock()
-        mock_svc.create_preapproval_plan.return_value = {
-            'id': f'preapp-plan-{uuid.uuid4()}',
-            'init_point': 'https://mp.example.com/checkout',
-            'sandbox_init_point': 'https://mp.example.com/checkout',
-        }
-        return mock_svc
+    def _mp_calls(self):
+        return self.mp.create_preapproval_plan.call_count
 
-    def _assert_mp_mocked(self, MockMP):
-        # Fail closed: if the patch stops intercepting, the real service would
-        # be used and the network guard would raise instead of reaching MP.
-        self.assertTrue(MockMP.called, 'MercadoPagoService was not mocked')
-        self.assertTrue(
-            MockMP.return_value.create_preapproval_plan.called,
-            'create_preapproval_plan was not intercepted by the mock',
+    def _existing_user(self, email='owner@test.com', password='Passw0rd!', usable=True):
+        user = User.objects.create_user(username=email, email=email, password=password)
+        if not usable:
+            user.set_unusable_password()
+            user.save(update_fields=['password'])
+        biz = Business.objects.create(name=f'Biz {email}', default_service='gestion', status='onboarding')
+        Membership.objects.create(user=user, business=biz, role='owner')
+        return user, biz
+
+    def _snapshot(self, user):
+        user.refresh_from_db()
+        return {
+            'users': User.objects.count(),
+            'businesses': Business.objects.count(),
+            'memberships': Membership.objects.count(),
+            'intents': SubscriptionIntent.objects.count(),
+            'sessions': list(MpCheckoutSession.objects.values_list('id', 'status', 'updated_at')),
+            'v2': SubscriptionV2.objects.count(),
+            'password': user.password,
+            'last_login': user.last_login,
+        }
+
+    # ── new users ─────────────────────────────────────────────────────────────
+
+    def test_new_user_returns_201_and_creates_one_session(self):
+        response = self._post()
+
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertTrue(self.MockMP.called, 'MercadoPagoService was not mocked')
+        self.assertEqual(self._mp_calls(), 1)
+        self.assertFalse(response.data['reused'])
+
+        session = MpCheckoutSession.objects.get()
+        business = Business.objects.get(name='My Biz')
+        self.assertEqual(response.data['checkout_session_id'], str(session.id))
+        self.assertEqual(response.data['init_point'], session.provider_checkout_url)
+        self.assertEqual(session.tenant, business)
+        self.assertEqual(session.status, MpCheckoutSession.Status.CHECKOUT_CREATED)
+        intent = SubscriptionIntent.objects.get(user__email='newuser@test.com')
+        self.assertEqual(intent.tenant, business)
+        self.assertEqual(intent.mp_init_point, session.provider_checkout_url)
+
+    def test_new_user_retry_same_intent_returns_200_and_same_session(self):
+        r1 = self._post()
+        r2 = self._post()
+
+        self.assertEqual(r1.status_code, 201, r1.data)
+        self.assertEqual(r2.status_code, 200, r2.data)
+        self.assertTrue(r2.data['reused'])
+        self.assertEqual(r2.data['checkout_session_id'], r1.data['checkout_session_id'])
+        self.assertEqual(r2.data['init_point'], r1.data['init_point'])
+        self.assertEqual(self._mp_calls(), 1)
+        self.assertEqual(MpCheckoutSession.objects.count(), 1)
+        self.assertEqual(User.objects.filter(email='newuser@test.com').count(), 1)
+        self.assertEqual(Business.objects.filter(name='My Biz').count(), 1)
+
+    # ── existing users ────────────────────────────────────────────────────────
+
+    def test_existing_user_correct_password_first_checkout_returns_201(self):
+        user, biz = self._existing_user()
+
+        r1 = self._post(email=user.email, password='Passw0rd!')
+        self.assertEqual(r1.status_code, 201, r1.data)
+        self.assertEqual(self._mp_calls(), 1)
+        session = MpCheckoutSession.objects.get()
+        self.assertEqual((session.user, session.tenant), (user, biz))
+
+        r2 = self._post(email=user.email, password='Passw0rd!')
+        self.assertEqual(r2.status_code, 200, r2.data)
+        self.assertEqual(r2.data['checkout_session_id'], r1.data['checkout_session_id'])
+        self.assertEqual(self._mp_calls(), 1)
+        self.assertEqual(Business.objects.count(), 1)
+
+    def test_existing_user_wrong_password_returns_401_without_side_effects(self):
+        user, _ = self._existing_user()
+        before = self._snapshot(user)
+
+        response = self._post(email=user.email, password='wrong-password')
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.data, INVALID_CREDENTIALS)
+        self.assertEqual(self._mp_calls(), 0)
+        self.assertEqual(self._snapshot(user), before)
+
+    def test_wrong_password_does_not_expose_open_session(self):
+        r1 = self._post()
+        response = self._post(password='wrong-password')
+
+        self.assertEqual(r1.status_code, 201, r1.data)
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.data, INVALID_CREDENTIALS)
+        self.assertEqual(self._mp_calls(), 1)
+
+    def test_account_without_usable_password_is_rejected(self):
+        """Google-only accounts (unusable password) cannot be taken over here."""
+        user, _ = self._existing_user(email='google@test.com', usable=False)
+        before = self._snapshot(user)
+
+        for password in ('Passw0rd!', '!'):
+            response = self._post(email=user.email, password=password)
+            self.assertEqual(response.status_code, 401)
+            self.assertEqual(response.data, INVALID_CREDENTIALS)
+
+        self.assertEqual(self._mp_calls(), 0)
+        self.assertEqual(self._snapshot(user), before)
+
+    # ── session reuse boundaries ──────────────────────────────────────────────
+
+    def test_failed_session_does_not_block_new_checkout(self):
+        r1 = self._post()
+        MpCheckoutSession.objects.update(status=MpCheckoutSession.Status.FAILED)
+
+        r2 = self._post()
+
+        self.assertEqual(r2.status_code, 201, r2.data)
+        self.assertNotEqual(r2.data['checkout_session_id'], r1.data['checkout_session_id'])
+        self.assertEqual(self._mp_calls(), 2)
+        self.assertEqual(
+            MpCheckoutSession.objects.get(id=r1.data['checkout_session_id']).status,
+            MpCheckoutSession.Status.FAILED,
         )
-        self.assertEqual(_network_guard.target_calls, [], 'Real HTTP request attempted')
 
-    @patch('apps.billing.mp_service.MercadoPagoService')
-    def test_creates_subscriptionv2_on_new_signup(self, MockMP):
-        MockMP.return_value = self._mock_mp_service()
+    def test_expired_session_does_not_block_new_checkout(self):
+        r1 = self._post()
+        MpCheckoutSession.objects.update(expires_at=timezone.now() - timedelta(minutes=1))
 
-        payload = {
-            'email': 'newuser@test.com',
-            'password': 'Passw0rd!',
-            'business_name': 'My Biz',
-            'plan_code': self.plan.code,
-        }
-        response = self._post(payload)
-        self._assert_mp_mocked(MockMP)
+        r2 = self._post()
 
-        self.assertEqual(response.status_code, 200, response.data)
-
-        # Must have created exactly one SubscriptionV2
-        v2_qs = SubscriptionV2.objects.filter(service_type='gestion')
-        self.assertEqual(v2_qs.count(), 1, "Exactly one SubscriptionV2 must be created")
-
-        v2 = v2_qs.first()
-        self.assertEqual(v2.status, SubscriptionV2.Status.CHECKOUT_PENDING)
-        self.assertIsNotNone(v2.provider_sub_id, "provider_sub_id must be set to MP preapproval ID")
-        self.assertTrue(v2.external_reference.startswith("SUB-"))
-
-    @patch('apps.billing.mp_service.MercadoPagoService')
-    def test_intent_linked_to_subscriptionv2(self, MockMP):
-        MockMP.return_value = self._mock_mp_service()
-
-        payload = {
-            'email': 'linked@test.com',
-            'password': 'Passw0rd!',
-            'business_name': 'Linked Biz',
-            'plan_code': self.plan.code,
-        }
-        response = self._post(payload)
-        self._assert_mp_mocked(MockMP)
-        self.assertEqual(response.status_code, 200)
-
-        intent_id = response.data['intent_id']
-        intent = SubscriptionIntent.objects.get(pk=intent_id)
-
-        self.assertIsNotNone(intent.subscription_v2_id, "Intent must be linked to V2")
-        self.assertEqual(intent.subscription_v2.status, SubscriptionV2.Status.CHECKOUT_PENDING)
-
-    @patch('apps.billing.mp_service.MercadoPagoService')
-    def test_legacy_subscription_still_created(self, MockMP):
-        MockMP.return_value = self._mock_mp_service()
-
-        payload = {
-            'email': 'legacy@test.com',
-            'password': 'Passw0rd!',
-            'business_name': 'Legacy Biz',
-            'plan_code': self.plan.code,
-        }
-        response = self._post(payload)
-        self._assert_mp_mocked(MockMP)
-        self.assertEqual(response.status_code, 200)
-
-        # Legacy billing subscription must still exist
-        self.assertTrue(
-            LegacyBillingSubscription.objects.filter(business__name='Legacy Biz').exists(),
-            "Legacy billing.Subscription must still be created",
+        self.assertEqual(r2.status_code, 201, r2.data)
+        self.assertNotEqual(r2.data['checkout_session_id'], r1.data['checkout_session_id'])
+        self.assertEqual(self._mp_calls(), 2)
+        self.assertEqual(
+            MpCheckoutSession.objects.get(id=r1.data['checkout_session_id']).status,
+            MpCheckoutSession.Status.EXPIRED,
         )
 
-    @patch('apps.billing.mp_service.MercadoPagoService')
-    def test_duplicate_email_rejected_legacy_guard(self, MockMP):
-        """Second signup attempt with same email must fail; no duplicate V2."""
-        MockMP.return_value = self._mock_mp_service()
-        payload = {
-            'email': 'dup@test.com',
-            'password': 'Passw0rd!',
-            'business_name': 'Dup Biz',
-            'plan_code': self.plan.code,
-        }
-        r1 = self._post(payload)
-        self._assert_mp_mocked(MockMP)
-        self.assertEqual(r1.status_code, 200)
+    def test_different_plan_is_not_reused(self):
+        """The plan (and therefore the service) is part of the reuse scope."""
+        user, _ = self._existing_user()
+        other_plan = _make_plan("plan_start_002")
 
-        r2 = self._post(payload)
-        # Must reject: email already registered
-        self.assertEqual(r2.status_code, 400)
-        # Count must remain 1 (no duplicate V2)
-        self.assertEqual(SubscriptionV2.objects.filter(service_type='gestion').count(), 1)
+        r_a = self._post(email=user.email)
+        r_b = self._post(email=user.email, plan_code=other_plan.code)
+        r_a2 = self._post(email=user.email)
+
+        self.assertEqual((r_a.status_code, r_b.status_code, r_a2.status_code), (201, 201, 200))
+        self.assertNotEqual(r_a.data['checkout_session_id'], r_b.data['checkout_session_id'])
+        self.assertEqual(r_a2.data['checkout_session_id'], r_a.data['checkout_session_id'])
+        self.assertEqual(self._mp_calls(), 2)
+
+    def test_sessions_are_not_reused_across_users(self):
+        r1 = self._post(email='first@test.com', business_name='First Biz')
+        r2 = self._post(email='second@test.com', business_name='Second Biz')
+
+        self.assertEqual((r1.status_code, r2.status_code), (201, 201))
+        self.assertNotEqual(r1.data['checkout_session_id'], r2.data['checkout_session_id'])
+        self.assertEqual(self._mp_calls(), 2)
+
+    def test_sessions_are_not_reused_across_businesses(self):
+        from apps.billing.checkout_session_service import start_checkout
+        user, biz_a = self._existing_user()
+        biz_b = Business.objects.create(name='Second Branch', default_service='gestion', status='onboarding')
+
+        res_a = start_checkout(user=user, tenant=biz_a, plan_code=self.plan.code)
+        res_b = start_checkout(user=user, tenant=biz_b, plan_code=self.plan.code)
+
+        self.assertFalse(res_a['reused'])
+        self.assertFalse(res_b['reused'])
+        self.assertNotEqual(res_a['checkout_session_id'], res_b['checkout_session_id'])
+        self.assertEqual(self._mp_calls(), 2)
+
+
+class StartCheckoutConcurrencyTest(TransactionTestCase):
+    """
+    Two simultaneous starts for the same (user, business, plan) must create a
+    single MpCheckoutSession and a single MP plan. The partial unique
+    constraint uq_checkout_session_open_per_tenant_user_plan makes the loser's
+    INSERT wait for the winner's transaction (which includes the MP call) and
+    then fail; start_checkout recovers by returning the winner's session.
+    """
+    # Same workaround as apps/appointments/tests/test_appointments_concurrency.py:
+    # the unmanaged treasury.ExpenseTemplate FK breaks the default TRUNCATE
+    # flush; setting available_apps enables allow_cascade.
+    available_apps = [cfg.name for cfg in django_apps.get_app_configs()]
+
+    def test_concurrent_starts_create_one_session_and_one_mp_plan(self):
+        from apps.billing.checkout_session_service import start_checkout
+        user = User.objects.create_user(username='conc@test.com', email='conc@test.com', password='Passw0rd!')
+        biz = Business.objects.create(name='Conc Biz', default_service='gestion', status='onboarding')
+        plan = _make_plan("plan_conc_001")
+
+        mp_calls = []
+
+        def slow_fake_mp_plan(**kwargs):
+            mp_calls.append(kwargs.get('external_reference'))
+            time.sleep(0.5)  # keep the winner's transaction open
+            return _fake_mp_plan(**kwargs)
+
+        barrier = threading.Barrier(2)
+        results, errors = [], []
+
+        def worker():
+            try:
+                barrier.wait(timeout=10)
+                results.append(start_checkout(user=user, tenant=biz, plan_code=plan.code))
+            except Exception as exc:  # pragma: no cover - reported below
+                errors.append(exc)
+            finally:
+                connection.close()
+
+        with patch('apps.billing.mp_service.MercadoPagoService') as MockMP:
+            MockMP.return_value.create_preapproval_plan.side_effect = slow_fake_mp_plan
+            threads = [threading.Thread(target=worker) for _ in range(2)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(timeout=30)
+
+        self.assertFalse(any(t.is_alive() for t in threads), 'worker thread hung')
+        self.assertEqual(errors, [])
+        self.assertEqual(len(mp_calls), 1)
+        self.assertEqual(MpCheckoutSession.objects.count(), 1)
+        self.assertEqual(len({r['checkout_session_id'] for r in results}), 1)
+        self.assertEqual(sorted(r['reused'] for r in results), [False, True])
+        self.assertEqual(_network_guard.target_calls, [])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
