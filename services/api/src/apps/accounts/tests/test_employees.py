@@ -18,7 +18,8 @@ import json
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import make_password
-from django.test import TestCase
+from django.core.cache import cache
+from django.test import TestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.backends import TokenBackend
@@ -28,6 +29,11 @@ from apps.accounts.models import AccessAuditLog, EmployeeProfile, Membership
 from apps.business.models import Business
 
 User = get_user_model()
+
+# Throttled endpoints (employee-login / employee-change-pin) keep DRF rate
+# counters in the default cache. Use an isolated LocMem cache, cleared per
+# test, so results never depend on test order or on the dev Redis.
+_ISOLATED_CACHES = {'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}}
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -174,10 +180,12 @@ class ResetPinTest(TestCase):
         self.assertTrue(resp.data['pin_was_generated'])
 
 
+@override_settings(CACHES=_ISOLATED_CACHES)
 class SuspendedEmployeeLoginTest(TestCase):
     """Case 4: Suspended employee cannot log in."""
 
     def setUp(self):
+        cache.clear()
         self.client = APIClient()
         self.biz = _make_business('BizCsuspend')
         self.employee = _make_employee(
@@ -198,10 +206,12 @@ class SuspendedEmployeeLoginTest(TestCase):
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
 
+@override_settings(CACHES=_ISOLATED_CACHES)
 class EmployeeLoginSuccessTest(TestCase):
     """Case 5: Successful operative login returns correct claims."""
 
     def setUp(self):
+        cache.clear()
         self.biz = _make_business('BizD')
         self.employee = _make_employee(
             self.biz, code='EMP-0004',
@@ -268,10 +278,12 @@ class CrossBusinessIsolationTest(TestCase):
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
 
 
+@override_settings(CACHES=_ISOLATED_CACHES)
 class PermissionOverridesTest(TestCase):
     """Case 7: permission_overrides are applied on top of role defaults."""
 
     def setUp(self):
+        cache.clear()
         self.biz = _make_business('BizOvr', service='gestion')
         self.emp = _make_employee(
             self.biz, code='EMP-0005',
@@ -332,10 +344,12 @@ class RoleBasedManagementAccessTest(TestCase):
         self.assertIn(resp.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
 
 
+@override_settings(CACHES=_ISOLATED_CACHES)
 class EmployeeTokenClaimsTest(TestCase):
     """Case 9: Generated employee JWT contains expected claims."""
 
     def setUp(self):
+        cache.clear()
         self.biz = _make_business('BizToken')
         self.employee = _make_employee(
             self.biz, code='EMP-0007',
@@ -512,6 +526,7 @@ class EmployeeTokenAuthUnitTest(TestCase):
 
 # ── 11. Employee token rejected on owner routes ───────────────────────────────
 
+@override_settings(CACHES=_ISOLATED_CACHES)
 class EmployeeTokenOnOwnerRouteTest(TestCase):
     """
     Employee tokens (X-Employee-Token) are rejected by admin/owner endpoints.
@@ -520,6 +535,7 @@ class EmployeeTokenOnOwnerRouteTest(TestCase):
     """
 
     def setUp(self):
+        cache.clear()
         self.biz = _make_business('BizOwnerIso2')
         self.employee = _make_employee(self.biz, code='EMP-OWN1', pin='555444')
 
@@ -601,10 +617,12 @@ class PinNotLeakedTest(TestCase):
 
 # ── 13. Login with wrong employee_code ────────────────────────────────────────
 
+@override_settings(CACHES=_ISOLATED_CACHES)
 class LoginWrongCodeTest(TestCase):
     """Login with a nonexistent employee_code returns 401 (not 404/500)."""
 
     def setUp(self):
+        cache.clear()
         self.biz = _make_business('BizWrongCode')
         self.client = APIClient()
 
@@ -627,10 +645,12 @@ class LoginWrongCodeTest(TestCase):
 
 # ── 14. Audit log completeness ────────────────────────────────────────────────
 
+@override_settings(CACHES=_ISOLATED_CACHES)
 class AuditLogCompletenessTest(TestCase):
     """Critical actions must produce AccessAuditLog entries."""
 
     def setUp(self):
+        cache.clear()
         self.biz = _make_business('BizAudit2')
         self.owner = _make_user('auditcomplete@test.com')
         _make_membership(self.owner, self.biz, 'owner')

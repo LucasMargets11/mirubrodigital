@@ -38,6 +38,40 @@ from apps.business.models import Business, Subscription as BizSubscription
 
 User = get_user_model()
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Network guard: no test in this module may reach Mercado Pago (or any host).
+# The MP SDK sends every request through requests.Session.request; any real
+# attempt is recorded and rejected so the test fails closed.
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _NetworkGuard:
+    def __init__(self):
+        self.target_calls = []
+        self._patcher = patch('requests.sessions.Session.request', side_effect=self._reject)
+
+    def _reject(self, method, url, *args, **kwargs):
+        self.target_calls.append((method, url))
+        raise AssertionError(f'Real HTTP request attempted in tests: {method} {url}')
+
+    def start(self):
+        self.target_calls.clear()
+        self._patcher.start()
+
+    def stop(self):
+        self._patcher.stop()
+
+
+_network_guard = _NetworkGuard()
+
+
+def setUpModule():
+    _network_guard.start()
+
+
+def tearDownModule():
+    _network_guard.stop()
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Fixtures
 # ─────────────────────────────────────────────────────────────────────────────
@@ -111,14 +145,27 @@ class StartSubscriptionViewBirthPathTest(TestCase):
         return StartSubscriptionView.as_view()(request)
 
     def _mock_mp_service(self):
+        # checkout_session_service imports MercadoPagoService locally at call
+        # time, so the mock must replace the symbol at its source module.
         mock_svc = MagicMock()
-        mock_svc.create_preapproval.return_value = {
-            'id': f'preapp-{uuid.uuid4()}',
+        mock_svc.create_preapproval_plan.return_value = {
+            'id': f'preapp-plan-{uuid.uuid4()}',
             'init_point': 'https://mp.example.com/checkout',
+            'sandbox_init_point': 'https://mp.example.com/checkout',
         }
         return mock_svc
 
-    @patch('apps.billing.views.MercadoPagoService')
+    def _assert_mp_mocked(self, MockMP):
+        # Fail closed: if the patch stops intercepting, the real service would
+        # be used and the network guard would raise instead of reaching MP.
+        self.assertTrue(MockMP.called, 'MercadoPagoService was not mocked')
+        self.assertTrue(
+            MockMP.return_value.create_preapproval_plan.called,
+            'create_preapproval_plan was not intercepted by the mock',
+        )
+        self.assertEqual(_network_guard.target_calls, [], 'Real HTTP request attempted')
+
+    @patch('apps.billing.mp_service.MercadoPagoService')
     def test_creates_subscriptionv2_on_new_signup(self, MockMP):
         MockMP.return_value = self._mock_mp_service()
 
@@ -129,6 +176,7 @@ class StartSubscriptionViewBirthPathTest(TestCase):
             'plan_code': self.plan.code,
         }
         response = self._post(payload)
+        self._assert_mp_mocked(MockMP)
 
         self.assertEqual(response.status_code, 200, response.data)
 
@@ -141,7 +189,7 @@ class StartSubscriptionViewBirthPathTest(TestCase):
         self.assertIsNotNone(v2.provider_sub_id, "provider_sub_id must be set to MP preapproval ID")
         self.assertTrue(v2.external_reference.startswith("SUB-"))
 
-    @patch('apps.billing.views.MercadoPagoService')
+    @patch('apps.billing.mp_service.MercadoPagoService')
     def test_intent_linked_to_subscriptionv2(self, MockMP):
         MockMP.return_value = self._mock_mp_service()
 
@@ -152,6 +200,7 @@ class StartSubscriptionViewBirthPathTest(TestCase):
             'plan_code': self.plan.code,
         }
         response = self._post(payload)
+        self._assert_mp_mocked(MockMP)
         self.assertEqual(response.status_code, 200)
 
         intent_id = response.data['intent_id']
@@ -160,7 +209,7 @@ class StartSubscriptionViewBirthPathTest(TestCase):
         self.assertIsNotNone(intent.subscription_v2_id, "Intent must be linked to V2")
         self.assertEqual(intent.subscription_v2.status, SubscriptionV2.Status.CHECKOUT_PENDING)
 
-    @patch('apps.billing.views.MercadoPagoService')
+    @patch('apps.billing.mp_service.MercadoPagoService')
     def test_legacy_subscription_still_created(self, MockMP):
         MockMP.return_value = self._mock_mp_service()
 
@@ -171,6 +220,7 @@ class StartSubscriptionViewBirthPathTest(TestCase):
             'plan_code': self.plan.code,
         }
         response = self._post(payload)
+        self._assert_mp_mocked(MockMP)
         self.assertEqual(response.status_code, 200)
 
         # Legacy billing subscription must still exist
@@ -179,7 +229,7 @@ class StartSubscriptionViewBirthPathTest(TestCase):
             "Legacy billing.Subscription must still be created",
         )
 
-    @patch('apps.billing.views.MercadoPagoService')
+    @patch('apps.billing.mp_service.MercadoPagoService')
     def test_duplicate_email_rejected_legacy_guard(self, MockMP):
         """Second signup attempt with same email must fail; no duplicate V2."""
         MockMP.return_value = self._mock_mp_service()
@@ -190,6 +240,7 @@ class StartSubscriptionViewBirthPathTest(TestCase):
             'plan_code': self.plan.code,
         }
         r1 = self._post(payload)
+        self._assert_mp_mocked(MockMP)
         self.assertEqual(r1.status_code, 200)
 
         r2 = self._post(payload)
