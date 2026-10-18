@@ -29,6 +29,8 @@ from unittest.mock import MagicMock, patch
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
+from rest_framework.parsers import JSONParser
+from rest_framework.request import Request
 from rest_framework.test import APIClient, APIRequestFactory
 
 from apps.billing.models import (
@@ -60,7 +62,9 @@ def _make_plan(code='pro', **kwargs):
         name='Pro Plan',
         price=50000,  # ARS pesos (canonical Pro = 50000)
         currency='ARS',
-        billing_cycle='monthly',
+        interval='monthly',
+        frequency=1,
+        frequency_type='months',
         plan_status='active',
     )
     defaults.update(kwargs)
@@ -318,15 +322,14 @@ class ReceiveWebhookDeduplicationTest(TestCase):
 
     def _make_request(self, payload, x_request_id='req-001'):
         body = json.dumps(payload).encode()
-        request = self.factory.post(
+        wsgi_request = self.factory.post(
             '/api/v1/billing/mercadopago/webhook',
             data=body,
             content_type='application/json',
             HTTP_X_REQUEST_ID=x_request_id,
         )
-        # DRF parses .data lazily; prime it now.
-        request.data  # noqa: B018
-        return request
+        # receive_webhook takes the DRF Request the view hands it (.body, .headers, .data).
+        return Request(wsgi_request, parsers=[JSONParser()])
 
     @patch('apps.billing.webhook_processor._verify_mp_signature', return_value=True)
     def test_receive_persists_delivery(self, _mock_sig):
