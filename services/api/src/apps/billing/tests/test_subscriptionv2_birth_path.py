@@ -213,6 +213,22 @@ class StartSubscriptionViewContractTest(TestCase):
             'last_login': user.last_login,
         }
 
+    def _assert_no_subscription_before_payment(self, business, intent_email=None):
+        """
+        Birth invariants: nothing is subscribed until MP confirms payment.
+        Only the new-user path creates a SubscriptionIntent; pass its email
+        to also check that intent.
+        """
+        business.refresh_from_db()
+        self.assertEqual(business.status, 'onboarding')
+        self.assertFalse(SubscriptionV2.objects.filter(business=business).exists())
+        self.assertFalse(LegacyBillingSubscription.objects.filter(business=business).exists())
+        if intent_email is None:
+            return
+        intent = SubscriptionIntent.objects.get(user__email=intent_email, tenant=business)
+        self.assertEqual(intent.status, 'created')
+        self.assertIsNone(intent.subscription_v2_id)
+
     # ── new users ─────────────────────────────────────────────────────────────
 
     def test_new_user_returns_201_and_creates_one_session(self):
@@ -232,6 +248,7 @@ class StartSubscriptionViewContractTest(TestCase):
         intent = SubscriptionIntent.objects.get(user__email='newuser@test.com')
         self.assertEqual(intent.tenant, business)
         self.assertEqual(intent.mp_init_point, session.provider_checkout_url)
+        self._assert_no_subscription_before_payment(business, 'newuser@test.com')
 
     def test_new_user_retry_same_intent_returns_200_and_same_session(self):
         r1 = self._post()
@@ -246,6 +263,10 @@ class StartSubscriptionViewContractTest(TestCase):
         self.assertEqual(MpCheckoutSession.objects.count(), 1)
         self.assertEqual(User.objects.filter(email='newuser@test.com').count(), 1)
         self.assertEqual(Business.objects.filter(name='My Biz').count(), 1)
+        self.assertEqual(SubscriptionIntent.objects.count(), 1)
+        self._assert_no_subscription_before_payment(
+            Business.objects.get(name='My Biz'), 'newuser@test.com',
+        )
 
     # ── existing users ────────────────────────────────────────────────────────
 
@@ -257,12 +278,14 @@ class StartSubscriptionViewContractTest(TestCase):
         self.assertEqual(self._mp_calls(), 1)
         session = MpCheckoutSession.objects.get()
         self.assertEqual((session.user, session.tenant), (user, biz))
+        self._assert_no_subscription_before_payment(biz)
 
         r2 = self._post(email=user.email, password='Passw0rd!')
         self.assertEqual(r2.status_code, 200, r2.data)
         self.assertEqual(r2.data['checkout_session_id'], r1.data['checkout_session_id'])
         self.assertEqual(self._mp_calls(), 1)
         self.assertEqual(Business.objects.count(), 1)
+        self._assert_no_subscription_before_payment(biz)
 
     def test_existing_user_wrong_password_returns_401_without_side_effects(self):
         user, _ = self._existing_user()
