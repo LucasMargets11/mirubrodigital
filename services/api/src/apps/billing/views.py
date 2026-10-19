@@ -583,8 +583,12 @@ class CheckoutSessionStatusView(APIView):
                 "amount": ...
             } | null
         }
+
+    Access: only the user who owns the session. Anonymous → 401; any other
+    user (same business, staff included) or unknown UUID → 404, so the
+    endpoint never reveals whether a session exists.
     """
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request, session_id):
         from .models import BillingInvoiceEvent, MpCheckoutSession
@@ -594,7 +598,7 @@ class CheckoutSessionStatusView(APIView):
                 MpCheckoutSession.objects
                 .select_related('plan', 'tenant')
                 .prefetch_related('subscriptions')
-                .get(id=session_id)
+                .get(id=session_id, user=request.user)
             )
         except MpCheckoutSession.DoesNotExist:
             return Response({'error': 'Not found'}, status=404)
