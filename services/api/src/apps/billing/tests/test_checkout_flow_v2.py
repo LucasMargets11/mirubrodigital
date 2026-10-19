@@ -48,6 +48,42 @@ User = get_user_model()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Network guard: no test in this module may reach Mercado Pago (or any host).
+# MercadoPagoService is imported locally at call time by
+# checkout_session_service and webhook_processor, so tests patch it at its
+# source (apps.billing.mp_service). If a patch ever stops intercepting, the MP
+# SDK's requests.Session.request is rejected here and the test fails closed.
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _NetworkGuard:
+    def __init__(self):
+        self.target_calls = []
+        self._patcher = patch('requests.sessions.Session.request', side_effect=self._reject)
+
+    def _reject(self, method, url, *args, **kwargs):
+        self.target_calls.append((method, url))
+        raise AssertionError(f'Real HTTP request attempted in tests: {method} {url}')
+
+    def start(self):
+        self.target_calls.clear()
+        self._patcher.start()
+
+    def stop(self):
+        self._patcher.stop()
+
+
+_network_guard = _NetworkGuard()
+
+
+def setUpModule():
+    _network_guard.start()
+
+
+def tearDownModule():
+    _network_guard.stop()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Shared factories
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -86,7 +122,7 @@ def _make_subscription_v2(business, plan, preapproval_plan_id=None, session=None
         provider=SubscriptionV2.Provider.MERCADOPAGO,
         provider_sub_id=f'preapp-{uuid.uuid4()}',
         external_reference=f'ref-{uuid.uuid4()}',
-        status=SubscriptionV2.Status.PENDING,
+        status=SubscriptionV2.Status.CHECKOUT_PENDING,
         provider_preapproval_plan_id=preapproval_plan_id,
         checkout_session=session,
     )
@@ -141,7 +177,7 @@ class StartCheckoutIdempotencyTest(TestCase):
         self.business = _make_business(self.user)
         self.frontend_url = 'https://app.test'
 
-    @patch('apps.billing.checkout_session_service.MercadoPagoService')
+    @patch('apps.billing.mp_service.MercadoPagoService')
     def test_creates_session_once(self, MockMPService):
         """First call creates exactly one session and one MP plan."""
         mock_sdk = MagicMock()
@@ -162,7 +198,7 @@ class StartCheckoutIdempotencyTest(TestCase):
         self.assertEqual(MpCheckoutSession.objects.count(), 1)
         mock_sdk.create_preapproval_plan.assert_called_once()
 
-    @patch('apps.billing.checkout_session_service.MercadoPagoService')
+    @patch('apps.billing.mp_service.MercadoPagoService')
     def test_double_click_returns_same_session(self, MockMPService):
         """Second call with same user+plan must reuse existing session — no new MP plan."""
         mock_sdk = MagicMock()
@@ -183,7 +219,7 @@ class StartCheckoutIdempotencyTest(TestCase):
         self.assertEqual(mock_sdk.create_preapproval_plan.call_count, 1)
         self.assertEqual(MpCheckoutSession.objects.count(), 1)
 
-    @patch('apps.billing.checkout_session_service.MercadoPagoService')
+    @patch('apps.billing.mp_service.MercadoPagoService')
     def test_expired_session_triggers_new_checkout(self, MockMPService):
         """If the existing session is expired, a new session and MP plan are created."""
         mock_sdk = MagicMock()
@@ -374,7 +410,11 @@ class SubscriptionActivatorTest(TestCase):
         self.user  = _make_user('owner@activator.test')
         self.plan  = _make_plan()
         self.biz   = _make_business(self.user)
+        # By activation time the preapproval webhook has already linked the
+        # session to its SubscriptionV2; the state machine only allows
+        # LINKED → ACTIVATED.
         self.session = _make_checkout_session(self.user, self.plan, tenant=self.biz,
+                                               status=MpCheckoutSession.Status.LINKED,
                                                provider_preapproval_plan_id='PLAN-ACT-001')
         self.sub = _make_subscription_v2(
             self.biz, self.plan,
@@ -463,7 +503,7 @@ class CorrelationByPlanIdTest(TestCase):
             x_request_id='req-corr-007',
         )
 
-    @patch('apps.billing.webhook_processor.MercadoPagoService')
+    @patch('apps.billing.mp_service.MercadoPagoService')
     def test_handles_preapproval_finds_session_by_plan_id(self, MockMP):
         """_handle_subscription_preapproval finds session via plan_id, not email."""
         from apps.billing.webhook_processor import _handle_subscription_preapproval
@@ -485,7 +525,7 @@ class CorrelationByPlanIdTest(TestCase):
         self.assertIsNotNone(sub, "SubscriptionV2 should be created by plan_id correlation")
         self.assertEqual(sub.checkout_session, self.session)
 
-    @patch('apps.billing.webhook_processor.MercadoPagoService')
+    @patch('apps.billing.mp_service.MercadoPagoService')
     def test_unknown_plan_id_does_not_activate_random_session(self, MockMP):
         """If plan_id has no matching session, no activation occurs."""
         from apps.billing.webhook_processor import _handle_subscription_preapproval
