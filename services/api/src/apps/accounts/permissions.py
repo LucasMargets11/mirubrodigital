@@ -220,8 +220,24 @@ class HasPermission(BasePermission):
 
 
 def request_has_permission(request: Request, permission_code: str) -> bool:
+    from .rbac import APPOINTMENTS_OWN_PERMISSIONS
+
     membership = resolve_request_membership(request)
     if membership is None:
+        return False
+    if membership.role == 'professional':
+        if permission_code not in APPOINTMENTS_OWN_PERMISSIONS:
+            return False
+        business = getattr(request, 'business', None) or membership.business
+        from apps.appointments.services.professional_quota import (
+            professional_login_enabled, request_professional,
+        )
+        return (
+            membership.status == Membership.Status.ACTIVE
+            and request_professional(request) is not None
+            and professional_login_enabled(business)
+        )
+    if permission_code in APPOINTMENTS_OWN_PERMISSIONS:
         return False
     context = resolve_business_context(request, membership)
     permission_map = getattr(request, '_permission_cache', None)
@@ -331,6 +347,37 @@ class HasEntitlement(BasePermission):
         from apps.billing.enforcement import enforcement_message
         from apps.billing.runtime import resolve_subscription
 
+        if isinstance(required_entitlement, str):
+            accepted = (required_entitlement,)
+        else:
+            accepted = tuple(required_entitlement)
+
+        # Multi-product businesses resolve Gestão and Turnos entitlements from
+        # their own subscriptions. This also covers shared Customer entitlements
+        # that intentionally accept either product.
+        entitlement_services = {
+            code.partition('.')[0]
+            for code in accepted
+            if code.partition('.')[0] in {'appointments', 'gestion'}
+        }
+        if entitlement_services:
+            from apps.billing.enforcement import get_enforcement_decision
+
+            for service_type in entitlement_services:
+                service_subscription = resolve_subscription(
+                    business, service_type=service_type,
+                )
+                service_decision = get_enforcement_decision(service_subscription)
+                service_entitlements = {
+                    code for code in accepted
+                    if code.partition('.')[0] == service_type
+                }
+                if (
+                    service_decision.access_allowed
+                    and service_entitlements.intersection(service_subscription.entitlements)
+                ):
+                    return True
+
         # Reuse cached enforcement decision if available (avoids double DB query
         # when HasBusinessMembership already ran for this request).
         cached = getattr(request, '_billing_enforcement', None)
@@ -358,10 +405,6 @@ class HasEntitlement(BasePermission):
         # ── 2. Entitlement por plan: estado permite acceso pero plan no ───────
         # Una tupla/lista/set = alcanza con CUALQUIERA (p.ej. Clientes core:
         # Gestión o Turnos, ver CUSTOMER_CORE_ENTITLEMENTS).
-        if isinstance(required_entitlement, str):
-            accepted = (required_entitlement,)
-        else:
-            accepted = tuple(required_entitlement)
         if not any(code in resolved.entitlements for code in accepted):
             required_entitlement = accepted[0]
             upgrade_hint = get_upgrade_hint(required_entitlement)

@@ -3,6 +3,7 @@
 process.env.TZ = 'America/Argentina/Buenos_Aires';
 
 import { fireEvent, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -34,6 +35,7 @@ vi.mock('@/components/ui/modal', () => ({
 }));
 
 import { TurnosClient } from '../turnos-client';
+import { DayView } from '../day-view';
 
 function summary(overrides: Partial<AppointmentPaymentSummary> = {}): AppointmentPaymentSummary {
     return {
@@ -108,6 +110,83 @@ afterEach(() => {
 });
 
 describe('Vista Día (Slice UI 01)', () => {
+    it('click en el cuerpo abre el mismo modal Editar turno', () => {
+        appointmentsData = [appt('a', '2026-10-02T10:30')];
+        render(<TurnosClient canManage />);
+        fireEvent.click(screen.getByText('Cliente a'));
+        expect(screen.getAllByRole('dialog', { name: 'Editar turno' })).toHaveLength(1);
+    });
+
+    it.each(['{Enter}', ' '])('%s en la card abre el modal Editar turno', async (key) => {
+        const user = userEvent.setup();
+        appointmentsData = [appt('a', '2026-10-02T10:30')];
+        render(<TurnosClient canManage />);
+        const el = screen.getByRole('button', { name: 'Abrir turno: 10:30 · Cliente a' });
+        el.focus();
+        expect(el).toHaveFocus();
+        await user.keyboard(key);
+        expect(screen.getAllByRole('dialog', { name: 'Editar turno' })).toHaveLength(1);
+    });
+
+    it('Editar llama una sola vez al handler; teclado y menú no propagan apertura', async () => {
+        const user = userEvent.setup();
+        const appointment = appt('a', '2026-10-02T10:30');
+        const actions = { onEdit: vi.fn(), onStatus: vi.fn(), onCancel: vi.fn() };
+        render(<DayView appointments={[appointment]} timeZone="America/Argentina/Buenos_Aires" actions={actions} />);
+        const edit = screen.getByRole('button', { name: 'Editar' });
+        edit.focus();
+        expect(edit).toHaveFocus();
+        await user.keyboard('{Enter}');
+        expect(actions.onEdit).toHaveBeenCalledExactlyOnceWith(appointment);
+        actions.onEdit.mockClear();
+        await user.keyboard(' ');
+        expect(actions.onEdit).toHaveBeenCalledExactlyOnceWith(appointment);
+        actions.onEdit.mockClear();
+        fireEvent.click(edit);
+        expect(actions.onEdit).toHaveBeenCalledExactlyOnceWith(appointment);
+        actions.onEdit.mockClear();
+        fireEvent.click(screen.getByRole('button', { name: 'Abrir turno: 10:30 · Cliente a' }));
+        expect(actions.onEdit).toHaveBeenCalledExactlyOnceWith(appointment);
+        actions.onEdit.mockClear();
+        expect(screen.getByTestId('appointment-card').querySelector('button button, button a')).toBeNull();
+
+        const menu = screen.getByRole('button', { name: /Más acciones/ });
+        fireEvent.keyDown(menu, { key: ' ' });
+        fireEvent.click(menu);
+        expect(menu).toHaveAttribute('aria-expanded', 'true');
+        expect(actions.onEdit).not.toHaveBeenCalled();
+        const completed = screen.getByRole('menuitem', { name: 'Marcar como completado' });
+        fireEvent.keyDown(completed, { key: 'Enter' });
+        fireEvent.click(completed);
+        expect(actions.onStatus).toHaveBeenCalledExactlyOnceWith(appointment, 'completed');
+        expect(actions.onEdit).not.toHaveBeenCalled();
+    });
+
+    it('abrir el menú no abre el modal de edición', () => {
+        appointmentsData = [appt('a', '2026-10-02T10:30')];
+        render(<TurnosClient canManage />);
+        fireEvent.click(screen.getByRole('button', { name: /Más acciones/ }));
+        expect(screen.getByRole('menu')).toBeInTheDocument();
+        expect(screen.queryByRole('dialog', { name: 'Editar turno' })).not.toBeInTheDocument();
+    });
+
+    it('teléfono no dispara edición y sin permisos la card no es interactiva', () => {
+        const appointment = appt('a', '2026-10-02T10:30');
+        const actions = { onEdit: vi.fn(), onStatus: vi.fn(), onCancel: vi.fn() };
+        const { unmount } = render(<DayView appointments={[appointment]} timeZone="America/Argentina/Buenos_Aires" actions={actions} />);
+        fireEvent.click(screen.getByRole('link', { name: /1155554444/ }));
+        expect(actions.onEdit).not.toHaveBeenCalled();
+        unmount();
+        render(<DayView appointments={[appointment]} timeZone="America/Argentina/Buenos_Aires" />);
+        const el = screen.getByTestId('appointment-card');
+        expect(el).not.toHaveAttribute('tabindex');
+        expect(el).not.toHaveAttribute('role', 'button');
+        fireEvent.click(el);
+        fireEvent.keyDown(el, { key: 'Enter' });
+        expect(screen.queryByRole('button', { name: 'Editar' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /Abrir turno:/ })).not.toBeInTheDocument();
+    });
+
     it('renderiza cada turno como tarjeta con hora, cliente, servicio y profesional', () => {
         appointmentsData = [appt('a', '2026-10-02T10:30'), appt('b', '2026-10-02T13:30', { professional: null })];
         render(<TurnosClient canManage={false} />);

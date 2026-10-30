@@ -20,6 +20,7 @@ vi.mock('@/app/app/turnos/whatsapp-contact-card', () => ({ WhatsappContactCard: 
 // CUSTOMER 07B: la tarjeta de automatizaciones usa React Query; se prueba aparte.
 vi.mock('@/features/appointments/reminder-automation-card', () => ({ ReminderAutomationCard: () => null }));
 vi.mock('@/features/appointments/reply-to-email-card', () => ({ ReplyToEmailCard: () => null }));
+vi.mock('@/features/appointments/communication-automation-card', () => ({ CommunicationAutomationCard: () => null }));
 vi.mock('@/features/merchant-payments/mercado-pago-connection-card', () => ({
     MercadoPagoConnectionCard: ({ canManage }: { canManage: boolean }) => (
         <div>mp-card {canManage ? 'manage' : 'readonly'}</div>

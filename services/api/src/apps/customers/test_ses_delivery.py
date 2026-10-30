@@ -323,6 +323,7 @@ class SESDeliveryIntegrationTests(DeliveryMixin, TestCase):
 
   def setUp(self):
     self.biz = _turnos_business(slug='delivery-ses')
+    self._enable_automations()
     self.customer = self._customer(self.biz, name='Ana Pérez', email='Ana@Example.com')
     service, pro = self._agenda(self.biz)
     self.appt = self._appt(self.biz, service, self.customer, dj_timezone.now() + dt.timedelta(days=1), pro=pro)

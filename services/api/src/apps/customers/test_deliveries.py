@@ -18,6 +18,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from apps.accounts.models import Membership
+from apps.billing.models import SubscriptionV2
 from apps.appointments.tests.test_customer_core_access import TurnosAgendaMixin, _login, _turnos_business
 
 from . import deliveries
@@ -42,6 +43,11 @@ def _deliveries_url(customer):
 
 
 class DeliveryMixin(TurnosAgendaMixin):
+
+  def _enable_automations(self, business=None):
+    SubscriptionV2.objects.filter(business=business or self.biz, service_type='appointments').update(
+      plan_code='appointments_ai', usage_tier='ai_300',
+    )
 
   def _customer(self, biz, name='Ana', *, phone='1155550101', email='ana@example.com', **extra):
     return Customer.objects.create(business=biz, name=name, phone=phone, email=email, **extra)
@@ -97,6 +103,7 @@ class PrepareDeliveryTests(DeliveryMixin, TestCase):
 
   def setUp(self):
     self.biz = _turnos_business(slug='delivery-prepare')
+    self._enable_automations()
     self.customer = self._customer(self.biz)
 
   def test_1_whatsapp_usable_is_pending_with_snapshot(self):
@@ -281,6 +288,7 @@ class ExecuteDeliveryTests(DeliveryMixin, TestCase):
 
   def setUp(self):
     self.biz = _turnos_business(slug='delivery-exec')
+    self._enable_automations()
     self.customer = self._customer(self.biz)
 
   def test_12_13_14_fake_success_is_sent(self):
@@ -532,6 +540,7 @@ class DeliveryConcurrencyTests(DeliveryMixin, TransactionTestCase):
 
   def setUp(self):
     self.biz = _turnos_business(slug='delivery-concurrency')
+    self._enable_automations()
     self.customer = self._customer(self.biz)
 
   def _run_in_thread(self, target):
@@ -619,6 +628,7 @@ class CustomerDeliveriesAPITests(DeliveryMixin, APITestCase):
 
   def setUp(self):
     self.biz = _turnos_business(slug='delivery-api')
+    self._enable_automations()
     self.customer = self._customer(self.biz, phone='1155550202', email='ana@dominio.com')
 
   def test_list_masked_contract_and_order(self):
@@ -662,6 +672,7 @@ class CustomerDeliveriesAPITests(DeliveryMixin, APITestCase):
 
   def test_other_tenant_customer_is_404(self):
     biz2 = _turnos_business(slug='delivery-api-other')
+    self._enable_automations(biz2)
     foreign = self._customer(biz2, 'Ajena')
     self._pending(foreign, WA)
     _login(self.client, self.biz, 'owner')

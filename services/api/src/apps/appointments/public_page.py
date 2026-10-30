@@ -27,6 +27,10 @@ def public_booking_unavailable_reason(business) -> str | None:
     return 'missing_slug'
   if not business_has_service(business, 'appointments'):
     return 'service_disabled'
+  from apps.billing.services.appointments_lifecycle import appointments_v2_allows_creation
+
+  if appointments_v2_allows_creation(business) is False:
+    return 'lifecycle_blocked'
   if business.status not in PUBLISHABLE_STATUSES:
     return 'not_publishable'
   return None

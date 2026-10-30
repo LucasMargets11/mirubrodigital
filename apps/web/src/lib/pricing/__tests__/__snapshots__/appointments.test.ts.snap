@@ -1,0 +1,208 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`shared pricing exporter regression > preserves products and the existing offers in every other vertical 1`] = `
+{
+  "addons": [
+    {
+      "available_for": [
+        "gestion_start",
+      ],
+      "code": "crm",
+      "description": "Historial de compras, segmentación de clientes y saldos pendientes.",
+      "included_in": [
+        "gestion_pro",
+        "gestion_business",
+        "gestion_enterprise",
+      ],
+      "name": "CRM / Gestión de clientes",
+      "price_monthly": 8000,
+      "price_yearly": 76800,
+      "vertical": "commercial",
+    },
+    {
+      "available_for": [
+        "gestion_start",
+      ],
+      "code": "invoicing",
+      "description": "Emisión de facturas fiscales válidas (AFIP, SAT, etc.).",
+      "included_in": [
+        "gestion_pro",
+        "gestion_business",
+        "gestion_enterprise",
+      ],
+      "name": "Facturación Electrónica",
+      "price_monthly": 15000,
+      "price_yearly": 144000,
+      "vertical": "commercial",
+    },
+    {
+      "available_for": [
+        "menu_qr_visual",
+      ],
+      "code": "menu_qr_addon_reviews",
+      "description": "CTA de reseñas en carta pública.",
+      "included_in": [
+        "menu_qr_marca",
+      ],
+      "name": "Reseñas de Google",
+      "price_monthly": 12000,
+      "price_yearly": 115200,
+      "vertical": "menu_qr",
+    },
+    {
+      "available_for": [
+        "menu_qr_visual",
+      ],
+      "code": "menu_qr_addon_tips",
+      "description": "CTA de propinas en carta pública.",
+      "included_in": [
+        "menu_qr_marca",
+      ],
+      "name": "Propinas (Mercado Pago)",
+      "price_monthly": 12000,
+      "price_yearly": 115200,
+      "vertical": "menu_qr",
+    },
+  ],
+  "extras": [
+    {
+      "available_for": [
+        "gestion_pro",
+        "gestion_business",
+      ],
+      "code": "extra_branch",
+      "name": "Sucursal adicional",
+      "price_monthly": 12000,
+      "price_yearly": 115200,
+      "vertical": "commercial",
+    },
+    {
+      "available_for": [
+        "gestion_pro",
+        "gestion_business",
+      ],
+      "code": "extra_user",
+      "name": "Usuario adicional",
+      "price_monthly": 5000,
+      "price_yearly": 48000,
+      "vertical": "commercial",
+    },
+  ],
+  "plans": [
+    {
+      "code": "gestion_start",
+      "is_custom": false,
+      "name": "Starter",
+      "price_monthly": 36000,
+      "price_yearly": 345600,
+      "vertical": "commercial",
+    },
+    {
+      "code": "gestion_pro",
+      "is_custom": false,
+      "name": "Pro",
+      "price_monthly": 50000,
+      "price_yearly": 480000,
+      "vertical": "commercial",
+    },
+    {
+      "code": "gestion_business",
+      "is_custom": false,
+      "name": "Business",
+      "price_monthly": 75000,
+      "price_yearly": 720000,
+      "vertical": "commercial",
+    },
+    {
+      "code": "gestion_enterprise",
+      "is_custom": true,
+      "name": "Enterprise",
+      "price_monthly": 0,
+      "price_yearly": 0,
+      "vertical": "commercial",
+    },
+    {
+      "code": "menu_qr_basico",
+      "is_custom": false,
+      "name": "Lite",
+      "price_monthly": 18000,
+      "price_yearly": 172800,
+      "vertical": "menu_qr",
+    },
+    {
+      "code": "menu_qr_visual",
+      "is_custom": false,
+      "name": "Pro",
+      "price_monthly": 30000,
+      "price_yearly": 288000,
+      "vertical": "menu_qr",
+    },
+    {
+      "code": "menu_qr_marca",
+      "is_custom": false,
+      "name": "Premium",
+      "price_monthly": 55000,
+      "price_yearly": 528000,
+      "vertical": "menu_qr",
+    },
+    {
+      "code": "menu_qr_empresarial",
+      "is_custom": true,
+      "name": "Empresarial",
+      "price_monthly": 0,
+      "price_yearly": 0,
+      "vertical": "menu_qr",
+    },
+    {
+      "code": "qr_reviews_base",
+      "is_custom": false,
+      "name": "Reseñas Base",
+      "price_monthly": 15000,
+      "price_yearly": 144000,
+      "vertical": "qr_reviews",
+    },
+    {
+      "code": "qr_reviews_pro",
+      "is_custom": false,
+      "name": "Reseñas Pro",
+      "price_monthly": 20000,
+      "price_yearly": 192000,
+      "vertical": "qr_reviews",
+    },
+    {
+      "code": "qr_reviews_empresarial",
+      "is_custom": true,
+      "name": "Empresarial",
+      "price_monthly": 0,
+      "price_yearly": 0,
+      "vertical": "qr_reviews",
+    },
+  ],
+  "products": [
+    {
+      "code": "gestion",
+      "description": "Ventas, stock, clientes, caja y facturación para comercios.",
+      "is_active": true,
+      "name": "Gestión Comercial",
+      "order": 1,
+      "vertical": "commercial",
+    },
+    {
+      "code": "menu_qr",
+      "description": "Carta digital con código QR para que tus clientes vean tu menú.",
+      "is_active": true,
+      "name": "Menú QR",
+      "order": 2,
+      "vertical": "menu_qr",
+    },
+    {
+      "code": "qr_reviews",
+      "description": "Sistema de feedback con filtro inteligente y redirección a Google.",
+      "is_active": true,
+      "name": "QR de Reseñas",
+      "order": 3,
+      "vertical": "qr_reviews",
+    },
+  ],
+}
+`;

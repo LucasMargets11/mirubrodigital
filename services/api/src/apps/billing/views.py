@@ -1,7 +1,7 @@
 from rest_framework import viewsets, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
 from rest_framework.decorators import action
 from django.contrib.auth import get_user_model
 from django.db import transaction
@@ -29,7 +29,10 @@ from .serializers import (
 )
 from .services import PricingService
 from .mp_service import MercadoPagoService
-from .canonical_pricing import get_products_catalog
+from .canonical_pricing import (
+    get_products_catalog, get_appointments_catalog, get_inactive_product_verticals,
+    is_plan_product_active,
+)
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -168,6 +171,8 @@ class BillingViewSet(viewsets.ViewSet):
     billing_enforcement_bypass = True
 
     def get_permissions(self):
+        if self.action == 'appointments_catalog':
+            return [IsAdminUser()]
         if self.action in ['modules', 'bundles', 'promotions', 'quote', 'products']:
             return [AllowAny()]
         if self.action == 'subscribe':
@@ -179,7 +184,9 @@ class BillingViewSet(viewsets.ViewSet):
     @action(detail=False, methods=['get'])
     def modules(self, request):
         vertical = request.query_params.get('vertical')
-        qs = Module.objects.filter(is_active=True)
+        qs = Module.objects.filter(is_active=True).exclude(
+            vertical__in=get_inactive_product_verticals(),
+        )
         if vertical:
             qs = qs.filter(vertical__in=[vertical, 'both'])
         serializer = ModuleSerializer(qs, many=True)
@@ -191,13 +198,20 @@ class BillingViewSet(viewsets.ViewSet):
         # checkout=true: exclude custom/contact-only plans (no fixed price).
         # Used by the onboarding funnel; public pricing pages omit this param.
         checkout = request.query_params.get('checkout', '').lower() == 'true'
-        qs = Bundle.objects.filter(is_active=True).order_by('sort_order', 'id')
+        qs = Bundle.objects.filter(is_active=True).exclude(
+            vertical__in=get_inactive_product_verticals(),
+        ).order_by('sort_order', 'id')
         if vertical:
             qs = qs.filter(vertical=vertical)
         if checkout:
             qs = qs.filter(fixed_price_monthly__isnull=False)
         serializer = BundleSerializer(qs, many=True)
         return Response(serializer.data)
+
+    @action(detail=False, methods=['get'])
+    def appointments_catalog(self, request):
+        """Internal S2 inspection only; does not publish or activate offers."""
+        return Response(get_appointments_catalog())
 
     @action(detail=False, methods=['get'])
     def products(self, request):
@@ -403,6 +417,9 @@ class StartSubscriptionView(APIView):
 
         if not all([email, password, business_name, plan_code]):
             return Response({'error': 'Missing required fields'}, status=400)
+
+        if not is_plan_product_active(plan_code):
+            return Response({'error': 'Product is not available for purchase'}, status=400)
 
         frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')
 
@@ -698,6 +715,77 @@ class IntentStatusView(APIView):
             })
         except SubscriptionIntent.DoesNotExist:
              return Response({'error': 'Not found'}, status=404)
+
+def _appointments_quote_request(data):
+    return {
+        'plan_code': data.get('plan_code'),
+        'billing_cycle': data.get('billing_cycle'),
+        'usage_tier': data.get('usage_tier'),
+        'automations': data.get('automations'),
+        'automations_quantity': data.get('automations_quantity'),
+        'extra_professionals': data.get('extra_professionals', 0),
+    }
+
+
+class AppointmentsQuoteView(APIView):
+    """Staff-only Turnos quote endpoint while the product remains unpublished."""
+    permission_classes = [IsAdminUser]
+
+    def post(self, request):
+        from django.core.exceptions import ValidationError
+        from .services.appointments_checkout import ManualContractRequired, quote_appointments
+
+        try:
+            quote = quote_appointments(**_appointments_quote_request(request.data))
+        except ManualContractRequired:
+            return Response({
+                'status': 'contact_sales',
+                'code': 'manual_contract_required',
+            }, status=status.HTTP_409_CONFLICT)
+        except ValidationError as exc:
+            detail = exc.message_dict if hasattr(exc, 'message_dict') else exc.messages
+            return Response({'detail': detail}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(quote)
+
+
+class AppointmentsCheckoutView(APIView):
+    """Staff-only internal provisioning of a paid canonical Turnos checkout."""
+    permission_classes = [IsAdminUser]
+
+    def post(self, request):
+        from django.core.exceptions import ValidationError
+        from .services.appointments_checkout import (
+            ManualContractRequired,
+            create_appointments_checkout,
+        )
+
+        business_id = request.data.get('business_id')
+        if not business_id:
+            return Response({'detail': 'business_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            business = Business.objects.get(pk=business_id)
+        except (Business.DoesNotExist, ValueError, TypeError):
+            return Response({'detail': 'Business not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            result = create_appointments_checkout(
+                user=request.user,
+                business=business,
+                internal_provisioning=True,
+                **_appointments_quote_request(request.data),
+            )
+        except ManualContractRequired:
+            return Response({
+                'status': 'contact_sales',
+                'code': 'manual_contract_required',
+            }, status=status.HTTP_409_CONFLICT)
+        except ValidationError as exc:
+            detail = exc.message_dict if hasattr(exc, 'message_dict') else exc.messages
+            return Response({'detail': detail}, status=status.HTTP_400_BAD_REQUEST)
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_409_CONFLICT)
+        return Response(result, status=status.HTTP_200_OK if result['reused'] else status.HTTP_201_CREATED)
+
 
 class MercadoPagoWebhookView(APIView):
     """
@@ -1017,4 +1105,3 @@ def _resolve_business_for_request(request) -> 'Business | None':
         .first()
     )
     return first.business if first else None
-

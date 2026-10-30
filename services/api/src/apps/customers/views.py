@@ -37,7 +37,27 @@ def _business_has_appointments(request) -> bool:
 
 def _includes_appointments_summary(request) -> bool:
   """`appointments_summary` solo para negocios con Turnos y roles que ven turnos."""
-  return _business_has_appointments(request) and request_has_permission(request, 'view_appointments')
+  return _business_has_appointments(request) and (
+    request_has_permission(request, 'view_appointments')
+    or request_has_permission(request, 'view_own_appointments')
+  )
+
+
+def _own_professional_scope(request):
+  if request_has_permission(request, 'view_own_customers') and not request_has_permission(
+    request, 'view_customers',
+  ):
+    from apps.appointments.services.professional_quota import request_professional
+
+    return request_professional(request)
+  return None
+
+
+def _own_customer_queryset(queryset, request):
+  professional = _own_professional_scope(request)
+  if professional is not None:
+    return queryset.filter(appointments__professional=professional).distinct()
+  return queryset
 
 
 class CanViewCustomerAppointments(BasePermission):
@@ -86,6 +106,8 @@ def timeline_allowed_types(request) -> list[str]:
   allowed: list[str] = []
   if _includes_appointments_summary(request):
     allowed.append(TYPE_APPOINTMENT)
+  if request_has_permission(request, 'view_own_customers') and not request_has_permission(request, 'view_customers'):
+    return allowed
   entitlements = _business_entitlements(request)
   if 'gestion.customers' in entitlements:
     if request_has_permission(request, 'view_sales'):
@@ -113,7 +135,7 @@ class CustomerListCreateView(generics.ListCreateAPIView):
   permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement, HasPermission]
   required_entitlement = CUSTOMER_CORE_ENTITLEMENTS
   permission_map = {
-    'GET': 'view_customers',
+    'GET': ('view_customers', 'view_own_customers'),
     'POST': ('manage_customers', 'create_sales'),
   }
   pagination_class = CustomerPagination
@@ -123,6 +145,7 @@ class CustomerListCreateView(generics.ListCreateAPIView):
   def get_queryset(self):
     business = getattr(self.request, 'business')
     queryset = Customer.objects.filter(business=business)
+    queryset = _own_customer_queryset(queryset, self.request)
 
     include_inactive = self.request.query_params.get('include_inactive', 'false').lower() == 'true'
     if not include_inactive:
@@ -139,7 +162,7 @@ class CustomerDetailView(generics.RetrieveUpdateDestroyAPIView):
   permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement, HasPermission]
   required_entitlement = CUSTOMER_CORE_ENTITLEMENTS
   permission_map = {
-    'GET': 'view_customers',
+    'GET': ('view_customers', 'view_own_customers'),
     'PUT': 'manage_customers',
     'PATCH': 'manage_customers',
     'DELETE': 'manage_customers',
@@ -147,14 +170,16 @@ class CustomerDetailView(generics.RetrieveUpdateDestroyAPIView):
 
   def get_queryset(self):
     business = getattr(self.request, 'business')
-    return Customer.objects.filter(business=business)
+    return _own_customer_queryset(Customer.objects.filter(business=business), self.request)
 
   def retrieve(self, request, *args, **kwargs):
     instance = self.get_object()
     data = self.get_serializer(instance).data
     if _includes_appointments_summary(request):
       from apps.appointments.services.customer_summary import build_customer_appointments_summary
-      data['appointments_summary'] = build_customer_appointments_summary(instance)
+      data['appointments_summary'] = build_customer_appointments_summary(
+        instance, professional=_own_professional_scope(request),
+      )
     return Response(data)
 
   def perform_destroy(self, instance):
@@ -211,19 +236,24 @@ class CustomerAppointmentsView(generics.ListAPIView):
   """
   permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement, HasPermission, CanViewCustomerAppointments]
   required_entitlement = CUSTOMER_CORE_ENTITLEMENTS
-  permission_map = {'GET': 'view_customers'}
+  permission_map = {'GET': ('view_customers', 'view_own_customers')}
   pagination_class = CustomerPagination
 
   def get_queryset(self):
     from apps.appointments.services.customer_history import SCOPE_ALL, SCOPES, scoped_customer_appointments
 
     business = getattr(self.request, 'business')
-    customer = get_object_or_404(Customer, pk=self.kwargs['pk'], business=business)
+    customer = get_object_or_404(
+      _own_customer_queryset(Customer.objects.filter(business=business), self.request),
+      pk=self.kwargs['pk'],
+    )
     scope = self.request.query_params.get('scope') or SCOPE_ALL
     if scope not in SCOPES:
       raise ValidationError({'scope': f"Valor inválido. Opciones: {', '.join(SCOPES)}."})
     self._now = dj_timezone.now()
-    return scoped_customer_appointments(customer, scope, now=self._now)
+    return scoped_customer_appointments(
+      customer, scope, now=self._now, professional=_own_professional_scope(self.request),
+    )
 
   def list(self, request, *args, **kwargs):
     from apps.appointments.services.customer_history import serialize_history_item
@@ -247,14 +277,17 @@ class CustomerTimelineView(generics.GenericAPIView):
   """
   permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement, HasPermission, CanViewCustomerTimeline]
   required_entitlement = CUSTOMER_CORE_ENTITLEMENTS
-  permission_map = {'GET': 'view_customers'}
+  permission_map = {'GET': ('view_customers', 'view_own_customers')}
   pagination_class = CustomerPagination
 
   def get(self, request, *args, **kwargs):
     from .timeline import TIMELINE_MAX_OFFSET, TIMELINE_TYPES, build_customer_timeline
 
     business = getattr(request, 'business')
-    customer = get_object_or_404(Customer, pk=self.kwargs['pk'], business=business)
+    customer = get_object_or_404(
+      _own_customer_queryset(Customer.objects.filter(business=business), request),
+      pk=self.kwargs['pk'],
+    )
 
     allowed = timeline_allowed_types(request)
     raw_types = request.query_params.get('types')
@@ -276,6 +309,9 @@ class CustomerTimelineView(generics.GenericAPIView):
     count, events = build_customer_timeline(
       customer, types, offset=paginator.offset, limit=paginator.limit,
       now=dj_timezone.now(), timezone_name=getattr(business, 'timezone', None),
+      professional_id=(
+        str(professional.pk) if (professional := _own_professional_scope(request)) is not None else None
+      ),
     )
     paginator.count = count
     response = paginator.get_paginated_response(events)

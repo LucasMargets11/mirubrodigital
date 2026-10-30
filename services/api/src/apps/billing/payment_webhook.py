@@ -25,6 +25,7 @@ from __future__ import annotations
 import logging
 
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.utils import timezone
 
 from .models import BillingEvent
@@ -313,6 +314,17 @@ def _process_billing_payment(payment_id, ref: str, billing_event=None) -> Webhoo
         )
         return WebhookOutcome.ignored('billing_record_not_found')
 
+    is_appointments_change = (
+        pending_change.subscription_v2_id is not None
+        and pending_change.subscription_v2.service_type == 'appointments'
+    )
+    if pending_change.subscription_v2_id is not None and not is_appointments_change:
+        logger.warning(
+            "[MPWebhook][billing] Unsupported V2 pending change %s",
+            pending_change.pk,
+        )
+        return WebhookOutcome.ignored('billing_v2_change_not_supported')
+
     payment_data = MercadoPagoService().get_payment(payment_id)
     if not payment_data:
         # get_payment collapses network errors, 5xx and 404 into None.
@@ -335,12 +347,38 @@ def _process_billing_payment(payment_id, ref: str, billing_event=None) -> Webhoo
         billing_event=billing_event,
         is_addon_purchase=is_addon_purchase,
         is_reviews_upgrade=is_reviews_upgrade,
+        is_appointments_change=is_appointments_change,
     )
     return WebhookOutcome.processed()
 
 
 def _apply_billing_payment(*, pending_change, payment_data, payment_id,
-                           billing_event, is_addon_purchase, is_reviews_upgrade) -> None:
+                           billing_event, is_addon_purchase, is_reviews_upgrade,
+                           is_appointments_change=False) -> None:
+    if is_appointments_change:
+        with transaction.atomic():
+            return _apply_billing_payment_inner(
+                pending_change=pending_change,
+                payment_data=payment_data,
+                payment_id=payment_id,
+                billing_event=billing_event,
+                is_addon_purchase=is_addon_purchase,
+                is_reviews_upgrade=is_reviews_upgrade,
+                is_appointments_change=True,
+            )
+    return _apply_billing_payment_inner(
+        pending_change=pending_change,
+        payment_data=payment_data,
+        payment_id=payment_id,
+        billing_event=billing_event,
+        is_addon_purchase=is_addon_purchase,
+        is_reviews_upgrade=is_reviews_upgrade,
+    )
+
+
+def _apply_billing_payment_inner(*, pending_change, payment_data, payment_id,
+                                 billing_event, is_addon_purchase, is_reviews_upgrade,
+                                 is_appointments_change=False) -> None:
     """
     Apply a Billing payment's status to its PendingSubscriptionChange.
 
@@ -352,8 +390,23 @@ def _apply_billing_payment(*, pending_change, payment_data, payment_id,
     """
     from apps.billing.services.commercial.apply import apply_subscription_change, apply_addon_activation
     from apps.billing.reviews_views import apply_reviews_plan_upgrade
+    from .models import PendingSubscriptionChange
     from .views import _create_payment_attempt, _resolve_subscriptionv2, _update_billing_event
+    from .webhook_lifecycle import WebhookPermanentError
 
+    if is_appointments_change:
+        from .models import PendingSubscriptionChange
+        from apps.billing.models import SubscriptionV2
+        from apps.business.models import Business
+
+        initial = PendingSubscriptionChange.objects.select_related('subscription_v2').get(
+            pk=pending_change.pk,
+        )
+        Business.objects.select_for_update().get(pk=initial.subscription_v2.business_id)
+        SubscriptionV2.objects.select_for_update().get(pk=initial.subscription_v2_id)
+        pending_change = PendingSubscriptionChange.objects.select_for_update().get(
+            pk=pending_change.pk,
+        )
     payment_status = payment_data.get('status')
 
     if pending_change.status == 'completed':
@@ -367,10 +420,42 @@ def _apply_billing_payment(*, pending_change, payment_data, payment_id,
     pending_change.mp_payment_id = str(payment_id)
 
     if payment_status == 'approved':
+        if is_appointments_change:
+            from decimal import Decimal, InvalidOperation
+
+            try:
+                actual_amount = Decimal(str(
+                    payment_data.get('transaction_amount')
+                    or payment_data.get('total_paid_amount')
+                ))
+            except (InvalidOperation, TypeError, ValueError) as exc:
+                raise WebhookPermanentError(
+                    'appointments_change_amount_invalid',
+                    'Approved Turnos upgrade has no valid amount.',
+                ) from exc
+            if (
+                actual_amount != Decimal(pending_change.total_amount)
+                or payment_data.get('currency_id') != 'ARS'
+            ):
+                raise WebhookPermanentError(
+                    'appointments_change_amount_mismatch',
+                    'Approved payment does not match the stored Turnos proration.',
+                )
         pending_change.status = 'processing'
         pending_change.save()
         try:
-            if is_addon_purchase:
+            if is_appointments_change:
+                from .services.appointments_lifecycle import (
+                    apply_appointments_change,
+                    prepare_appointments_provider_change,
+                )
+
+                prepare_appointments_provider_change(pending_change)
+                apply_appointments_change(
+                    pending_change,
+                    payment_id=str(payment_id),
+                )
+            elif is_addon_purchase:
                 addon_codes = [k for k, v in pending_change.config_snapshot.items() if v is True]
                 if addon_codes:
                     apply_addon_activation(
@@ -391,6 +476,8 @@ def _apply_billing_payment(*, pending_change, payment_data, payment_id,
                     billing_cycle=pending_change.billing_cycle,
                     config=pending_change.config_snapshot,
                 )
+        except WebhookPermanentError:
+            raise
         except Exception as e:
             pending_change.status = 'failed'
             pending_change.save()
@@ -407,7 +494,11 @@ def _apply_billing_payment(*, pending_change, payment_data, payment_id,
         try:
             biz = pending_change.business
             svc = 'qr_reviews' if is_reviews_upgrade else biz.default_service
-            v2 = _resolve_subscriptionv2(biz, svc)
+            v2 = (
+                pending_change.subscription_v2
+                if is_appointments_change
+                else _resolve_subscriptionv2(biz, svc)
+            )
             _create_payment_attempt(v2, billing_event, payment_data, payment_id)
             if v2:
                 _update_billing_event(billing_event, sub_v2=v2,
@@ -420,7 +511,11 @@ def _apply_billing_payment(*, pending_change, payment_data, payment_id,
         pending_change.save()
         try:
             biz = pending_change.business
-            v2 = _resolve_subscriptionv2(biz, biz.default_service)
+            v2 = (
+                pending_change.subscription_v2
+                if is_appointments_change
+                else _resolve_subscriptionv2(biz, biz.default_service)
+            )
             _create_payment_attempt(v2, billing_event, payment_data, payment_id)
             _update_billing_event(billing_event, sub_v2=v2,
                                   new_status=BillingEvent.ProcessingStatus.PROCESSED)

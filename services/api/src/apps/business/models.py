@@ -1,4 +1,5 @@
 from django.db import models
+from django.core.exceptions import ValidationError
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils.text import slugify
@@ -131,8 +132,11 @@ class BusinessPlan(models.TextChoices):
   QR_REVIEWS_BASE = 'qr_reviews_base', 'Reseñas Base'
   QR_REVIEWS_PRO = 'qr_reviews_pro', 'Reseñas Pro'
 
-  # Turnos (tentative — sin pricing comercial definitivo aún)
+  # Turnos plans (legacy and canonical runtime codes)
   APPOINTMENTS_BASE = 'appointments_base', 'Turnos Base'
+  APPOINTMENTS = 'appointments', 'Turnos'
+  APPOINTMENTS_PRO = 'appointments_pro', 'Turnos Pro'
+  APPOINTMENTS_AI = 'appointments_ai', 'Turnos IA'
 
   # Legacy plans (mantener para compatibilidad)
   START = 'start', 'Start (Legacy)'
@@ -245,12 +249,21 @@ class SubscriptionAddon(models.Model):
     # Menú QR Pro add-ons
     ('menu_qr_addon_reviews', 'Módulo Reseñas (Menú QR)'),
     ('menu_qr_addon_tips', 'Módulo Propina (Menú QR)'),
+    ('appointments_automations', 'Automatizaciones Turnos'),
+    ('appointments_extra_professional', 'Profesional adicional Turnos'),
   ]
   
   subscription = models.ForeignKey(
     'business.Subscription',
     related_name='addons',
-    on_delete=models.CASCADE
+    on_delete=models.CASCADE,
+    null=True, blank=True,
+  )
+  subscription_v2 = models.ForeignKey(
+    'billing.SubscriptionV2',
+    related_name='addons',
+    on_delete=models.CASCADE,
+    null=True, blank=True,
   )
   code = models.CharField(max_length=64, choices=ADDON_CODE_CHOICES)
   quantity = models.PositiveIntegerField(default=1, help_text='Cantidad de unidades (ej: 2 sucursales extra)')
@@ -265,10 +278,64 @@ class SubscriptionAddon(models.Model):
     verbose_name = 'Subscription Add-on'
     verbose_name_plural = 'Subscription Add-ons'
     unique_together = ('subscription', 'code')
-  
+    constraints = [
+      models.CheckConstraint(
+        check=(
+          models.Q(subscription__isnull=False, subscription_v2__isnull=True)
+          | models.Q(subscription__isnull=True, subscription_v2__isnull=False)
+        ),
+        name='subscriptionaddon_owner_xor',
+      ),
+      models.UniqueConstraint(
+        fields=['subscription_v2', 'code'],
+        condition=models.Q(subscription_v2__isnull=False),
+        name='subscriptionaddon_v2_code_unique',
+      ),
+      models.CheckConstraint(
+        check=~models.Q(code='appointments_automations') | models.Q(quantity__lte=1),
+        name='subscriptionaddon_automations_qty',
+      ),
+    ]
+
+  def clean(self):
+    super().clean()
+    from apps.billing.appointments_plans import ADDON_CODES, PLAN_CODES, validate_addon_quantity
+    from apps.billing.runtime import _extract_plan_tier
+    if (self.subscription_id is None) == (self.subscription_v2_id is None):
+      raise ValidationError('Exactly one subscription owner is required.')
+    validate_addon_quantity(self.code, self.quantity)
+    if self.code in ADDON_CODES:
+      if (
+        self.subscription_v2_id is None
+        or self.subscription_v2.service_type != 'appointments'
+        or _extract_plan_tier(self.subscription_v2.plan_code) not in PLAN_CODES
+      ):
+        raise ValidationError({'code': 'Turnos add-ons require a canonical Turnos V2 owner.'})
+    elif self.subscription_v2_id and self.subscription_v2.service_type == 'appointments':
+      raise ValidationError({'code': 'Unsupported Turnos add-on.'})
+
+  def save(self, *args, **kwargs):
+    self.clean()
+    update_fields = kwargs.get('update_fields')
+    commercial_fields = {'subscription', 'subscription_id', 'subscription_v2', 'subscription_v2_id',
+                         'code', 'quantity'}
+    if update_fields and commercial_fields.intersection(update_fields) and not self._state.adding:
+      persisted = type(self).objects.get(pk=self.pk)
+      for field in update_fields:
+        setattr(persisted, field, getattr(self, field))
+      persisted.clean()
+    return super().save(*args, **kwargs)
+
+  def clean_fields(self, exclude=None):
+    from apps.billing.appointments_plans import validate_addon_quantity
+    if not exclude or 'quantity' not in exclude:
+      validate_addon_quantity(self.code, self.quantity)
+    super().clean_fields(exclude=exclude)
+
   def __str__(self) -> str:
     status = "✓" if self.is_active else "✗"
-    return f"{status} {self.get_code_display()} x{self.quantity} · {self.subscription.business.name}"
+    owner = self.subscription if self.subscription_id else self.subscription_v2
+    return f"{status} {self.get_code_display()} x{self.quantity} · {owner.business.name}"
 
 
 class CommercialSettingsManager(models.Manager):

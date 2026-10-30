@@ -160,6 +160,10 @@ export function fetchAppointmentAvailability(params: {
 
 // Appointments (turnos)
 
+export function fetchAppointment(appointmentId: string) {
+    return apiGet<Appointment>(`/api/v1/appointments/appointments/${appointmentId}/`);
+}
+
 export function fetchAppointments(params: AppointmentListParams = {}) {
     const query = buildQuery({
         date: params.date,

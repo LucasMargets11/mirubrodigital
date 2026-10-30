@@ -113,3 +113,18 @@ class PayloadHashTests(SimpleTestCase):
 
     def test_handoff_helper_payload_is_valid(self):
         _validated({**self.base, 'handoff': handoff_requested('lead_ready')})
+
+    def test_proposal_confirmation_id_is_in_payload_hash(self):
+        proposal_id = str(uuid.uuid4())
+        payload = {
+            **self.base,
+            'proposal_confirmation': {'proposal_id': proposal_id, 'intent': 'confirm', 'message_id': 'patient-1'},
+        }
+        reference = compute_payload_hash(_validated(payload))
+        self.assertNotEqual(reference, compute_payload_hash(_validated(self.base)))
+        self.assertNotEqual(reference, compute_payload_hash(_validated({
+            **payload, 'proposal_confirmation': {**payload['proposal_confirmation'], 'proposal_id': str(uuid.uuid4())},
+        })))
+        self.assertEqual(reference, compute_payload_hash(_validated({
+            **payload, 'proposal_confirmation': {**payload['proposal_confirmation'], 'proposal_id': proposal_id.upper()},
+        })))

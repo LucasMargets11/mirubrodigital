@@ -1,4 +1,4 @@
-"""Tareas periódicas de Turnos (Slice 7C).
+"""Tareas periódicas de Turnos.
 
 `appointments.expire_holds` materializa `pending_payment` vencido → `expired`
 llamando al mismo servicio que el management command
@@ -12,6 +12,10 @@ solo el `status` persistido queda atrasado en listados/reportes.
 
 Idempotente: es un UPDATE condicional por `status` + `expires_at`; re-correrla
 no vuelve a tocar filas ya `expired` ni afecta `confirmed`.
+
+S8G: `appointments.process_due_ai_usage_billing` delega el cierre offline
+de períodos IA al servicio S8D/S8E. Corre cada hora y termina al preparar
+el Billing Intent; nunca reclama intents ni invoca providers.
 """
 from __future__ import annotations
 
@@ -36,3 +40,10 @@ def expire_appointment_holds(self):
   if count:
     logger.info('appointments.expire_holds: %d hold(s) marcados expired', count)
   return {'expired': count}
+
+
+@shared_task(name='appointments.process_due_ai_usage_billing', acks_late=True)
+def process_due_ai_usage_billing_task():
+  from apps.appointments.services.ai_usage_billing_pipeline import process_due_ai_usage_billing
+
+  return process_due_ai_usage_billing()

@@ -24,6 +24,8 @@ const STATE_PILL: Record<ConversationControlState, { label: string; className: s
     error: { label: 'Error de control', className: 'bg-rose-100 text-rose-700' },
 };
 
+const TAKEOVER_HINT = 'Tomar conversación pausa las respuestas del bot hasta reanudarlo.';
+
 const ACTION_COPY: Record<
     ConversationCommandAction,
     { label: string; retryLabel: string; pendingLabel: string; title: string; body: string[] }
@@ -34,6 +36,7 @@ const ACTION_COPY: Record<
         pendingLabel: 'Tomando conversación…',
         title: '¿Tomar esta conversación?',
         body: [
+            TAKEOVER_HINT,
             'El bot dejará de responder mensajes nuevos en este chat hasta que vuelvas a habilitarlo. Podés continuar la atención desde WhatsApp.',
         ],
     },
@@ -173,6 +176,9 @@ export function LeadConversationControl({
                 ) : null}
             </div>
 
+            {state === 'active' && actionable && nextAction === 'takeover' ? (
+                <p className="text-xs text-slate-500">{TAKEOVER_HINT}</p>
+            ) : null}
             {state === 'takeover_pending' ? <p className="text-xs text-slate-600">Estamos pausando el bot.</p> : null}
             {state === 'release_pending' ? <p className="text-xs text-slate-600">Estamos devolviendo la conversación al bot.</p> : null}
             {stalled ? (

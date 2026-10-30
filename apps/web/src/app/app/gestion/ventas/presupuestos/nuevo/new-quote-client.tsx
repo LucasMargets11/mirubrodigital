@@ -4,11 +4,10 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, useMemo, useRef, useEffect } from 'react';
 
-import { SaleCustomerPicker } from '../../sale-customer-picker';
+import { SaleCustomerPicker, isConsumerFinal } from '../../sale-customer-picker';
 import { ProductSearchList } from '@/components/app/product-search-list';
 import { useCreateQuote, useBusinessBillingProfileQuery, useDocumentSeriesQuery } from '@/features/gestion/hooks';
 import type { Product, QuotePayload } from '@/features/gestion/types';
-import type { CustomerSummary } from '@/features/customers/types';
 import { ApiError } from '@/lib/api/client';
 import { formatCurrencySmart, formatNumberSmart } from '@/lib/format';
 
@@ -23,7 +22,7 @@ type CartItem = {
 export function NewQuoteClient() {
     const router = useRouter();
     const [cart, setCart] = useState<CartItem[]>([]);
-    const [selectedCustomer, setSelectedCustomer] = useState<CustomerSummary | null>(null);
+    const [selectedCustomer, setSelectedCustomer] = useState<import('../../sale-customer-picker').SaleCustomerSelection | null>(null);
     const [customerName, setCustomerName] = useState('');
     const [customerEmail, setCustomerEmail] = useState('');
     const [customerPhone, setCustomerPhone] = useState('');
@@ -137,6 +136,8 @@ export function NewQuoteClient() {
             return;
         }
 
+        const isConsumerFinalSelected = isConsumerFinal(selectedCustomer);
+
         if (!selectedCustomer && !customerName.trim()) {
             setFeedback('Ingresá un cliente o nombre para el presupuesto.');
             return;
@@ -147,9 +148,12 @@ export function NewQuoteClient() {
             return;
         }
 
+        const realCustomer = selectedCustomer && !isConsumerFinalSelected ? selectedCustomer : null;
         const payload: QuotePayload = {
-            customer_id: selectedCustomer?.id ?? null,
-            customer_name: customerName.trim() || undefined,
+            customer_id: realCustomer?.id ?? null,
+            customer_name: isConsumerFinalSelected
+                ? 'Consumidor Final'
+                : customerName.trim() || undefined,
             customer_email: customerEmail.trim() || undefined,
             customer_phone: customerPhone.trim() || undefined,
             valid_until: validUntil || undefined,

@@ -105,7 +105,7 @@ class MercadoPagoService:
     # ── Preapproval plans (subscription plan templates) ───────────────────────
 
     def create_preapproval_plan(self, reason: str, auto_recurring: dict, back_url: str,
-                                 external_reference: str = '') -> dict:
+                                 external_reference: str = '', metadata: dict | None = None) -> dict:
         """
         Creates a preapproval plan (subscription template) in MercadoPago.
         Returns the full MP response dict.
@@ -131,6 +131,8 @@ class MercadoPagoService:
         }
         if external_reference:
             plan_data["external_reference"] = external_reference
+        if metadata:
+            plan_data["metadata"] = metadata
 
         logger.info(
             "[MPService] create_preapproval_plan payload reason=%r payment_methods_allowed=%s",
@@ -569,4 +571,3 @@ class MercadoPagoService:
         except Exception as exc:
             logger.error("[MPService] get_payment error id=%s: %s", payment_id, exc)
             return None
-

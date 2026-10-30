@@ -137,8 +137,17 @@ def activate_subscription_from_invoice(
         subscription.status    = SubscriptionV2.Status.ACTIVE
         subscription.is_active = True
         subscription.current_period_start = invoice_event.paid_at or timezone.now()
+        if (
+            subscription.service_type == SubscriptionV2.ServiceType.APPOINTMENTS
+            and subscription.billing_cycle in ('monthly', 'yearly')
+        ):
+            from .services.appointments_checkout import appointments_period_end
+
+            subscription.current_period_end = appointments_period_end(
+                subscription.current_period_start, subscription.billing_cycle,
+            )
         subscription.save(update_fields=[
-            'status', 'is_active', 'current_period_start', 'updated_at',
+            'status', 'is_active', 'current_period_start', 'current_period_end', 'updated_at',
         ])
 
         # ── 2. Activate the tenant Business ──────────────────────────────────
@@ -193,9 +202,17 @@ def record_failed_payment(
 
     if subscription.status == SubscriptionV2.Status.ACTIVE:
         # Renewal failure — downgrade to past_due.
-        subscription.status     = SubscriptionV2.Status.PAST_DUE
-        subscription.retry_count = (subscription.retry_count or 0) + 1
-        subscription.save(update_fields=['status', 'retry_count', 'updated_at'])
+        if subscription.service_type == SubscriptionV2.ServiceType.APPOINTMENTS:
+            from .services.appointments_lifecycle import record_appointments_payment_failure
+
+            transitioned = record_appointments_payment_failure(subscription=subscription)
+            subscription.refresh_from_db()
+            if not transitioned:
+                return
+        else:
+            subscription.status     = SubscriptionV2.Status.PAST_DUE
+            subscription.retry_count = (subscription.retry_count or 0) + 1
+            subscription.save(update_fields=['status', 'retry_count', 'updated_at'])
 
         # Mirror on Business so frontend routing stays consistent.
         _set_tenant_past_due(subscription)

@@ -7,6 +7,7 @@ from apps.accounts.employee_views import EmployeeLoginView, EmployeeChangePinVie
 from apps.menu.views import MenuQRCodeView, PublicMenuBySlugView
 from apps.resto.views import RestaurantTablesMapStateView, RestaurantTablesSnapshotView
 from common.health import health_check
+from apps.appointments.ai_usage_views import AgentAIUsageAuthorizeView, AgentAIUsageHealthView
 
 urlpatterns = [
   path('django-admin/', admin.site.urls),
@@ -35,6 +36,8 @@ urlpatterns = [
   path('api/v1/menu-qr/<int:business_id>/', MenuQRCodeView.as_view(), name='menu-qr'),
   path('api/v1/reviews/', include('apps.reviews.urls')),
   path('api/v1/appointments/', include('apps.appointments.urls')),
+  path('api/internal/appointments/ai-usage/authorize/', AgentAIUsageAuthorizeView.as_view(), name='agent-ai-usage-authorize'),
+  path('api/internal/appointments/ai-usage/health/', AgentAIUsageHealthView.as_view(), name='agent-ai-usage-health'),
   path('api/v1/notifications/', include('apps.notifications.urls')),
   # AGENT 02B: ingesta máquina-a-máquina (HMAC).
   path('api/v1/integrations/agent/', include('apps.leads.integration_urls')),

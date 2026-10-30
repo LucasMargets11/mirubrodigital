@@ -5,6 +5,7 @@ import datetime as dt
 import json
 import time
 import uuid
+from decimal import Decimal
 from unittest import mock
 
 from django.contrib.auth import get_user_model
@@ -12,9 +13,12 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+from apps.appointments.models import Appointment
 from apps.appointments.tests.test_customer_core_access import TurnosAgendaMixin, _login, _turnos_business
 from apps.customers.models import Customer
-from apps.leads.models import AgentCredential, Lead, LeadAgentState, LeadNote
+from apps.leads.models import (
+    AgentCredential, AppointmentProposal, Lead, LeadAgentMessage, LeadAgentState, LeadNote, LeadStaffMessage,
+)
 from apps.leads.services import receiver as receiver_module
 from apps.notifications.models import BusinessNotification
 
@@ -538,7 +542,8 @@ class HandoffTests(ReceiverTestBase):
         self.assertIsNone(notification.recipient_id)
         self.assertEqual(notification.related_object_type, 'lead')
         self.assertEqual(notification.related_object_id, str(state.lead_id))
-        self.assertEqual(notification.action_url, '')
+        # LEADS SLICE 2: deep link al detalle del Lead en la bandeja.
+        self.assertEqual(notification.action_url, f'/app/turnos/leads/{state.lead_id}')
 
     def test_false_to_true_transition(self):
         v1 = self.payload()
@@ -678,6 +683,234 @@ class HandoffTests(ReceiverTestBase):
         response = manager.get('/api/v1/notifications/business/')
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual([row['kind'] for row in response.data['results']], ['agent_lead_handoff'])
+
+
+class ProposalReceiverTestBase(TurnosAgendaMixin, ReceiverTestBase):
+
+    def setUp(self):
+        super().setUp()
+        self.service, self.professional = self._agenda(self.business)
+        self.base_payload = self.payload()
+        self.assertEqual(self.put(self.base_payload).status_code, 201)
+        self.lead = self.state(self.base_payload).lead
+        start = timezone.now() + dt.timedelta(days=1)
+        self.sent_at = timezone.now() - dt.timedelta(minutes=10)
+        self.staff_message = LeadStaffMessage.objects.create(
+            lead=self.lead, text='Propuesta', occurred_at=self.sent_at,
+            status=LeadStaffMessage.Status.DELIVERED, result='queued',
+            message_id='staff-proposal-1', delivered_at=self.sent_at,
+        )
+        self.proposal = AppointmentProposal.objects.create(
+            business=self.business,
+            lead=self.lead,
+            service=self.service,
+            professional=self.professional,
+            proposed_start_at=start,
+            proposed_end_at=start + dt.timedelta(minutes=30),
+            service_name='Corte de pelo',
+            professional_name='Lucía QA',
+            service_duration_minutes=30,
+            service_price=Decimal('1000'),
+            currency='ARS',
+            deposit_type='none',
+            deposit_value=Decimal('0'),
+            deposit_amount=Decimal('0'),
+            status=AppointmentProposal.Status.QUEUED,
+            expires_at=timezone.now() + dt.timedelta(hours=12),
+            idempotency_key=uuid.uuid4(),
+            staff_message=self.staff_message,
+        )
+
+    def confirmation_payload(self, *, version=2, proposal_id=None, message_id='patient-msg-1', **message_fields):
+        message = {
+            'external_message_id': message_id, 'role': 'user', 'sender': 'patient',
+            'text': 'Si, dale', 'sent_at': (self.sent_at + dt.timedelta(minutes=1)).isoformat(), 'status': None,
+            **message_fields,
+        }
+        return bump(
+            self.base_payload, version, messages=[message],
+            proposal_confirmation={
+                'proposal_id': str(proposal_id or self.proposal.pk), 'intent': 'confirm', 'message_id': message_id,
+            },
+        )
+
+
+class ProposalConfirmationTests(ProposalReceiverTestBase):
+
+    def test_structured_confirmation_marks_active_proposal_without_creating_appointment(self):
+        message = {
+            'external_message_id': 'patient-msg-1',
+            'role': 'user',
+            'sender': 'patient',
+            'text': 'Sí, dale',
+            'sent_at': (self.sent_at + dt.timedelta(minutes=1)).isoformat(),
+            'status': None,
+        }
+        response_payload = bump(
+            self.base_payload,
+            2,
+            messages=[message],
+            proposal_confirmation={'proposal_id': str(self.proposal.pk), 'intent': 'confirm', 'message_id': 'patient-msg-1'},
+        )
+
+        self.assertResult(self.put(response_payload), 200, 'applied', received=2, applied=2)
+        self.proposal.refresh_from_db()
+        self.assertIsNotNone(self.proposal.confirmation_requested_at)
+        self.assertEqual(self.proposal.confirmation_message_id, 'patient-msg-1')
+        self.assertEqual(
+            LeadAgentMessage.objects.get(lead=self.lead, external_message_id='patient-msg-1').text,
+            'Sí, dale',
+        )
+        self.assertFalse(Appointment.objects.exists())
+        self.assertEqual(self.proposal.status, AppointmentProposal.Status.QUEUED)
+        self.assertIsNone(self.proposal.appointment_id)
+
+    def test_confirmation_without_active_proposal_does_not_create_appointment(self):
+        self.proposal.status = AppointmentProposal.Status.EXPIRED
+        self.proposal.save(update_fields=['status', 'updated_at'])
+        message = {
+            'external_message_id': 'patient-msg-2',
+            'role': 'user',
+            'sender': 'patient',
+            'text': 'Sí, dale',
+            'sent_at': T2,
+            'status': None,
+        }
+        response_payload = bump(
+            self.base_payload,
+            2,
+            messages=[message],
+            proposal_confirmation={'proposal_id': str(self.proposal.pk), 'intent': 'confirm', 'message_id': 'patient-msg-2'},
+        )
+
+        self.assertResult(self.put(response_payload), 200, 'applied', received=2, applied=2)
+        self.proposal.refresh_from_db()
+        self.assertIsNone(self.proposal.confirmation_requested_at)
+        self.assertFalse(Appointment.objects.exists())
+
+    def assertSignalIgnored(self, payload):
+        with self.assertLogs('apps.leads.receiver', level='INFO') as logs:
+            self.assertResult(self.put(payload), 200, 'applied', received=payload['version'], applied=payload['version'])
+        self.assertIn('proposal_confirmation_ignored', '\n'.join(logs.output))
+        self.assertNotIn('Si, dale', '\n'.join(logs.output))
+        self.proposal.refresh_from_db()
+        self.assertIsNone(self.proposal.confirmation_requested_at)
+        self.assertIsNone(self.proposal.confirmation_message_id)
+
+    def test_exact_proposal_id_no_fallback_to_current(self):
+        self.assertSignalIgnored(self.confirmation_payload(proposal_id=uuid.uuid4()))
+
+    def test_proposal_of_other_lead_or_business_ignored(self):
+        for version, other_business in enumerate((False, True), start=2):
+            business = make_business('other-proposal') if other_business else self.business
+            other_lead = Lead.objects.create(business=business)
+            AppointmentProposal.objects.filter(pk=self.proposal.pk).update(lead=other_lead, business=business)
+            self.assertSignalIgnored(self.confirmation_payload(version=version))
+
+    def test_inactive_statuses_ignored(self):
+        for version, status in enumerate(('superseded', 'expired', 'converted', 'delivery_failed', 'pending_delivery'), start=2):
+            AppointmentProposal.objects.filter(pk=self.proposal.pk).update(status=status)
+            self.assertSignalIgnored(self.confirmation_payload(version=version))
+
+    def test_expired_queued_ignored(self):
+        AppointmentProposal.objects.filter(pk=self.proposal.pk).update(expires_at=timezone.now() - dt.timedelta(seconds=1))
+        self.assertSignalIgnored(self.confirmation_payload())
+
+    def test_patient_message_must_be_strictly_after_proposal_and_not_after_expiry(self):
+        for version, sent_at in enumerate((
+            self.sent_at - dt.timedelta(seconds=1), self.sent_at,
+            self.proposal.expires_at + dt.timedelta(seconds=1),
+        ), start=2):
+            self.assertSignalIgnored(self.confirmation_payload(version=version, sent_at=sent_at.isoformat()))
+
+    def test_non_patient_or_non_user_message_ignored_without_failing_sync(self):
+        for version, (sender, role) in enumerate((('bot', 'assistant'), ('staff', 'assistant'), ('patient', 'assistant'),
+                                                  ('bot', 'user')), start=2):
+            self.assertSignalIgnored(self.confirmation_payload(version=version, sender=sender, role=role))
+
+    def test_missing_message_ignored(self):
+        payload = self.confirmation_payload()
+        payload['messages'] = []
+        self.assertSignalIgnored(payload)
+
+    def test_first_sync_with_unrelated_confirmation_ignored(self):
+        payload = self.payload(
+            external_conversation_id='new-conversation',
+            proposal_confirmation={
+                'proposal_id': str(self.proposal.pk), 'intent': 'confirm', 'message_id': 'patient-msg-1',
+            },
+        )
+        with self.assertLogs('apps.leads.receiver', level='INFO') as logs:
+            self.assertResult(self.put(payload), 201, 'created', received=1, applied=1)
+        self.assertIn('reason=proposal_not_found', '\n'.join(logs.output))
+        self.proposal.refresh_from_db()
+        self.assertIsNone(self.proposal.confirmation_requested_at)
+
+    def test_message_can_already_be_in_synced_history(self):
+        payload = self.confirmation_payload()
+        message = payload['messages'][0]
+        LeadAgentMessage.objects.create(lead=self.lead, **message)
+        payload['messages'] = []
+        self.assertResult(self.put(payload), 200, 'applied', received=2, applied=2)
+        self.proposal.refresh_from_db()
+        self.assertIsNotNone(self.proposal.confirmation_requested_at)
+
+    def test_synced_staff_timestamp_preferred_over_outbox_ack(self):
+        LeadAgentMessage.objects.create(
+            lead=self.lead, external_message_id=self.staff_message.message_id, sender='staff', role='assistant',
+            text='Propuesta', sent_at=self.sent_at + dt.timedelta(minutes=2),
+        )
+        self.assertSignalIgnored(self.confirmation_payload())
+
+    def test_synced_staff_timestamp_accepts_response_before_ack(self):
+        LeadAgentMessage.objects.create(
+            lead=self.lead, external_message_id=self.staff_message.message_id, sender='staff', role='assistant',
+            text='Propuesta', sent_at=self.sent_at - dt.timedelta(minutes=2),
+        )
+        self.assertResult(
+            self.put(self.confirmation_payload(sent_at=(self.sent_at - dt.timedelta(minutes=1)).isoformat())),
+            200, 'applied', received=2, applied=2,
+        )
+        self.proposal.refresh_from_db()
+        self.assertIsNotNone(self.proposal.confirmation_requested_at)
+
+    def test_no_send_reference_ignored(self):
+        AppointmentProposal.objects.filter(pk=self.proposal.pk).update(staff_message=None)
+        self.assertSignalIgnored(self.confirmation_payload())
+
+    def test_duplicate_and_new_version_are_idempotent(self):
+        payload = self.confirmation_payload()
+        self.assertResult(self.put(payload), 200, 'applied', received=2, applied=2)
+        self.proposal.refresh_from_db()
+        requested_at = self.proposal.confirmation_requested_at
+        self.assertResult(self.put(payload), 200, 'duplicate', received=2, applied=2)
+        self.assertResult(self.put(bump(payload, 3)), 200, 'applied', received=3, applied=3)
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.confirmation_requested_at, requested_at)
+        self.assertEqual(self.lead.agent_messages.filter(external_message_id='patient-msg-1').count(), 1)
+        self.assertFalse(Appointment.objects.exists())
+        self.assertEqual(self.proposal.status, 'queued')
+
+    def test_changed_proposal_id_same_version_conflicts(self):
+        payload = self.confirmation_payload()
+        self.put(payload)
+        payload['proposal_confirmation']['proposal_id'] = str(uuid.uuid4())
+        self.assertError(self.put(payload), 409, 'version_conflict')
+
+    def test_different_conversation_rejected_by_identity(self):
+        payload = self.confirmation_payload()
+        payload['external_conversation_id'] = 'another-conversation'
+        self.assertError(self.put(payload), 409, 'version_conflict')
+        self.proposal.refresh_from_db()
+        self.assertIsNone(self.proposal.confirmation_requested_at)
+
+    def test_real_appointment_on_proposal_or_lead_prevents_signal(self):
+        appointment = self._appt(self.business, self.service, None, self.proposal.proposed_start_at)
+        AppointmentProposal.objects.filter(pk=self.proposal.pk).update(appointment=appointment)
+        self.assertSignalIgnored(self.confirmation_payload())
+        AppointmentProposal.objects.filter(pk=self.proposal.pk).update(appointment=None)
+        Lead.objects.filter(pk=self.lead.pk).update(appointment=appointment)
+        self.assertSignalIgnored(self.confirmation_payload(version=3))
 
 
 # ── Logs sin PII ────────────────────────────────────────────────────────────

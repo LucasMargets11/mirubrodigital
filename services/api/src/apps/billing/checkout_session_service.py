@@ -122,6 +122,10 @@ def start_checkout(
     sessions or duplicate MP plans.
     """
     from decimal import Decimal
+    from .canonical_pricing import is_plan_product_active
+
+    if not is_plan_product_active(plan_code):
+        raise ValueError("Product is not available for purchase")
     try:
         plan = Plan.objects.get(code=plan_code, plan_status='active')
     except Plan.DoesNotExist:

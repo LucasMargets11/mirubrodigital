@@ -6,13 +6,13 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { ProductSearchList } from '@/components/app/product-search-list';
 import { ToastBubble } from '@/components/app/toast';
-import { SaleCustomerPicker } from './sale-customer-picker';
+import { SaleCustomerPicker, isConsumerFinal } from './sale-customer-picker';
 
 import { useCashSummary } from '@/features/cash/hooks';
 import { useCommercialSettingsQuery, useCreateSale } from '@/features/gestion/hooks';
 import type { PaymentMethod, Product, SalePayload } from '@/features/gestion/types';
-import type { CustomerSummary } from '@/features/customers/types';
 import { ApiError } from '@/lib/api/client';
+import type { SaleCustomerSelection } from './sale-customer-picker';
 
 const DEFAULT_LOW_STOCK_THRESHOLD = 5;
 
@@ -48,7 +48,7 @@ export function NewSaleClient() {
     const router = useRouter();
     const searchInputRef = useRef<HTMLInputElement | null>(null);
     const [cart, setCart] = useState<CartItem[]>([]);
-    const [selectedCustomer, setSelectedCustomer] = useState<CustomerSummary | null>(null);
+    const [selectedCustomer, setSelectedCustomer] = useState<SaleCustomerSelection | null>(null);
     const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
     const [discount, setDiscount] = useState('');
     const [notes, setNotes] = useState('');
@@ -99,6 +99,8 @@ export function NewSaleClient() {
 
     const canOperateWithoutCustomer = !requiresCustomer;
     const productSearchDisabled = requiresCustomer && !selectedCustomer;
+
+    const isConsumerFinalSelected = isConsumerFinal(selectedCustomer);
 
     const stockMetaConfig = useMemo(
         () => ({ warnLowStock, defaultThreshold: lowStockThreshold }),
@@ -171,6 +173,12 @@ export function NewSaleClient() {
             showToast('Seleccioná un cliente para continuar.', 'warning');
             return;
         }
+        if (requiresCustomer && isConsumerFinalSelected) {
+            setFeedback('La venta a Consumidor Final no es válida cuando el cliente es obligatorio. Elegí o creá un cliente.');
+            setFeedbackCode('CUSTOMER_REQUIRED');
+            showToast('Consumidor Final no disponible con cliente obligatorio.', 'warning');
+            return;
+        }
         if (!cart.length) {
             setFeedback('Agregá al menos un producto a la venta.');
             setFeedbackCode('NO_ITEMS');
@@ -192,8 +200,9 @@ export function NewSaleClient() {
             cash_session_id: activeSessionId ?? undefined,
         };
 
-        if (selectedCustomer) {
-            payload.customer_id = selectedCustomer.id;
+        const realCustomer = !isConsumerFinal(selectedCustomer) ? selectedCustomer : null;
+        if (realCustomer) {
+            payload.customer_id = realCustomer.id;
         } else {
             payload.customer_id = null;
         }
@@ -300,6 +309,11 @@ export function NewSaleClient() {
                     {requiresCustomer && !selectedCustomer ? (
                         <p className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-700">
                             Seleccioná un cliente para registrar la venta.
+                        </p>
+                    ) : null}
+                    {requiresCustomer && isConsumerFinalSelected ? (
+                        <p className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-700">
+                            Con cliente obligatorio no se admite Consumidor Final. Elegí o creá un cliente.
                         </p>
                     ) : null}
                     <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-xs text-slate-600">
@@ -470,7 +484,7 @@ export function NewSaleClient() {
                         <button
                             type="button"
                             onClick={handleSubmit}
-                            disabled={isSaving || !selectedCustomer || cart.length === 0}
+                            disabled={isSaving || !selectedCustomer || cart.length === 0 || (requiresCustomer && isConsumerFinalSelected)}
                             className="w-full rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
                         >
                             {isSaving ? 'Registrando venta...' : 'Confirmar venta'}

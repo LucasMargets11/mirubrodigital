@@ -62,13 +62,13 @@ from apps.appointments.models import (
   AppointmentCategory,
   AppointmentException,
   AppointmentPayment,
-  AppointmentProfessional,
   AppointmentSchedule,
   AppointmentService,
 )
 from apps.appointments.public_page import build_public_booking_url
 from apps.appointments.services import payment_confirmation
 from apps.appointments.services.customer_link import resolve_customer_for_appointment
+from apps.appointments.services.professionals import create_professional
 from apps.billing.models import SubscriptionV2
 from apps.business.context import build_business_context
 from apps.business.models import Business
@@ -252,10 +252,10 @@ class Command(BaseCommand):
         deposit_type=dep_type, deposit_value=dep_value, sort_order=i,
       )
 
-    lucia = AppointmentProfessional.objects.create(
+    lucia = create_professional(
       business=business, name='Lucía QA', description='Color y cortes', sort_order=0,
     )
-    martin = AppointmentProfessional.objects.create(
+    martin = create_professional(
       business=business, name='Martín QA', description='Cortes y tratamientos', sort_order=1,
     )
     lucia.services.set([services['corte'], services['barba'], services['color'], services['mechas']])

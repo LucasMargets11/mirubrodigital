@@ -97,6 +97,34 @@ class BackfillSubscriptionsTest(TestCase):
         v2  = SubscriptionV2.objects.get(external_reference=ref)
         self.assertEqual(v2.service_type, SubscriptionV2.ServiceType.RESTAURANTE)
 
+    def test_turnos_plan_codes_resolve_to_appointments_service(self):
+        for plan_code in (
+            "appointments",
+            "appointments_pro",
+            "appointments_ai",
+            "appointments_base",
+        ):
+            with self.subTest(plan=plan_code):
+                biz = Business.objects.create(
+                    name=f"Turnos {plan_code}",
+                    default_service="gestion",
+                    service_type="gestion",
+                )
+                biz_sub = BizSubscription.objects.create(
+                    business=biz,
+                    plan=plan_code,
+                    service="gestion",
+                    status="active",
+                )
+
+                _call("backfill_subscriptions", business_id=biz.pk)
+
+                v2 = SubscriptionV2.objects.get(
+                    external_reference=f"LEGACY-BIZ-SUB-{biz_sub.pk}",
+                )
+                self.assertEqual(v2.service_type, SubscriptionV2.ServiceType.APPOINTMENTS)
+                self.assertEqual(v2.plan_code, plan_code)
+
     def test_plan_code_derived_from_plan_fk(self):
         plan = Plan.objects.create(
             code="gestion_pro_monthly",
@@ -112,6 +140,24 @@ class BackfillSubscriptionsTest(TestCase):
         ref = f"LEGACY-BILLING-SUB-{self.leg_sub.pk}"
         v2  = SubscriptionV2.objects.get(external_reference=ref)
         self.assertEqual(v2.plan_code, "gestion_pro_monthly")
+
+    def test_turnos_billing_plan_code_resolves_to_appointments_service(self):
+        plan = Plan.objects.create(
+            code="appointments_pro_monthly",
+            name="Turnos Pro",
+            price=2000,
+            interval="monthly",
+        )
+        self.leg_sub.plan = plan
+        self.leg_sub.save(update_fields=["plan"])
+
+        _call("backfill_subscriptions")
+
+        v2 = SubscriptionV2.objects.get(
+            external_reference=f"LEGACY-BILLING-SUB-{self.leg_sub.pk}",
+        )
+        self.assertEqual(v2.service_type, SubscriptionV2.ServiceType.APPOINTMENTS)
+        self.assertEqual(v2.plan_code, "appointments_pro_monthly")
 
     def test_price_snapshot_contains_provenance(self):
         _call("backfill_subscriptions")

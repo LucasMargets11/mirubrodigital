@@ -5,11 +5,10 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { ToastBubble } from '@/components/app/toast';
-import { SaleCustomerPicker } from '../sale-customer-picker';
+import { SaleCustomerPicker, isConsumerFinal } from '../sale-customer-picker';
 
 import { useCommercialSettingsQuery, useCreateOrder, useProducts } from '@/features/gestion/hooks';
 import type { Product, CreateOrderPayload } from '@/features/gestion/types';
-import type { CustomerSummary } from '@/features/customers/types';
 import { ApiError } from '@/lib/api/client';
 
 const DEFAULT_LOW_STOCK_THRESHOLD = 5;
@@ -86,7 +85,7 @@ export function NewOrderClient() {
     const [search, setSearch] = useState('');
     const [stockFilter, setStockFilter] = useState<StockFilter>('in');
     const [cart, setCart] = useState<CartItem[]>([]);
-    const [selectedCustomer, setSelectedCustomer] = useState<CustomerSummary | null>(null);
+    const [selectedCustomer, setSelectedCustomer] = useState<import('../sale-customer-picker').SaleCustomerSelection | null>(null);
     const [notes, setNotes] = useState('');
     const [deliveryDate, setDeliveryDate] = useState('');
     const [feedback, setFeedback] = useState('');
@@ -211,10 +210,10 @@ export function NewOrderClient() {
     };
 
     const handleSubmit = async () => {
-        if (requiresCustomer && !selectedCustomer) {
-            setFeedback('Seleccioná un cliente antes de confirmar el pedido.');
+        if (requiresCustomer && (!selectedCustomer || isConsumerFinal(selectedCustomer))) {
+            setFeedback('Los pedidos requieren un cliente real. Elegí o creá uno.');
             setFeedbackCode('CUSTOMER_REQUIRED');
-            showToast('Seleccioná un cliente para continuar.', 'warning');
+            showToast('Seleccioná un cliente real para continuar.', 'warning');
             return;
         }
         if (!cart.length) {
@@ -226,8 +225,9 @@ export function NewOrderClient() {
         setFeedbackCode(null);
         setItemErrors({});
 
+        const realCustomer = !isConsumerFinal(selectedCustomer) ? selectedCustomer : null;
         const payload: CreateOrderPayload = {
-            customer: selectedCustomer.id,
+            customer: realCustomer!.id,
             items: cart.map((item) => ({
                 product_id: item.product.id,
                 quantity: item.quantity,

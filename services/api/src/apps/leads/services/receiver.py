@@ -29,7 +29,10 @@ from apps.notifications.models import BusinessNotification
 
 from .. import errors
 from ..contract import ALLOWED_BUSINESS_STATUSES, compute_payload_hash, format_utc, sort_handoff_reasons
-from ..models import AgentChannel, AgentInstance, Lead, LeadAgentMessage, LeadAgentState
+from ..models import (
+    AgentChannel, AgentInstance, AppointmentProposal, Lead, LeadAgentMessage, LeadAgentState,
+)
+from .notifications import lead_detail_action_url
 
 logger = logging.getLogger('apps.leads.receiver')
 
@@ -39,7 +42,7 @@ RESULT_DUPLICATE = 'duplicate'
 RESULT_STALE = 'stale'
 
 HANDOFF_NOTIFICATION_TITLE = 'Nueva consulta para recepción'
-HANDOFF_NOTIFICATION_MESSAGE = 'Una consulta requiere atención humana.'
+HANDOFF_NOTIFICATION_MESSAGE = 'Una consulta necesita revisión de recepción.'
 
 # Campos que el sync escribe en una versión nueva (todo lo demás es identidad
 # inmutable o CRM).
@@ -158,8 +161,9 @@ def ensure_agent_lead_handoff_notification(lead_id) -> BusinessNotification | No
         title=HANDOFF_NOTIFICATION_TITLE,
         message=HANDOFF_NOTIFICATION_MESSAGE,
         severity=severity,
-        # El panel de leads todavía no existe: sin action_url.
-        action_url='',
+        # Deep link a la bandeja operativa (LEADS SLICE 2). Leerla no reconoce
+        # la atención, no toma la conversación ni asigna el Lead.
+        action_url=lead_detail_action_url(lead_id),
         related_object_type='lead',
         related_object_id=str(lead_id),
         metadata={
@@ -213,6 +217,72 @@ def _sync_messages(lead: Lead, messages: list[dict]) -> None:
         unique_fields=['lead', 'external_message_id'],
         update_fields=['role', 'sender', 'text', 'sent_at', 'status'],
     )
+
+
+def _record_proposal_confirmation(lead: Lead, data: dict, now) -> None:
+    """Marca una intención afirmativa sin convertir la propuesta en turno."""
+    signal = data.get('proposal_confirmation')
+    if signal is None:
+        return
+
+    lead = Lead.objects.select_for_update().get(pk=lead.pk)
+    proposal = (
+        AppointmentProposal.objects.select_for_update(of=('self',))
+        .select_related('staff_message')
+        .filter(
+            pk=signal['proposal_id'],
+            business_id=lead.business_id,
+            lead=lead,
+        )
+        .first()
+    )
+
+    def ignore(reason: str) -> None:
+        logger.info(
+            'proposal_confirmation_ignored lead=%s proposal=%s reason=%s',
+            lead.pk, signal['proposal_id'], reason,
+        )
+
+    if proposal is None:
+        ignore('proposal_not_found')
+        return
+    if (
+        proposal.status != AppointmentProposal.Status.QUEUED
+        or proposal.expires_at is None or proposal.expires_at <= now
+        or proposal.appointment_id is not None
+        or lead.status == Lead.Status.CLOSED or lead.appointment_id is not None
+    ):
+        ignore('proposal_not_confirmable')
+        return
+
+    message = LeadAgentMessage.objects.filter(
+        lead=lead, external_message_id=signal['message_id'],
+        sender=LeadAgentMessage.Sender.PATIENT, role=LeadAgentMessage.Role.USER,
+    ).first()
+    if message is None:
+        ignore('patient_message_not_found')
+        return
+    staff_message = proposal.staff_message
+    sent_at = None
+    if staff_message is not None and staff_message.lead_id == lead.pk:
+        if staff_message.message_id:
+            sent_at = LeadAgentMessage.objects.filter(
+                lead=lead, external_message_id=staff_message.message_id,
+                sender=LeadAgentMessage.Sender.STAFF, role=LeadAgentMessage.Role.ASSISTANT,
+            ).values_list('sent_at', flat=True).first()
+        if sent_at is None:
+            sent_at = staff_message.delivered_at
+    if sent_at is None or message.sent_at <= sent_at or message.sent_at > proposal.expires_at:
+        ignore('message_outside_proposal_window')
+        return
+
+    if proposal.confirmation_message_id == signal['message_id']:
+        return
+
+    proposal.confirmation_requested_at = now
+    proposal.confirmation_message_id = signal['message_id']
+    proposal.save(update_fields=['confirmation_requested_at', 'confirmation_message_id', 'updated_at'])
+    logger.info('proposal_confirmation_received proposal=%s lead=%s', proposal.pk, lead.pk)
 
 
 def _reason_signals(reasons: list[dict]) -> dict[str, str]:
@@ -311,6 +381,7 @@ def receive_lead_sync(*, agent_instance: AgentInstance, data: dict) -> ReceiverR
         if state is None:
             created = _create(agent_instance, channel, data, payload_hash, now)
             if created is not None:
+                _record_proposal_confirmation(created.lead, data, now)
                 if created.handoff_requested:
                     _schedule_handoff_notification(created.lead)
                 return ReceiverResult(RESULT_CREATED, created.lead, version, created.applied_version, channel.business_id)
@@ -343,6 +414,7 @@ def receive_lead_sync(*, agent_instance: AgentInstance, data: dict) -> ReceiverR
         state.last_synced_at = now
         state.save(update_fields=[*AGENT_OWNED_FIELDS, *SYNC_METADATA_FIELDS])
         _sync_messages(lead, data['messages'])
+        _record_proposal_confirmation(lead, data, now)
 
         if _is_new_attention_request(was_requested, old_reasons, state):
             _request_attention(lead)

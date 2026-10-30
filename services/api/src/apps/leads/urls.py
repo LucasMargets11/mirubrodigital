@@ -2,8 +2,9 @@
 from django.urls import path
 
 from .crm_views import (
-    LeadAcknowledgeAttentionView, LeadAssigneesView, LeadDetailView, LeadListView, LeadMessagesView, LeadNoteDetailView,
-    LeadNotesView, LeadReleaseView, LeadTakeoverView,
+    LeadAcknowledgeAttentionView, LeadAppointmentProposalsView, LeadAssigneesView, LeadCurrentAppointmentProposalView,
+    LeadDetailView, LeadListView, LeadMessagesView, LeadNoteDetailView, LeadNotesView, LeadReleaseView,
+    LeadTakeoverView, LeadCreateAppointmentView, LeadConfirmAppointmentProposalView,
 )
 
 app_name = 'leads'
@@ -12,6 +13,19 @@ urlpatterns = [
     path('', LeadListView.as_view(), name='lead-list'),
     path('assignees/', LeadAssigneesView.as_view(), name='lead-assignees'),
     path('<uuid:lead_id>/', LeadDetailView.as_view(), name='lead-detail'),
+    path('<uuid:lead_id>/appointment/', LeadCreateAppointmentView.as_view(), name='lead-create-appointment'),
+    path(
+        '<uuid:lead_id>/appointment-proposals/', LeadAppointmentProposalsView.as_view(),
+        name='lead-appointment-proposals',
+    ),
+    path(
+        '<uuid:lead_id>/appointment-proposals/<uuid:proposal_id>/confirm/',
+        LeadConfirmAppointmentProposalView.as_view(), name='lead-appointment-proposal-confirm',
+    ),
+    path(
+        '<uuid:lead_id>/appointment-proposals/current/', LeadCurrentAppointmentProposalView.as_view(),
+        name='lead-appointment-proposal-current',
+    ),
     path(
         '<uuid:lead_id>/acknowledge-attention/', LeadAcknowledgeAttentionView.as_view(),
         name='lead-acknowledge-attention',

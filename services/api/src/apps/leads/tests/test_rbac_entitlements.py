@@ -60,17 +60,18 @@ class LeadEntitlementTests(SimpleTestCase):
     def test_entitlement_code(self):
         self.assertEqual(APPOINTMENTS_LEADS_ENTITLEMENT, 'appointments.leads')
 
-    def test_granted_only_by_appointments_base_plan(self):
-        # LEADS 04A.1: solo el plan de Turnos lo otorga; ningún add-on.
+    def test_granted_by_legacy_base_and_canonical_ai_plans(self):
         granting = {plan for plan, entitlements in PLAN_ENTITLEMENTS.items()
                     if APPOINTMENTS_LEADS_ENTITLEMENT in (entitlements or set())}
-        self.assertEqual(granting, {'appointments_base'})
+        self.assertEqual(granting, {'appointments_base', 'appointments_ai'})
+        for plan in ('appointments', 'appointments_pro'):
+            self.assertNotIn(APPOINTMENTS_LEADS_ENTITLEMENT, PLAN_ENTITLEMENTS[plan])
         for addon, entitlements in ADDON_ENTITLEMENTS.items():
             with self.subTest(addon=addon):
                 self.assertNotIn(APPOINTMENTS_LEADS_ENTITLEMENT, entitlements)
 
     def test_upgrade_hint_points_to_turnos(self):
-        self.assertEqual(get_upgrade_hint(APPOINTMENTS_LEADS_ENTITLEMENT), 'Turnos Base')
+        self.assertEqual(get_upgrade_hint(APPOINTMENTS_LEADS_ENTITLEMENT), 'Turnos IA')
 
 
 class LeadsFeatureFlagTests(SimpleTestCase):
@@ -81,6 +82,9 @@ class LeadsFeatureFlagTests(SimpleTestCase):
 
         self.assertIn('leads', FEATURE_KEYS)
         self.assertTrue(feature_flags_for_plan('appointments_base')['leads'])
+        self.assertTrue(feature_flags_for_plan('appointments_ai')['leads'])
+        for plan in ('appointments', 'appointments_pro'):
+            self.assertFalse(feature_flags_for_plan(plan)['leads'])
         for plan in ('starter', 'pro', 'business', 'menu_qr', 'qr_reviews', 'unknown-plan'):
             with self.subTest(plan=plan):
                 self.assertFalse(feature_flags_for_plan(plan)['leads'])

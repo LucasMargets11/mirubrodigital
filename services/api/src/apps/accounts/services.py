@@ -424,4 +424,3 @@ class InternalUserService:
         EmailService.send_secondary_user_access_email(user, business, role)
 
         return {'user': user, 'membership': membership}
-

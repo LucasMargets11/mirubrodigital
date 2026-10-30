@@ -17,13 +17,17 @@ from __future__ import annotations
 from typing import Any
 
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 from rest_framework import serializers
 
 from apps.appointments.models import Appointment
 from apps.customers.models import Customer
 from apps.customers.serializers import _author_display_name
 
-from .models import ConversationControl, Lead, LeadActivity, LeadAgentMessage, LeadAgentState, LeadNote, LeadStaffMessage
+from .models import (
+    AppointmentProposal, ConversationControl, Lead, LeadActivity, LeadAgentMessage, LeadAgentState, LeadNote,
+    LeadStaffMessage,
+)
 from .services.activity import record_update_activity, snapshot_for_activity
 from .services.assignees import active_memberships, membership_can_view_leads
 from .services.notifications import schedule_lead_assigned_notification
@@ -180,27 +184,89 @@ class LeadNoteSerializer(serializers.ModelSerializer):
         return {'id': str(obj.author_id), 'name': _author_display_name(obj.author)}
 
 
+_UPCOMING_STATUSES = frozenset({Appointment.Status.CONFIRMED, Appointment.Status.PENDING_PAYMENT})
+
+
+def _appointment_list_summary(appointment: Appointment | None, now) -> dict[str, Any] | None:
+    """Resumen compacto del turno vinculado para la bandeja (LEADS SLICE 2).
+
+    Solo lectura y sin tocar el estado persistido: `status` es el efectivo
+    (hold vencido → `expired`). `is_upcoming` = ocupa agenda y todavía no
+    empezó (un cancelado/vencido futuro NO es próximo); `is_past` = ya
+    terminó, sea cual sea su estado (un `confirmed` pasado sigue figurando
+    `confirmed`). Sin pagos, notas ni datos del Customer del turno.
+    """
+    if appointment is None:
+        return None
+    status = appointment.effective_status(now=now)
+    professional = appointment.professional
+    return {
+        'id': str(appointment.pk),
+        'status': status,
+        'start_at': appointment.start_at,
+        'end_at': appointment.end_at,
+        'service_name': appointment.service_name,
+        'professional_name': professional.name if professional is not None else None,
+        'is_upcoming': status in _UPCOMING_STATUSES and appointment.start_at > now,
+        'is_past': appointment.end_at <= now,
+    }
+
+
 class LeadListSerializer(serializers.ModelSerializer):
+    """Fila de la bandeja operativa.
+
+    `last_patient_message_*`, `conversation_control` y `appointment` salen de
+    anotaciones/joins y del contexto armado por `LeadListView.list` (`now`
+    único y mapa batch de `ConversationControl`): nunca una query por fila.
+    """
+
     assigned_to = serializers.SerializerMethodField()
     customer = serializers.SerializerMethodField()
     agent = serializers.SerializerMethodField()
     needs_attention = serializers.BooleanField(source='attention_pending', read_only=True)
     conversation_state = serializers.SerializerMethodField()
+    conversation_control = serializers.SerializerMethodField()
+    appointment = serializers.SerializerMethodField()
+    last_patient_message_text = serializers.SerializerMethodField()
+    last_patient_message_at = serializers.SerializerMethodField()
 
     class Meta:
         model = Lead
         fields = [
             'id', 'source', 'status', 'outcome', 'created_at', 'updated_at', 'needs_attention_at',
             'needs_attention', 'acknowledged_at', 'assigned_to', 'customer', 'agent', 'conversation_state',
+            'conversation_control', 'appointment', 'last_patient_message_text', 'last_patient_message_at',
         ]
         read_only_fields = fields
 
     def get_conversation_state(self, obj: Lead) -> str | None:
         # MIRUBRO TAKEOVER 05A: anotado por LeadListView (sin query por fila).
         # Sin conversación del agente → null; sin control todavía → active.
+        # Se mantiene por compatibilidad; `conversation_control` lo amplía.
         if _agent_state(obj) is None:
             return None
         return getattr(obj, 'conversation_control_state', None) or ConversationControl.State.ACTIVE
+
+    def get_conversation_control(self, obj: Lead) -> dict[str, Any] | None:
+        state = _agent_state(obj)
+        if state is None:
+            return None
+        controls = self.context.get('conversation_controls') or {}
+        control = controls.get(state.external_conversation_id)
+        if control is None:
+            return {'state': self.get_conversation_state(obj), 'taken_by': None, 'taken_at': None}
+        return {'state': control.state, 'taken_by': _user_ref(control.taken_by), 'taken_at': control.taken_at}
+
+    def get_appointment(self, obj: Lead) -> dict[str, Any] | None:
+        now = self.context.get('now') or timezone.now()
+        return _appointment_list_summary(obj.appointment, now)
+
+    def get_last_patient_message_text(self, obj: Lead) -> str | None:
+        return getattr(obj, 'last_patient_message_text', None)
+
+    def get_last_patient_message_at(self, obj: Lead):
+        value = getattr(obj, 'last_patient_message_at', None)
+        return serializers.DateTimeField().to_representation(value) if value is not None else None
 
     def get_assigned_to(self, obj: Lead) -> dict[str, Any] | None:
         return _user_ref(obj.assigned_to)
@@ -248,7 +314,11 @@ class LeadDetailSerializer(serializers.ModelSerializer):
         return _user_ref(obj.acknowledged_by)
 
     def get_appointment(self, obj: Lead) -> dict[str, Any] | None:
-        return _appointment_ref(obj.appointment)
+        ref = _appointment_ref(obj.appointment)
+        if ref is not None:
+            ref['professional_name'] = obj.appointment.professional.name if obj.appointment.professional else None
+            ref['customer'] = _customer_ref(obj.appointment.customer)
+        return ref
 
     def get_agent_state(self, obj: Lead) -> dict[str, Any] | None:
         state = _agent_state(obj)
@@ -489,3 +559,70 @@ class LeadUpdateSerializer(serializers.Serializer):
             # LEADS 04B.3: aviso personal al nuevo asignado (post-commit).
             schedule_lead_assigned_notification(instance, actor=self.context['request'].user)
         return instance
+
+
+# ── SLICE 3A — propuesta estructurada de turno ──────────────────────────────
+
+class AppointmentProposalCreateSerializer(serializers.Serializer):
+    """POST de una propuesta. Solo la elección de recepción: fin, precio, seña,
+    nombres y texto los decide el backend (cualquier otro campo se rechaza)."""
+
+    service_id = serializers.UUIDField()
+    professional_id = serializers.UUIDField(required=False, allow_null=True, default=None)
+    start_at = serializers.DateTimeField()
+    idempotency_key = serializers.UUIDField()
+
+    def to_internal_value(self, data):
+        if not isinstance(data, dict):
+            raise serializers.ValidationError({'non_field_errors': ['Payload inválido.']})
+        rejected = sorted(set(data) - set(self.fields))
+        if rejected:
+            raise serializers.ValidationError({field: ['Campo no permitido.'] for field in rejected})
+        return super().to_internal_value(data)
+
+
+def serialize_appointment_proposal(proposal: AppointmentProposal) -> dict[str, Any]:
+    message = proposal.staff_message
+    failed = message is not None and message.status == LeadStaffMessage.Status.FAILED
+    confirmation_message = None
+    if proposal.confirmation_message_id:
+        confirmation_message = LeadAgentMessage.objects.filter(
+            lead_id=proposal.lead_id,
+            external_message_id=proposal.confirmation_message_id,
+            sender=LeadAgentMessage.Sender.PATIENT,
+        ).values_list('text', flat=True).first()
+    return {
+        'id': str(proposal.pk),
+        'status': proposal.status,
+        'service': {'id': str(proposal.service_id), 'name': proposal.service_name},
+        'professional': (
+            {'id': str(proposal.professional_id), 'name': proposal.professional_name}
+            if proposal.professional_id else None
+        ),
+        'proposed_start_at': serializers.DateTimeField().to_representation(proposal.proposed_start_at),
+        'proposed_end_at': serializers.DateTimeField().to_representation(proposal.proposed_end_at),
+        'snapshots': {
+            'service_name': proposal.service_name,
+            'professional_name': proposal.professional_name,
+            'service_duration_minutes': proposal.service_duration_minutes,
+            'service_price': f'{proposal.service_price:.2f}',
+            'currency': proposal.currency,
+            'deposit_type': proposal.deposit_type,
+            'deposit_value': f'{proposal.deposit_value:.2f}',
+            'deposit_amount': f'{proposal.deposit_amount:.2f}',
+        },
+        'expires_at': serializers.DateTimeField().to_representation(proposal.expires_at) if proposal.expires_at else None,
+        'patient_confirmation': (
+            {
+                'intent': 'confirm',
+                'requested_at': serializers.DateTimeField().to_representation(proposal.confirmation_requested_at),
+                'message': confirmation_message,
+            }
+            if proposal.confirmation_requested_at is not None
+            else None
+        ),
+        'staff_message_status': message.status if message is not None else None,
+        # Código técnico del contrato (p. ej. `conversation_not_taken`), nunca payload ni secretos.
+        'delivery_error': message.last_error if failed else None,
+        'created_at': serializers.DateTimeField().to_representation(proposal.created_at),
+    }

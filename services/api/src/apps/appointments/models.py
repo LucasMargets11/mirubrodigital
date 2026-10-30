@@ -1,6 +1,8 @@
 import uuid
+from datetime import timedelta
 from decimal import Decimal
 
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
 from django.utils import timezone as dj_timezone
@@ -34,13 +36,38 @@ class AppointmentCategory(models.Model):
     return f"{self.name} ({self.business_id})"
 
 
+class AppointmentProfessionalQuerySet(models.QuerySet):
+  def update(self, **kwargs):
+    protected = {'business', 'business_id', 'membership', 'membership_id'} & kwargs.keys()
+    if protected or ('is_active' in kwargs and kwargs['is_active'] is not False):
+      raise ValidationError('Usá el servicio de mutación de profesionales para activar o cambiar vínculos.')
+    return super().update(**kwargs)
+
+  def bulk_create(self, objs, *args, **kwargs):
+    raise ValidationError('Usá create_professional para crear profesionales con control de cuota.')
+
+  def bulk_update(self, objs, fields, *args, **kwargs):
+    if {'is_active', 'business', 'business_id', 'membership', 'membership_id'} & set(fields):
+      raise ValidationError('Usá el servicio de mutación de profesionales para activar o cambiar vínculos.')
+    return super().bulk_update(objs, fields, *args, **kwargs)
+
+
 class AppointmentProfessional(models.Model):
+  objects = AppointmentProfessionalQuerySet.as_manager()
   id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
   business = models.ForeignKey('business.Business', related_name='appointment_professionals', on_delete=models.CASCADE)
   name = models.CharField(max_length=150)
   description = models.CharField(max_length=500, blank=True)
   phone = models.CharField(max_length=30, blank=True)
   email = models.EmailField(blank=True)
+  membership = models.ForeignKey(
+    'accounts.Membership',
+    null=True,
+    blank=True,
+    related_name='appointment_professionals',
+    on_delete=models.SET_NULL,
+    help_text='Acceso de login profesional (disponible en Turnos Pro/IA).',
+  )
   services = models.ManyToManyField('appointments.AppointmentService', related_name='professionals', blank=True)
   is_active = models.BooleanField(default=True)
   sort_order = models.PositiveIntegerField(default=0)
@@ -55,7 +82,12 @@ class AppointmentProfessional(models.Model):
       models.UniqueConstraint(
         fields=['business', 'name'],
         name='unique_appointment_professional_per_business'
-      )
+      ),
+      models.UniqueConstraint(
+        fields=['business', 'membership'],
+        condition=models.Q(is_active=True, membership__isnull=False),
+        name='unique_active_professional_membership_business',
+      ),
     ]
     indexes = [
       models.Index(fields=['business', 'sort_order', 'name']),
@@ -63,6 +95,57 @@ class AppointmentProfessional(models.Model):
 
   def __str__(self) -> str:
     return f"{self.name} ({self.business_id})"
+
+  def clean(self):
+    super().clean()
+    existing = None
+    if self.pk and not self._state.adding:
+      existing = type(self).objects.filter(pk=self.pk).only('membership_id').first()
+    from .services.professional_quota import validate_professional_membership
+
+    if self.membership_id and (
+      existing is None or existing.membership_id != self.membership_id
+    ):
+      validate_professional_membership(self)
+
+  def save(self, *args, **kwargs):
+    from django.db import transaction
+
+    from apps.business.models import Business
+    from .services.professional_quota import (
+      assert_professional_slot_available, validate_professional_membership,
+    )
+
+    if not self.business_id:
+      return super().save(*args, **kwargs)
+    with transaction.atomic():
+      Business.objects.select_for_update().get(pk=self.business_id)
+      existing = None
+      if not self._state.adding:
+        existing = type(self).objects.select_for_update().filter(pk=self.pk).first()
+      update_fields = kwargs.get('update_fields')
+      if update_fields is not None:
+        update_fields = set(update_fields)
+        kwargs['update_fields'] = update_fields
+      persists_active = update_fields is None or 'is_active' in update_fields
+      persists_business = update_fields is None or bool({'business', 'business_id'} & set(update_fields))
+      effective_active = self.is_active if persists_active or existing is None else existing.is_active
+      activates = effective_active and (
+        existing is None
+        or (persists_active and not existing.is_active)
+        or (existing.business_id != self.business_id and persists_business)
+      )
+      if activates:
+        assert_professional_slot_available(
+          self.business, exclude_professional_id=self.pk if existing else None,
+        )
+      persists_membership = update_fields is None or bool({'membership', 'membership_id'} & set(update_fields))
+      membership_changed = persists_membership and self.membership_id and (
+        existing is None or existing.membership_id != self.membership_id
+      )
+      if membership_changed or (activates and self.membership_id):
+        validate_professional_membership(self)
+      return super().save(*args, **kwargs)
 
 
 class AppointmentSchedule(models.Model):
@@ -472,3 +555,276 @@ class AppointmentPayment(models.Model):
   @staticmethod
   def build_external_reference(payment_id: uuid.UUID) -> str:
     return f'{EXTERNAL_REFERENCE_PREFIX}{payment_id.hex}'
+
+
+class AppointmentAIUsageSession(models.Model):
+  """Commercial AI sessions, independent of Lead episodes and message retention."""
+
+  id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+  business = models.ForeignKey(
+    'business.Business', related_name='appointment_ai_usage_sessions', on_delete=models.PROTECT,
+  )
+  subscription = models.ForeignKey(
+    'billing.SubscriptionV2', related_name='appointment_ai_usage_sessions', on_delete=models.PROTECT,
+  )
+  external_conversation_id = models.CharField(max_length=64)
+  opening_interaction_id = models.UUIDField()
+  started_at = models.DateTimeField()
+  expires_at = models.DateTimeField()
+  usage_period_start = models.DateTimeField()
+  usage_period_end = models.DateTimeField()
+  usage_tier = models.CharField(max_length=16)
+  created_at = models.DateTimeField(auto_now_add=True)
+
+  class Meta:
+    constraints = [
+      models.UniqueConstraint(
+        fields=['business', 'external_conversation_id', 'started_at'],
+        name='appt_ai_session_start_unique',
+      ),
+      models.UniqueConstraint(
+        fields=['business', 'opening_interaction_id'],
+        name='appt_ai_opening_event_unique',
+      ),
+      models.CheckConstraint(
+        condition=Q(expires_at=models.F('started_at') + timedelta(hours=24)),
+        name='appt_ai_session_fixed_24h',
+      ),
+      models.CheckConstraint(
+        condition=Q(usage_period_start__lte=models.F('started_at'))
+        & Q(usage_period_end__gt=models.F('started_at')),
+        name='appt_ai_start_in_usage_period',
+      ),
+      models.CheckConstraint(
+        condition=Q(usage_tier__in=['ai_300', 'ai_1500', 'ai_3000']),
+        name='appt_ai_session_resolved_tier',
+      ),
+      models.CheckConstraint(
+        condition=~Q(external_conversation_id=''),
+        name='appt_ai_conversation_not_empty',
+      ),
+    ]
+    indexes = [
+      models.Index(
+        fields=['business', 'usage_period_start', 'usage_period_end'], name='appt_ai_usage_period_idx',
+      ),
+    ]
+
+
+class AppointmentAIUsageAuthorization(models.Model):
+  """Bind every authorized interaction, including non-opening ones, to its session."""
+
+  business = models.ForeignKey('business.Business', on_delete=models.PROTECT)
+  interaction_id = models.UUIDField()
+  session = models.ForeignKey(AppointmentAIUsageSession, on_delete=models.PROTECT)
+  occurred_at = models.DateTimeField()
+  created_at = models.DateTimeField(auto_now_add=True)
+
+  class Meta:
+    constraints = [
+      models.UniqueConstraint(
+        fields=['business', 'interaction_id'], name='appt_ai_authorization_event_unique',
+      ),
+    ]
+
+
+class AppointmentAIUsageCharge(models.Model):
+  """Immutable economic terms recorded only at the creation of a real AI session."""
+
+  id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+  session = models.OneToOneField(
+    AppointmentAIUsageSession, related_name='economic_entry', on_delete=models.PROTECT,
+  )
+  business = models.ForeignKey(
+    'business.Business', related_name='appointment_ai_usage_charges', on_delete=models.PROTECT,
+  )
+  subscription = models.ForeignKey(
+    'billing.SubscriptionV2', related_name='appointment_ai_usage_charges', on_delete=models.PROTECT,
+  )
+  usage_period_start = models.DateTimeField()
+  usage_period_end = models.DateTimeField()
+  usage_tier = models.CharField(max_length=16)
+  session_ordinal = models.PositiveIntegerField()
+  included_sessions_snapshot = models.PositiveIntegerField()
+  classification = models.CharField(
+    max_length=8, choices=[('included', 'Included'), ('overage', 'Overage')],
+  )
+  unit_price = models.PositiveBigIntegerField()
+  amount = models.PositiveBigIntegerField()
+  currency = models.CharField(max_length=3, default='ARS', editable=False)
+  created_at = models.DateTimeField(auto_now_add=True)
+
+  class Meta:
+    indexes = [
+      models.Index(
+        fields=['business', 'usage_period_start', 'usage_period_end'], name='appt_ai_charge_period_idx',
+      ),
+    ]
+    constraints = [
+      models.CheckConstraint(
+        condition=Q(usage_period_end__gt=models.F('usage_period_start')),
+        name='appt_ai_charge_positive_period',
+      ),
+      models.CheckConstraint(
+        condition=Q(usage_tier__in=['ai_300', 'ai_1500', 'ai_3000']) & Q(currency='ARS'),
+        name='appt_ai_charge_resolved_terms',
+      ),
+      models.CheckConstraint(
+        condition=Q(session_ordinal__gt=0) & Q(included_sessions_snapshot__gt=0),
+        name='appt_ai_charge_positive_usage',
+      ),
+      models.CheckConstraint(
+        condition=(
+          Q(classification='included', unit_price=0, amount=0)
+          & Q(session_ordinal__lte=models.F('included_sessions_snapshot'))
+        ) | (
+          Q(classification='overage', unit_price__gt=0, amount=models.F('unit_price'))
+          & Q(session_ordinal__gt=models.F('included_sessions_snapshot'))
+        ),
+        name='appt_ai_charge_classification',
+      ),
+    ]
+
+
+class AppointmentAIUsageSettlement(models.Model):
+  """Frozen internal period closure, never a payment or receivable."""
+
+  id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+  business = models.ForeignKey(
+    'business.Business', related_name='appointment_ai_usage_settlements', on_delete=models.PROTECT,
+  )
+  subscription = models.ForeignKey(
+    'billing.SubscriptionV2', related_name='appointment_ai_usage_settlements', on_delete=models.PROTECT,
+  )
+  usage_period_start = models.DateTimeField()
+  usage_period_end = models.DateTimeField()
+  currency = models.CharField(max_length=3, default='ARS', editable=False)
+  total_sessions = models.PositiveIntegerField()
+  included_sessions_snapshot = models.PositiveIntegerField()
+  overage_sessions = models.PositiveIntegerField()
+  overage_amount = models.PositiveBigIntegerField()
+  terms_snapshot = models.JSONField()
+  status = models.CharField(
+    max_length=9, choices=[('pending', 'Pending'), ('finalized', 'Finalized')], default='pending',
+  )
+  created_at = models.DateTimeField(auto_now_add=True)
+  finalized_at = models.DateTimeField(null=True, blank=True)
+  charges = models.ManyToManyField(
+    AppointmentAIUsageCharge, through='AppointmentAIUsageSettlementEntry',
+    related_name='usage_settlements',
+  )
+
+  class Meta:
+    constraints = [
+      models.UniqueConstraint(
+        fields=['business', 'subscription', 'usage_period_start', 'usage_period_end'],
+        name='appt_ai_settlement_period_unique',
+      ),
+      models.CheckConstraint(
+        condition=Q(usage_period_end__gt=models.F('usage_period_start')),
+        name='appt_ai_settlement_period',
+      ),
+      models.CheckConstraint(
+        condition=Q(currency='ARS') & Q(
+          total_sessions=models.F('included_sessions_snapshot') + models.F('overage_sessions'),
+        ),
+        name='appt_ai_settlement_totals',
+      ),
+      models.CheckConstraint(
+        condition=Q(status='pending', finalized_at__isnull=True) | (
+          Q(status='finalized', finalized_at__gte=models.F('usage_period_end'))
+          & Q(finalized_at__isnull=False)
+        ),
+        name='appt_ai_settlement_state',
+      ),
+    ]
+
+
+class AppointmentAIUsageSettlementEntry(models.Model):
+  settlement = models.ForeignKey(
+    AppointmentAIUsageSettlement, related_name='entries', on_delete=models.PROTECT,
+  )
+  charge = models.OneToOneField(
+    AppointmentAIUsageCharge, related_name='settlement_entry', on_delete=models.PROTECT,
+  )
+
+
+class AppointmentAIUsageBillingIntent(models.Model):
+  """Internal preparation only; amount is frozen overage before future fiscal treatment."""
+
+  id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+  business = models.ForeignKey(
+    'business.Business', related_name='appointment_ai_billing_intents', on_delete=models.PROTECT,
+  )
+  subscription = models.ForeignKey(
+    'billing.SubscriptionV2', related_name='appointment_ai_billing_intents', on_delete=models.PROTECT,
+  )
+  settlement = models.OneToOneField(
+    AppointmentAIUsageSettlement, related_name='billing_intent', on_delete=models.PROTECT,
+  )
+  currency = models.CharField(max_length=3, editable=False)
+  amount = models.PositiveBigIntegerField(editable=False)
+  external_reference = models.CharField(max_length=64, unique=True, editable=False)
+  status = models.CharField(
+    max_length=10, default='pending',
+    choices=[(value, value.title()) for value in ('pending', 'processing', 'succeeded', 'failed', 'void')],
+  )
+  attempt_token = models.UUIDField(null=True, blank=True, editable=False)
+  created_at = models.DateTimeField(auto_now_add=True)
+  updated_at = models.DateTimeField(auto_now=True)
+  processing_started_at = models.DateTimeField(null=True, blank=True)
+  completed_at = models.DateTimeField(null=True, blank=True)
+  provider = models.CharField(max_length=32, null=True, blank=True)
+  provider_reference = models.CharField(max_length=128, null=True, blank=True)
+  failure_code = models.CharField(max_length=32, null=True, blank=True)
+  failure_message = models.CharField(max_length=255, null=True, blank=True)
+
+  class Meta:
+    constraints = [
+      models.CheckConstraint(
+        condition=Q(currency='ARS'), name='appt_ai_intent_currency',
+      ),
+      models.CheckConstraint(
+        condition=(
+          Q(status='pending', amount__gt=0, attempt_token__isnull=True,
+            processing_started_at__isnull=True, completed_at__isnull=True)
+          | Q(status='processing', amount__gt=0, attempt_token__isnull=False,
+              processing_started_at__isnull=False, completed_at__isnull=True)
+          | Q(status__in=['succeeded', 'failed'], amount__gt=0, attempt_token__isnull=False,
+              processing_started_at__isnull=False, completed_at__isnull=False)
+          | Q(status='void', completed_at__isnull=False)
+        ),
+        name='appt_ai_intent_state',
+      ),
+    ]
+
+
+class AppointmentAIUsageBillingAttempt(models.Model):
+  """S8F dispatch reservation; unknown evidence never makes an intent retryable."""
+
+  intent = models.ForeignKey(
+    AppointmentAIUsageBillingIntent, related_name='provider_attempts', on_delete=models.PROTECT,
+  )
+  attempt_token = models.UUIDField(unique=True, editable=False)
+  provider = models.CharField(max_length=32, editable=False)
+  provider_reference = models.CharField(max_length=128, null=True, blank=True)
+  status = models.CharField(
+    max_length=15, default='outcome_unknown',
+    choices=[(value, value.title()) for value in ('succeeded', 'failed', 'outcome_unknown')],
+  )
+  failure_code = models.CharField(max_length=32, null=True, blank=True)
+  created_at = models.DateTimeField(auto_now_add=True)
+  updated_at = models.DateTimeField(auto_now=True)
+
+  class Meta:
+    constraints = [
+      models.CheckConstraint(
+        condition=(
+          Q(status='succeeded', provider_reference__isnull=False, failure_code__isnull=True)
+          | Q(status__in=['failed', 'outcome_unknown'], failure_code__in=[
+            'declined', 'provider_not_enabled', 'provider_error', 'timeout', 'dispatch_incomplete',
+          ], failure_code__isnull=False)
+        ),
+        name='appt_ai_provider_result',
+      ),
+    ]

@@ -4,6 +4,7 @@ from django.utils import timezone
 from django.db import models
 from apps.billing.models import Module, Bundle, Promotion, Subscription
 from apps.business.models import Business
+from apps.billing.canonical_pricing import get_inactive_product_verticals
 
 class PricingService:
     @staticmethod
@@ -15,6 +16,9 @@ class PricingService:
         bundle_code: str = None
     ) -> Dict[str, Any]:
         
+        inactive_verticals = get_inactive_product_verticals()
+        if vertical in inactive_verticals:
+            raise ValueError("Product is not available for purchase")
         modules = []
         bundle = None
         
@@ -24,6 +28,8 @@ class PricingService:
                 raise ValueError("Bundle code is required for bundle plan type")
             try:
                 bundle = Bundle.objects.get(code=bundle_code, is_active=True)
+                if bundle.vertical in inactive_verticals:
+                    raise ValueError("Product is not available for purchase")
                 modules = list(bundle.modules.filter(is_active=True))
                 # Validate vertical (optional strict check)
                 # if bundle.vertical != vertical: ...
@@ -42,6 +48,8 @@ class PricingService:
             # Get selected
             selected_modules_qs = Module.objects.filter(code__in=selected_module_codes, is_active=True)
             modules = list(selected_modules_qs)
+            if any(m.vertical in inactive_verticals for m in modules):
+                raise ValueError("Product is not available for purchase")
             
             # Add missing cores
             selected_ids = {m.id for m in modules}

@@ -1,5 +1,12 @@
 # MIRUBRO AGENT 01 — Auditoría del receptor de Leads del agente
 
+> Evolución posterior: el GET autenticado `appointment-context/` y los bloques
+> nullable `proposal` / `appointment` de la respuesta del PUT exponen el contexto
+> de turnos. `proposal_confirmation` exige `proposal_id`, mensaje exacto y
+> correlación temporal, sin selección implícita de propuesta.
+> Ver el [contrato vigente](LEADS_PROPOSAL_CONFIRMATION_SIGNAL.md).
+> El resto de este documento conserva la auditoría original.
+
 > Solo auditoría y diseño. No se creó ningún modelo, migración, endpoint, permiso ni UI.
 > Fecha: 2026-10-04 · Rama auditada: `develop` (árbol de trabajo con cambios sin commitear, incluido el traslado `/app/gestion/clientes` → `/app/clientes`).
 >

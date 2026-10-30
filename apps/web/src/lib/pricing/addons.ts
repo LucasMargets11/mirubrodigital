@@ -60,9 +60,21 @@ export const ADDON_QR_TIPS: AddonDef = {
 
 // ── Aggregate ─────────────────────────────────────────────────────
 
+export const ADDON_APPOINTMENTS_AUTOMATIONS: AddonDef = {
+  code: 'appointments_automations',
+  vertical: 'appointments',
+  name: 'Automatizaciones',
+  description: 'Comunicaciones y acciones automáticas de Turnos.',
+  priceMonthly: 8500,
+  priceYearly: 81600,
+  availableFor: ['appointments', 'appointments_pro'],
+  includedIn: ['appointments_ai'],
+};
+
 export const ALL_ADDONS: readonly AddonDef[] = [
   ADDON_CRM,
   ADDON_INVOICING,
   ADDON_QR_REVIEWS,
   ADDON_QR_TIPS,
+  ADDON_APPOINTMENTS_AUTOMATIONS,
 ];

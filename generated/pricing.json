@@ -1,5 +1,5 @@
 {
-  "version": "2026-04-09",
+  "version": "2026-10-28",
   "unit": "ARS_pesos_integer",
   "products": [
     {
@@ -93,6 +93,14 @@
       "is_custom": false
     },
     {
+      "code": "menu_qr_empresarial",
+      "vertical": "menu_qr",
+      "name": "Empresarial",
+      "price_monthly": 0,
+      "price_yearly": 0,
+      "is_custom": true
+    },
+    {
       "code": "qr_reviews_base",
       "vertical": "qr_reviews",
       "name": "Reseñas Base",
@@ -109,20 +117,55 @@
       "is_custom": false
     },
     {
-      "code": "menu_qr_empresarial",
-      "vertical": "menu_qr",
-      "name": "Empresarial",
-      "price_monthly": 0,
-      "price_yearly": 0,
-      "is_custom": true
-    },
-    {
       "code": "qr_reviews_empresarial",
       "vertical": "qr_reviews",
       "name": "Empresarial",
       "price_monthly": 0,
       "price_yearly": 0,
       "is_custom": true
+    },
+    {
+      "code": "appointments",
+      "vertical": "appointments",
+      "name": "Turnos",
+      "price_monthly": 23000,
+      "price_yearly": 220800,
+      "is_custom": false,
+      "professionals_included": 2,
+      "secondary_users_included": 2
+    },
+    {
+      "code": "appointments_pro",
+      "vertical": "appointments",
+      "name": "Turnos Pro",
+      "price_monthly": 28000,
+      "price_yearly": 268800,
+      "is_custom": false,
+      "professionals_included": 5,
+      "secondary_users_included": 5
+    },
+    {
+      "code": "appointments_ai",
+      "vertical": "appointments",
+      "name": "Turnos IA Recepcionista",
+      "price_monthly": null,
+      "price_yearly": null,
+      "is_custom": false,
+      "pricing_mode": "usage_tier",
+      "professionals_included": 5,
+      "secondary_users_included": 5,
+      "includes_plans": [
+        "appointments_pro"
+      ],
+      "included_addons": [
+        "appointments_automations"
+      ],
+      "usage_tiers": [
+        "ai_300",
+        "ai_1500",
+        "ai_3000",
+        "custom"
+      ]
     }
   ],
   "addons": [
@@ -185,6 +228,21 @@
       "included_in": [
         "menu_qr_marca"
       ]
+    },
+    {
+      "code": "appointments_automations",
+      "vertical": "appointments",
+      "name": "Automatizaciones",
+      "description": "Comunicaciones y acciones automáticas de Turnos.",
+      "price_monthly": 8500,
+      "price_yearly": 81600,
+      "available_for": [
+        "appointments",
+        "appointments_pro"
+      ],
+      "included_in": [
+        "appointments_ai"
+      ]
     }
   ],
   "extras": [
@@ -209,6 +267,67 @@
         "gestion_pro",
         "gestion_business"
       ]
+    },
+    {
+      "code": "appointments_extra_professional",
+      "vertical": "appointments",
+      "name": "Profesional adicional",
+      "price_monthly": 3000,
+      "price_yearly": 28800,
+      "available_for": [
+        "appointments",
+        "appointments_pro",
+        "appointments_ai"
+      ],
+      "quantity_min": 0,
+      "quantity_step": 1
+    }
+  ],
+  "usage_tiers": [
+    {
+      "code": "ai_300",
+      "plan_code": "appointments_ai",
+      "name": "IA 300",
+      "purchase_mode": "self_service",
+      "monthly_price": 150000,
+      "annual_price": 1440000,
+      "included_conversations": 300,
+      "extra_conversation_price": 300,
+      "default_extra_spend_limit": 75000
+    },
+    {
+      "code": "ai_1500",
+      "plan_code": "appointments_ai",
+      "name": "IA 1.500",
+      "purchase_mode": "self_service",
+      "monthly_price": 275000,
+      "annual_price": 2640000,
+      "included_conversations": 1500,
+      "extra_conversation_price": 200,
+      "default_extra_spend_limit": 137500
+    },
+    {
+      "code": "ai_3000",
+      "plan_code": "appointments_ai",
+      "name": "IA 3.000",
+      "purchase_mode": "self_service",
+      "monthly_price": 385000,
+      "annual_price": 3696000,
+      "included_conversations": 3000,
+      "extra_conversation_price": 160,
+      "default_extra_spend_limit": 192500
+    },
+    {
+      "code": "custom",
+      "plan_code": "appointments_ai",
+      "name": "Business",
+      "purchase_mode": "contact_sales",
+      "billing_mode": "manual",
+      "monthly_price": null,
+      "annual_price": null,
+      "included_conversations": null,
+      "extra_conversation_price": null,
+      "default_extra_spend_limit": null
     }
   ]
 }

@@ -41,6 +41,8 @@ par de profesionales en distinto orden.
 from __future__ import annotations
 
 import datetime as dt
+from dataclasses import dataclass
+from decimal import Decimal
 from typing import Iterable
 
 from django.db import transaction
@@ -57,6 +59,22 @@ from .reminder_automation import reconcile_appointment_reminders
 # Duración del hold temporal para servicios con seña reservados públicamente
 # (Slice 4B, punto 6). Ver `Appointment.expires_at` / `AppointmentQuerySet.occupying`.
 PUBLIC_HOLD_MINUTES = 10
+
+
+@dataclass(frozen=True)
+class ServiceSnapshot:
+  """Oferta histórica interna; nunca se acepta desde el payload público."""
+
+  name: str
+  duration_minutes: int
+  price: Decimal
+  deposit_type: str
+  deposit_value: Decimal
+  currency: str | None = None
+
+  @classmethod
+  def from_service(cls, service: AppointmentService) -> ServiceSnapshot:
+    return cls(service.name, service.duration_minutes, service.price, service.deposit_type, service.deposit_value)
 
 
 class BookingError(Exception):
@@ -187,6 +205,10 @@ def create_public_appointment(
     professional = _resolve_professional_for_booking(business, professional_id, service)
 
   lock_professionals(business, {professional})
+  from apps.billing.services.appointments_lifecycle import appointments_v2_allows_creation
+
+  if appointments_v2_allows_creation(business) is False:
+    raise BookingError('La suscripción de Turnos no permite crear nuevas reservas.', field='detail')
 
   # `ensure_slot_available` aplica la regla profesional/null (Slice 7B.1):
   # servicio con profesionales + `professional=None` → error.
@@ -242,4 +264,3 @@ def create_public_appointment(
   # Con seña (`pending_payment`) no: se reconcilia al confirmarse por el pago.
   reconcile_appointment_reminders(appointment)
   return appointment
-

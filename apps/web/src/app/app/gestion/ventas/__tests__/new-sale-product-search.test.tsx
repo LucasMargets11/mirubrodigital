@@ -16,6 +16,7 @@ vi.mock('@/components/app/toast', () => ({
 
 vi.mock('../sale-customer-picker', () => ({
     SaleCustomerPicker: () => <div data-testid="customer-picker" />,
+    isConsumerFinal: (value: { kind?: string } | null | undefined) => !!value && value.kind === 'consumer_final',
 }));
 
 vi.mock('@/lib/api/client', () => ({

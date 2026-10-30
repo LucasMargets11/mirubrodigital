@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
 from django.utils import timezone
@@ -206,12 +207,13 @@ class Subscription(models.Model):
 
 class PendingSubscriptionChange(models.Model):
     """
-    Tracks subscription changes awaiting payment or scheduled for later.
-    For Gestión Comercial plan changes, upgrades, and add-on modifications.
+    Tracks legacy subscription changes and V2 Turnos target snapshots.
+    Turnos changes are either paid immediately or scheduled for renewal.
     """
     STATUS_CHOICES = [
         ('pending_payment', 'Pending Payment'),
         ('scheduled', 'Scheduled'),  # Downgrades scheduled for next cycle
+        ('blocked', 'Blocked'),  # Scheduled change needs owner resolution
         ('processing', 'Processing'),
         ('completed', 'Completed'),
         ('failed', 'Failed'),
@@ -220,15 +222,27 @@ class PendingSubscriptionChange(models.Model):
     
     business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name='pending_subscription_changes')
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    subscription_v2 = models.ForeignKey(
+        'SubscriptionV2', null=True, blank=True, on_delete=models.PROTECT,
+        related_name='pending_changes',
+    )
     
     # Target configuration
     target_plan_code = models.CharField(max_length=32)
+    target_usage_tier = models.CharField(
+        max_length=16, null=True, blank=True,
+        choices=[('ai_300', 'IA 300'), ('ai_1500', 'IA 1500'),
+                 ('ai_3000', 'IA 3000'), ('custom', 'Custom')],
+    )
     billing_cycle = models.CharField(max_length=16)  # monthly or yearly
-    config_snapshot = models.JSONField(default=dict, help_text="Full configuration: crm, invoicing, branches_extra_qty, seats_extra_qty")
+    config_snapshot = models.JSONField(
+        default=dict,
+        help_text="Legacy configuration or Turnos {addons: {code: 0|1}, quantities: {code: integer}}",
+    )
     
     # Pricing snapshot
     line_items = models.JSONField(default=list, help_text="List of line items with description, quantity, unit_price, total")
-    total_amount = models.IntegerField(help_text="Total amount in ARS pesos (integer)")
+    total_amount = models.IntegerField(null=True, blank=True, help_text="Total amount in ARS pesos (integer)")
     
     # Payment tracking
     requires_checkout = models.BooleanField(default=False)
@@ -243,6 +257,8 @@ class PendingSubscriptionChange(models.Model):
     
     # Scheduling
     scheduled_for = models.DateTimeField(null=True, blank=True, help_text="When to apply the change (downgrades)")
+    requires_resolution = models.BooleanField(default=False)
+    resolution_details = models.JSONField(default=dict, blank=True)
     applied_at = models.DateTimeField(null=True, blank=True)
     
     # Timestamps
@@ -254,6 +270,57 @@ class PendingSubscriptionChange(models.Model):
     
     def __str__(self):
         return f"{self.business.name} - {self.target_plan_code} ({self.status})"
+
+    def clean(self):
+        super().clean()
+        if self.subscription_v2_id is None:
+            if self.target_usage_tier is not None:
+                raise ValidationError({'target_usage_tier': 'A V2 owner is required.'})
+            if self.total_amount is None:
+                raise ValidationError({'total_amount': 'Legacy changes require an amount.'})
+            return
+        if self.business_id != self.subscription_v2.business_id:
+            raise ValidationError({'subscription_v2': 'Subscription must belong to this business.'})
+        if self.subscription_v2.service_type != 'appointments':
+            return
+        from apps.billing.appointments_plans import (
+            AUTOMATIONS, EXTRA_PROFESSIONAL, get_appointments_plan_config, validate_addon_quantity,
+        )
+        try:
+            get_appointments_plan_config(self.target_plan_code, self.target_usage_tier)
+        except ValidationError as exc:
+            raise ValidationError({
+                'target_usage_tier' if key == 'usage_tier' else 'target_plan_code': value
+                for key, value in exc.message_dict.items()
+            }) from exc
+        if self.billing_cycle not in ('monthly', 'yearly'):
+            raise ValidationError({'billing_cycle': 'Use monthly or yearly.'})
+        if (
+            not isinstance(self.config_snapshot, dict)
+            or set(self.config_snapshot) - {'addons', 'quantities'}
+        ):
+            raise ValidationError({'config_snapshot': 'Expected a configuration object.'})
+        for section, allowed in (('addons', {AUTOMATIONS}), ('quantities', {EXTRA_PROFESSIONAL})):
+            values = self.config_snapshot.get(section, {})
+            if not isinstance(values, dict) or set(values) - allowed:
+                raise ValidationError({'config_snapshot': f'Invalid Turnos {section}.'})
+            for code, quantity in values.items():
+                validate_addon_quantity(code, quantity)
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        update_fields = kwargs.get('update_fields')
+        commercial_fields = {
+            'subscription_v2', 'subscription_v2_id', 'business', 'business_id',
+            'target_plan_code', 'target_usage_tier', 'billing_cycle', 'config_snapshot',
+            'total_amount',
+        }
+        if update_fields and commercial_fields.intersection(update_fields) and not self._state.adding:
+            persisted = type(self).objects.get(pk=self.pk)
+            for field in update_fields:
+                setattr(persisted, field, getattr(self, field))
+            persisted.clean()
+        return super().save(*args, **kwargs)
 
 # ── Phase 2A: SubscriptionV2 ──────────────────────────────────────────────────
 #
@@ -306,6 +373,15 @@ class SubscriptionV2(models.Model):
     )
     service_type = models.CharField(max_length=32, choices=ServiceType.choices)
     plan_code    = models.CharField(max_length=64, help_text='e.g. gestion_pro_monthly')
+    usage_tier = models.CharField(
+        max_length=16, null=True, blank=True,
+        choices=[('ai_300', 'IA 300'), ('ai_1500', 'IA 1500'),
+                 ('ai_3000', 'IA 3000'), ('custom', 'Custom')],
+    )
+    billing_cycle = models.CharField(
+        max_length=16, blank=True, default='',
+        choices=[('monthly', 'Monthly'), ('yearly', 'Yearly')],
+    )
     provider     = models.CharField(
         max_length=20, choices=Provider.choices, default=Provider.MERCADOPAGO,
     )
@@ -322,6 +398,10 @@ class SubscriptionV2(models.Model):
     current_period_end   = models.DateTimeField(null=True, blank=True)
     # grace_until: deadline before PAST_DUE transitions to SUSPENDED
     grace_until          = models.DateTimeField(null=True, blank=True)
+    grace_started_at     = models.DateTimeField(null=True, blank=True)
+    suspended_at         = models.DateTimeField(null=True, blank=True)
+    usage_tier_effective_from = models.DateTimeField(null=True, blank=True)
+    last_renewal_payment_id = models.CharField(max_length=128, blank=True, default='')
     # retry_count: incremented per failed payment attempt. Triggers SUSPENDED at threshold.
     retry_count          = models.SmallIntegerField(default=0)
     cancel_at_period_end = models.BooleanField(
@@ -400,6 +480,38 @@ class SubscriptionV2(models.Model):
 
     def __str__(self) -> str:  # pragma: no cover
         return f"SubV2 · {self.business_id} · {self.service_type} · {self.status}"
+
+    def has_legacy_null_usage_tier(self) -> bool:
+        """Only unchanged persisted NULL configurations get the transition exception."""
+        return (
+            not self._state.adding
+            and self.usage_tier is None
+            and type(self).objects.filter(
+                pk=self.pk, plan_code=self.plan_code,
+                service_type=self.service_type, usage_tier__isnull=True,
+            ).exists()
+        )
+
+    def clean(self):
+        super().clean()
+        from apps.billing.appointments_plans import validate_usage_tier
+        from apps.billing.runtime import _extract_plan_tier
+        validate_usage_tier(
+            _extract_plan_tier(self.plan_code), self.usage_tier,
+            allow_legacy_null=self.has_legacy_null_usage_tier(),
+        )
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        update_fields = kwargs.get('update_fields')
+        commercial_fields = {'plan_code', 'usage_tier', 'service_type'}
+        if update_fields and commercial_fields.intersection(update_fields) and not self._state.adding:
+            persisted = type(self).objects.only('plan_code', 'usage_tier', 'service_type').get(pk=self.pk)
+            for field in ('plan_code', 'usage_tier', 'service_type'):
+                if field in update_fields:
+                    setattr(persisted, field, getattr(self, field))
+            persisted.clean()
+        return super().save(*args, **kwargs)
 
 
 # ── Phase 2A: BillingEvent ────────────────────────────────────────────────────
@@ -734,6 +846,60 @@ class MpCheckoutSession(models.Model):
 
     def __str__(self) -> str:  # pragma: no cover
         return f"MpCheckoutSession · {self.id} · {self.status}"
+
+
+class AppointmentsCheckout(models.Model):
+    class Status(models.TextChoices):
+        PENDING = 'pending', 'Pending'
+        LINKED = 'linked', 'Linked'
+        ACTIVE = 'active', 'Active'
+        FAILED = 'failed', 'Failed'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    business = models.ForeignKey(
+        Business, on_delete=models.PROTECT, related_name='appointments_checkouts',
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name='appointments_checkouts',
+    )
+    subscription_v2 = models.ForeignKey(
+        SubscriptionV2, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='appointments_checkouts',
+    )
+    external_reference = models.CharField(max_length=128, unique=True)
+    provider_preapproval_plan_id = models.CharField(max_length=128, unique=True, null=True, blank=True)
+    provider_preapproval_id = models.CharField(max_length=128, unique=True, null=True, blank=True)
+    provider_checkout_url = models.URLField(max_length=500, blank=True)
+    provider_payment_id = models.CharField(max_length=128, unique=True, null=True, blank=True)
+    plan_code = models.CharField(max_length=64)
+    usage_tier = models.CharField(max_length=16, null=True, blank=True)
+    billing_cycle = models.CharField(max_length=16, choices=[('monthly', 'Monthly'), ('yearly', 'Yearly')])
+    automations = models.CharField(
+        max_length=16, choices=[('enabled', 'Enabled'), ('disabled', 'Disabled'), ('included', 'Included')],
+    )
+    extra_professional_quantity = models.PositiveIntegerField(default=0)
+    quote_snapshot = models.JSONField(default=dict)
+    metadata_json = models.JSONField(default=dict)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    activated_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['business'],
+                condition=Q(status__in=['pending', 'linked']),
+                name='uq_appointments_checkout_open_business',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['business', 'status'], name='appt_checkout_biz_status_idx'),
+        ]
+
+    def __str__(self) -> str:
+        return f"AppointmentsCheckout · {self.external_reference} · {self.status}"
 
 
 class WebhookDelivery(models.Model):

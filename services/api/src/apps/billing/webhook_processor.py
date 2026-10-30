@@ -313,6 +313,14 @@ def _handle_subscription_preapproval(preapproval_id: str, delivery: WebhookDeliv
         delivery.id, preapproval_id, mp_status, plan_id,
     )
 
+    from .services.appointments_checkout import apply_appointments_preapproval
+    if apply_appointments_preapproval(
+        preapproval_id=preapproval_id,
+        plan_id=plan_id,
+        preapproval=preapproval,
+    ):
+        return
+
     # Step 2: find checkout session by plan_id (primary correlation key).
     session = None
     if plan_id:
@@ -536,6 +544,15 @@ def _handle_authorized_payment(authorized_payment_id: str, delivery: WebhookDeli
                     f"authorized_payment.preapproval_id={preapproval_id!r}. "
                     f"Refusing activation."
                 )
+            appointments_checkout = False
+            if subscription.service_type == SubscriptionV2.ServiceType.APPOINTMENTS:
+                from .services.appointments_checkout import (
+                    validate_appointments_authorized_payment,
+                )
+                appointments_checkout = validate_appointments_authorized_payment(
+                    subscription=subscription,
+                    payment_data=ap_data,
+                )
             # Warn on zero-amount payments (free trials, test charges).
             if float(amount or 0) <= 0:
                 logger.warning(
@@ -558,12 +575,57 @@ def _handle_authorized_payment(authorized_payment_id: str, delivery: WebhookDeli
                     invoice_event=invoice_event,
                     subscription=subscription,
                 )
+                if appointments_checkout:
+                    from .services.appointments_checkout import (
+                        apply_appointments_authorized_payment,
+                    )
+                    from .models import AppointmentsCheckout
+
+                    checkout = AppointmentsCheckout.objects.filter(
+                        subscription_v2=subscription,
+                    ).first()
+                    if checkout and checkout.status != AppointmentsCheckout.Status.ACTIVE:
+                        apply_appointments_authorized_payment(
+                            subscription=subscription,
+                            invoice_event=invoice_event,
+                            payment_data=ap_data,
+                        )
+                    elif not activated:
+                        from .services.appointments_lifecycle import apply_appointments_renewal
+
+                        apply_appointments_renewal(
+                            subscription=subscription,
+                            invoice_event=invoice_event,
+                        )
+                elif (
+                    subscription.service_type == SubscriptionV2.ServiceType.APPOINTMENTS
+                    and not activated
+                ):
+                    from .services.appointments_lifecycle import apply_appointments_renewal
+
+                    apply_appointments_renewal(
+                        subscription=subscription,
+                        invoice_event=invoice_event,
+                    )
         elif ap_status != 'authorized':
             logger.info(
                 "[webhook/authorized_payment] Payment status=%s status_detail=%s "
                 "payment_method_id=%s payment_type_id=%s — not activating (delivery=%s)",
                 ap_status, ap_status_detail, payment_method_id, payment_type_id, delivery.id,
             )
+
+    if (
+        ap_status in ('rejected', 'cancelled', 'cancelled_by_user')
+        and subscription is not None
+        and subscription.service_type == SubscriptionV2.ServiceType.APPOINTMENTS
+    ):
+        from .subscription_activator import record_failed_payment
+
+        record_failed_payment(
+            invoice_event=invoice_event,
+            subscription=subscription,
+            reason=ap_status_detail or ap_status,
+        )
 
     # Step 5: handle promotional discount cycles.
     # Runs OUTSIDE the main transaction so a MercadoPago restore failure cannot

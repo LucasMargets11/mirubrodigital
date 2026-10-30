@@ -106,19 +106,22 @@ def _transition_active_to_past_due(SubscriptionV2, now) -> int:
             current_period_end__lt=now,
             current_period_end__isnull=False,
         )
-        .values('pk', 'business_id', 'current_period_end', 'grace_until')
+        .values('pk', 'business_id', 'current_period_end', 'grace_until', 'service_type')
     )
 
     count = 0
     for row in expired:
         grace = row['grace_until'] or (now + timedelta(days=_DEFAULT_GRACE_DAYS))
+        updates = {
+            'status': SubscriptionV2.Status.PAST_DUE,
+            'grace_until': grace,
+        }
+        if row['service_type'] == SubscriptionV2.ServiceType.APPOINTMENTS:
+            updates['grace_started_at'] = now
         updated = SubscriptionV2.objects.filter(
             pk=row['pk'],
             status=SubscriptionV2.Status.ACTIVE,
-        ).update(
-            status=SubscriptionV2.Status.PAST_DUE,
-            grace_until=grace,
-        )
+        ).update(**updates)
         if updated:
             count += 1
             logger.info(
@@ -201,15 +204,18 @@ def _transition_past_due_to_suspended(SubscriptionV2, now) -> int:
             grace_until__lt=now,
             grace_until__isnull=False,
         )
-        .values('pk', 'business_id', 'grace_until')
+        .values('pk', 'business_id', 'grace_until', 'service_type')
     )
 
     count = 0
     for row in grace_expired:
+        updates = {'status': SubscriptionV2.Status.SUSPENDED}
+        if row['service_type'] == SubscriptionV2.ServiceType.APPOINTMENTS:
+            updates['suspended_at'] = now
         updated = SubscriptionV2.objects.filter(
             pk=row['pk'],
             status=SubscriptionV2.Status.PAST_DUE,
-        ).update(status=SubscriptionV2.Status.SUSPENDED)
+        ).update(**updates)
         if updated:
             count += 1
             logger.info(
@@ -272,15 +278,18 @@ def _transition_trial_to_suspended(SubscriptionV2, now) -> int:
             trial_ends_at__lt=now,
             trial_ends_at__isnull=False,
         )
-        .values('pk', 'business_id', 'trial_ends_at')
+        .values('pk', 'business_id', 'trial_ends_at', 'service_type')
     )
 
     count = 0
     for row in trial_expired:
+        updates = {'status': SubscriptionV2.Status.SUSPENDED}
+        if row['service_type'] == SubscriptionV2.ServiceType.APPOINTMENTS:
+            updates['suspended_at'] = now
         updated = SubscriptionV2.objects.filter(
             pk=row['pk'],
             status=SubscriptionV2.Status.TRIALING,
-        ).update(status=SubscriptionV2.Status.SUSPENDED)
+        ).update(**updates)
         if updated:
             count += 1
             logger.info(

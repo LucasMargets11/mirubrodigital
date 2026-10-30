@@ -38,6 +38,9 @@ export default async function LeadsPage() {
         <LeadsInboxClient
             currentUserId={session.user?.id ?? null}
             businessTimeZone={session.current?.business?.timezone ?? null}
+            canManage={session.permissions?.manage_leads ?? false}
+            canManageAppointments={session.permissions?.manage_appointments ?? false}
+            canViewAppointments={session.permissions?.view_appointments ?? false}
         />
     );
 }

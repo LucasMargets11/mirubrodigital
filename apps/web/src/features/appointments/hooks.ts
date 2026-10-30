@@ -14,6 +14,7 @@ import {
     deleteAppointmentSchedule,
     deleteAppointmentService,
     fetchAppointmentAvailability,
+    fetchAppointment,
     fetchAppointmentCategories,
     fetchAppointmentExceptions,
     fetchAppointmentProfessionals,
@@ -278,6 +279,14 @@ export function useAppointmentAvailability(
 }
 
 // Appointments (turnos)
+
+export function useAppointment(appointmentId: string, options?: { enabled?: boolean }) {
+    return useQuery({
+        queryKey: [...appointmentsBaseKey, 'detail', appointmentId],
+        queryFn: () => fetchAppointment(appointmentId),
+        enabled: Boolean(appointmentId) && (options?.enabled ?? true),
+    });
+}
 
 export function useAppointments(
     params: AppointmentListParams = {},

@@ -98,10 +98,10 @@ class TestAddonPrices(TestCase):
         self.assertEqual(addon_price('invoicing', 'monthly'), 15000)
 
     def test_qr_reviews_addon(self):
-        self.assertEqual(addon_price('qr_reviews', 'monthly'), 12000)
+        self.assertEqual(addon_price('menu_qr_addon_reviews', 'monthly'), 12000)
 
     def test_qr_tips_addon(self):
-        self.assertEqual(addon_price('qr_tips', 'monthly'), 12000)
+        self.assertEqual(addon_price('menu_qr_addon_tips', 'monthly'), 12000)
 
 
 class TestExtraPrices(TestCase):
@@ -231,6 +231,8 @@ class TestNoMoreCentavoDivisions(TestCase):
 
     def test_all_plan_prices_sane(self):
         for p in PLANS:
+            if p.get('pricing_mode') == 'usage_tier':
+                continue
             for cycle in ('monthly', 'yearly'):
                 val = p[f'price_{cycle}']
                 if val == 0:

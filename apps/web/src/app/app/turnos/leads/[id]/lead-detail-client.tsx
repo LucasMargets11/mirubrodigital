@@ -2,14 +2,22 @@
 
 import type { Route } from 'next';
 import Link from 'next/link';
-import { useState, type ReactNode } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { useRef, useState, type ReactNode } from 'react';
 
 import { Modal } from '@/components/ui/modal';
+import { useAppointment } from '@/features/appointments/hooks';
 import { APPOINTMENT_STATUS_LABELS } from '@/features/appointments/types';
 import { CustomerPicker } from '@/features/customers/components/customer-picker';
 import { whatsappHref } from '@/features/customers/contact-links';
-import { resolveLeadApiError } from '@/features/leads/errors';
-import { useAcknowledgeLeadAttention, useLead, useUpdateLead } from '@/features/leads/hooks';
+import {
+    appointmentProposalConfirmationError, appointmentProposalDeliveryError, appointmentProposalErrorCode, resolveLeadApiError,
+} from '@/features/leads/errors';
+import {
+    leadDetailKey, useAcknowledgeLeadAttention, useCreateAppointmentProposal,
+    useConfirmAppointmentProposal, useCreateLeadAppointment, useCurrentAppointmentProposal, useLead, useUpdateLead,
+} from '@/features/leads/hooks';
+import { getLead } from '@/features/leads/api';
 import {
     LEAD_HANDOFF_REASON_LABELS,
     LEAD_OUTCOME_LABELS,
@@ -20,12 +28,15 @@ import {
     type LeadOutcome,
     type LeadStatus,
     type LeadUpdatePayload,
+    type AppointmentProposal,
 } from '@/features/leads/types';
 import { ApiError } from '@/lib/api/client';
 import { dateTimeInTimeZone, resolveBusinessTimeZone } from '@/lib/business-time';
 import { cn } from '@/lib/utils';
+import { formatNumber } from '@/lib/format';
 
 import { agendaHref, formatAppointmentWhen } from '../../../clientes/[id]/customer-upcoming-appointments';
+import { AppointmentFormModal } from '../../turnos/appointment-form-modal';
 import { LeadActivityTimeline } from './lead-activity';
 import { LeadAppointmentPicker } from './lead-appointment-picker';
 import { LeadAssigneeSelect } from './lead-assignee-select';
@@ -68,6 +79,7 @@ type LeadDetailClientProps = {
     leadId: string;
     /** `manage_leads`: todas las acciones. Sin él la pantalla es solo lectura. */
     canManage: boolean;
+    canManageAppointments?: boolean;
     /** `view_customers` (+ flag de Clientes): buscador de Customer y link a la ficha. */
     canViewCustomers: boolean;
     /** `view_appointments`: agenda del día en el selector y link a la agenda. */
@@ -79,12 +91,14 @@ type LeadDetailClientProps = {
 /**
  * Detalle operativo del Lead (LEADS 05B): resumen, atención pendiente,
  * gestión CRM (estado/resultado/asignación), vínculos con Customer y turno,
- * notas e historial. Todas las mutaciones usan el PATCH / acknowledge
- * existentes; sus respuestas (detalle completo) reemplazan la cache.
+ * notas e historial. Las mutaciones CRM y el alta orquestada de turno
+ * responden el detalle completo y refrescan la cache. La reprogramación usa
+ * la edición canónica de Agenda y vuelve a consultar el detalle del Lead.
  */
 export function LeadDetailClient({
     leadId,
     canManage,
+    canManageAppointments = false,
     canViewCustomers,
     canViewAppointments,
     currentUserId,
@@ -116,6 +130,7 @@ export function LeadDetailClient({
                     <AppointmentCard
                         lead={lead}
                         canManage={canManage}
+                        canManageAppointments={canManageAppointments}
                         canViewCustomers={canViewCustomers}
                         canViewAppointments={canViewAppointments}
                         timeZone={timeZone}
@@ -168,9 +183,9 @@ function LeadLoadError({ error, onRetry }: { error: unknown; onRetry: () => void
     );
 }
 
-function Card({ title, label, children, actions }: { title: string; label?: string; children: ReactNode; actions?: ReactNode }) {
+function Card({ title, label, children, actions, id }: { title: string; label?: string; children: ReactNode; actions?: ReactNode; id?: string }) {
     return (
-        <section aria-label={label ?? title} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+        <section id={id} aria-label={label ?? title} className="scroll-mt-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{title}</h3>
                 {actions}
@@ -347,16 +362,18 @@ function AttentionAlert({ lead, canManage, timeZone }: { lead: LeadDetail; canMa
     return (
         <div role="status" data-testid="lead-attention" className="flex flex-col gap-3 rounded-3xl border border-amber-300 bg-amber-50 p-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="space-y-1">
-                <p className="text-sm font-semibold text-amber-900">Este lead pide la atención de una persona</p>
+                <p className="text-sm font-semibold text-amber-900">Necesita revisión de recepción.</p>
                 <p className="text-xs text-amber-800">
                     {lead.needs_attention_at ? `Desde ${dateTimeInTimeZone(lead.needs_attention_at, timeZone)}. ` : ''}
-                    {canManage ? 'Marcalo como atendido cuando alguien del equipo lo tome.' : 'Alguien del equipo con permiso de gestión debe tomarlo.'}
+                    {canManage
+                        ? 'Marcarlo como revisado no toma la conversación ni pausa el bot.'
+                        : 'Alguien del equipo con permiso de gestión debe revisarlo.'}
                 </p>
                 <InlineError message={error} />
             </div>
             {canManage ? (
                 <button type="button" onClick={acknowledge} disabled={mutation.isPending} className={cn(PRIMARY_BUTTON, 'shrink-0')}>
-                    {mutation.isPending ? 'Marcando…' : 'Marcar como atendido'}
+                    {mutation.isPending ? 'Marcando…' : 'Marcar como revisado'}
                 </button>
             ) : null}
         </div>
@@ -596,25 +613,51 @@ function CustomerCard({ lead, canManage, canViewCustomers }: { lead: LeadDetail;
 function AppointmentCard({
     lead,
     canManage,
+    canManageAppointments,
     canViewCustomers,
     canViewAppointments,
     timeZone,
 }: {
     lead: LeadDetail;
     canManage: boolean;
+    canManageAppointments: boolean;
     canViewCustomers: boolean;
     canViewAppointments: boolean;
     timeZone: string;
 }) {
     const { patch, pending, error, clearError } = useLeadPatch(lead.id);
     const [picking, setPicking] = useState(false);
+    const [creating, setCreating] = useState(false);
+    const [editing, setEditing] = useState(false);
+    const createMutation = useCreateLeadAppointment(lead.id);
+    const proposalMutation = useCreateAppointmentProposal(lead.id);
+    const confirmMutation = useConfirmAppointmentProposal(lead.id);
+    const [confirming, setConfirming] = useState<AppointmentProposal | null>(null);
+    const confirmingRef = useRef(false);
+    const queryClient = useQueryClient();
     const appointment = lead.appointment;
+    const editingQuery = useAppointment(appointment?.id ?? '', {
+        enabled: editing && canManage && canManageAppointments,
+    });
+    const proposalQuery = useCurrentAppointmentProposal(lead.id, !appointment && canViewAppointments);
+    const currentProposal = proposalQuery.data;
+    const proposal = currentProposal && (
+        currentProposal.status === 'pending_delivery' || currentProposal.status === 'delivery_failed'
+        || currentProposal.status === 'queued'
+    ) ? currentProposal : null;
     const canPick = canManage && (canViewAppointments || (canViewCustomers && Boolean(lead.customer)));
+    const slotUnavailable = confirmMutation.variables === proposal?.id
+        && appointmentProposalErrorCode(confirmMutation.error) === 'slot_unavailable';
+    const canConfirm = proposal && proposal.status !== 'delivery_failed' && lead.status !== 'closed';
 
     return (
-        <Card title="Turno">
+        <Card title="Turno" id="turno">
             {appointment ? (
                 <div className="space-y-1" data-testid="lead-appointment">
+                    <p className={cn('text-sm font-semibold', appointment.status === 'confirmed' ? 'text-emerald-700' : 'text-slate-700')}>
+                        {appointment.status === 'confirmed' ? <span aria-hidden="true">🟢 </span> : null}
+                        {appointment.status === 'confirmed' ? 'Turno confirmado' : 'Turno vinculado'}
+                    </p>
                     <p className="text-sm font-semibold text-slate-900">
                         {appointment.start_at ? formatAppointmentWhen(appointment.start_at, timeZone) : 'Turno vinculado'}
                     </p>
@@ -626,32 +669,66 @@ function AppointmentCard({
                             </span>
                         ) : null}
                     </p>
+                    <p className="text-xs text-slate-500">Profesional: {appointment.professional_name || 'Sin profesional asignado'}</p>
+                    {appointment.customer ? <p className="text-xs text-slate-500">Cliente: {appointment.customer.display_name}</p> : null}
                     {canViewAppointments && appointment.start_at ? (
                         <Link
                             href={agendaHref({ id: appointment.id, start_at: appointment.start_at }, timeZone) as Route}
                             className="inline-block text-xs font-semibold text-slate-600 hover:text-slate-900"
                         >
-                            Ver en la agenda
+                            Ver en agenda
                         </Link>
                     ) : null}
                 </div>
+            ) : proposal ? (
+                <ProposalSummary proposal={proposal} timeZone={timeZone} />
             ) : (
                 <p className="text-sm italic text-slate-500">Sin turno vinculado</p>
             )}
+            {!appointment && proposalQuery.isLoading ? <p role="status" className="text-xs text-slate-500">Consultando propuesta…</p> : null}
+            {!appointment && proposalQuery.isError ? (
+                <div role="alert" className="text-sm text-rose-700">
+                    <p>No pudimos consultar la propuesta actual.</p>
+                    <button type="button" onClick={() => void proposalQuery.refetch()} className={OUTLINE_BUTTON}>Reintentar consulta</button>
+                </div>
+            ) : null}
 
             {canManage ? (
                 <div className="flex flex-wrap items-center gap-3">
+                    {!appointment && canManageAppointments && canConfirm && !slotUnavailable ? (
+                        <button
+                            type="button"
+                            className={PRIMARY_BUTTON}
+                            disabled={confirmMutation.isPending}
+                            onClick={() => {
+                                confirmMutation.reset();
+                                setConfirming(proposal);
+                            }}
+                        >
+                            {confirmMutation.isPending ? 'Confirmando...' : 'Confirmar turno'}
+                        </button>
+                    ) : null}
+                    {!appointment && canManageAppointments ? (
+                        <button type="button" disabled={confirmMutation.isPending} className={slotUnavailable ? PRIMARY_BUTTON : OUTLINE_BUTTON} onClick={() => setCreating(true)}>
+                            {proposal?.status === 'delivery_failed' ? 'Intentar otra propuesta' : proposal ? 'Proponer otro horario' : 'Coordinar turno'}
+                        </button>
+                    ) : null}
+                    {appointment && canManageAppointments ? (
+                        <button type="button" className={OUTLINE_BUTTON} onClick={() => setEditing(true)}>
+                            Reprogramar turno
+                        </button>
+                    ) : null}
                     {canPick ? (
                         <button
                             type="button"
-                            disabled={pending}
+                            disabled={pending || confirmMutation.isPending}
                             onClick={() => {
                                 clearError();
                                 setPicking(true);
                             }}
                             className={OUTLINE_BUTTON}
                         >
-                            {appointment ? 'Cambiar turno' : 'Vincular turno'}
+                            {appointment ? 'Vincular otro turno' : 'Vincular turno existente'}
                         </button>
                     ) : null}
                     {appointment ? (
@@ -661,8 +738,133 @@ function AppointmentCard({
                     ) : null}
                 </div>
             ) : null}
+            {!appointment && canConfirm ? (
+                <p className="text-xs text-slate-500">Confirmar turno crea la reserva real usando este horario.</p>
+            ) : null}
+            {confirmMutation.isError ? <InlineError message={appointmentProposalConfirmationError(confirmMutation.error)} /> : null}
             <InlineError message={picking ? null : error} />
 
+            {confirming && !appointment ? (
+                <Modal
+                    open
+                    eyebrow={null}
+                    title="¿Confirmar este turno?"
+                    onClose={() => { if (!confirmingRef.current) setConfirming(null); }}
+                    footer={(
+                        <div className="flex justify-end gap-3">
+                            <button type="button" className={OUTLINE_BUTTON} disabled={confirmMutation.isPending} onClick={() => setConfirming(null)}>
+                                Cancelar
+                            </button>
+                            <button
+                                type="button"
+                                className={PRIMARY_BUTTON}
+                                disabled={confirmMutation.isPending}
+                                onClick={() => {
+                                    if (confirmingRef.current) return;
+                                    confirmingRef.current = true;
+                                    confirmMutation.mutate(confirming.id, {
+                                        onSettled: () => {
+                                            confirmingRef.current = false;
+                                            setConfirming(null);
+                                        },
+                                    });
+                                }}
+                            >
+                                {confirmMutation.isPending ? 'Confirmando...' : 'Confirmar turno'}
+                            </button>
+                        </div>
+                    )}
+                >
+                    <div className="space-y-2 text-sm text-slate-700">
+                        <p>{confirming.snapshots?.service_name ?? confirming.service.name}</p>
+                        <p>{formatAppointmentWhen(confirming.proposed_start_at, timeZone)}</p>
+                        <p>Profesional: {confirming.snapshots?.professional_name ?? confirming.professional?.name ?? 'Sin profesional asignado'}</p>
+                        {confirming.snapshots ? (
+                            <>
+                                {Number(confirming.snapshots.service_price) > 0 ? (
+                                    <p>Precio: {proposalMoney(confirming.snapshots.service_price, confirming.snapshots.currency)}</p>
+                                ) : null}
+                                {Number(confirming.snapshots.deposit_amount) > 0 ? (
+                                    <p>Seña: {proposalMoney(confirming.snapshots.deposit_amount, confirming.snapshots.currency)}</p>
+                                ) : null}
+                            </>
+                        ) : null}
+                        <p className="text-xs text-slate-500">Confirmar turno crea la reserva real usando este horario.</p>
+                    </div>
+                </Modal>
+            ) : null}
+            {editing && appointment && canManage && canManageAppointments ? (
+                editingQuery.data && !editingQuery.isError ? (
+                    <AppointmentFormModal
+                        editing={editingQuery.data}
+                        canPickCustomer={canViewCustomers}
+                        canCreateCustomer={false}
+                        timeZone={timeZone}
+                        onClose={() => setEditing(false)}
+                        onSaved={() => {
+                            setEditing(false);
+                            void queryClient.invalidateQueries({ queryKey: leadDetailKey(lead.id) });
+                        }}
+                    />
+                ) : (
+                    <Modal open title="Editar turno" onClose={() => setEditing(false)}>
+                        {editingQuery.isError ? (
+                            <div role="alert" className="space-y-2 text-sm text-rose-700">
+                                <p>{resolveLeadApiError(editingQuery.error, 'No pudimos cargar el turno para editar.')}</p>
+                                <button type="button" className={OUTLINE_BUTTON} onClick={() => void editingQuery.refetch()}>
+                                    Reintentar
+                                </button>
+                            </div>
+                        ) : <p role="status">Cargando turno…</p>}
+                    </Modal>
+                )
+            ) : null}
+            {creating && !appointment ? (
+                <AppointmentFormModal
+                    editing={null}
+                    initialCustomer={lead.customer ? {
+                        id: lead.customer.id,
+                        name: lead.customer.display_name,
+                        phone: lead.agent_state?.phone_e164 ?? null,
+                        email: null,
+                    } : null}
+                    initialPatient={{
+                        customer_name: lead.agent_state?.patient_name || lead.customer?.display_name || lead.agent_state?.whatsapp_profile_name || '',
+                        customer_phone: lead.agent_state?.phone_e164 || '',
+                        notes: lead.agent_state?.reason || '',
+                    }}
+                    canPickCustomer={false}
+                    canCreateCustomer={false}
+                    timeZone={timeZone}
+                    createPending={createMutation.isPending || proposalMutation.isPending}
+                    coordination={{
+                        context: [
+                            leadDetailDisplayName(lead),
+                            lead.agent_state?.reason,
+                            lead.agent_state?.preferred_time ? `Preferencia reportada: ${lead.agent_state.preferred_time}` : null,
+                        ].filter(Boolean).join(' · '),
+                        onPropose: async (payload) => {
+                            await proposalMutation.mutateAsync(payload);
+                            confirmMutation.reset();
+                            setCreating(false);
+                        },
+                        onAppointmentConflict: async () => {
+                            const refreshed = await queryClient.fetchQuery({ queryKey: leadDetailKey(lead.id), queryFn: () => getLead(lead.id), staleTime: 0 });
+                            if (!refreshed.appointment) throw new Error('No se pudo recuperar el turno vinculado.');
+                            setCreating(false);
+                        },
+                    }}
+                    onCreate={async (payload) => {
+                        await createMutation.mutateAsync({
+                            ...payload,
+                            ...(lead.customer ? { customer_id: lead.customer.id } : {}),
+                        });
+                        setCreating(false);
+                    }}
+                    onSaved={() => setCreating(false)}
+                    onClose={() => setCreating(false)}
+                />
+            ) : null}
             {picking ? (
                 <LeadAppointmentPicker
                     customer={lead.customer}
@@ -682,6 +884,47 @@ function AppointmentCard({
                 />
             ) : null}
         </Card>
+    );
+}
+
+function proposalMoney(value: string, currency: string): string {
+    return formatNumber(value, { style: 'currency', currency });
+}
+
+function ProposalSummary({ proposal, timeZone }: { proposal: AppointmentProposal; timeZone: string }) {
+    const failed = proposal.status === 'delivery_failed';
+    const preparing = proposal.status === 'pending_delivery';
+    return (
+        <div data-testid="lead-appointment-proposal" className="space-y-2 text-sm">
+            {proposal.patient_confirmation ? (
+                <div className="space-y-1 rounded-2xl border border-amber-300 bg-amber-50 p-3" role="status">
+                    <p className="font-semibold text-amber-900">
+                        <span aria-hidden="true">🟡 </span>Paciente quiere confirmar
+                    </p>
+                    <p className="text-xs font-medium text-amber-900">Respuesta:</p>
+                    {proposal.patient_confirmation.message ? (
+                        <p className="text-sm text-amber-950">“{proposal.patient_confirmation.message}”</p>
+                    ) : null}
+                </div>
+            ) : (
+                <p className={cn('font-semibold', failed ? 'text-rose-700' : 'text-amber-800')}>
+                    <span aria-hidden="true">{failed ? '🔴' : '🟡'} </span>
+                    {failed ? 'No se pudo enviar la propuesta' : preparing ? 'Propuesta preparando envío' : 'Propuesta enviada a la cola de WhatsApp'}
+                </p>
+            )}
+            <p className="font-medium text-slate-900">{proposal.service.name}</p>
+            <p>{formatAppointmentWhen(proposal.proposed_start_at, timeZone)}</p>
+            {proposal.professional ? <p>{proposal.professional.name}</p> : null}
+            {preparing ? <p className="text-xs text-slate-500">Enviando propuesta al agente...</p> : null}
+            {proposal.status === 'queued' ? (
+                <>
+                    <p className="text-xs text-amber-800">Propuesta pendiente</p>
+                    {proposal.expires_at ? <p className="text-xs">Válida hasta: {formatAppointmentWhen(proposal.expires_at, timeZone)}</p> : null}
+                </>
+            ) : null}
+            {failed ? <p role="alert" className="text-xs text-rose-700">{appointmentProposalDeliveryError(proposal.delivery_error)}</p> : null}
+            <p className="text-xs text-slate-500">El horario todavía no está reservado. Se volverá a validar al confirmar.</p>
+        </div>
     );
 }
 

@@ -33,4 +33,19 @@ export const EXTRA_USER: ExtraDef = {
   availableFor: ['gestion_pro', 'gestion_business'],
 };
 
-export const ALL_EXTRAS: readonly ExtraDef[] = [EXTRA_BRANCH, EXTRA_USER];
+export const EXTRA_APPOINTMENTS_PROFESSIONAL: ExtraDef = {
+  code: 'appointments_extra_professional',
+  vertical: 'appointments',
+  name: 'Profesional adicional',
+  priceMonthly: 3000,
+  priceYearly: 28800,
+  availableFor: ['appointments', 'appointments_pro', 'appointments_ai'],
+  quantityMin: 0,
+  quantityStep: 1,
+};
+
+export const ALL_EXTRAS: readonly ExtraDef[] = [
+  EXTRA_BRANCH,
+  EXTRA_USER,
+  EXTRA_APPOINTMENTS_PROFESSIONAL,
+];

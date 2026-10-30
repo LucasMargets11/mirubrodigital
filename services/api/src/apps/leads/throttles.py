@@ -2,8 +2,8 @@
 
 Scope por `AgentInstance` (no por IP ni por key_id: una rotación de
 credenciales no resetea el límite). Corre después de la autenticación HMAC,
-así que solo cuenta requests firmadas válidas. Fail-open si el cache falla
-(mismo criterio que `apps.accounts.throttles.FailOpenAnonThrottle`).
+así que solo cuenta requests firmadas válidas. El sync conserva fail-open
+si el cache falla; AI usage opta por fail-closed.
 """
 from __future__ import annotations
 
@@ -13,12 +13,14 @@ from django.core.exceptions import ImproperlyConfigured
 from rest_framework.throttling import SimpleRateThrottle
 
 from .authentication import AgentPrincipal
+from . import errors
 
 logger = logging.getLogger('apps.leads.receiver')
 
 
 class AgentLeadSyncThrottle(SimpleRateThrottle):
     scope = 'agent_leads_sync'
+    fail_closed = False
 
     def get_rate(self):
         from rest_framework.settings import api_settings
@@ -39,4 +41,6 @@ class AgentLeadSyncThrottle(SimpleRateThrottle):
             return super().allow_request(request, view)
         except Exception:
             logger.error('RATE_LIMIT_REDIS_UNAVAILABLE throttle=%s', self.scope)
+            if self.fail_closed:
+                raise errors.unavailable()
             return True

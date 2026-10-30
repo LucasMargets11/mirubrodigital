@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import uuid
 
 from django.test import SimpleTestCase
 
@@ -46,6 +47,22 @@ class LeadSyncSerializerTests(SimpleTestCase):
         data = self.assertValid(base(patient_name=None, whatsapp_profile_name=None, reason=None,
                                      preferred_time=None, summary=None))
         self.assertIsNone(data['patient_name'])
+
+    def test_confirmation_block_optional_but_proposal_id_required(self):
+        self.assertNotIn('proposal_confirmation', self.assertValid(base()))
+        self.assertInvalid(
+            base(proposal_confirmation={'intent': 'confirm', 'message_id': 'patient-1'}),
+            'proposal_confirmation.proposal_id', 'required',
+        )
+        self.assertInvalid(
+            base(proposal_confirmation={'proposal_id': 'bad', 'intent': 'confirm', 'message_id': 'patient-1'}),
+            'proposal_confirmation.proposal_id', 'invalid',
+        )
+        proposal_id = uuid.uuid4()
+        data = self.assertValid(base(proposal_confirmation={
+            'proposal_id': str(proposal_id), 'intent': 'confirm', 'message_id': 'patient-1',
+        }))
+        self.assertEqual(data['proposal_confirmation']['proposal_id'], proposal_id)
 
     def test_full_payload_valid_closed_with_handoff(self):
         payload = base(

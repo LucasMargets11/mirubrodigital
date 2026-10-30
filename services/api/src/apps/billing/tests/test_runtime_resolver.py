@@ -28,6 +28,7 @@ from apps.billing.models import SubscriptionV2
 from apps.billing.runtime import (
     ResolvedSubscription,
     _extract_plan_tier,
+    is_appointments_plan_code,
     resolve_subscription,
 )
 from apps.business.models import Business, Subscription as BizSubscription
@@ -62,6 +63,7 @@ def _attach_v2(biz, plan_code='pro', status=None, service_type=None,
         business=biz,
         service_type=service_type or biz.default_service,
         plan_code=plan_code,
+        usage_tier='ai_300' if plan_code == 'appointments_ai' else None,
         provider=SubscriptionV2.Provider.MANUAL,
         external_reference=f'SUB-{uuid.uuid4()}',
         status=status or SubscriptionV2.Status.ACTIVE,
@@ -81,7 +83,8 @@ class ExtractPlanTierTest(TestCase):
         for tier in ('start', 'pro', 'business', 'enterprise',
                      'menu_qr', 'menu_qr_visual', 'menu_qr_marca',
                      'menu_qr_lite', 'menu_qr_pro', 'menu_qr_premium',
-                     'starter', 'plus'):
+                     'appointments_base', 'appointments', 'appointments_pro',
+                     'appointments_ai', 'starter', 'plus'):
             with self.subTest(tier=tier):
                 self.assertEqual(_extract_plan_tier(tier), tier)
 
@@ -100,6 +103,13 @@ class ExtractPlanTierTest(TestCase):
     def test_menu_qr_not_masked_by_menu_qr_pro(self):
         # 'menu_qr_monthly' must resolve to 'menu_qr', not 'menu_qr_pro'
         self.assertEqual(_extract_plan_tier('menu_qr_monthly'), 'menu_qr')
+
+    def test_appointments_tiers_are_not_masked_by_gestion_tiers(self):
+        for plan in ('appointments_base', 'appointments', 'appointments_pro', 'appointments_ai'):
+            with self.subTest(plan=plan):
+                self.assertEqual(_extract_plan_tier(f'{plan}_monthly'), plan)
+                self.assertTrue(is_appointments_plan_code(f'bundle-{plan}-monthly'))
+        self.assertEqual(_extract_plan_tier('appointments_pro_monthly'), 'appointments_pro')
 
     def test_unknown_code_returned_as_is(self):
         self.assertEqual(_extract_plan_tier('some_unknown_plan'), 'some_unknown_plan')
@@ -331,6 +341,42 @@ class RuntimeSubscriptionResolverTest(TestCase):
 
         self.assertEqual(resolved.source, 'v2')  # best available V2 is returned
         self.assertEqual(resolved.service_type, 'menu_qr')
+
+    def test_gestion_lookup_does_not_use_appointments_v2(self):
+        biz = _make_business(service='gestion')
+        _attach_v2(
+            biz, plan_code='appointments_pro', service_type='appointments',
+            status=SubscriptionV2.Status.ACTIVE,
+        )
+
+        resolved = resolve_subscription(biz, service_type='gestion')
+
+        self.assertEqual(resolved.source, 'none')
+        self.assertFalse(resolved.access_granted)
+
+    def test_appointments_lookup_does_not_use_gestion_v2(self):
+        biz = _make_business(service='gestion')
+        _attach_v2(biz, plan_code='pro', service_type='gestion', status=SubscriptionV2.Status.ACTIVE)
+
+        resolved = resolve_subscription(biz, service_type='appointments')
+
+        self.assertEqual(resolved.source, 'none')
+        self.assertFalse(resolved.access_granted)
+
+    def test_appointments_plan_code_on_wrong_service_is_resolved_as_appointments(self):
+        biz = _make_business(service='gestion')
+        _attach_v2(
+            biz, plan_code='appointments_ai', service_type='gestion',
+            status=SubscriptionV2.Status.ACTIVE,
+        )
+
+        resolved = resolve_subscription(biz, service_type='appointments')
+
+        self.assertEqual(resolved.source, 'v2')
+        self.assertEqual(resolved.service_type, 'appointments')
+        self.assertEqual(resolved.plan, 'appointments_ai')
+        self.assertIn('appointments.leads', resolved.entitlements)
+        self.assertFalse(any(code.startswith('gestion.') for code in resolved.entitlements))
 
     # ── Regression guards ────────────────────────────────────────────────────
 

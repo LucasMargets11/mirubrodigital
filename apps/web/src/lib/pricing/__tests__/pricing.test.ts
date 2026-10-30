@@ -8,13 +8,14 @@ import { formatPrice } from '../format';
 // ── Plan invariants ──────────────────────────────────────────
 
 describe('canonical plans', () => {
-  it('contains 9 plans', () => {
-    expect(ALL_PLANS).toHaveLength(9);
+  it('contains 11 existing plans and 3 Turnos plans', () => {
+    expect(ALL_PLANS).toHaveLength(14);
   });
 
   it('annual = monthly × 12 × 0.8 for non-custom plans', () => {
     for (const plan of ALL_PLANS) {
-      if (plan.isCustom) continue;
+      if (plan.isCustom || plan.pricingMode === 'usage_tier') continue;
+      if (plan.priceMonthly === null) throw new Error('Missing fixed price');
       expect(plan.priceYearly).toBe(Math.round(plan.priceMonthly * 12 * 0.8));
     }
   });
@@ -26,7 +27,7 @@ describe('canonical plans', () => {
 
   it('prices are positive integers (non-custom)', () => {
     for (const plan of ALL_PLANS) {
-      if (plan.isCustom) continue;
+      if (plan.isCustom || plan.pricingMode === 'usage_tier') continue;
       expect(plan.priceMonthly).toBeGreaterThan(0);
       expect(Number.isInteger(plan.priceMonthly)).toBe(true);
       expect(Number.isInteger(plan.priceYearly)).toBe(true);
@@ -37,8 +38,8 @@ describe('canonical plans', () => {
 // ── Addon invariants ─────────────────────────────────────────
 
 describe('canonical addons', () => {
-  it('contains 4 addons', () => {
-    expect(ALL_ADDONS).toHaveLength(4);
+  it('contains 5 addons', () => {
+    expect(ALL_ADDONS).toHaveLength(5);
   });
 
   it('annual = monthly × 12 × 0.8', () => {
@@ -56,8 +57,8 @@ describe('canonical addons', () => {
 // ── Extra invariants ─────────────────────────────────────────
 
 describe('canonical extras', () => {
-  it('contains 2 extras', () => {
-    expect(ALL_EXTRAS).toHaveLength(2);
+  it('contains 3 extras', () => {
+    expect(ALL_EXTRAS).toHaveLength(3);
   });
 
   it('annual = monthly × 12 × 0.8', () => {
@@ -82,7 +83,7 @@ describe('selectors', () => {
 
   it('getPlansForVertical returns only matching vertical', () => {
     const qrPlans = getPlansForVertical('menu_qr');
-    expect(qrPlans).toHaveLength(3);
+    expect(qrPlans).toHaveLength(4);
     expect(qrPlans.every((p) => p.vertical === 'menu_qr')).toBe(true);
   });
 

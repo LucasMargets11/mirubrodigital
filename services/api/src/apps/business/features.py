@@ -42,6 +42,7 @@ FEATURE_KEYS: Iterable[str] = (
   'print_signage',      # Carteles y Etiquetas imprimibles (PRO only)
   # Turnos — standalone product flag
   'appointments_core',  # Core access flag for Turnos standalone product
+  'appointments_automations',
   'leads',              # Bandeja de Leads (derivado de `appointments.leads`, ver ENTITLEMENT_FEATURE_FLAGS)
 )
 
@@ -50,6 +51,7 @@ FEATURE_KEYS: Iterable[str] = (
 # solo lo exponen en la sesión (`/me` → `features`) para el gating de
 # navegación/páginas. El backend sigue exigiendo `HasEntitlement`.
 ENTITLEMENT_FEATURE_FLAGS: Dict[str, str] = {
+  'appointments_automations': 'appointments.automations',
   'leads': 'appointments.leads',  # LEADS 05A
 }
 
@@ -172,6 +174,18 @@ PLAN_FEATURES: Dict[str, Iterable[str]] = {
     'appointments_core',   # Main product access flag
     'customers',           # Clientes core compartido (Turnos CUSTOMER 02); sin ventas/presupuestos
   ),
+  'appointments': (
+    'appointments_core',
+    'customers',
+  ),
+  'appointments_pro': (
+    'appointments_core',
+    'customers',
+  ),
+  'appointments_ai': (
+    'appointments_core',
+    'customers',
+  ),
 }
 
 
@@ -202,6 +216,10 @@ def feature_flags_for_subscription(subscription) -> Dict[str, bool]:
   
   plan = subscription.plan
   flags = feature_flags_for_plan(plan)
+  if plan in ('appointments_base', 'appointments', 'appointments_pro', 'appointments_ai'):
+    from apps.billing.services.appointments import can_use_appointments_automations
+
+    flags['appointments_automations'] = can_use_appointments_automations(subscription.business)
   
   # Gestión Comercial PRO: habilitar multi_branch si tiene addon de sucursales extras
   if plan == 'pro' and subscription.effective_max_branches > 1:
@@ -243,11 +261,33 @@ def feature_flags_for_v2_subscription(sub_v2, business) -> Dict[str, bool]:
   Legacy is used only as a bridge, not as a primary source.
   """
   import logging as _logging
-  from apps.billing.runtime import _extract_plan_tier
+  from apps.billing.runtime import _extract_plan_tier, is_appointments_plan_code
 
   _logger = _logging.getLogger(__name__)
+  if (
+    sub_v2.service_type == 'appointments'
+    and not is_appointments_plan_code(sub_v2.plan_code)
+  ):
+    return {key: key in BASE_ALWAYS_ON for key in FEATURE_KEYS}
+
   plan_tier = _extract_plan_tier(sub_v2.plan_code)
   flags = feature_flags_for_plan(plan_tier)
+
+  from apps.billing.appointments_plans import PLAN_CODES
+  if plan_tier in PLAN_CODES:
+    from django.core.exceptions import ValidationError
+    from apps.billing.services.appointments import get_appointments_subscription_entitlements
+    try:
+      entitlements = get_appointments_subscription_entitlements(sub_v2)
+    except ValidationError as exc:
+      _logger.error("Invalid Turnos configuration subscription_v2=%s: %s", sub_v2.pk, exc)
+      return {key: key in BASE_ALWAYS_ON for key in FEATURE_KEYS}
+    for key, entitlement in ENTITLEMENT_FEATURE_FLAGS.items():
+      flags[key] = entitlement in entitlements
+    from apps.billing.services.appointments import can_use_appointments_automations
+
+    flags['appointments_automations'] = can_use_appointments_automations(business)
+    return flags
 
   # Bridge: enrich from legacy subscription addons when available
   try:

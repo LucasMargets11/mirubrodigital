@@ -1,6 +1,7 @@
 """API de integración del agente (AGENT 02B).
 
 `PUT /api/v1/integrations/agent/leads/<uuid:external_lead_id>/`
+`GET /api/v1/integrations/agent/leads/<uuid:external_lead_id>/appointment-context/`
 
 View fina: el flag de integración, la auth HMAC, el throttle y el formato de
 respuesta viven acá; la lógica de tenant/idempotencia en
@@ -23,6 +24,7 @@ from rest_framework.views import APIView
 from . import errors
 from .authentication import AgentHmacAuthentication, AgentPrincipal, well_formed_request_id
 from .serializers import LeadSyncSerializer
+from .services.appointment_context import agent_appointment_context, appointment_context
 from .services.receiver import receive_lead_sync
 from .throttles import AgentLeadSyncThrottle
 
@@ -34,12 +36,11 @@ class IsAuthenticatedAgent(BasePermission):
         return isinstance(request.user, AgentPrincipal)
 
 
-class AgentLeadSyncView(APIView):
+class AgentIntegrationView(APIView):
     authentication_classes = [AgentHmacAuthentication]
     permission_classes = [IsAuthenticatedAgent]
     throttle_classes = [AgentLeadSyncThrottle]
     parser_classes = [JSONParser]
-    http_method_names = ['put']
 
     def initial(self, request, *args, **kwargs):
         self._started = time.monotonic()
@@ -47,37 +48,6 @@ class AgentLeadSyncView(APIView):
         if not getattr(settings, 'AGENT_INTEGRATION_ENABLED', False):
             raise errors.unavailable()
         super().initial(request, *args, **kwargs)
-
-    def put(self, request, external_lead_id):
-        principal: AgentPrincipal = request.user
-        try:
-            payload = request.data
-        except drf_exceptions.ParseError:
-            raise errors.invalid_request('JSON inválido.')
-        if not isinstance(payload, dict):
-            raise errors.invalid_request('El body debe ser un objeto JSON.')
-
-        serializer = LeadSyncSerializer(data=payload)
-        if not serializer.is_valid():
-            raise errors.validation_error(errors.flatten_serializer_errors(serializer.errors))
-        data = self._data = serializer.validated_data
-
-        if data['external_lead_id'] != external_lead_id:
-            raise errors.invalid_request('external_lead_id del path y del body no coinciden.')
-
-        outcome = receive_lead_sync(agent_instance=principal.agent_instance, data=data)
-        self._log_result(outcome.result, outcome.status_code, business_id=outcome.business_id)
-        return Response(
-            {
-                'ok': True,
-                'result': outcome.result,
-                'external_lead_id': str(data['external_lead_id']),
-                'received_version': outcome.received_version,
-                'applied_version': outcome.applied_version,
-                'mirubro_lead_id': str(outcome.lead.pk),
-            },
-            status=outcome.status_code,
-        )
 
     # ── Respuestas ────────────────────────────────────────────────────────
 
@@ -154,3 +124,54 @@ class AgentLeadSyncView(APIView):
             fields.update(extra)
         level = logging.INFO if status_code < 400 else logging.WARNING
         logger.log(level, 'agent_lead_sync ' + ' '.join(f'{key}=%s' for key in fields), *fields.values())
+
+
+class AgentLeadSyncView(AgentIntegrationView):
+    http_method_names = ['put']
+
+    def put(self, request, external_lead_id):
+        principal: AgentPrincipal = request.user
+        try:
+            payload = request.data
+        except drf_exceptions.ParseError:
+            raise errors.invalid_request('JSON inválido.')
+        if not isinstance(payload, dict):
+            raise errors.invalid_request('El body debe ser un objeto JSON.')
+
+        serializer = LeadSyncSerializer(data=payload)
+        if not serializer.is_valid():
+            raise errors.validation_error(errors.flatten_serializer_errors(serializer.errors))
+        data = self._data = serializer.validated_data
+
+        if data['external_lead_id'] != external_lead_id:
+            raise errors.invalid_request('external_lead_id del path y del body no coinciden.')
+
+        outcome = receive_lead_sync(agent_instance=principal.agent_instance, data=data)
+        context = appointment_context(outcome.lead)
+        self._log_result(outcome.result, outcome.status_code, business_id=outcome.business_id)
+        return Response(
+            {
+                'ok': True,
+                'result': outcome.result,
+                'external_lead_id': str(data['external_lead_id']),
+                'received_version': outcome.received_version,
+                'applied_version': outcome.applied_version,
+                'mirubro_lead_id': str(outcome.lead.pk),
+                **context,
+            },
+            status=outcome.status_code,
+        )
+
+
+class AgentAppointmentContextView(AgentIntegrationView):
+    http_method_names = ['get']
+
+    def get(self, request, external_lead_id):
+        principal: AgentPrincipal = request.user
+        body = agent_appointment_context(
+            agent_instance=principal.agent_instance, external_lead_id=external_lead_id,
+        )
+        self._log_result('appointment_context', 200)
+        response = Response(body)
+        response['Cache-Control'] = 'no-store'
+        return response

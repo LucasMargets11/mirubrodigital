@@ -20,6 +20,9 @@ Estados (`CustomerMessageDelivery.Status`):
     pending / failed con reintento ──▶ cancelled (cancel_delivery)
 
 Garantías:
+- Automatizaciones de Turnos: S7A se consulta al preparar y dentro del claim
+  de cada intento. Sin acceso -> skipped, sin inicializar ni llamar al
+  proveedor. No depende del estado de suscripción al encolar.
 - Consentimiento re-validado con datos ACTUALES justo antes de enviar (dentro
   del claim, con el Delivery bloqueado): `automatic_channel_status` (= gate
   `can_contact_automatically`) y además que el destino usable actual sea
@@ -29,6 +32,9 @@ Garantías:
   `attempt_count += 1`) se commitea ANTES de llamar al proveedor; otro worker
   saltea la fila bloqueada o la ve `processing`. La escritura del resultado
   está condicionada a (status=processing, attempt_count=el del claim).
+- El claim exige una transacción durable: no se permite enviar dentro de una
+  transacción externa cuyo rollback pudiera deshacer el intento. Un candidato
+  pending/retriable con evidencia previa de aceptación se cierra sin reenviar.
 - At-most-once ante resultado desconocido: si el proveedor lanza una
   excepción o el worker muere durante el envío (`processing` vencido), el
   Delivery queda `failed` SIN reintento (`provider_exception` /
@@ -45,6 +51,8 @@ from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.utils import timezone as dj_timezone
 
+from apps.billing.services.appointments import can_use_appointments_automations
+
 from .contact_preferences import automatic_channel_status, consent_destination
 from .delivery_providers import DeliveryMessage, DeliveryProvider, ProviderSendResult, get_provider
 from .models import Customer, CustomerMessageDelivery
@@ -55,12 +63,14 @@ Delivery = CustomerMessageDelivery
 Status = CustomerMessageDelivery.Status
 
 SKIP_CUSTOMER_INACTIVE = 'customer_inactive'
+SKIP_APPOINTMENTS_AUTOMATIONS = 'appointments_automations_unavailable'
 # El destino usable actual es otro que el congelado en el Delivery (el cliente
 # reconfirmó otro teléfono/email): no se envía al viejo ni se reescribe.
 SKIP_DESTINATION_CHANGED = 'destination_changed'
 
 FAILURE_PROVIDER_EXCEPTION = 'provider_exception'
 FAILURE_OUTCOME_UNKNOWN = 'outcome_unknown'
+FAILURE_PRIOR_SEND_EVIDENCE = 'prior_send_evidence'
 
 DEFAULT_MAX_ATTEMPTS = 3
 DEFAULT_RETRY_BACKOFF_SECONDS = (60, 300, 1800)
@@ -193,6 +203,13 @@ def _gate(customer: Customer, channel: str) -> tuple[str | None, str | None]:
   return (None if status['usable'] else status['reason']), destination
 
 
+def _automation_skip_reason(business, purpose: str) -> str | None:
+  if purpose in (Delivery.Purpose.APPOINTMENT_REMINDER, Delivery.Purpose.NO_SHOW_FOLLOWUP):
+    if not can_use_appointments_automations(business):
+      return SKIP_APPOINTMENTS_AUTOMATIONS
+  return None
+
+
 # ── Preparación ──────────────────────────────────────────────────────────────
 
 def prepare_customer_delivery(
@@ -201,7 +218,7 @@ def prepare_customer_delivery(
 ) -> tuple[Delivery, bool]:
   """Crea (o devuelve, si la `idempotency_key` ya existe en el Business) el Delivery.
 
-  Devuelve `(delivery, created)`. Si el canal no es usable AHORA, igual crea el
+  Devuelve `(delivery, created)`. Sin entitlement S7A o canal usable AHORA, crea el
   Delivery como `skipped` con el motivo (auditoría de por qué una
   automatización no envió). Con `enqueue` un `pending` nuevo se encola
   on_commit (`customers.execute_delivery`).
@@ -216,6 +233,7 @@ def prepare_customer_delivery(
 
   now = now or dj_timezone.now()
   skip_reason, destination = _gate(customer, channel)
+  skip_reason = _automation_skip_reason(business, purpose) or skip_reason
   delivery = Delivery(
     business=business,
     customer=customer,
@@ -257,10 +275,10 @@ def prepare_customer_delivery(
 
 # ── Ejecución ────────────────────────────────────────────────────────────────
 
-def _claim(delivery_id, provider_name: str, now):
-  """Claim corto con el Delivery bloqueado. Devuelve el Delivery `processing`
+def _claim(delivery_id, provider: DeliveryProvider | None, now) -> tuple[Delivery, DeliveryProvider] | str:
+  """Claim corto con el Delivery bloqueado. Devuelve (Delivery, proveedor)
   para enviar, o un str con el resultado si no hay que enviar."""
-  with transaction.atomic():
+  with transaction.atomic(durable=True):
     delivery = (
       Delivery.objects.select_for_update(skip_locked=True, of=('self',))
       .filter(pk=delivery_id)
@@ -279,10 +297,22 @@ def _claim(delivery_id, provider_name: str, now):
       # processing (otro worker lo está enviando), final, o reintento no vencido.
       return 'not_eligible'
 
+    if delivery.sent_at is not None or delivery.provider_message_id:
+      fields = _failure_fields(
+        delivery, FAILURE_PRIOR_SEND_EVIDENCE, 'Prior provider acceptance evidence; resend blocked',
+        retryable=False, now=now,
+      )
+      for field, value in fields.items():
+        setattr(delivery, field, value)
+      delivery.save(update_fields=[*fields, 'updated_at'])
+      _log(delivery)
+      return 'not_eligible'
+
     customer = Customer.objects.select_related('business').get(pk=delivery.customer_id)
     if customer.business_id != delivery.business_id:  # invariante de save(); nunca cruzar tenants
       raise ValueError('CustomerMessageDelivery.customer belongs to another business')
     skip_reason, destination = _gate(customer, delivery.channel)
+    skip_reason = _automation_skip_reason(customer.business, delivery.purpose) or skip_reason
     if skip_reason is None and destination != delivery.destination_snapshot:
       skip_reason = SKIP_DESTINATION_CHANGED
     if skip_reason is not None:
@@ -294,13 +324,17 @@ def _claim(delivery_id, provider_name: str, now):
       _log(delivery)
       return Status.SKIPPED
 
+    provider = provider or get_provider(delivery.channel)
+    if provider.channel and provider.channel != delivery.channel:
+      raise ValueError(f'Provider {provider.name} cannot send channel {delivery.channel}')
+
     delivery.status = Status.PROCESSING
     delivery.attempt_count += 1
     delivery.last_attempt_at = now
     delivery.next_retry_at = None
-    delivery.provider = provider_name
+    delivery.provider = provider.name
     delivery.save(update_fields=['status', 'attempt_count', 'last_attempt_at', 'next_retry_at', 'provider', 'updated_at'])
-  return delivery
+  return delivery, provider
 
 
 def _guarded_update(delivery: Delivery, **fields) -> bool:
@@ -366,18 +400,13 @@ def execute_delivery(delivery_id, *, provider: DeliveryProvider | None = None, n
   Devuelve 'sent' | 'failed' | 'skipped', o None si no correspondía enviar
   (bloqueado por otro worker, ya procesado, reintento no vencido, sin fila).
   Nunca reenvía un Delivery `sent`/`processing`.
+  Debe llamarse fuera de una transacción externa (claim durable).
   """
   now = now or dj_timezone.now()
-  channel = Delivery.objects.filter(pk=delivery_id).values_list('channel', flat=True).first()
-  if channel is None:
-    return None
-  provider = provider or get_provider(channel)
-  if provider.channel and provider.channel != channel:
-    raise ValueError(f'Provider {provider.name} cannot send channel {channel}')
-
-  claimed = _claim(delivery_id, provider.name, now)
-  if isinstance(claimed, str):
-    return Status.SKIPPED if claimed == Status.SKIPPED else None
+  claim = _claim(delivery_id, provider, now)
+  if isinstance(claim, str):
+    return Status.SKIPPED if claim == Status.SKIPPED else None
+  claimed, provider = claim
 
   try:
     result = provider.send(_message(claimed))

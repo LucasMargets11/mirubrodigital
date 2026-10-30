@@ -42,6 +42,38 @@ def business_has_service(business, service_slug: str) -> bool:
     """
     if business is None or not service_slug:
         return False
+
+    from apps.billing.runtime import resolve_subscription
+
+    if service_slug == 'appointments':
+        resolved = resolve_subscription(business, service_type='appointments')
+        if resolved.source != 'none':
+            from apps.billing.runtime import is_appointments_plan_code
+
+            return (
+                resolved.access_granted
+                and resolved.service_type == 'appointments'
+                and is_appointments_plan_code(resolved.plan or '')
+            )
+
+        # Preserve the old service-field fallback only when no subscription
+        # record exists; another product's subscription cannot enable Turnos.
+        if business.subscriptions_v2.exists() or hasattr(business, 'subscription'):
+            return False
+        return (
+            getattr(business, 'service_type', None) == 'appointments'
+            or getattr(business, 'default_service', None) == 'appointments'
+        )
+
+    # A Turnos subscription is not a fallback for another product. If Turnos
+    # exists, require a separately resolved subscription for the requested
+    # service instead of trusting the business's default-service hint.
+    appointments = resolve_subscription(business, service_type='appointments')
+    if appointments.source != 'none':
+        requested = resolve_subscription(business, service_type=service_slug)
+        if requested.source == 'none':
+            return False
+
     subscription = getattr(business, 'subscription', None)
     subscription_service = getattr(subscription, 'service', None)
     actual_service = subscription_service or getattr(business, 'default_service', None) or 'gestion'

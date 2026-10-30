@@ -1,9 +1,13 @@
+import datetime as dt
 from decimal import Decimal
 
 from django.db import transaction
+from django.db import IntegrityError
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
 from apps.customers.models import Customer, CustomerCommunicationSettings, CustomerReminderAutomationSettings
+from apps.accounts.models import Membership
 
 from .models import (
   Appointment,
@@ -172,6 +176,12 @@ class AppointmentServiceSummarySerializer(serializers.ModelSerializer):
 
 
 class AppointmentProfessionalSerializer(serializers.ModelSerializer):
+  membership_id = serializers.PrimaryKeyRelatedField(
+    queryset=Membership.objects.all(),
+    source='membership',
+    allow_null=True,
+    required=False,
+  )
   services = AppointmentServiceSummarySerializer(many=True, read_only=True)
   service_ids = serializers.PrimaryKeyRelatedField(
     queryset=AppointmentService.objects.all(),
@@ -190,6 +200,7 @@ class AppointmentProfessionalSerializer(serializers.ModelSerializer):
       'description',
       'phone',
       'email',
+      'membership_id',
       'services',
       'service_ids',
       'is_active',
@@ -234,11 +245,60 @@ class AppointmentProfessionalSerializer(serializers.ModelSerializer):
       if conflict.exists():
         raise serializers.ValidationError({'name': 'Ya existe un profesional con este nombre.'})
 
+    if 'membership' in attrs and attrs['membership'] is not None:
+      membership = attrs['membership']
+      if business is None or membership.business_id != business.id:
+        raise serializers.ValidationError({
+          'membership_id': 'La Membership debe pertenecer a este negocio.',
+        })
+      from .services.professional_quota import validate_professional_membership
+
+      candidate = self.instance or AppointmentProfessional(business=business)
+      candidate.membership = membership
+      try:
+        validate_professional_membership(candidate)
+      except DjangoValidationError as exc:
+        raise serializers.ValidationError(exc.message_dict) from exc
+      duplicate = AppointmentProfessional.objects.filter(
+        business=business, membership=membership, is_active=True,
+      )
+      if self.instance:
+        duplicate = duplicate.exclude(pk=self.instance.pk)
+      if duplicate.exists() and attrs.get('is_active', getattr(self.instance, 'is_active', True)):
+        raise serializers.ValidationError({
+          'membership_id': 'Esta Membership ya está vinculada a otro profesional activo.',
+        })
+
     return attrs
+
+  def _save_with_domain_validation(self, operation, *args, **kwargs):
+    from .services.professional_quota import (
+      ProfessionalQuotaExceeded, ProfessionalQuotaUnavailable,
+    )
+    try:
+      return operation(*args, **kwargs)
+    except (ProfessionalQuotaExceeded, ProfessionalQuotaUnavailable) as exc:
+      raise serializers.ValidationError({'is_active': str(exc)}) from exc
+    except DjangoValidationError as exc:
+      detail = exc.message_dict if hasattr(exc, 'message_dict') else exc.messages
+      raise serializers.ValidationError(detail) from exc
+    except IntegrityError as exc:
+      raise serializers.ValidationError({
+        'membership_id': 'La Membership ya está vinculada a otro profesional activo.',
+      }) from exc
+
+  def create(self, validated_data):
+    from .services.professionals import create_professional
+
+    return self._save_with_domain_validation(create_professional, **validated_data)
 
   def update(self, instance, validated_data):
     validated_data.pop('business', None)
-    return super().update(instance, validated_data)
+    from .services.professionals import update_professional
+
+    return self._save_with_domain_validation(
+      update_professional, business=instance.business, professional_id=instance.pk, **validated_data,
+    )
 
 
 class AppointmentProfessionalSummarySerializer(serializers.ModelSerializer):
@@ -288,6 +348,13 @@ class AppointmentScheduleSerializer(serializers.ModelSerializer):
     if business and value.business_id != business.id:
       raise serializers.ValidationError('El profesional no pertenece a este negocio.')
 
+    request = self.context.get('request')
+    if request is not None:
+      from .services.professional_quota import request_professional
+
+      own_professional = request_professional(request)
+      if own_professional is not None and value.pk != own_professional.pk:
+        raise serializers.ValidationError('Solo podés asignar turnos a tu propio perfil profesional.')
     return value
 
   def validate(self, attrs):
@@ -299,6 +366,18 @@ class AppointmentScheduleSerializer(serializers.ModelSerializer):
 
     weekday = attrs.get('weekday', getattr(self.instance, 'weekday', None))
     professional = attrs.get('professional', self.instance.professional if self.instance else None)
+    request = self.context.get('request')
+    if request is not None:
+      from .services.professional_quota import request_professional
+
+      own_professional = request_professional(request)
+      if own_professional is not None:
+        if professional is not None and professional.pk != own_professional.pk:
+          raise serializers.ValidationError({
+            'professional_id': 'Solo podés modificar tu propio horario.',
+          })
+        professional = own_professional
+        attrs['professional'] = own_professional
 
     business = attrs.get('business') or getattr(self.instance, 'business', None)
     if business is None:
@@ -435,7 +514,7 @@ class AppointmentSerializer(serializers.ModelSerializer):
     if self.instance is not None:
       return self.instance.business
     request = self.context.get('request')
-    return getattr(request, 'business', None) if request else None
+    return getattr(request, 'business', None) if request else self.context.get('business')
 
   def validate_service_id(self, value):
     business = self._get_business()
@@ -449,6 +528,13 @@ class AppointmentSerializer(serializers.ModelSerializer):
     business = self._get_business()
     if business and value.business_id != business.id:
       raise serializers.ValidationError('El profesional no pertenece a este negocio.')
+    request = self.context.get('request')
+    if request is not None:
+      from .services.professional_quota import request_professional
+
+      own_professional = request_professional(request)
+      if own_professional is not None and value.pk != own_professional.pk:
+        raise serializers.ValidationError('Solo podés asignar turnos a tu propio perfil profesional.')
     return value
 
   def validate_customer_id(self, value: Customer) -> Customer:
@@ -480,6 +566,19 @@ class AppointmentSerializer(serializers.ModelSerializer):
       raise serializers.ValidationError({'start_at': 'Este campo es requerido.'})
     if is_create and 'service' not in attrs:
       raise serializers.ValidationError({'service_id': 'Este campo es requerido.'})
+    request = self.context.get('request')
+    if request is not None:
+      from .services.professional_quota import request_professional
+
+      own_professional = request_professional(request)
+      if own_professional is not None:
+        selected = attrs.get('professional', getattr(self.instance, 'professional', None))
+        if selected is not None and selected.pk != own_professional.pk:
+          raise serializers.ValidationError({
+            'professional_id': 'Solo podés operar turnos de tu propio perfil profesional.',
+          })
+        if selected is None:
+          attrs['professional'] = own_professional
     return attrs
 
   @transaction.atomic
@@ -488,10 +587,21 @@ class AppointmentSerializer(serializers.ModelSerializer):
     service = validated_data.pop('service')
     professional = validated_data.pop('professional', None)
     start_at = validated_data.pop('start_at')
+    snapshot = validated_data.pop('service_snapshot', None) or booking.ServiceSnapshot.from_service(service)
 
     booking.lock_professionals(business, {professional})
-    end_at = booking.compute_end_at(service, start_at)
+    end_at = start_at + dt.timedelta(minutes=snapshot.duration_minutes)
     try:
+      from apps.billing.services.appointments_lifecycle import appointments_v2_allows_creation
+
+      if appointments_v2_allows_creation(business) is False:
+        raise booking.BookingError(
+          'La suscripción de Turnos no permite crear nuevos turnos.', field='detail',
+        )
+      if snapshot.currency is not None:
+        business.refresh_from_db(fields=['currency'])
+        if snapshot.currency != business.currency:
+          raise booking.BookingError('La moneda de la oferta cambió. Proponé otro horario.', field='service')
       booking.ensure_slot_available(
         business=business, service=service, professional=professional, start_at=start_at, end_at=end_at,
       )
@@ -519,11 +629,11 @@ class AppointmentSerializer(serializers.ModelSerializer):
       end_at=end_at,
       status=Appointment.Status.CONFIRMED,
       source=Appointment.Source.MANUAL,
-      service_name=service.name,
-      service_duration_minutes=service.duration_minutes,
-      service_price=service.price,
-      deposit_type=service.deposit_type,
-      deposit_value=service.deposit_value,
+      service_name=snapshot.name,
+      service_duration_minutes=snapshot.duration_minutes,
+      service_price=snapshot.price,
+      deposit_type=snapshot.deposit_type,
+      deposit_value=snapshot.deposit_value,
       customer_name=validated_data['customer_name'],
       customer_phone=validated_data['customer_phone'],
       customer_email=validated_data.get('customer_email', ''),
@@ -585,6 +695,13 @@ class AppointmentExceptionSerializer(serializers.ModelSerializer):
     if business and value.business_id != business.id:
       raise serializers.ValidationError('El profesional no pertenece a este negocio.')
 
+    request = self.context.get('request')
+    if request is not None:
+      from .services.professional_quota import request_professional
+
+      own_professional = request_professional(request)
+      if own_professional is not None and value.pk != own_professional.pk:
+        raise serializers.ValidationError('Solo podés asignar excepciones a tu propio perfil profesional.')
     return value
 
   def validate_note(self, value: str) -> str:
@@ -610,6 +727,18 @@ class AppointmentExceptionSerializer(serializers.ModelSerializer):
       business = getattr(request, 'business', None)
 
     professional = attrs.get('professional', self.instance.professional if self.instance else None)
+    request = self.context.get('request')
+    if request is not None:
+      from .services.professional_quota import request_professional
+
+      own_professional = request_professional(request)
+      if own_professional is not None:
+        if professional is not None and professional.pk != own_professional.pk:
+          raise serializers.ValidationError({
+            'professional_id': 'Solo podés modificar excepciones de tu propio perfil.',
+          })
+        professional = own_professional
+        attrs['professional'] = own_professional
     date = attrs.get('date', getattr(self.instance, 'date', None))
 
     if business and date:

@@ -8,7 +8,14 @@ export type BusinessNotificationKind =
     | 'appointment_confirmed'
     | 'appointment_payment_review'
     /** CUSTOMER 07C: un recordatorio de cliente llegó a su hora; enlaza a la ficha. */
-    | 'customer_reminder_due';
+    | 'customer_reminder_due'
+    /**
+     * LEADS: una consulta del agente necesita revisión de recepción / te
+     * asignaron una consulta. Enlazan al Lead (`/app/turnos/leads/{id}`); leerlas
+     * no reconoce la atención, no toma la conversación ni asigna el Lead.
+     */
+    | 'agent_lead_handoff'
+    | 'lead_assigned';
 export type BusinessNotificationSeverity = 'info' | 'critical';
 
 export type BusinessNotification = {

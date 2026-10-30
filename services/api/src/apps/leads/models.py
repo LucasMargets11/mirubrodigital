@@ -17,6 +17,7 @@ pero `bulk_create`/`update()` no pasan por ahí.
 """
 from __future__ import annotations
 
+import datetime as dt
 import uuid
 
 from django.conf import settings
@@ -848,3 +849,113 @@ class LeadStaffMessage(models.Model):
 
     def __str__(self) -> str:
         return f'LeadStaffMessage {self.pk} lead={self.lead_id} ({self.status})'
+
+
+# ── SLICE 3A — propuesta estructurada de turno desde recepción ───────────────
+
+class AppointmentProposal(models.Model):
+    """Turno ofrecido por recepción a un Lead por WhatsApp (Slice 3A).
+
+    NO es un `Appointment`: no reserva el slot, no crea hold ni pago. La
+    disponibilidad se valida al crearla y deberá revalidarse al confirmar.
+    Los snapshots (`service_*`, `professional_name`, `deposit_*`, `currency`)
+    son la representación histórica de lo ofrecido; `service`/`professional`
+    quedan con PROTECT para no perder la referencia en silencio.
+
+    El mensaje al paciente sale por el outbox `LeadStaffMessage`
+    (`staff_message`); su resultado sincroniza `status`
+    (`services.human_messages._record_response`): `pending_delivery` → `queued`
+    (encolado en el agente, NO entregado por WhatsApp) | `delivery_failed`.
+    `expires_at` arranca al pasar a `queued`; la expiración es lazy
+    (`services.appointment_proposals`).
+
+    Idempotencia: `(business, idempotency_key)` única; el payload pedido se
+    compara contra `lead`/`service`/`professional`/`proposed_start_at`, que se
+    guardan tal cual se pidieron (el backend no los reinterpreta).
+    """
+
+    class Status(models.TextChoices):
+        PENDING_DELIVERY = 'pending_delivery', 'Enviando'
+        QUEUED = 'queued', 'Enviada'
+        DELIVERY_FAILED = 'delivery_failed', 'Falló el envío'
+        EXPIRED = 'expired', 'Vencida'
+        SUPERSEDED = 'superseded', 'Reemplazada'
+        CONVERTED = 'converted', 'Convertida'
+
+    ACTIVE_STATUSES = (Status.PENDING_DELIVERY, Status.QUEUED)
+    QUEUED_TTL = dt.timedelta(hours=24)
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    business = models.ForeignKey('business.Business', related_name='appointment_proposals', on_delete=models.CASCADE)
+    lead = models.ForeignKey(Lead, related_name='appointment_proposals', on_delete=models.CASCADE)
+    service = models.ForeignKey(
+        'appointments.AppointmentService', related_name='lead_proposals', on_delete=models.PROTECT,
+    )
+    professional = models.ForeignKey(
+        'appointments.AppointmentProfessional', related_name='lead_proposals', on_delete=models.PROTECT,
+        null=True, blank=True,
+    )
+    proposed_start_at = models.DateTimeField()
+    proposed_end_at = models.DateTimeField()
+
+    service_name = models.CharField(max_length=255)
+    professional_name = models.CharField(max_length=255, null=True, blank=True)
+    service_duration_minutes = models.PositiveIntegerField()
+    service_price = models.DecimalField(max_digits=12, decimal_places=2)
+    currency = models.CharField(max_length=3)
+    deposit_type = models.CharField(max_length=16)
+    deposit_value = models.DecimalField(max_digits=12, decimal_places=2)
+    deposit_amount = models.DecimalField(max_digits=12, decimal_places=2)
+
+    status = models.CharField(max_length=24, choices=Status.choices, default=Status.PENDING_DELIVERY)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    idempotency_key = models.UUIDField()
+    staff_message = models.OneToOneField(
+        LeadStaffMessage, related_name='appointment_proposal', on_delete=models.PROTECT, null=True, blank=True,
+    )
+    confirmation_requested_at = models.DateTimeField(null=True, blank=True)
+    confirmation_message_id = models.CharField(max_length=64, null=True, blank=True)
+    # Solo la conversión manual vincula un turno real y marca `converted`.
+    appointment = models.OneToOneField(
+        'appointments.Appointment', related_name='lead_proposal', on_delete=models.SET_NULL, null=True, blank=True,
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, related_name='appointment_proposals', on_delete=models.SET_NULL,
+        null=True, blank=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['business', 'lead', '-created_at'], name='appt_proposal_lead_idx'),
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=['business', 'idempotency_key'], name='appt_proposal_idempotency_unique'),
+            models.UniqueConstraint(
+                fields=['business', 'lead'], condition=Q(status__in=['pending_delivery', 'queued']),
+                name='appt_proposal_one_active_per_lead',
+            ),
+            models.CheckConstraint(
+                check=Q(proposed_start_at__lt=F('proposed_end_at')), name='appt_proposal_range_valid',
+            ),
+            models.CheckConstraint(check=Q(service_duration_minutes__gt=0), name='appt_proposal_duration_positive'),
+            models.CheckConstraint(check=Q(service_price__gte=0), name='appt_proposal_price_non_negative'),
+            models.CheckConstraint(check=Q(deposit_value__gte=0), name='appt_proposal_deposit_value_non_negative'),
+            models.CheckConstraint(check=Q(deposit_amount__gte=0), name='appt_proposal_deposit_amount_non_negative'),
+            models.CheckConstraint(
+                check=Q(deposit_type__in=['none', 'fixed', 'percentage']), name='appt_proposal_deposit_type_valid',
+            ),
+            models.CheckConstraint(
+                check=Q(status__in=['pending_delivery', 'queued', 'delivery_failed', 'expired', 'superseded', 'converted']),
+                name='appt_proposal_status_valid',
+            ),
+            # La ventana de 24 h existe solo desde que el agente aceptó el mensaje.
+            models.CheckConstraint(
+                check=~Q(status='queued') | Q(expires_at__isnull=False), name='appt_proposal_queued_expires',
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f'AppointmentProposal {self.pk} lead={self.lead_id} ({self.status})'

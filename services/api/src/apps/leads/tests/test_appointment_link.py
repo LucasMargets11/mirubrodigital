@@ -78,11 +78,13 @@ class LeadAppointmentLinkTests(LeadAppointmentLinkMixin, APITestCase):
             'end_at': response.data['appointment']['end_at'],
             'status': 'confirmed',
             'service_name': 'Corte',
+            'professional_name': 'Lu',
+            'customer': {'id': str(self.appointment.customer_id), 'display_name': 'Ana Cliente'},
         })
         self.assertTrue(response.data['needs_attention'])
         # Sin datos de contacto del turno en la representación.
         self.assertNotIn('1155550000', str(response.data['appointment']))
-        self.assertNotIn('Ana Cliente', str(response.data['appointment']))
+        self.assertNotIn('customer_phone', response.data['appointment'])
 
         self.lead.refresh_from_db()
         self.assertEqual(self.lead.appointment_id, self.appointment.pk)

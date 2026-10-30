@@ -10,7 +10,7 @@
  *   - QrReviewsPlanBuilder.tsx      QR_REVIEWS_PLANS (inline)
  *   - docs/PRICING_AUDIT_FULL.md   §2 "Mapa de Precios Oficiales Vigentes"
  */
-import type { PlanDef } from './types';
+import type { CanonicalPlanDef, PlanDef } from './types';
 
 // ── Gestión Comercial ─────────────────────────────────────────────
 
@@ -111,7 +111,41 @@ export const REVIEWS_EMPRESARIAL: PlanDef = {
 
 // ── Aggregate ─────────────────────────────────────────────────────
 
-export const ALL_PLANS: readonly PlanDef[] = [
+export const APPOINTMENTS: PlanDef = {
+  code: 'appointments',
+  vertical: 'appointments',
+  name: 'Turnos',
+  priceMonthly: 23000,
+  priceYearly: 220800,
+  professionalsIncluded: 2,
+  secondaryUsersIncluded: 2,
+};
+
+export const APPOINTMENTS_PRO: PlanDef = {
+  code: 'appointments_pro',
+  vertical: 'appointments',
+  name: 'Turnos Pro',
+  priceMonthly: 28000,
+  priceYearly: 268800,
+  professionalsIncluded: 5,
+  secondaryUsersIncluded: 5,
+};
+
+export const APPOINTMENTS_AI: PlanDef<null> = {
+  code: 'appointments_ai',
+  vertical: 'appointments',
+  name: 'Turnos IA Recepcionista',
+  priceMonthly: null,
+  priceYearly: null,
+  pricingMode: 'usage_tier',
+  professionalsIncluded: 5,
+  secondaryUsersIncluded: 5,
+  includesPlans: ['appointments_pro'],
+  includedAddons: ['appointments_automations'],
+  usageTiers: ['ai_300', 'ai_1500', 'ai_3000', 'custom'],
+};
+
+export const ALL_PLANS: readonly CanonicalPlanDef[] = [
   GC_STARTER,
   GC_PRO,
   GC_BUSINESS,
@@ -123,4 +157,7 @@ export const ALL_PLANS: readonly PlanDef[] = [
   REVIEWS_BASE,
   REVIEWS_PRO,
   REVIEWS_EMPRESARIAL,
+  APPOINTMENTS,
+  APPOINTMENTS_PRO,
+  APPOINTMENTS_AI,
 ];

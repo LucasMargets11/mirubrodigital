@@ -55,11 +55,44 @@ export type LeadListItem = {
     agent: LeadAgentSummary | null;
     /** MIRUBRO TAKEOVER 05A: `null` sin conversación del agente; sin control todavía → `active`. */
     conversation_state: ConversationControlState | null;
+    /** LEADS SLICE 2: control compacto; `taken_by` es quien tomó la conversación (no el asignado). */
+    conversation_control: LeadListConversationControl | null;
+    /** LEADS SLICE 2: turno vinculado (FK), sea cual sea su estado o fecha. */
+    appointment: LeadListAppointment | null;
+    /** Preview (≤240 caracteres) del último mensaje del PACIENTE replicado; `null` sin historial. */
+    last_patient_message_text: string | null;
+    last_patient_message_at: string | null;
+};
+
+export type LeadListConversationControl = {
+    state: ConversationControlState;
+    taken_by: LeadUserRef | null;
+    taken_at: string | null;
+};
+
+/**
+ * Resumen compacto del turno vinculado en la bandeja. `status` es el efectivo
+ * (hold vencido → `expired`), nunca se corrige el persistido: un `confirmed`
+ * ya terminado llega `confirmed` con `is_past=true`. `is_upcoming` = ocupa
+ * agenda (confirmado o seña vigente) y todavía no empezó.
+ */
+export type LeadListAppointment = {
+    id: string;
+    status: AppointmentStatus;
+    start_at: string;
+    end_at: string;
+    service_name: string;
+    professional_name: string | null;
+    is_upcoming: boolean;
+    is_past: boolean;
 };
 
 /** Valores especiales que acepta la API en `assigned_to` / `customer`. */
 export const LEADS_UNASSIGNED = 'unassigned';
 export const LEADS_UNLINKED = 'unlinked';
+
+/** `appointment=with|without`: hay (o no) un turno vinculado, sin importar estado/fecha. */
+export type LeadAppointmentFilter = 'with' | 'without';
 
 /**
  * Filtros soportados por el backend (todos server-side). `undefined` = sin filtro.
@@ -73,6 +106,7 @@ export type LeadFilters = {
     needsAttention?: boolean;
     assignedTo?: string;
     customer?: string;
+    appointment?: LeadAppointmentFilter;
     q?: string;
     limit?: number;
     offset?: number;
@@ -139,6 +173,43 @@ export type LeadAppointmentRef = {
     end_at: string | null;
     status: AppointmentStatus | null;
     service_name: string | null;
+    professional_name?: string | null;
+    customer?: { id: string; display_name: string } | null;
+};
+
+export type AppointmentProposalPayload = {
+    service_id: string;
+    professional_id: string | null;
+    start_at: string;
+    idempotency_key: string;
+};
+
+export type AppointmentProposal = {
+    id: string;
+    status: 'pending_delivery' | 'queued' | 'delivery_failed' | 'expired' | 'superseded' | 'converted';
+    service: { id: string; name: string };
+    professional: { id: string; name: string } | null;
+    proposed_start_at: string;
+    proposed_end_at: string;
+    expires_at: string | null;
+    patient_confirmation: {
+        intent: 'confirm';
+        requested_at: string;
+        message: string | null;
+    } | null;
+    delivery_error: string | null;
+    staff_message_status: string | null;
+    created_at: string;
+    snapshots?: {
+        service_name: string;
+        professional_name: string | null;
+        service_duration_minutes: number;
+        service_price: string;
+        currency: string;
+        deposit_type: string;
+        deposit_value: string;
+        deposit_amount: string;
+    };
 };
 
 export type LeadNote = {

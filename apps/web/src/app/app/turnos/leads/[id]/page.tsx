@@ -15,7 +15,8 @@ type Props = {
  * (`appointments.leads` + `view_leads`); las acciones solo con `manage_leads`.
  * Los selectores de Customer/turno reutilizan APIs que exigen sus propios
  * permisos (`view_customers` / `view_appointments`). Todo es UX: el backend
- * vuelve a validar cada request.
+ * vuelve a validar cada request. Crear desde el Lead exige además
+ * `manage_appointments`; no reemplaza el selector de turnos existentes.
  */
 export default async function LeadDetailPage({ params }: Props) {
     const { id } = await params;
@@ -54,6 +55,7 @@ export default async function LeadDetailPage({ params }: Props) {
         <LeadDetailClient
             leadId={id}
             canManage={session.permissions?.manage_leads ?? false}
+            canManageAppointments={session.permissions?.manage_appointments ?? false}
             canViewCustomers={canViewCustomers}
             canViewAppointments={session.permissions?.view_appointments ?? false}
             currentUserId={session.user?.id ?? null}

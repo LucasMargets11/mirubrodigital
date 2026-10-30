@@ -1,9 +1,14 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { AppointmentPayload } from '@/features/appointments/types';
 
 import {
     acknowledgeLeadAttention,
     createLeadNote,
+    createLeadAppointment,
+    createAppointmentProposal,
+    confirmAppointmentProposal,
+    getCurrentAppointmentProposal,
     deleteLeadNote,
     getLead,
     listLeadAssignees,
@@ -16,13 +21,70 @@ import {
     updateLead,
     updateLeadNote,
 } from './api';
-import type { ConversationCommandAction, LeadDetail, LeadFilters, LeadMessage, LeadUpdatePayload } from './types';
+import type { AppointmentProposal, AppointmentProposalPayload, ConversationCommandAction, LeadDetail, LeadFilters, LeadMessage, LeadUpdatePayload } from './types';
 
 export const leadsBaseKey = ['appointments', 'leads'];
 const leadsListKey = [...leadsBaseKey, 'list'];
 
 export function leadDetailKey(id: string) {
     return [...leadsBaseKey, 'detail', id];
+}
+
+export function currentAppointmentProposalKey(id: string) {
+    return [...leadsBaseKey, 'current-proposal', id];
+}
+
+export function appointmentProposalPollInterval(proposal: AppointmentProposal | null | undefined): number | false {
+    if (proposal?.status === 'pending_delivery') return 2500;
+    if (proposal?.status === 'queued' && !proposal.patient_confirmation) return 30_000;
+    return false;
+}
+
+export function useCurrentAppointmentProposal(id: string, enabled: boolean) {
+    return useQuery({
+        queryKey: currentAppointmentProposalKey(id),
+        queryFn: () => getCurrentAppointmentProposal(id),
+        enabled: Boolean(id) && enabled,
+        retry: false,
+        refetchInterval: (query) => appointmentProposalPollInterval(query.state.data),
+    });
+}
+
+export function useCreateAppointmentProposal(id: string) {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (payload: AppointmentProposalPayload) => createAppointmentProposal(id, payload),
+        retry: false,
+        onSuccess: async (proposal) => {
+            queryClient.setQueryData(currentAppointmentProposalKey(id), proposal);
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: currentAppointmentProposalKey(id) }),
+                queryClient.invalidateQueries({ queryKey: leadDetailKey(id) }),
+            ]);
+        },
+    });
+}
+
+export function useConfirmAppointmentProposal(id: string) {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (proposalId: string) => confirmAppointmentProposal(id, proposalId),
+        retry: false,
+        onSuccess: () => Promise.all([
+            queryClient.fetchQuery({ queryKey: leadDetailKey(id), queryFn: () => getLead(id), staleTime: 0 }),
+            queryClient.fetchQuery({
+                queryKey: currentAppointmentProposalKey(id), queryFn: () => getCurrentAppointmentProposal(id), staleTime: 0,
+            }),
+            queryClient.invalidateQueries({ queryKey: leadsListKey }),
+            queryClient.invalidateQueries({ queryKey: ['appointments', 'appointments'] }),
+            queryClient.invalidateQueries({ queryKey: ['appointments', 'availability'] }),
+            queryClient.invalidateQueries({ queryKey: ['gestion', 'customers'] }),
+        ]),
+        onError: () => Promise.all([
+            queryClient.invalidateQueries({ queryKey: leadDetailKey(id) }),
+            queryClient.invalidateQueries({ queryKey: currentAppointmentProposalKey(id) }),
+        ]),
+    });
 }
 
 function leadNotesKey(id: string) {
@@ -89,6 +151,24 @@ export function useUpdateLead(id: string) {
     return useMutation({
         mutationFn: (payload: LeadUpdatePayload) => updateLead(id, payload),
         onSuccess: (lead) => applyLeadDetail(queryClient, lead),
+    });
+}
+
+export function useCreateLeadAppointment(id: string) {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: (payload: AppointmentPayload) => createLeadAppointment(id, payload),
+        retry: false,
+        onSuccess: async (lead) => {
+            await applyLeadDetail(queryClient, lead);
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: leadDetailKey(id) }),
+                queryClient.invalidateQueries({ queryKey: currentAppointmentProposalKey(id) }),
+                queryClient.invalidateQueries({ queryKey: ['appointments', 'appointments'] }),
+                queryClient.invalidateQueries({ queryKey: ['appointments', 'availability'] }),
+                queryClient.invalidateQueries({ queryKey: ['gestion', 'customers'] }),
+            ]);
+        },
     });
 }
 

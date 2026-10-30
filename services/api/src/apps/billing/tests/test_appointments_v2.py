@@ -20,6 +20,7 @@ Covers:
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 
 from django.test import TestCase
 from django.utils import timezone
@@ -27,8 +28,12 @@ from datetime import timedelta
 
 from apps.billing.models import Bundle, Module, SubscriptionV2
 from apps.billing.runtime import resolve_subscription
+from apps.accounts.permissions import HasEntitlement
 from apps.business.context import build_business_context
+from apps.business.entitlements import has_entitlement
+from apps.business.features import feature_flags_for_plan, feature_flags_for_v2_subscription
 from apps.business.models import Business, Subscription as BizSubscription
+from apps.business.service_policy import business_has_service
 
 
 def _make_business(name='Turnos Biz', service='appointments'):
@@ -44,6 +49,7 @@ def _attach_v2(biz, plan_code='appointments_base', status=None, service_type=Non
         business=biz,
         service_type=service_type or biz.default_service,
         plan_code=plan_code,
+        usage_tier='ai_300' if plan_code == 'appointments_ai' else None,
         provider=SubscriptionV2.Provider.MANUAL,
         external_reference=f'SUB-{uuid.uuid4()}',
         status=status or SubscriptionV2.Status.ACTIVE,
@@ -82,6 +88,103 @@ class AppointmentsBillingV2RegistrationTests(TestCase):
 # ---------------------------------------------------------------------------
 
 class AppointmentsV2EntitlementTests(TestCase):
+
+    def test_four_appointments_plans_have_isolated_runtime_entitlements(self):
+        expected_leads = {
+            'appointments_base': True,
+            'appointments': False,
+            'appointments_pro': False,
+            'appointments_ai': True,
+        }
+        for plan, leads_enabled in expected_leads.items():
+            with self.subTest(plan=plan):
+                biz = _make_business(name=f'Turnos {plan}')
+                _attach_v2(biz, plan_code=plan)
+
+                resolved = resolve_subscription(biz)
+                flags = feature_flags_for_plan(plan)
+
+                self.assertEqual(resolved.service_type, 'appointments')
+                self.assertEqual(resolved.plan, plan)
+                self.assertIn('appointments.customers', resolved.entitlements)
+                self.assertEqual('appointments.leads' in resolved.entitlements, leads_enabled)
+                self.assertFalse(any(code.startswith('gestion.') for code in resolved.entitlements))
+                self.assertTrue(flags['appointments_core'])
+                self.assertTrue(flags['customers'])
+                self.assertEqual(flags['leads'], leads_enabled)
+
+    def test_legacy_appointments_base_keeps_leads(self):
+        biz = _make_business()
+        BizSubscription.objects.create(
+            business=biz, plan='appointments_base', service='appointments', status='active',
+        )
+
+        resolved = resolve_subscription(biz)
+
+        self.assertEqual(resolved.source, 'legacy')
+        self.assertIn('appointments.customers', resolved.entitlements)
+        self.assertIn('appointments.leads', resolved.entitlements)
+        self.assertFalse(any(code.startswith('gestion.') for code in resolved.entitlements))
+
+    def test_hybrid_business_resolves_gestion_and_turnos_independently(self):
+        biz = _make_business(name='Hybrid', service='gestion')
+        _attach_v2(
+            biz, plan_code='pro', service_type='gestion',
+            status=SubscriptionV2.Status.ACTIVE,
+        )
+        _attach_v2(
+            biz, plan_code='appointments_ai', service_type='appointments',
+            status=SubscriptionV2.Status.ACTIVE,
+        )
+
+        gestion = resolve_subscription(biz, service_type='gestion')
+        appointments = resolve_subscription(biz, service_type='appointments')
+        ctx = build_business_context(biz)
+
+        self.assertIn('gestion.customers', gestion.entitlements)
+        self.assertNotIn('appointments.leads', gestion.entitlements)
+        self.assertIn('appointments.customers', appointments.entitlements)
+        self.assertIn('appointments.leads', appointments.entitlements)
+        self.assertFalse(any(code.startswith('gestion.') for code in appointments.entitlements))
+        self.assertTrue(has_entitlement(biz, 'gestion.customers'))
+        self.assertTrue(has_entitlement(biz, 'appointments.leads'))
+        self.assertTrue(HasEntitlement().has_permission(
+            SimpleNamespace(business=biz),
+            SimpleNamespace(required_entitlement='appointments.leads'),
+        ))
+        self.assertTrue(business_has_service(biz, 'gestion'))
+        self.assertTrue(business_has_service(biz, 'appointments'))
+        self.assertIn('appointments', ctx['enabled_services'])
+        self.assertTrue(ctx['features']['appointments_core'])
+        self.assertTrue(ctx['features']['leads'])
+
+    def test_turnos_v2_does_not_make_gestion_available(self):
+        biz = _make_business(name='Turnos only with legacy hint', service='gestion')
+        _attach_v2(
+            biz, plan_code='appointments', service_type='appointments',
+            status=SubscriptionV2.Status.ACTIVE,
+        )
+
+        self.assertFalse(resolve_subscription(biz, service_type='gestion').access_granted)
+        self.assertFalse(has_entitlement(biz, 'gestion.products'))
+        self.assertFalse(business_has_service(biz, 'gestion'))
+        self.assertTrue(has_entitlement(biz, 'appointments.customers'))
+
+    def test_generic_pro_code_on_appointments_service_fails_closed(self):
+        biz = _make_business()
+        sub = _attach_v2(biz, plan_code='pro')
+
+        resolved = resolve_subscription(biz)
+        flags = feature_flags_for_v2_subscription(sub, biz)
+
+        self.assertEqual(resolved.plan, 'unknown_runtime_plan')
+        self.assertFalse(any(code.startswith('gestion.') for code in resolved.entitlements))
+        self.assertFalse(flags['appointments_core'])
+        self.assertFalse(flags['products'])
+        self.assertFalse(business_has_service(biz, 'appointments'))
+        ctx = build_business_context(biz)
+        self.assertNotIn('appointments', ctx['enabled_services'])
+        self.assertFalse(ctx['features']['appointments_core'])
 
     def test_active_v2_subscription_enables_appointments(self):
         biz = _make_business()

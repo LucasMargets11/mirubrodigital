@@ -22,6 +22,7 @@ from apps.accounts import permissions as accounts_permissions
 from apps.appointments.tests.test_customer_core_access import (
     LIST_URL, S, TurnosAgendaMixin, _gestion_business, _login, _turnos_business,
 )
+from apps.billing.models import SubscriptionV2
 from apps.invoices.models import Invoice, InvoiceSeries
 from apps.sales.models import Order, OrderItem, Quote, QuoteItem, Sale, SaleItem
 
@@ -41,6 +42,15 @@ def _set_created_at(obj, when):
 
 
 class TimelineMixin(TurnosAgendaMixin):
+
+    def _agenda(self, business):
+        if business.default_service == 'gestion':
+            SubscriptionV2.objects.create(
+                business=business, service_type='appointments', plan_code='appointments',
+                provider='manual', status='active',
+                external_reference=f'timeline-turnos-{business.pk}',
+            )
+        return super()._agenda(business)
 
     def setUp(self):
         self.now = dj_timezone.now()

@@ -34,12 +34,15 @@ logger = logging.getLogger(__name__)
 # Ordered by specificity — longer / more-specific names first to prevent
 # 'menu_qr' from masking 'menu_qr_visual'.
 _KNOWN_TIERS = [
+    'appointments_base', 'appointments_pro', 'appointments_ai', 'appointments',
     'menu_qr_premium', 'menu_qr_visual', 'menu_qr_marca',
     'menu_qr_lite', 'menu_qr_pro', 'menu_qr',
     'qr_reviews_base', 'qr_reviews_pro', 'qr_reviews',
-    'appointments_base',
     'enterprise', 'business', 'starter', 'start', 'plus', 'pro',
 ]
+_APPOINTMENTS_PLAN_TIERS = frozenset({
+    'appointments_base', 'appointments', 'appointments_pro', 'appointments_ai',
+})
 
 # Explicit overrides for bundle codes whose names do not embed a parseable
 # plan tier (e.g. 'restaurante_inteligente' encodes no known tier word).
@@ -108,6 +111,11 @@ def _extract_plan_tier(plan_code: str) -> str:
         ):
             return tier
     return plan_code  # unknown — fallback; produces empty entitlement set
+
+
+def is_appointments_plan_code(plan_code: str) -> bool:
+    """Return whether a raw or wrapped billing code identifies a Turnos plan."""
+    return _extract_plan_tier(plan_code) in _APPOINTMENTS_PLAN_TIERS
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -239,13 +247,35 @@ def resolve_subscription(
     if sub_v2 is not None:
         grants = _v2_grants_access(sub_v2)
         plan_tier = _extract_plan_tier(sub_v2.plan_code)
+        if sub_v2.service_type == 'appointments' and plan_tier not in _APPOINTMENTS_PLAN_TIERS:
+            # A generic code such as `pro` is not Turnos Pro and must never
+            # grant Gestión entitlements through an appointments subscription.
+            plan_tier = 'unknown_runtime_plan'
+        resolved_service = (
+            'appointments'
+            if is_appointments_plan_code(sub_v2.plan_code)
+            else sub_v2.service_type
+        )
         access_until = _v2_access_until(sub_v2)
 
         if grants:
-            entitlements = frozenset(_get_v2_entitlements(plan_tier, business=business))
+            from apps.billing.appointments_plans import PLAN_CODES
+            if resolved_service == 'appointments' and plan_tier in PLAN_CODES:
+                from django.core.exceptions import ValidationError
+                from apps.billing.services.appointments import get_appointments_subscription_entitlements
+                try:
+                    entitlements = frozenset(get_appointments_subscription_entitlements(sub_v2))
+                except ValidationError as exc:
+                    logger.error("Invalid Turnos configuration subscription_v2=%s: %s", sub_v2.pk, exc)
+                    grants = False
+                    entitlements = frozenset()
+            else:
+                entitlements = frozenset(_get_v2_entitlements(
+                    plan_tier, business=business, service_type=resolved_service,
+                ))
             logger.debug(
                 "[runtime] source=v2 business=%s service=%s plan=%s status=%s",
-                biz_id, sub_v2.service_type, plan_tier, sub_v2.status,
+                biz_id, resolved_service, plan_tier, sub_v2.status,
             )
         else:
             # V2 exists but is degraded (suspended, past_due-expired, ...).
@@ -253,7 +283,7 @@ def resolve_subscription(
             logger.info(
                 "[runtime] source=v2(no_access) business=%s service=%s plan=%s "
                 "status=%s — not falling back to legacy (§F.2)",
-                biz_id, sub_v2.service_type, plan_tier, sub_v2.status,
+                biz_id, resolved_service, plan_tier, sub_v2.status,
             )
             entitlements = frozenset()
 
@@ -267,7 +297,7 @@ def resolve_subscription(
             access_granted=grants,
             access_until=access_until,
             entitlements=entitlements,
-            service_type=sub_v2.service_type,
+            service_type=resolved_service,
             fallback_reason=None if grants else f'v2_status={sub_v2.status}',
             subscription_v2=sub_v2,
             legacy_sub=None,
@@ -279,9 +309,15 @@ def resolve_subscription(
     if legacy_sub is not None:
         leg_status = getattr(legacy_sub, 'status', None) or 'canceled'
         leg_plan = getattr(legacy_sub, 'plan', None) or 'start'
-        leg_service = getattr(legacy_sub, 'service', None) or effective_svc
+        raw_leg_service = getattr(legacy_sub, 'service', None) or effective_svc
+        leg_service = 'appointments' if is_appointments_plan_code(leg_plan) else raw_leg_service
 
-        if leg_status == 'active':
+        # A Turnos legacy plan is never a Gestión fallback (and vice versa).
+        service_matches = (
+            (effective_svc == 'appointments') == (leg_service == 'appointments')
+        )
+
+        if service_matches and leg_status == 'active':
             entitlements = frozenset(_get_legacy_entitlements(legacy_sub))
             access_until = getattr(legacy_sub, 'renews_at', None)
             logger.info(
@@ -301,23 +337,24 @@ def resolve_subscription(
                 legacy_sub=legacy_sub,
             )
 
-        # Legacy exists but is not active (past_due, canceled)
-        logger.info(
-            "[runtime] source=legacy(no_access) business=%s plan=%s status=%s",
-            biz_id, leg_plan, leg_status,
-        )
-        return ResolvedSubscription(
-            source='legacy',
-            plan=leg_plan,
-            status=leg_status,
-            access_granted=False,
-            access_until=None,
-            entitlements=frozenset(),
-            service_type=leg_service,
-            fallback_reason='legacy_not_active',
-            subscription_v2=None,
-            legacy_sub=legacy_sub,
-        )
+        if service_matches:
+            # Legacy exists but is not active (past_due, canceled)
+            logger.info(
+                "[runtime] source=legacy(no_access) business=%s plan=%s status=%s",
+                biz_id, leg_plan, leg_status,
+            )
+            return ResolvedSubscription(
+                source='legacy',
+                plan=leg_plan,
+                status=leg_status,
+                access_granted=False,
+                access_until=None,
+                entitlements=frozenset(),
+                service_type=leg_service,
+                fallback_reason='legacy_not_active',
+                subscription_v2=None,
+                legacy_sub=legacy_sub,
+            )
 
     # ── No subscription at all ───────────────────────────────────────────────
     logger.warning(
@@ -347,8 +384,8 @@ def _find_best_v2(business, service_type: str) -> Optional[Any]:
     Find the most relevant SubscriptionV2 for *business*.
 
     Excludes CANCELED and CHECKOUT_PENDING (checkout redirect not completed).
-    Prefers the one matching *service_type*; falls back to the most
-    recently-created non-excluded V2 if no match for the given service.
+    A Turnos V2 is never a cross-service fallback; other services retain the
+    historical fallback behavior.
     """
     from apps.billing.models import SubscriptionV2
 
@@ -362,13 +399,34 @@ def _find_best_v2(business, service_type: str) -> Optional[Any]:
         .order_by('-created_at')
     )
 
-    # Service-type-specific lookup first
+    # Service-type-specific lookup first, but reject plan/service mismatches
+    # when one side identifies Turnos.
     v2 = qs.filter(service_type=service_type).first()
-    if v2 is not None:
+    if v2 is not None and (
+        (service_type == 'appointments' and v2.service_type == 'appointments')
+        or (
+            service_type != 'appointments'
+            and v2.service_type != 'appointments'
+            and not is_appointments_plan_code(v2.plan_code)
+        )
+    ):
         return v2
 
-    # Any non-excluded V2 for the business (handles stale service_type hints)
-    v2 = qs.first()
+    if service_type == 'appointments':
+        # Plan code is an explicit product discriminator for older/malformed
+        # rows whose service_type was persisted incorrectly.
+        return next(
+            (candidate for candidate in qs if is_appointments_plan_code(candidate.plan_code)),
+            None,
+        )
+
+    # Do not let an appointments subscription satisfy a different product.
+    v2 = next(
+        (candidate for candidate in qs
+         if candidate.service_type != 'appointments'
+         and not is_appointments_plan_code(candidate.plan_code)),
+        None,
+    )
     if v2 is not None:
         logger.debug(
             "[runtime._find_best_v2] no V2 for service_type=%s; "
@@ -378,7 +436,11 @@ def _find_best_v2(business, service_type: str) -> Optional[Any]:
     return v2
 
 
-def _get_v2_entitlements(plan_tier: str, business=None) -> Set[str]:
+def _get_v2_entitlements(
+    plan_tier: str,
+    business=None,
+    service_type: Optional[str] = None,
+) -> Set[str]:
     """
     Entitlements derived from a V2 plan tier.
 
@@ -400,7 +462,7 @@ def _get_v2_entitlements(plan_tier: str, business=None) -> Set[str]:
     from apps.business.entitlements import get_plan_entitlements, ADDON_ENTITLEMENTS
     entitlements = get_plan_entitlements(plan_tier)
 
-    if business is None:
+    if business is None or service_type == 'appointments' or plan_tier in _APPOINTMENTS_PLAN_TIERS:
         return entitlements
 
     try:

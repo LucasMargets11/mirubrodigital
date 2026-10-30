@@ -8,6 +8,8 @@ from .views import (
     DevMercadoPagoPingView,
     CheckoutSessionStatusView,
     CheckoutSessionReconcileView,
+    AppointmentsQuoteView,
+    AppointmentsCheckoutView,
     ValidatePromoCodeView,
 )
 from .commercial_views import (
@@ -22,6 +24,11 @@ from .cancellation_views import (
     UndoCancelSubscriptionView,
 )
 from .reviews_views import ReviewsUpgradeView, ReviewsDowngradeView
+from .appointments_lifecycle_views import (
+    AppointmentsLifecycleChangeView,
+    AppointmentsLifecycleQuoteView,
+    AppointmentsLifecycleResolveView,
+)
 
 router = DefaultRouter()
 router.register(r'', BillingViewSet, basename='billing')
@@ -34,6 +41,11 @@ urlpatterns = [
     path('checkout-sessions/<uuid:session_id>', CheckoutSessionStatusView.as_view(), name='checkout-session-status'),
     # Phase 5: proactive reconciliation — called when user returns from MercadoPago
     path('checkout-sessions/<uuid:session_id>/reconcile/', CheckoutSessionReconcileView.as_view(), name='checkout-session-reconcile'),
+    path('internal/appointments/quote/', AppointmentsQuoteView.as_view(), name='appointments-quote-internal'),
+    path('internal/appointments/checkout/', AppointmentsCheckoutView.as_view(), name='appointments-checkout-internal'),
+    path('appointments/lifecycle/quote/', AppointmentsLifecycleQuoteView.as_view(), name='appointments-lifecycle-quote'),
+    path('appointments/lifecycle/change/', AppointmentsLifecycleChangeView.as_view(), name='appointments-lifecycle-change'),
+    path('appointments/lifecycle/changes/<uuid:pending_change_id>/resolve/', AppointmentsLifecycleResolveView.as_view(), name='appointments-lifecycle-resolve'),
     # DEV diagnostics — two paths for convenience
     path('dev/mercadopago/ping', DevMercadoPagoPingView.as_view(), name='mp-dev-ping'),
     path('dev/mp/status', DevMercadoPagoPingView.as_view(), name='mp-dev-status'),
@@ -48,4 +60,3 @@ urlpatterns = [
     path('reviews/downgrade/', ReviewsDowngradeView.as_view(), name='reviews-downgrade'),
     path('promo-codes/validate/', ValidatePromoCodeView.as_view(), name='promo-code-validate'),
 ] + router.urls
-

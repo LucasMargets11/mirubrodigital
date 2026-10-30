@@ -6,7 +6,8 @@ process.env.TZ = 'America/Argentina/Buenos_Aires';
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import type { AnchorHTMLAttributes, ReactNode } from 'react';
+import userEvent from '@testing-library/user-event';
+import type { AnchorHTMLAttributes } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('next/navigation', () => ({ redirect: vi.fn(), useRouter: () => ({ push: vi.fn() }) }));
@@ -20,15 +21,22 @@ vi.mock('next/link', () => ({
 
 vi.mock('@/lib/auth', () => ({ getSession: vi.fn() }));
 
-vi.mock('@/components/ui/modal', () => ({
-    Modal: ({ open, title, children, footer }: { open: boolean; title: string; children: ReactNode; footer?: ReactNode }) =>
-        open ? (
+const modalMode = vi.hoisted(() => ({ real: false }));
+vi.mock('@/components/ui/modal', async (importOriginal) => {
+    const original = await importOriginal<typeof import('@/components/ui/modal')>();
+    return {
+    Modal: (props: Parameters<typeof original.Modal>[0]) => {
+        const { open, title, children, footer } = props;
+        if (modalMode.real) return <original.Modal {...props} />;
+        return open ? (
             <div role="dialog" aria-label={title}>
                 {children}
                 {footer}
             </div>
-        ) : null,
-}));
+        ) : null;
+    },
+    };
+});
 
 const leadsApi = vi.hoisted(() => ({
     listLeads: vi.fn(),
@@ -44,6 +52,10 @@ const leadsApi = vi.hoisted(() => ({
     releaseLead: vi.fn(),
     listLeadMessages: vi.fn(),
     sendLeadMessage: vi.fn(),
+    createLeadAppointment: vi.fn(),
+    createAppointmentProposal: vi.fn(),
+    confirmAppointmentProposal: vi.fn(),
+    getCurrentAppointmentProposal: vi.fn(),
 }));
 vi.mock('@/features/leads/api', () => leadsApi);
 
@@ -71,7 +83,40 @@ vi.mock('@/features/customers/hooks', () => ({
 }));
 
 const dayAppointments = vi.hoisted(() => ({ rows: [] as unknown[], calls: [] as unknown[] }));
-vi.mock('@/features/appointments/hooks', () => ({
+const appointmentForm = vi.hoisted(() => ({
+    fetch: vi.fn(),
+    availability: vi.fn(),
+    refetch: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
+    start: '',
+    extraStart: '',
+}));
+vi.mock('@/features/appointments/api', async (importOriginal) => ({
+    ...await importOriginal<typeof import('@/features/appointments/api')>(),
+    fetchAppointment: appointmentForm.fetch,
+    updateAppointment: (id: string, payload: unknown) => appointmentForm.update({ id, payload }),
+}));
+vi.mock('@/features/appointments/hooks', async (importOriginal) => ({
+    ...await importOriginal<typeof import('@/features/appointments/hooks')>(),
+    useAppointmentServices: () => ({
+        data: [{ id: 's1', name: 'Corte', duration_minutes: 30 }],
+    }),
+    useAppointmentProfessionals: () => ({
+        data: [{ id: 'p1', name: 'Lu', services: [{ id: 's1' }] }],
+    }),
+    useAppointmentAvailability: (params: unknown, options: unknown) => {
+        appointmentForm.availability(params, options);
+        return {
+            data: { slots: [
+                { start: appointmentForm.start, end: appointmentForm.start },
+                ...(appointmentForm.extraStart ? [{ start: appointmentForm.extraStart, end: appointmentForm.extraStart }] : []),
+            ] },
+            isLoading: false,
+            refetch: appointmentForm.refetch,
+        };
+    },
+    useCreateAppointment: () => ({ mutateAsync: appointmentForm.create, isPending: false }),
     useAppointments: (params: unknown, options?: { enabled?: boolean }) => {
         if (options?.enabled === false) return { data: undefined, isLoading: false, isError: false, refetch: vi.fn() };
         dayAppointments.calls.push(params);
@@ -81,7 +126,10 @@ vi.mock('@/features/appointments/hooks', () => ({
 
 import { ApiError } from '@/lib/api/client';
 import { getSession } from '@/lib/auth';
-import type { LeadActivity, LeadConversationControl, LeadDetail, LeadMessage, LeadNote } from '@/features/leads/types';
+import { addCalendarDays, todayInTimeZone } from '@/lib/business-time';
+import type { Appointment } from '@/features/appointments/types';
+import type { AppointmentProposal, LeadActivity, LeadConversationControl, LeadDetail, LeadMessage, LeadNote } from '@/features/leads/types';
+import { appointmentProposalPollInterval, currentAppointmentProposalKey, leadDetailKey } from '@/features/leads/hooks';
 
 import LeadDetailPage from '../[id]/page';
 import { describeLeadActivity } from '../[id]/lead-activity';
@@ -200,8 +248,12 @@ function badRequest(payload: Record<string, unknown>) {
 
 beforeEach(() => {
     vi.clearAllMocks();
+    modalMode.real = false;
     queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
     leadsApi.getLead.mockResolvedValue(leadDetail());
+    leadsApi.getCurrentAppointmentProposal.mockResolvedValue(null);
+    leadsApi.createAppointmentProposal.mockReset();
+    leadsApi.confirmAppointmentProposal.mockReset();
     leadsApi.listLeadNotes.mockResolvedValue(notesPage([]));
     leadsApi.listLeadAssignees.mockResolvedValue(ASSIGNEES);
     leadsApi.listLeadMessages.mockResolvedValue(messagesPage([]));
@@ -209,6 +261,532 @@ beforeEach(() => {
     customersDb.appointments = [];
     dayAppointments.rows = [];
     dayAppointments.calls = [];
+    appointmentForm.start = `${todayInTimeZone(TZ)}T13:00:00Z`;
+    appointmentForm.extraStart = '';
+    appointmentForm.fetch.mockReset();
+    appointmentForm.update.mockReset();
+});
+
+async function openForm() {
+        renderClient({ canManageAppointments: true });
+        const trigger = await screen.findByRole('button', { name: 'Coordinar turno' });
+        trigger.focus();
+        fireEvent.click(trigger);
+        return within(screen.getByRole('dialog', { name: 'Coordinar turno' }));
+    }
+
+function chooseSlot(form: ReturnType<typeof within>) {
+        const [service, professional] = form.getAllByRole('combobox');
+        fireEvent.change(service, { target: { value: 's1' } });
+        fireEvent.change(professional, { target: { value: 'p1' } });
+        fireEvent.click(form.getByRole('button', { name: /^Fecha:/ }));
+        const date = document.querySelector(`[data-date="${todayInTimeZone(TZ)}"]`);
+        if (!date) throw new Error('No se encontró el día en el calendario');
+        fireEvent.click(date);
+        fireEvent.click(form.getByRole('button', { name: '10:00' }));
+    }
+
+describe('Slice 1: gestionar turno real desde Lead', () => {
+    it('mantiene Vincular turno existente y exige ambos permisos para coordinar', async () => {
+        const { unmount } = renderClient({ canManageAppointments: true });
+        expect(await screen.findByRole('button', { name: 'Coordinar turno' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Vincular turno existente' })).toBeInTheDocument();
+        unmount();
+        renderClient({ canManageAppointments: false });
+        await screen.findByText('Sin turno vinculado');
+        expect(screen.queryByRole('button', { name: 'Coordinar turno' })).not.toBeInTheDocument();
+    });
+
+    it('no ofrece creación con turno vinculado ni sin manage_leads', async () => {
+        leadsApi.getLead.mockResolvedValue(leadDetail({ appointment: {
+            id: 'a1', start_at: appointmentForm.start, end_at: appointmentForm.start,
+            service_name: 'Corte', status: 'confirmed',
+        } }));
+        const { unmount } = renderClient({ canManageAppointments: true });
+        await screen.findByTestId('lead-appointment');
+        expect(screen.queryByRole('button', { name: 'Coordinar turno' })).not.toBeInTheDocument();
+        unmount();
+        leadsApi.getLead.mockResolvedValue(leadDetail());
+        queryClient.clear();
+        renderClient({ canManage: false, canManageAppointments: true });
+        await screen.findByText('Sin turno vinculado');
+        expect(screen.queryByRole('button', { name: 'Coordinar turno' })).not.toBeInTheDocument();
+    });
+
+    it('precarga paciente y motivo pero no infiere servicio, profesional, fecha ni horario', async () => {
+        const form = await openForm();
+        expect(form.getByText(/Ana Pérez · Quiere un turno para corte · Preferencia reportada: mañana a la tarde/)).toBeInTheDocument();
+        expect(form.queryByRole('textbox', { name: /Cliente/ })).not.toBeInTheDocument();
+        expect(form.queryByRole('textbox', { name: /Teléfono/ })).not.toBeInTheDocument();
+        for (const select of form.getAllByRole('combobox')) expect(select).toHaveValue('');
+        expect(form.getByRole('button', { name: /^Fecha:/ })).toHaveAttribute('data-value', '');
+        expect(appointmentForm.availability).toHaveBeenLastCalledWith(
+            { service: '', professional: null, date: '', excludeAppointmentId: null }, { enabled: false },
+        );
+        chooseSlot(form);
+        expect(appointmentForm.availability).toHaveBeenLastCalledWith(
+            { service: 's1', professional: 'p1', date: todayInTimeZone(TZ), excludeAppointmentId: null },
+            { enabled: true },
+        );
+    });
+
+    it('submit usa el endpoint del Lead, reutiliza Customer y refresca detalle/agenda', async () => {
+        const original = leadDetail({ customer: { id: 'c1', display_name: 'Ana Ficha' } });
+        leadsApi.getLead.mockResolvedValue(original);
+        const created = leadDetail({ ...original, appointment: {
+            id: 'a1', start_at: appointmentForm.start, end_at: appointmentForm.start,
+            service_name: 'Corte', professional_name: 'Lu', status: 'confirmed',
+            customer: { id: 'c1', display_name: 'Ana Ficha' },
+        } });
+        leadsApi.createLeadAppointment.mockImplementation(async () => {
+            leadsApi.getLead.mockResolvedValue(created);
+            return created;
+        });
+        const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
+        const form = await openForm();
+        chooseSlot(form);
+        fireEvent.click(form.getByRole('button', { name: 'Crear turno directamente' }));
+        await waitFor(() => expect(leadsApi.createLeadAppointment).toHaveBeenCalledWith('lead-1', {
+            service_id: 's1', professional_id: 'p1', start_at: appointmentForm.start,
+            customer_id: 'c1', customer_name: 'Ana Pérez', customer_phone: '+5491155550101',
+            customer_email: undefined, notes: 'Quiere un turno para corte',
+        }));
+        await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Coordinar turno' })).not.toBeInTheDocument());
+        expect(leadsApi.getLead.mock.calls.length).toBeGreaterThan(1);
+        expect(invalidate).toHaveBeenCalledWith({ queryKey: ['appointments', 'appointments'] });
+        expect(invalidate).toHaveBeenCalledWith({ queryKey: ['appointments', 'availability'] });
+        expect(invalidate).toHaveBeenCalledWith({ queryKey: ['appointments', 'leads', 'current-proposal', 'lead-1'] });
+        expect(appointmentForm.create).not.toHaveBeenCalled();
+        expect(leadsApi.updateLead).not.toHaveBeenCalled();
+        const card = within(screen.getByTestId('lead-appointment'));
+        expect(card.getByText('Profesional: Lu')).toBeInTheDocument();
+        expect(card.getByText('Cliente: Ana Ficha')).toBeInTheDocument();
+        expect(card.getByText('Confirmado')).toBeInTheDocument();
+    });
+
+    it('slot ocupado muestra error real, refresca slots y mantiene formulario abierto', async () => {
+        leadsApi.createLeadAppointment.mockRejectedValue(badRequest({ start_at: ['El horario ya está ocupado.'] }));
+        const form = await openForm();
+        chooseSlot(form);
+        fireEvent.click(form.getByRole('button', { name: 'Crear turno directamente' }));
+        expect(await form.findByRole('alert')).toHaveTextContent('El horario ya está ocupado.');
+        expect(screen.getByRole('dialog', { name: 'Coordinar turno' })).toBeInTheDocument();
+        expect(appointmentForm.refetch).toHaveBeenCalled();
+        expect(appointmentForm.create).not.toHaveBeenCalled();
+    });
+
+    it('errores generales del endpoint quedan visibles', async () => {
+        leadsApi.createLeadAppointment.mockRejectedValue(badRequest({
+            non_field_errors: ['El lead ya tiene un turno vinculado. Actualizá el detalle.'],
+        }));
+        const form = await openForm();
+        chooseSlot(form);
+        fireEvent.click(form.getByRole('button', { name: 'Crear turno directamente' }));
+        expect(await form.findByRole('alert')).toHaveTextContent('El lead ya tiene un turno vinculado.');
+    });
+});
+
+function proposal(overrides: Partial<AppointmentProposal> = {}): AppointmentProposal {
+    return {
+        id: 'proposal-1',
+        status: 'queued',
+        service: { id: 's1', name: 'Corte' },
+        professional: { id: 'p1', name: 'Lu' },
+        proposed_start_at: appointmentForm.start,
+        proposed_end_at: appointmentForm.start,
+        expires_at: '2099-10-27T18:30:00Z',
+        patient_confirmation: null,
+        delivery_error: null,
+        staff_message_status: 'delivered',
+        created_at: '2026-10-22T12:00:00Z',
+        ...overrides,
+    };
+}
+
+function takenLead(): LeadDetail {
+    return leadDetail({ conversation_control: {
+        state: 'taken', available: true, taken_by: { id: ME, display_name: 'Ana' },
+        taken_at: '2026-10-22T12:00:00Z', last_action: 'takeover', last_error_code: null,
+        command_version: 1, released_at: null,
+    } });
+}
+
+describe('Slice 3C.1: confirmar propuesta manualmente', () => {
+    async function openConfirmation() {
+        fireEvent.click(await screen.findByRole('button', { name: 'Confirmar turno' }));
+        return within(screen.getByRole('dialog', { name: '¿Confirmar este turno?' }));
+    }
+
+    function confirmedLead(): LeadDetail {
+        return leadDetail({ appointment: {
+            id: 'a1', start_at: appointmentForm.start, end_at: appointmentForm.start,
+            service_name: 'Corte', professional_name: 'Lu', status: 'confirmed',
+        } });
+    }
+
+    it.each(['pending_delivery', 'queued'] as const)('muestra Confirmar turno en %s sin takeover', async (status) => {
+        leadsApi.getCurrentAppointmentProposal.mockResolvedValue(proposal({ status }));
+        renderClient({ canManageAppointments: true });
+        expect(await screen.findByRole('button', { name: 'Confirmar turno' })).toBeEnabled();
+        expect(screen.getByRole('button', { name: 'Proponer otro horario' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Vincular turno existente' })).toBeInTheDocument();
+        expect(screen.getByText('Confirmar turno crea la reserva real usando este horario.')).toBeInTheDocument();
+        expect(leadsApi.takeoverLead).not.toHaveBeenCalled();
+    });
+
+    it('muestra la intención del paciente, su respuesta y acciones humanas sin crear el turno', async () => {
+        leadsApi.getCurrentAppointmentProposal.mockResolvedValue(proposal({
+            patient_confirmation: {
+                intent: 'confirm',
+                requested_at: '2026-10-22T12:00:00Z',
+                message: 'Sí, dale',
+            },
+        }));
+        renderClient({ canManageAppointments: true });
+
+        const card = within(await screen.findByTestId('lead-appointment-proposal'));
+        expect(card.getByText('Paciente quiere confirmar')).toBeInTheDocument();
+        expect(card.getByText('“Sí, dale”')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Confirmar turno' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Proponer otro horario' })).toBeInTheDocument();
+        expect(leadsApi.confirmAppointmentProposal).not.toHaveBeenCalled();
+        expect(leadsApi.createLeadAppointment).not.toHaveBeenCalled();
+        expect(appointmentForm.create).not.toHaveBeenCalled();
+    });
+
+    it('actualiza la propuesta activa hasta recibir la intención del paciente', () => {
+        expect(appointmentProposalPollInterval(proposal())).toBe(30_000);
+        expect(appointmentProposalPollInterval(proposal({
+            patient_confirmation: { intent: 'confirm', requested_at: '2026-10-22T12:00:00Z', message: 'Sí, dale' },
+        }))).toBe(false);
+    });
+
+    it.each([
+        { canManage: false, canManageAppointments: true },
+        { canManage: true, canManageAppointments: false },
+    ])('requiere ambos permisos en UI: %j', async (permissions) => {
+        leadsApi.getCurrentAppointmentProposal.mockResolvedValue(proposal());
+        renderClient(permissions);
+        await screen.findByTestId('lead-appointment-proposal');
+        expect(screen.queryByRole('button', { name: 'Confirmar turno' })).not.toBeInTheDocument();
+    });
+
+    it('no permite confirmar delivery_failed ni Lead cerrado', async () => {
+        leadsApi.getCurrentAppointmentProposal.mockResolvedValue(proposal({ status: 'delivery_failed' }));
+        leadsApi.getLead.mockResolvedValue(leadDetail({ status: 'closed' }));
+        renderClient({ canManageAppointments: true });
+        await screen.findByTestId('lead-appointment-proposal');
+        expect(screen.queryByRole('button', { name: 'Confirmar turno' })).not.toBeInTheDocument();
+    });
+
+    it('confirmación breve muestra snapshots ofrecidos, precio y seña; Cancelar no crea turno', async () => {
+        leadsApi.getCurrentAppointmentProposal.mockResolvedValue(proposal({ snapshots: {
+            service_name: 'Corte ofrecido', professional_name: 'Lu ofrecida', service_duration_minutes: 30,
+            service_price: '1000.00', currency: 'ARS', deposit_type: 'percentage', deposit_value: '20.00', deposit_amount: '200.00',
+        } }));
+        renderClient({ canManageAppointments: true });
+        const modal = await openConfirmation();
+        expect(modal.getByText('Corte ofrecido')).toBeInTheDocument();
+        expect(modal.getByText('Profesional: Lu ofrecida')).toBeInTheDocument();
+        expect(modal.getByText(/Precio:.*1[.]000/)).toBeInTheDocument();
+        expect(modal.getByText(/Seña:.*200/)).toBeInTheDocument();
+        expect(modal.getByText(/13:00|10:00/)).toBeInTheDocument();
+        fireEvent.click(modal.getByRole('button', { name: 'Cancelar' }));
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        expect(leadsApi.confirmAppointmentProposal).not.toHaveBeenCalled();
+    });
+
+    it('bloquea doble click, confirma sin takeover y refresca detalle, current y agenda', async () => {
+        leadsApi.getCurrentAppointmentProposal.mockResolvedValue(proposal());
+        let finish!: () => void;
+        leadsApi.confirmAppointmentProposal.mockImplementation(() => new Promise<{ id: string }>((resolve) => {
+            finish = () => {
+                leadsApi.getLead.mockResolvedValue(confirmedLead());
+                leadsApi.getCurrentAppointmentProposal.mockResolvedValue(null);
+                resolve({ id: 'a1' });
+            };
+        }));
+        const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
+        renderClient({ canManageAppointments: true });
+        const modal = await openConfirmation();
+        const button = modal.getByRole('button', { name: 'Confirmar turno' });
+        fireEvent.click(button);
+        fireEvent.click(button);
+        await waitFor(() => expect(leadsApi.confirmAppointmentProposal).toHaveBeenCalledExactlyOnceWith('lead-1', 'proposal-1'));
+        expect(modal.getByRole('button', { name: 'Confirmando...' })).toBeDisabled();
+        expect(modal.getByRole('button', { name: 'Cancelar' })).toBeDisabled();
+        expect(screen.getByRole('button', { name: 'Proponer otro horario' })).toBeDisabled();
+        finish();
+        await screen.findByText('Turno confirmado');
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('lead-appointment-proposal')).not.toBeInTheDocument();
+        expect(leadsApi.getLead.mock.calls.length).toBeGreaterThan(1);
+        expect(leadsApi.getCurrentAppointmentProposal.mock.calls.length).toBeGreaterThan(1);
+        expect(invalidate).toHaveBeenCalledWith({ queryKey: ['appointments', 'appointments'] });
+        expect(invalidate).toHaveBeenCalledWith({ queryKey: ['appointments', 'availability'] });
+        expect(screen.getByRole('link', { name: 'Ver en agenda' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Reprogramar turno' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Vincular otro turno' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Desvincular' })).toBeInTheDocument();
+        expect(leadsApi.takeoverLead).not.toHaveBeenCalled();
+        expect(leadsApi.createLeadAppointment).not.toHaveBeenCalled();
+        expect(appointmentForm.create).not.toHaveBeenCalled();
+    });
+
+    it('slot_unavailable conserva propuesta y prioriza Proponer otro horario sin forzar reserva', async () => {
+        leadsApi.getCurrentAppointmentProposal.mockResolvedValue(proposal());
+        leadsApi.confirmAppointmentProposal.mockRejectedValue(new ApiError('Conflict', 409, { code: 'slot_unavailable' }));
+        renderClient({ canManageAppointments: true });
+        const modal = await openConfirmation();
+        fireEvent.click(modal.getByRole('button', { name: 'Confirmar turno' }));
+        expect(await screen.findByText('Ese horario ya no está disponible. Elegí otro horario para continuar.')).toBeInTheDocument();
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+        expect(screen.getByTestId('lead-appointment-proposal')).toBeInTheDocument();
+        expect(screen.queryByTestId('lead-appointment')).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Confirmar turno' })).not.toBeInTheDocument();
+        const propose = screen.getByRole('button', { name: 'Proponer otro horario' });
+        expect(propose).toHaveClass('bg-slate-900');
+        fireEvent.click(propose);
+        expect(screen.getByRole('dialog', { name: 'Coordinar turno' })).toBeInTheDocument();
+        expect(appointmentForm.create).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ['proposal_expired', 'La propuesta venció. Proponé otro horario.'],
+        ['proposal_superseded', 'La propuesta fue reemplazada. Actualizamos la información.'],
+    ])('%s entre render y click refresca estado y elimina propuesta vieja', async (code, copy) => {
+        leadsApi.getCurrentAppointmentProposal.mockResolvedValue(proposal());
+        leadsApi.confirmAppointmentProposal.mockImplementation(async () => {
+            leadsApi.getCurrentAppointmentProposal.mockResolvedValue(null);
+            throw new ApiError('Conflict', 409, { code });
+        });
+        renderClient({ canManageAppointments: true });
+        const modal = await openConfirmation();
+        fireEvent.click(modal.getByRole('button', { name: 'Confirmar turno' }));
+        expect(await screen.findByText(copy)).toBeInTheDocument();
+        await waitFor(() => expect(screen.queryByTestId('lead-appointment-proposal')).not.toBeInTheDocument());
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Coordinar turno' })).toBeInTheDocument();
+        expect(screen.queryByTestId('lead-appointment')).not.toBeInTheDocument();
+    });
+
+    it('replay 200 recupera el mismo Appointment y no repite creación', async () => {
+        leadsApi.getCurrentAppointmentProposal.mockResolvedValue(proposal());
+        leadsApi.confirmAppointmentProposal.mockImplementation(async () => {
+            leadsApi.getLead.mockResolvedValue(confirmedLead());
+            leadsApi.getCurrentAppointmentProposal.mockResolvedValue(null);
+            return { id: 'a1' };
+        });
+        renderClient({ canManageAppointments: true });
+        const modal = await openConfirmation();
+        fireEvent.click(modal.getByRole('button', { name: 'Confirmar turno' }));
+        await screen.findByText('Turno confirmado');
+        expect(screen.queryByRole('button', { name: 'Confirmar turno' })).not.toBeInTheDocument();
+        expect(leadsApi.confirmAppointmentProposal).toHaveBeenCalledTimes(1);
+        expect(screen.getByRole('link', { name: 'Ver en agenda' })).toHaveAttribute('href', expect.stringContaining('appointment=a1'));
+    });
+});
+
+describe('Slice 3B: coordinación y propuestas', () => {
+    it('envía solo selección y UUID; doble click no duplica el POST ni crea Appointment', async () => {
+        leadsApi.getLead.mockResolvedValue(takenLead());
+        let finish!: (value: AppointmentProposal) => void;
+        leadsApi.createAppointmentProposal.mockImplementation(() => new Promise<AppointmentProposal>((resolve) => { finish = resolve; }));
+        const form = await openForm();
+        chooseSlot(form);
+        const send = form.getByRole('button', { name: 'Enviar propuesta' });
+        fireEvent.click(send);
+        fireEvent.click(send);
+        await waitFor(() => expect(leadsApi.createAppointmentProposal).toHaveBeenCalledTimes(1));
+        const payload = leadsApi.createAppointmentProposal.mock.calls[0][1];
+        expect(payload).toEqual({
+            service_id: 's1', professional_id: 'p1', start_at: appointmentForm.start,
+            idempotency_key: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i),
+        });
+        expect(send).toBeDisabled();
+        expect(form.getByRole('button', { name: 'Crear turno directamente' })).toBeDisabled();
+        expect(leadsApi.createLeadAppointment).not.toHaveBeenCalled();
+        const created = proposal({ status: 'pending_delivery', expires_at: null });
+        leadsApi.getCurrentAppointmentProposal.mockResolvedValue(created);
+        finish(created);
+        await screen.findByText('Propuesta preparando envío');
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+
+    it('error ambiguo conserva key; cambiar slot genera otra y no regenera por idempotency_key_reused', async () => {
+        leadsApi.getLead.mockResolvedValue(takenLead());
+        leadsApi.createAppointmentProposal.mockRejectedValue(new TypeError('Failed to fetch'));
+        appointmentForm.extraStart = `${todayInTimeZone(TZ)}T14:00:00Z`;
+        const form = await openForm();
+        chooseSlot(form);
+        const send = form.getByRole('button', { name: 'Enviar propuesta' });
+        fireEvent.click(send);
+        await form.findByText(/No pudimos verificar el envío/);
+        const firstKey = leadsApi.createAppointmentProposal.mock.calls[0][1].idempotency_key;
+        fireEvent.click(send);
+        await waitFor(() => expect(leadsApi.createAppointmentProposal).toHaveBeenCalledTimes(2));
+        await waitFor(() => expect(send).toBeEnabled());
+        expect(leadsApi.createAppointmentProposal.mock.calls[1][1].idempotency_key).toBe(firstKey);
+        fireEvent.click(form.getByRole('button', { name: '11:00' }));
+        leadsApi.createAppointmentProposal.mockRejectedValue(new ApiError('Conflict', 409, { code: 'idempotency_key_reused' }));
+        fireEvent.click(send);
+        await form.findByText(/Esta clave de envío ya se usó/);
+        const secondKey = leadsApi.createAppointmentProposal.mock.calls[2][1].idempotency_key;
+        expect(secondKey).not.toBe(firstKey);
+        expect(leadsApi.createAppointmentProposal.mock.calls[2][1].start_at).toBe(appointmentForm.extraStart);
+        fireEvent.click(send);
+        await waitFor(() => expect(leadsApi.createAppointmentProposal).toHaveBeenCalledTimes(4));
+        expect(leadsApi.createAppointmentProposal.mock.calls[3][1].idempotency_key).toBe(secondKey);
+    });
+
+    it('envía la propuesta con el bot activo (sin takeover) y no lo dispara automáticamente', async () => {
+        leadsApi.getLead.mockResolvedValue(leadDetail({ conversation_control: {
+            ...takenLead().conversation_control!, state: 'active', taken_by: null, taken_at: null,
+        } }));
+        const created = proposal({ status: 'pending_delivery', expires_at: null });
+        leadsApi.createAppointmentProposal.mockResolvedValue(created);
+        const form = await openForm();
+        chooseSlot(form);
+        // Sin copy ni CTA de takeover en el flujo de Proposal.
+        expect(form.queryByRole('button', { name: 'Tomar conversación' })).not.toBeInTheDocument();
+        expect(form.queryByText(/tomar la conversación/i)).not.toBeInTheDocument();
+        fireEvent.click(form.getByRole('button', { name: 'Enviar propuesta' }));
+        await waitFor(() => expect(leadsApi.createAppointmentProposal).toHaveBeenCalledTimes(1));
+        expect(leadsApi.takeoverLead).not.toHaveBeenCalled();
+    });
+
+    it('envía la propuesta aunque el Lead no tenga conversation_control', async () => {
+        leadsApi.getLead.mockResolvedValue(leadDetail({ conversation_control: null }));
+        const created = proposal({ status: 'pending_delivery', expires_at: null });
+        leadsApi.createAppointmentProposal.mockResolvedValue(created);
+        const form = await openForm();
+        chooseSlot(form);
+        fireEvent.click(form.getByRole('button', { name: 'Enviar propuesta' }));
+        await waitFor(() => expect(leadsApi.createAppointmentProposal).toHaveBeenCalledTimes(1));
+        expect(leadsApi.takeoverLead).not.toHaveBeenCalled();
+    });
+
+    it('slot ocupado limpia selección, refresca availability y mantiene modal abierto', async () => {
+        leadsApi.getLead.mockResolvedValue(takenLead());
+        leadsApi.createAppointmentProposal.mockRejectedValue(badRequest({ start_at: ['Ocupado'] }));
+        const form = await openForm();
+        chooseSlot(form);
+        fireEvent.click(form.getByRole('button', { name: 'Enviar propuesta' }));
+        expect(await form.findByRole('alert')).toHaveTextContent('Ese horario ya no está disponible. Elegí otro.');
+        expect(form.getByRole('button', { name: '10:00' })).toHaveAttribute('aria-pressed', 'false');
+        expect(appointmentForm.refetch).toHaveBeenCalledTimes(1);
+        expect(screen.getByRole('dialog', { name: 'Coordinar turno' })).toBeInTheDocument();
+    });
+
+    it('pending_delivery no afirma envío ni confirmación; polling se detiene tras la intención', async () => {
+        leadsApi.getCurrentAppointmentProposal.mockResolvedValue(proposal({ status: 'pending_delivery', expires_at: null }));
+        renderClient();
+        const summary = within(await screen.findByTestId('lead-appointment-proposal'));
+        expect(summary.getByText('Propuesta preparando envío')).toBeInTheDocument();
+        expect(summary.getByText('Enviando propuesta al agente...')).toBeInTheDocument();
+        expect(summary.queryByText(/enviada|confirmado|Turno pendiente/i)).not.toBeInTheDocument();
+        expect(appointmentProposalPollInterval(proposal({ status: 'pending_delivery' }))).toBe(2500);
+        expect(appointmentProposalPollInterval(proposal())).toBe(30_000);
+        expect(appointmentProposalPollInterval(proposal({
+            patient_confirmation: { intent: 'confirm', requested_at: '2026-10-22T12:00:00Z', message: 'Sí, dale' },
+        }))).toBe(false);
+        for (const status of ['delivery_failed', 'expired', 'superseded'] as const) {
+            expect(appointmentProposalPollInterval(proposal({ status }))).toBe(false);
+        }
+    });
+
+    it('queued muestra vencimiento y no reserva; reemplazar usa mismo modal y nueva intención', async () => {
+        leadsApi.getLead.mockResolvedValue(takenLead());
+        leadsApi.getCurrentAppointmentProposal.mockResolvedValue(proposal());
+        leadsApi.createAppointmentProposal.mockRejectedValue(new TypeError('Network'));
+        renderClient({ canManageAppointments: true });
+        const summary = within(await screen.findByTestId('lead-appointment-proposal'));
+        expect(summary.getByText('Propuesta enviada a la cola de WhatsApp')).toBeInTheDocument();
+        expect(summary.getByText(/Válida hasta:/)).toBeInTheDocument();
+        expect(summary.getByText('El horario todavía no está reservado. Se volverá a validar al confirmar.')).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Proponer otro horario' }));
+        let form = within(screen.getByRole('dialog', { name: 'Coordinar turno' }));
+        expect(form.getByRole('combobox', { name: /Servicio/ })).toHaveValue('');
+        chooseSlot(form);
+        fireEvent.click(form.getByRole('button', { name: 'Enviar propuesta' }));
+        await form.findByRole('alert');
+        const firstKey = leadsApi.createAppointmentProposal.mock.calls[0][1].idempotency_key;
+        fireEvent.click(form.getByRole('button', { name: 'Cancelar' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Proponer otro horario' }));
+        form = within(screen.getByRole('dialog', { name: 'Coordinar turno' }));
+        chooseSlot(form);
+        fireEvent.click(form.getByRole('button', { name: 'Enviar propuesta' }));
+        await form.findByRole('alert');
+        expect(leadsApi.createAppointmentProposal.mock.calls[1][1].idempotency_key).not.toBe(firstKey);
+    });
+
+    it.each([
+        ['conversation_not_taken', 'Para enviar una propuesta primero tenés que tomar la conversación.'],
+        ['outside_service_window', 'La ventana de atención de WhatsApp está cerrada. Esperá un nuevo mensaje del paciente.'],
+        ['invalid_signature', 'La integración con el bot necesita revisión.'],
+        ['unknown_error', 'No se pudo completar el envío. Intentá otra propuesta o revisá la integración.'],
+    ])('delivery_failed traduce %s y permite otra propuesta', async (code, message) => {
+        leadsApi.getCurrentAppointmentProposal.mockResolvedValue(proposal({ status: 'delivery_failed', delivery_error: code }));
+        renderClient({ canManageAppointments: true });
+        expect(await screen.findByText('No se pudo enviar la propuesta')).toBeInTheDocument();
+        const summary = within(screen.getByTestId('lead-appointment-proposal'));
+        expect(summary.getByRole('alert')).toHaveTextContent(message);
+        fireEvent.click(screen.getByRole('button', { name: 'Intentar otra propuesta' }));
+        expect(screen.getByRole('dialog', { name: 'Coordinar turno' })).toBeInTheDocument();
+    });
+
+    it.each(['expired', 'superseded'] as const)('no presenta %s como propuesta activa', async (status) => {
+        leadsApi.getCurrentAppointmentProposal.mockResolvedValue(proposal({ status }));
+        renderClient({ canManageAppointments: true });
+        await screen.findByText('Sin turno vinculado');
+        await waitFor(() => expect(leadsApi.getCurrentAppointmentProposal).toHaveBeenCalled());
+        expect(screen.queryByTestId('lead-appointment-proposal')).not.toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Coordinar turno' })).toBeInTheDocument();
+    });
+
+    it('Appointment real prevalece incluso con proposal en cache; no consulta current', async () => {
+        queryClient.setQueryData(['appointments', 'leads', 'current-proposal', 'lead-1'], proposal());
+        leadsApi.getLead.mockResolvedValue(leadDetail({ appointment: {
+            id: 'a1', start_at: appointmentForm.start, end_at: appointmentForm.start, service_name: 'Corte', status: 'confirmed',
+        } }));
+        renderClient({ canManageAppointments: true });
+        await screen.findByText('Turno confirmado');
+        expect(screen.queryByTestId('lead-appointment-proposal')).not.toBeInTheDocument();
+        expect(leadsApi.getCurrentAppointmentProposal).not.toHaveBeenCalled();
+    });
+
+    it('lead_has_appointment cierra modal y recupera turno real', async () => {
+        leadsApi.getLead.mockResolvedValue(takenLead());
+        const form = await openForm();
+        chooseSlot(form);
+        leadsApi.createAppointmentProposal.mockRejectedValue(new ApiError('Conflict', 409, { code: 'lead_has_appointment' }));
+        leadsApi.getLead.mockResolvedValue(leadDetail({ appointment: {
+            id: 'a1', start_at: appointmentForm.start, end_at: appointmentForm.start, service_name: 'Corte', status: 'confirmed',
+        } }));
+        fireEvent.click(form.getByRole('button', { name: 'Enviar propuesta' }));
+        await screen.findByText('Turno confirmado');
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+
+    it('accesibilidad: labels, foco inicial, tab circular, escape y botones no anidados', async () => {
+        const user = userEvent.setup();
+        modalMode.real = true;
+        await openForm();
+        const dialog = screen.getByRole('dialog', { name: 'Coordinar turno' });
+        const form = within(dialog);
+        expect(form.getByRole('combobox', { name: /Servicio/ })).toHaveFocus();
+        expect(form.getByRole('combobox', { name: /Profesional/ })).toBeInTheDocument();
+        expect(form.getByRole('button', { name: /^Fecha:/ })).toBeInTheDocument();
+        expect(dialog.querySelector('button button')).toBeNull();
+        form.getByRole('button', { name: 'Cancelar' }).focus();
+        await user.tab();
+        expect(form.getAllByRole('button', { name: 'Cerrar' })[1]).toHaveFocus();
+        await user.tab();
+        expect(form.getByRole('combobox', { name: /Servicio/ })).toHaveFocus();
+        await user.keyboard('{Escape}');
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Coordinar turno' })).toHaveFocus();
+    });
 });
 
 describe('gating de la página', () => {
@@ -290,7 +868,7 @@ describe('render del detalle', () => {
         expect(appointmentCard.getByText('mié 07 oct 2026 · 11:00')).toBeInTheDocument();
         expect(appointmentCard.getByText('Corte')).toBeInTheDocument();
         expect(appointmentCard.getByText('Cancelado')).toBeInTheDocument();
-        expect(appointmentCard.getByRole('link', { name: 'Ver en la agenda' })).toHaveAttribute(
+        expect(appointmentCard.getByRole('link', { name: 'Ver en agenda' })).toHaveAttribute(
             'href',
             '/app/turnos/turnos?date=2026-10-07&appointment=ap-1',
         );
@@ -421,12 +999,15 @@ describe('atención pendiente', () => {
         renderClient();
 
         const alert = await screen.findByTestId('lead-attention');
-        expect(within(alert).getByText('Este lead pide la atención de una persona')).toBeInTheDocument();
+        expect(within(alert).getByText('Necesita revisión de recepción.')).toBeInTheDocument();
         expect(within(alert).getByText(/Desde 05\/10\/2026 11:00/)).toBeInTheDocument();
-        fireEvent.click(within(alert).getByRole('button', { name: 'Marcar como atendido' }));
+        fireEvent.click(within(alert).getByRole('button', { name: 'Marcar como revisado' }));
 
         await waitFor(() => expect(screen.queryByTestId('lead-attention')).not.toBeInTheDocument());
         expect(leadsApi.acknowledgeLeadAttention).toHaveBeenCalledWith('lead-1');
+        // LEADS SLICE 2: revisar ≠ tomar la conversación.
+        expect(leadsApi.takeoverLead).not.toHaveBeenCalled();
+        expect(leadsApi.releaseLead).not.toHaveBeenCalled();
         expect(screen.getByText('Reconoció el pedido de atención')).toBeInTheDocument();
         expect(invalidate).toHaveBeenCalledWith({ queryKey: ['appointments', 'leads', 'list'] });
     });
@@ -437,7 +1018,7 @@ describe('atención pendiente', () => {
             leadDetail({ needs_attention: false, needs_attention_at: '2026-10-05T14:00:00Z', acknowledged_at: '2026-10-05T15:00:00Z' }),
         );
         renderClient();
-        fireEvent.click(await screen.findByRole('button', { name: 'Marcar como atendido' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Marcar como revisado' }));
         await waitFor(() => expect(screen.queryByTestId('lead-attention')).not.toBeInTheDocument());
         expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     });
@@ -446,7 +1027,7 @@ describe('atención pendiente', () => {
         leadsApi.getLead.mockResolvedValue(pending());
         leadsApi.acknowledgeLeadAttention.mockRejectedValue(badRequest({ non_field_errors: ['El lead está cerrado.'] }));
         renderClient();
-        fireEvent.click(await screen.findByRole('button', { name: 'Marcar como atendido' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Marcar como revisado' }));
         expect(await screen.findByText('El lead está cerrado.')).toBeInTheDocument();
         expect(screen.getByTestId('lead-attention')).toBeInTheDocument();
     });
@@ -672,6 +1253,163 @@ describe('vínculo con Customer', () => {
 });
 
 describe('vínculo con Appointment', () => {
+    function linkedAppointment(): Appointment {
+        return {
+            id: 'ap-1',
+            service: { id: 's1', name: 'Corte', duration_minutes: 30, price: '1000.00', is_active: true, category: null },
+            professional: { id: 'p1', name: 'Lu' },
+            customer_id: null,
+            customer_name: 'Paciente del turno',
+            customer_phone: '+5491144443333',
+            customer_email: 'paciente@example.com',
+            start_at: appointmentForm.start,
+            end_at: appointmentForm.start,
+            status: 'confirmed',
+            status_display: 'Confirmado',
+            effective_status: 'confirmed',
+            effective_status_display: 'Confirmado',
+            expires_at: null,
+            payment_summary: null,
+            notes: 'Notas del turno',
+            source: 'manual',
+            service_name: 'Corte',
+            service_duration_minutes: 30,
+            service_price: '1000.00',
+            deposit_type: 'none',
+            deposit_value: '0',
+            created_at: '2026-10-05T13:00:00Z',
+            updated_at: '2026-10-05T13:00:00Z',
+        };
+    }
+
+    async function openReschedule() {
+        const appointment = linkedAppointment();
+        const lead = leadDetail({ appointment });
+        leadsApi.getLead.mockResolvedValue(lead);
+        appointmentForm.fetch.mockResolvedValue(appointment);
+        renderClient({ canManageAppointments: true });
+        fireEvent.click(await screen.findByRole('button', { name: 'Reprogramar turno' }));
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Guardar' })).toBeInTheDocument());
+        return { appointment, lead, form: within(screen.getByRole('dialog', { name: 'Editar turno' })) };
+    }
+
+    it('abre el formulario canónico con el Appointment completo actual, no con los datos del Lead', async () => {
+        const { appointment, form } = await openReschedule();
+        expect(appointmentForm.fetch).toHaveBeenCalledExactlyOnceWith(appointment.id);
+        expect(form.getAllByRole('combobox').map((select) => (select as HTMLSelectElement).value)).toEqual(['s1', 'p1']);
+        expect(form.getByDisplayValue(appointment.customer_name)).toBeInTheDocument();
+        expect(form.getByDisplayValue(appointment.customer_phone)).toBeInTheDocument();
+        expect(form.getByDisplayValue(appointment.customer_email)).toBeInTheDocument();
+        expect(form.getByLabelText('Notas')).toHaveValue(appointment.notes);
+        expect(form.getByRole('button', { name: '10:00' })).toHaveAttribute('aria-pressed', 'true');
+        expect(appointmentForm.availability).toHaveBeenLastCalledWith({
+            service: 's1', professional: 'p1', date: todayInTimeZone(TZ), excludeAppointmentId: appointment.id,
+        }, { enabled: true });
+        expect(screen.queryByRole('dialog', { name: 'Vincular turno' })).not.toBeInTheDocument();
+        expect(dayAppointments.calls).toHaveLength(0);
+        fireEvent.click(form.getByRole('button', { name: 'Cancelar' }));
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        expect(appointmentForm.update).not.toHaveBeenCalled();
+        expect(leadsApi.updateLead).not.toHaveBeenCalled();
+    });
+
+    it('guarda nueva fecha/hora con el mismo id, refresca Lead y agenda y conserva Proposal converted', async () => {
+        const { appointment, lead, form } = await openReschedule();
+        const converted = proposal({
+            status: 'converted',
+            snapshots: {
+                service_name: 'Corte ofrecido', professional_name: 'Lu ofrecida',
+                service_duration_minutes: 30, service_price: '1000.00', currency: 'ARS',
+                deposit_type: 'none', deposit_value: '0', deposit_amount: '0',
+            },
+        });
+        const historical = structuredClone(converted);
+        queryClient.setQueryData(currentAppointmentProposalKey(lead.id), converted);
+        const nextDate = addCalendarDays(todayInTimeZone(TZ), 1);
+        const newStart = `${nextDate}T15:00:00Z`;
+        appointmentForm.extraStart = newStart;
+        const updated = { ...appointment, start_at: newStart };
+        appointmentForm.update.mockImplementation(async () => {
+            leadsApi.getLead.mockResolvedValue({ ...lead, appointment: updated });
+            return updated;
+        });
+        const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
+        fireEvent.click(form.getByRole('button', { name: /^Fecha:/ }));
+        const day = document.querySelector(`[data-date="${nextDate}"]`);
+        if (!day) throw new Error('No se encontró la nueva fecha en el calendario');
+        fireEvent.click(day);
+        fireEvent.click(form.getByRole('button', { name: '12:00' }));
+        fireEvent.click(form.getByRole('button', { name: 'Guardar' }));
+        await waitFor(() => expect(appointmentForm.update).toHaveBeenCalledExactlyOnceWith({
+            id: appointment.id,
+            payload: expect.objectContaining({ service_id: 's1', professional_id: 'p1', start_at: newStart }),
+        }));
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+        await waitFor(() => expect(queryClient.getQueryData<LeadDetail>(leadDetailKey(lead.id))?.appointment?.start_at).toBe(newStart));
+        expect(queryClient.getQueryData<LeadDetail>(leadDetailKey(lead.id))?.appointment?.id).toBe(appointment.id);
+        expect(invalidate).toHaveBeenCalledWith({ queryKey: ['appointments', 'appointments'] });
+        expect(invalidate).toHaveBeenCalledWith({ queryKey: leadDetailKey(lead.id) });
+        expect(queryClient.getQueryData(currentAppointmentProposalKey(lead.id))).toEqual(historical);
+        expect(leadsApi.getCurrentAppointmentProposal).not.toHaveBeenCalled();
+        expect(leadsApi.createAppointmentProposal).not.toHaveBeenCalled();
+        expect(leadsApi.confirmAppointmentProposal).not.toHaveBeenCalled();
+        expect(leadsApi.updateLead).not.toHaveBeenCalled();
+        expect(leadsApi.createLeadAppointment).not.toHaveBeenCalled();
+        expect(appointmentForm.create).not.toHaveBeenCalled();
+    });
+
+    it('conserva la validación canónica de disponibilidad al reprogramar', async () => {
+        const { appointment, form } = await openReschedule();
+        appointmentForm.update.mockRejectedValue(badRequest({ start_at: ['Ese horario no está disponible.'] }));
+        fireEvent.click(form.getByRole('button', { name: 'Guardar' }));
+        expect(await form.findByText('Ese horario no está disponible.')).toBeInTheDocument();
+        expect(appointmentForm.refetch).toHaveBeenCalled();
+        expect(screen.getByRole('dialog', { name: 'Editar turno' })).toBeInTheDocument();
+        expect(queryClient.getQueryData<LeadDetail>(leadDetailKey('lead-1'))?.appointment?.id).toBe(appointment.id);
+        expect(leadsApi.updateLead).not.toHaveBeenCalled();
+    });
+
+    it('muestra error de carga del Appointment y permite reintentar sin abrir un alta', async () => {
+        leadsApi.getLead.mockResolvedValue(leadDetail({ appointment: linkedAppointment() }));
+        appointmentForm.fetch.mockRejectedValue(new ApiError('Forbidden', 403, {}));
+        renderClient({ canManageAppointments: true });
+        fireEvent.click(await screen.findByRole('button', { name: 'Reprogramar turno' }));
+        expect(await screen.findByRole('alert')).toHaveTextContent('No tenés permiso');
+        expect(screen.queryByRole('button', { name: 'Guardar' })).not.toBeInTheDocument();
+        appointmentForm.fetch.mockResolvedValue(linkedAppointment());
+        fireEvent.click(screen.getByRole('button', { name: 'Reintentar' }));
+        expect(await screen.findByRole('button', { name: 'Guardar' })).toBeInTheDocument();
+        expect(appointmentForm.create).not.toHaveBeenCalled();
+    });
+
+    it('sin manage_appointments permite vincular otro pero no reprogramar', async () => {
+        leadsApi.getLead.mockResolvedValue(leadDetail({ appointment: linkedAppointment() }));
+        renderClient();
+        expect(await screen.findByRole('button', { name: 'Vincular otro turno' })).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Reprogramar turno' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Cambiar turno' })).not.toBeInTheDocument();
+        expect(appointmentForm.fetch).not.toHaveBeenCalled();
+    });
+
+    it('Vincular otro turno usa solo el selector existente y cambia la relación del Lead', async () => {
+        leadsApi.getLead.mockResolvedValue(leadDetail({ appointment: linkedAppointment() }));
+        dayAppointments.rows = [
+            { id: 'ap-2', start_at: appointmentForm.start, service_name: 'Color', customer_name: 'Otro', status: 'confirmed' },
+        ];
+        leadsApi.updateLead.mockResolvedValue(leadDetail({ appointment: { ...linkedAppointment(), id: 'ap-2' } }));
+        renderClient({ canManageAppointments: true });
+        fireEvent.click(await screen.findByRole('button', { name: 'Vincular otro turno' }));
+        const picker = screen.getByRole('dialog', { name: 'Vincular turno' });
+        expect(screen.queryByRole('dialog', { name: 'Editar turno' })).not.toBeInTheDocument();
+        fireEvent.click(within(picker).getByTestId('lead-appointment-option'));
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+        expect(leadsApi.updateLead).toHaveBeenCalledExactlyOnceWith('lead-1', { appointment: 'ap-2' });
+        expect(queryClient.getQueryData<LeadDetail>(leadDetailKey('lead-1'))?.appointment?.id).toBe('ap-2');
+        expect(appointmentForm.fetch).not.toHaveBeenCalled();
+        expect(appointmentForm.update).not.toHaveBeenCalled();
+        expect(appointmentForm.create).not.toHaveBeenCalled();
+    });
+
     it('elige un turno del cliente o de la agenda del día (cualquier estado) y lo vincula', async () => {
         leadsApi.getLead.mockResolvedValue(leadDetail({ customer: { id: 'c-1', display_name: 'Ana Cliente' } }));
         customersDb.appointments = [
@@ -687,7 +1425,7 @@ describe('vínculo con Appointment', () => {
             }),
         );
         renderClient();
-        fireEvent.click(await screen.findByRole('button', { name: 'Vincular turno' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Vincular turno existente' }));
         const dialog = screen.getByRole('dialog', { name: 'Vincular turno' });
 
         const customerSection = within(dialog).getByRole('region', { name: 'Turnos del cliente' });
@@ -711,7 +1449,7 @@ describe('vínculo con Appointment', () => {
         ];
         leadsApi.updateLead.mockRejectedValueOnce(badRequest({ appointment: ['El turno no existe en este negocio.'] }));
         renderClient();
-        fireEvent.click(await screen.findByRole('button', { name: 'Cambiar turno' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Vincular otro turno' }));
         const dialog = screen.getByRole('dialog', { name: 'Vincular turno' });
         expect(within(dialog).queryByRole('region', { name: 'Turnos del cliente' })).not.toBeInTheDocument();
         fireEvent.click(within(dialog).getByTestId('lead-appointment-option'));
@@ -875,7 +1613,7 @@ describe('solo lectura (view_leads sin manage_leads)', () => {
 
         for (const name of [
             'Pasar a en gestión', 'Cerrar lead', 'Asignarme', 'Tomar el lead', 'Quitar asignación', 'Cambiar cliente',
-            'Desvincular', 'Cambiar turno', '+ Agregar nota', 'Editar', 'Eliminar',
+            'Desvincular', 'Reprogramar turno', 'Vincular otro turno', '+ Agregar nota', 'Editar', 'Eliminar',
         ]) {
             expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
         }
@@ -884,7 +1622,7 @@ describe('solo lectura (view_leads sin manage_leads)', () => {
         expect(leadsApi.listLeadAssignees).not.toHaveBeenCalled();
         // Navegación de lectura sigue disponible.
         expect(screen.getByRole('link', { name: 'Ver ficha' })).toBeInTheDocument();
-        expect(screen.getByRole('link', { name: 'Ver en la agenda' })).toBeInTheDocument();
+        expect(screen.getByRole('link', { name: 'Ver en agenda' })).toBeInTheDocument();
     });
 
     it('un 403 en una mutación (permiso revocado) se muestra en la tarjeta', async () => {
@@ -949,10 +1687,12 @@ describe('control de la conversación (TAKEOVER 05B)', () => {
         const block = await screen.findByTestId('lead-conversation-control');
         expect(within(block).getByText('Bot habilitado')).toBeInTheDocument();
         expect(within(block).getByRole('link', { name: 'Abrir WhatsApp' })).toBeInTheDocument();
+        expect(within(block).getByText('Tomar conversación pausa las respuestas del bot hasta reanudarlo.')).toBeInTheDocument();
 
         // Cancelar no pide nada.
         fireEvent.click(within(block).getByRole('button', { name: 'Tomar conversación' }));
         const dialog = await screen.findByRole('dialog', { name: '¿Tomar esta conversación?' });
+        expect(dialog).toHaveTextContent('Tomar conversación pausa las respuestas del bot hasta reanudarlo.');
         expect(dialog).toHaveTextContent('El bot dejará de responder mensajes nuevos en este chat hasta que vuelvas a habilitarlo.');
         expect(dialog.textContent).not.toMatch(/MiRubro/);
         fireEvent.click(within(dialog).getByRole('button', { name: 'Cancelar' }));

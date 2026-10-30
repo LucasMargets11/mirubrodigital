@@ -73,10 +73,12 @@ DEFAULT_TIMEZONE = 'America/Argentina/Buenos_Aires'
 
 # ── Fuentes: queryset base ordenado + campo de fecha canónica ────────────────
 
-def _appointments_qs(customer, now, tz) -> QuerySet:
+def _appointments_qs(customer, now, tz, professional_id=None) -> QuerySet:
   from apps.appointments.services.customer_history import SCOPE_HISTORY, scoped_customer_appointments
 
-  return scoped_customer_appointments(customer, SCOPE_HISTORY, now=now)
+  return scoped_customer_appointments(
+    customer, SCOPE_HISTORY, now=now, professional=professional_id,
+  )
 
 
 def _sales_qs(customer, now, tz) -> QuerySet:
@@ -242,10 +244,13 @@ def _serialize_order(order: Order, **_) -> dict:
   }
 
 
-def _load_page_objects(source_type: str, customer, pks, now, tz) -> dict:
+def _load_page_objects(source_type: str, customer, pks, now, tz, professional_id=None) -> dict:
   """Carga completas solo las filas de la página (siempre acotadas al Business)."""
   base_qs, _ = _SOURCES[source_type]
-  qs = base_qs(customer, now, tz).filter(pk__in=pks)
+  if source_type == TYPE_APPOINTMENT:
+    qs = base_qs(customer, now, tz, professional_id).filter(pk__in=pks)
+  else:
+    qs = base_qs(customer, now, tz).filter(pk__in=pks)
   if source_type in (TYPE_SALE, TYPE_QUOTE, TYPE_ORDER):
     qs = qs.annotate(items_count=Count('items'))
   if source_type == TYPE_SALE:
@@ -261,7 +266,10 @@ _SERIALIZERS = {
 }
 
 
-def build_customer_timeline(customer, types, *, offset: int, limit: int, now, timezone_name: str | None = None):
+def build_customer_timeline(
+  customer, types, *, offset: int, limit: int, now,
+  timezone_name: str | None = None, professional_id=None,
+):
   """Devuelve `(count, events)` de la página pedida para las fuentes `types`."""
   tz = ZoneInfo(timezone_name or DEFAULT_TIMEZONE)
   window = offset + limit
@@ -269,7 +277,10 @@ def build_customer_timeline(customer, types, *, offset: int, limit: int, now, ti
   keys: list[tuple[dt.datetime, int, str, str]] = []
   for source_type in types:
     base_qs, date_field = _SOURCES[source_type]
-    qs = base_qs(customer, now, tz).select_related(None).prefetch_related(None)
+    if source_type == TYPE_APPOINTMENT:
+      qs = base_qs(customer, now, tz, professional_id).select_related(None).prefetch_related(None)
+    else:
+      qs = base_qs(customer, now, tz).select_related(None).prefetch_related(None)
     count += qs.count()
     if window <= 0:
       continue
@@ -283,7 +294,7 @@ def build_customer_timeline(customer, types, *, offset: int, limit: int, now, ti
   for _, _, pk, source_type in page:
     pks_by_type[source_type].append(pk)
   objects = {
-    source_type: _load_page_objects(source_type, customer, pks, now, tz)
+    source_type: _load_page_objects(source_type, customer, pks, now, tz, professional_id)
     for source_type, pks in pks_by_type.items()
   }
 

@@ -120,4 +120,41 @@ describe('BusinessNotificationsPanel', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Marcar como leída' }));
         expect(mutate).toHaveBeenCalledWith('n-rem');
     });
+
+    it('Leads (SLICE 2): handoff y asignación enlazan al Lead con "Ver consulta"', () => {
+        listData = {
+            unread_count: 2,
+            results: [
+                notif({
+                    id: 'n-handoff',
+                    kind: 'agent_lead_handoff',
+                    severity: 'critical',
+                    title: 'Nueva consulta para recepción',
+                    message: 'Una consulta necesita revisión de recepción.',
+                    action_url: '/app/turnos/leads/lead-1',
+                }),
+                notif({
+                    id: 'n-assigned',
+                    kind: 'lead_assigned',
+                    title: 'Te asignaron una consulta',
+                    message: 'Una consulta quedó asignada a vos.',
+                    action_url: '/app/turnos/leads/lead-2',
+                }),
+            ],
+        };
+        render(<BusinessNotificationsPanel />);
+        const links = screen.getAllByRole('link', { name: 'Ver consulta' });
+        expect(links.map((link) => link.getAttribute('href'))).toEqual(['/app/turnos/leads/lead-1', '/app/turnos/leads/lead-2']);
+        // Abrirla solo la marca como leída (no reconoce atención ni toma la conversación).
+        fireEvent.click(links[0]);
+        expect(mutate).toHaveBeenCalledTimes(1);
+        expect(mutate).toHaveBeenCalledWith('n-handoff');
+    });
+
+    it('Leads históricas sin action_url no muestran enlace', () => {
+        listData = { unread_count: 1, results: [notif({ id: 'n-old', kind: 'agent_lead_handoff', action_url: '' })] };
+        render(<BusinessNotificationsPanel />);
+        expect(screen.queryByRole('link')).not.toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Marcar como leída' })).toBeInTheDocument();
+    });
 });

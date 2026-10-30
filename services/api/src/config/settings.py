@@ -12,6 +12,9 @@ load_dotenv(BASE_DIR.parent / '.env')
 SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'unsafe-secret')
 DEBUG = os.getenv('DJANGO_DEBUG', 'False').lower() == 'true'
 
+# S8F: no real provider is registered, including when a different value is configured.
+AI_USAGE_BILLING_PROVIDER = os.getenv('AI_USAGE_BILLING_PROVIDER', 'disabled')
+
 if not DEBUG and SECRET_KEY == 'unsafe-secret':
     from django.core.exceptions import ImproperlyConfigured
     raise ImproperlyConfigured(
@@ -322,6 +325,11 @@ CELERY_BEAT_SCHEDULE = {
         # holds dynamically), so a Beat outage only delays the stored status.
         'schedule': crontab(minute='*/2'),
     },
+    'appointments-process-due-ai-usage-billing': {
+        'task': 'appointments.process_due_ai_usage_billing',
+        # S8G: hourly offline closure/preparation only; never dispatches a provider.
+        'schedule': crontab(minute='10'),
+    },
     'customers-dispatch-due-reminders': {
         'task': 'customers.dispatch_due_reminders',
         # Every minute — CustomerReminder pendiente con remind_at vencido →
@@ -423,6 +431,7 @@ AGENT_SECRET_ENCRYPTION_KEY = os.getenv('AGENT_SECRET_ENCRYPTION_KEY', '')
 # Default false: apagado responde 503. Encendido sin AGENT_SECRET_ENCRYPTION_KEY
 # válida → error de system check leads.E001/E002 (falla `check`/`migrate`).
 AGENT_INTEGRATION_ENABLED = os.getenv('AGENT_INTEGRATION_ENABLED', 'False').lower() == 'true'
+AI_USAGE_METERING_ENABLED = os.getenv('AI_USAGE_METERING_ENABLED', 'false').lower() == 'true'
 
 # MIRUBRO TAKEOVER 05A: comandos humanos MiRubro → Agent (pausar/reanudar el bot
 # de una conversación). Dirección y credencial PROPIAS, separadas de la del
@@ -548,6 +557,11 @@ LOGGING = {
         'level': _LOG_LEVEL,
     },
     'loggers': {
+        'apps.appointments.ai_usage_views': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
         # Security / auth events — always INFO so auth telemetry is captured.
         'apps.accounts.security': {
             'handlers': ['console'],
@@ -716,4 +730,3 @@ AUTH_LOGIN_IDENT_COOLDOWN_SECONDS   = int(os.getenv('AUTH_LOGIN_IDENT_COOLDOWN_S
 AUTH_LOGIN_IP_MAX_ATTEMPTS          = int(os.getenv('AUTH_LOGIN_IP_MAX_ATTEMPTS', '50'))
 AUTH_LOGIN_IP_WINDOW_SECONDS        = int(os.getenv('AUTH_LOGIN_IP_WINDOW_SECONDS', str(10 * 60)))
 AUTH_LOGIN_IP_COOLDOWN_SECONDS      = int(os.getenv('AUTH_LOGIN_IP_COOLDOWN_SECONDS', str(10 * 60)))
-

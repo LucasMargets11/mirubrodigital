@@ -41,6 +41,19 @@ def _filter_by_professional(queryset, request):
   return queryset.filter(professional_id=professional_id)
 
 
+def _request_professional(request):
+  from .services.professional_quota import request_professional
+
+  return request_professional(request)
+
+
+def _uses_own_scope(request, own_permission, global_permission):
+  return (
+    request_has_permission(request, own_permission)
+    and not request_has_permission(request, global_permission)
+  )
+
+
 def _filter_by_effective_status(queryset, status_param):
   """Filtra por estado operativo efectivo (Slice 7B.3).
 
@@ -244,90 +257,117 @@ class AppointmentProfessionalDetailView(generics.RetrieveUpdateDestroyAPIView):
     return AppointmentProfessional.objects.filter(business=business).prefetch_related('services')
 
   def perform_destroy(self, instance):
-    instance.is_active = False
-    instance.save(update_fields=['is_active', 'updated_at'])
+    from .services.professionals import set_professional_active
+
+    set_professional_active(
+      business=instance.business, professional_id=instance.pk, is_active=False,
+    )
 
 
 class AppointmentScheduleListCreateView(generics.ListCreateAPIView):
   serializer_class = AppointmentScheduleSerializer
   permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
   permission_map = {
-    'GET': 'view_appointments',
-    'POST': 'manage_appointments',
+    'GET': ('view_appointments', 'manage_own_schedule'),
+    'POST': ('manage_appointments', 'manage_own_schedule'),
   }
   pagination_class = None
 
   def get_queryset(self):
     business = getattr(self.request, 'business')
     queryset = AppointmentSchedule.objects.filter(business=business).select_related('professional')
+    if _uses_own_scope(self.request, 'manage_own_schedule', 'view_appointments'):
+      queryset = queryset.filter(professional=_request_professional(self.request))
     queryset = _filter_by_professional(queryset, self.request)
     return queryset.order_by('weekday', 'start_time')
 
   def perform_create(self, serializer):
-    serializer.save(business=self.request.business)
+    professional = None
+    if _uses_own_scope(self.request, 'manage_own_schedule', 'manage_appointments'):
+      professional = _request_professional(self.request)
+      selected = serializer.validated_data.get('professional')
+      if selected is not None and selected.pk != professional.pk:
+        raise ValidationError({'professional_id': ['Solo podés modificar tu propio horario.']})
+    serializer.save(business=self.request.business, **({'professional': professional} if professional else {}))
 
 
 class AppointmentScheduleDetailView(generics.RetrieveUpdateDestroyAPIView):
   serializer_class = AppointmentScheduleSerializer
   permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
   permission_map = {
-    'GET': 'view_appointments',
-    'PUT': 'manage_appointments',
-    'PATCH': 'manage_appointments',
-    'DELETE': 'manage_appointments',
+    'GET': ('view_appointments', 'manage_own_schedule'),
+    'PUT': ('manage_appointments', 'manage_own_schedule'),
+    'PATCH': ('manage_appointments', 'manage_own_schedule'),
+    'DELETE': ('manage_appointments', 'manage_own_schedule'),
   }
 
   def get_queryset(self):
     business = getattr(self.request, 'business')
-    return AppointmentSchedule.objects.filter(business=business).select_related('professional')
+    queryset = AppointmentSchedule.objects.filter(business=business).select_related('professional')
+    if _uses_own_scope(self.request, 'manage_own_schedule', 'view_appointments'):
+      queryset = queryset.filter(professional=_request_professional(self.request))
+    return queryset
 
 
 class AppointmentExceptionListCreateView(generics.ListCreateAPIView):
   serializer_class = AppointmentExceptionSerializer
   permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
   permission_map = {
-    'GET': 'view_appointments',
-    'POST': 'manage_appointments',
+    'GET': ('view_appointments', 'manage_own_schedule'),
+    'POST': ('manage_appointments', 'manage_own_schedule'),
   }
   pagination_class = None
 
   def get_queryset(self):
     business = getattr(self.request, 'business')
     queryset = AppointmentException.objects.filter(business=business).select_related('professional')
+    if _uses_own_scope(self.request, 'manage_own_schedule', 'view_appointments'):
+      queryset = queryset.filter(professional=_request_professional(self.request))
     queryset = _filter_by_professional(queryset, self.request)
     return queryset.order_by('-date')
 
   def perform_create(self, serializer):
-    serializer.save(business=self.request.business)
+    professional = None
+    if _uses_own_scope(self.request, 'manage_own_schedule', 'manage_appointments'):
+      professional = _request_professional(self.request)
+      selected = serializer.validated_data.get('professional')
+      if selected is not None and selected.pk != professional.pk:
+        raise ValidationError({'professional_id': ['Solo podés modificar excepciones de tu propio perfil.']})
+    serializer.save(business=self.request.business, **({'professional': professional} if professional else {}))
 
 
 class AppointmentExceptionDetailView(generics.RetrieveUpdateDestroyAPIView):
   serializer_class = AppointmentExceptionSerializer
   permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
   permission_map = {
-    'GET': 'view_appointments',
-    'PUT': 'manage_appointments',
-    'PATCH': 'manage_appointments',
-    'DELETE': 'manage_appointments',
+    'GET': ('view_appointments', 'manage_own_schedule'),
+    'PUT': ('manage_appointments', 'manage_own_schedule'),
+    'PATCH': ('manage_appointments', 'manage_own_schedule'),
+    'DELETE': ('manage_appointments', 'manage_own_schedule'),
   }
 
   def get_queryset(self):
     business = getattr(self.request, 'business')
-    return AppointmentException.objects.filter(business=business).select_related('professional')
+    queryset = AppointmentException.objects.filter(business=business).select_related('professional')
+    if _uses_own_scope(self.request, 'manage_own_schedule', 'view_appointments'):
+      queryset = queryset.filter(professional=_request_professional(self.request))
+    return queryset
 
 
 class AppointmentListCreateView(generics.ListCreateAPIView):
   serializer_class = AppointmentSerializer
   permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
   permission_map = {
-    'GET': 'view_appointments',
-    'POST': 'manage_appointments',
+    'GET': ('view_appointments', 'view_own_appointments'),
+    'POST': ('manage_appointments', 'manage_own_appointments'),
   }
   pagination_class = None
 
   def get_queryset(self):
     business = getattr(self.request, 'business')
     queryset = Appointment.objects.filter(business=business).select_related('service__category', 'professional').prefetch_related('payments')
+    if _uses_own_scope(self.request, 'view_own_appointments', 'view_appointments'):
+      queryset = queryset.filter(professional=_request_professional(self.request))
 
     tzinfo = resolve_business_timezone(business)
     date_range = _parse_date_range(self.request.query_params)
@@ -361,15 +401,18 @@ class AppointmentDetailView(generics.RetrieveUpdateDestroyAPIView):
   serializer_class = AppointmentSerializer
   permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
   permission_map = {
-    'GET': 'view_appointments',
-    'PUT': 'manage_appointments',
-    'PATCH': 'manage_appointments',
-    'DELETE': 'manage_appointments',
+    'GET': ('view_appointments', 'view_own_appointments'),
+    'PUT': ('manage_appointments', 'manage_own_appointments'),
+    'PATCH': ('manage_appointments', 'manage_own_appointments'),
+    'DELETE': ('manage_appointments', 'manage_own_appointments'),
   }
 
   def get_queryset(self):
     business = getattr(self.request, 'business')
-    return Appointment.objects.filter(business=business).select_related('service__category', 'professional').prefetch_related('payments')
+    queryset = Appointment.objects.filter(business=business).select_related('service__category', 'professional').prefetch_related('payments')
+    if _uses_own_scope(self.request, 'view_own_appointments', 'view_appointments'):
+      queryset = queryset.filter(professional=_request_professional(self.request))
+    return queryset
 
   def perform_destroy(self, instance):
     # Cancelar en vez de borrar físicamente: nunca se pierden turnos históricos
@@ -385,14 +428,21 @@ class AppointmentAvailabilityView(APIView):
   `Appointment` ya ocupantes para ese negocio/profesional/fecha.
   """
   permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
-  permission_map = {'GET': 'view_appointments'}
+  permission_map = {'GET': ('view_appointments', 'view_own_appointments')}
 
   def get(self, request, *args, **kwargs):
     business = getattr(request, 'business')
-
     service_id = request.query_params.get('service')
     date_param = request.query_params.get('date')
     professional_id = request.query_params.get('professional') or None
+    if _uses_own_scope(request, 'view_own_appointments', 'view_appointments'):
+      own_professional = _request_professional(request)
+      if professional_id and professional_id != str(own_professional.pk):
+        return Response(
+          {'professional': ['Solo podés consultar tu propia disponibilidad.']},
+          status=status.HTTP_403_FORBIDDEN,
+        )
+      professional_id = str(own_professional.pk)
     # Uso interno: permite que el flujo de edición/reprogramación no se
     # bloquee a sí mismo al recalcular disponibilidad.
     exclude_appointment_id = request.query_params.get('exclude_appointment_id') or None

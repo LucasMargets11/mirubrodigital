@@ -163,3 +163,100 @@ Ver el reporte del slice. Ambiente: MiRubro (`mirubro-api-dev` + compose postgre
 - Mientras hay un comando en curso, el usuario no puede cambiar de decisión. Si el agente está caído, eso dura hasta agotar los reintentos (unas 2 h con los defaults).
 - No hay release automático por timeout.
 - No hay rotación con dos claves simultáneas.
+
+## 12. UI de coordinación desde el detalle del Lead (Slice 3B)
+
+El detalle ofrece **Coordinar turno** y **Vincular turno existente** cuando no
+hay Appointment. Coordinar reutiliza `AppointmentFormModal`, los catálogos,
+el calendario y availability; el motivo y la preferencia reportada son
+contexto orientativo, nunca selección automática de servicio.
+
+- **Enviar propuesta** usa `POST /api/v1/leads/{id}/appointment-proposals/`.
+  Solo envía `service_id`, `professional_id`, `start_at` e `idempotency_key`
+  UUIDv4. Reintentar tras un error de red conserva la clave; cambiar la
+  selección o abrir una nueva intención la renueva. No crea Appointment ni
+  reserva horario.
+- Requiere conversación `taken`. Se puede preparar la selección antes;
+  **Tomar conversación** es una acción explícita, nunca automática. El
+  envío espera el estado real del control, no adelanta el ACK del agente.
+- **Crear turno directamente** conserva el alta real de Slice 1 mediante
+  `POST /api/v1/leads/{id}/appointment/`, Customer y snapshots del paciente;
+  no depende del takeover.
+- `GET /api/v1/leads/{id}/appointment-proposals/current/` muestra
+  `pending_delivery` como preparando envío y `queued` como enviada a la
+  cola de WhatsApp, no como entregada al paciente. Hace polling cada 2,5 s
+  solamente en `pending_delivery`. Un 404 significa ausencia de propuesta.
+- El endpoint también expone el último intento si terminó en
+  `delivery_failed` y no hay propuesta activa. No recupera fallos anteriores
+  a una propuesta más nueva vencida o reemplazada. No cambia la definición
+  de propuesta activa del dominio.
+- **Proponer otro horario** y **Intentar otra propuesta** abren el mismo
+  modal con selección vacía y una intención nueva. El backend reemplaza
+  las propuestas; la UI no cancela mensajes externos.
+- Un Appointment vinculado tiene precedencia y oculta las propuestas.
+  Se mantienen agenda, cambio de vínculo y desvinculación. La propuesta
+  aclara: el horario todavía no está reservado y se volverá a validar al
+  confirmar.
+
+Fuera de este slice: aceptación del paciente, conversión a Appointment,
+checkout/señas, notificaciones y cambios en el bot o contrato WhatsApp.
+
+## Slice 3C.1 — confirmación manual de una propuesta
+
+`POST /api/v1/leads/{lead_id}/appointment-proposals/{proposal_id}/confirm/`
+requiere sesión, membership activa, entitlement de Leads y los permisos
+`manage_leads` + `manage_appointments`. No requiere takeover ni integración
+habilitada: la confirmación puede llegar por teléfono, familiar, presencial
+u otro canal. No encola mensajes de confirmación ni genera pagos.
+
+La única conversión vive en `services.appointment_proposals.confirm_appointment_proposal`.
+Dentro de una transacción mantiene los locks en orden Lead → Proposal →
+profesionales/Business (booking existente). Revalida estado, catálogo,
+horarios, excepciones y solapamientos antes de crear. El serializer canónico
+de Appointment sigue resolviendo Customer, snapshots, reserva manual y
+automatizaciones internas existentes; el alta desde Lead comparte sus
+helpers de identidad, vínculo y actividad. Un error revierte toda la operación.
+
+Se conservan nombre del servicio, duración, precio, tipo y valor de seña
+de la oferta, aunque cambie el catálogo. La disponibilidad se verifica para
+la **duración histórica completa**, no para una duración actual más corta.
+`Appointment.deposit_amount` se deriva de los inputs históricos y debe
+coincidir con el monto ofrecido. El nombre histórico del profesional y la
+moneda permanecen en Proposal; Appointment solo tiene referencia al
+profesional y no tiene campo de moneda. Si cambió la moneda del negocio,
+o los snapshots son inconsistentes, se rechaza explícitamente con
+`proposal_not_confirmable`: nunca se reinterpretan importes silenciosamente.
+
+Al completar, se vinculan Proposal y Lead al mismo Appointment confirmado,
+y Proposal pasa a `converted` (migración `0008_appointmentproposal_converted`).
+No se usa `accepted`. Deja de ser activa/current y el turno real tiene
+precedencia en UI. Un replay devuelve **200 con el Appointment original**,
+sin crear, revincular ni registrar actividad duplicada, incluso si después
+se cerró el Lead o se cambió su vínculo.
+
+Errores de negocio: HTTP 409 con `code` + `detail`:
+
+| Código | Caso |
+|---|---|
+| `proposal_not_confirmable` | Lead cerrado, catálogo/identidad inválidos o snapshots incompatibles |
+| `proposal_expired` | Propuesta vencida, incluyendo vencimiento lazy |
+| `proposal_superseded` | Propuesta reemplazada |
+| `proposal_delivery_failed` | Falló el envío |
+| `slot_unavailable` | Horario pasado, fuera de disponibilidad o superpuesto |
+| `lead_already_has_appointment` | Otro turno ya vinculado al Lead |
+
+Un Lead/Proposal ajeno o un par de URL que no coincide devuelve 404,
+también en replay. Los locks serializan doble click, dos recepcionistas,
+booking concurrente y alta/vínculo de otro turno sobre el mismo Lead.
+
+La card activa ofrece **Confirmar turno**, **Proponer otro horario** y
+**Vincular turno existente**. La confirmación breve muestra horario,
+servicio, profesional y precio/seña históricos. Mientras confirma bloquea
+acciones y muestra `Confirmando...`. Al terminar refresca detalle, current,
+agenda y disponibilidad. Si el slot se ocupó, conserva la propuesta sin
+convertir y prioriza proponer otro horario. Si venció o fue reemplazada,
+refresca el estado y muestra el motivo sin reservar.
+
+Pendiente para Slice 3C.2 (solo si se decide): mensaje de confirmación al
+paciente y su política de entrega/reintentos. No se implementan aquí
+respuestas del bot, aceptación automática, checkout, pagos ni notificaciones nuevas.

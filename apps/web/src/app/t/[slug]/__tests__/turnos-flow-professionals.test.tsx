@@ -67,6 +67,10 @@ function bookingBodies() {
 }
 
 beforeEach(() => {
+    // Solo se falsea `Date`: el calendario arranca en el mes de DATE y `pickDate`
+    // no recorre decenas de meses desde la fecha real (causaba timeouts bajo carga).
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2030-03-01T15:00:00Z'));
     professionalsQueue = {};
     fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
         const u = new URL(url);
@@ -95,6 +99,7 @@ beforeEach(() => {
 
 afterEach(() => {
     vi.unstubAllGlobals();
+    vi.useRealTimers();
 });
 
 function renderFlow() {

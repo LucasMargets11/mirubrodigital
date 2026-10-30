@@ -21,22 +21,56 @@ const newCustomerDefaults = {
     email: '',
 };
 
-type CustomerMode = 'quick' | 'new' | 'existing';
+type CustomerMode = 'consumer_final' | 'quick' | 'new' | 'existing';
+
+export type ConsumerFinalSelection = {
+    kind: 'consumer_final';
+    name: 'Consumidor Final';
+};
+
+export type SaleCustomerSelection = CustomerSummary | ConsumerFinalSelection;
+
+export function isConsumerFinal(selection: SaleCustomerSelection | null | undefined): selection is ConsumerFinalSelection {
+    return !!selection && (selection as ConsumerFinalSelection).kind === 'consumer_final';
+}
+
+export function asRealCustomer(selection: SaleCustomerSelection | null): CustomerSummary | null {
+    if (!selection || isConsumerFinal(selection)) {
+        return null;
+    }
+    return selection;
+}
+
+export const CONSUMER_FINAL_SELECTION: ConsumerFinalSelection = {
+    kind: 'consumer_final',
+    name: 'Consumidor Final',
+};
 
 const modeLabels: Record<CustomerMode, string> = {
+    consumer_final: 'Consumidor Final',
     quick: 'Solo nombre',
     new: 'Nuevo cliente',
     existing: 'Cliente existente',
 };
 
+const modeDescriptions: Record<CustomerMode, string> = {
+    consumer_final: 'Venta sin asociar a una ficha de cliente.',
+    quick: 'Ingresá solo el nombre y seguí.',
+    new: 'Creá un cliente con los datos básicos.',
+    existing: 'Buscá entre tus clientes registrados.',
+};
+
 type SaleCustomerPickerProps = {
-    value: CustomerSummary | null;
-    onChange: (customer: CustomerSummary | null) => void;
+    value: SaleCustomerSelection | null;
+    onChange: (selection: SaleCustomerSelection | null) => void;
 };
 
 export function SaleCustomerPicker({ value, onChange }: SaleCustomerPickerProps) {
-    const [activeMode, setActiveMode] = useState<CustomerMode>('quick');
-    const [lastSelectionMode, setLastSelectionMode] = useState<CustomerMode | null>(null);
+    const initialMode: CustomerMode = isConsumerFinal(value) ? 'consumer_final' : 'quick';
+    const [activeMode, setActiveMode] = useState<CustomerMode>(initialMode);
+    const [lastSelectionMode, setLastSelectionMode] = useState<CustomerMode | null>(
+        isConsumerFinal(value) ? 'consumer_final' : null
+    );
     const [quickName, setQuickName] = useState('');
     const [quickError, setQuickError] = useState<string | null>(null);
     const [newForm, setNewForm] = useState(() => ({ ...newCustomerDefaults }));
@@ -60,31 +94,35 @@ export function SaleCustomerPicker({ value, onChange }: SaleCustomerPickerProps)
 
     const createCustomer = useCreateCustomer();
 
-    const handleSelect = (customer: CustomerSummary, mode: CustomerMode) => {
-        onChange(customer);
+    const handleSelect = (selection: SaleCustomerSelection, mode: CustomerMode) => {
+        onChange(selection);
         setLastSelectionMode(mode);
+    };
+
+    const handleSelectConsumerFinal = () => {
+        onChange(CONSUMER_FINAL_SELECTION);
+        setLastSelectionMode('consumer_final');
+        setQuickName('');
+        setQuickError(null);
     };
 
     const resetSelection = () => {
         onChange(null);
-        setActiveMode(lastSelectionMode ?? 'quick');
+        setActiveMode(lastSelectionMode ?? 'consumer_final');
     };
 
     const handleQuickSubmit = async () => {
         const trimmed = quickName.trim();
-        const nameToUse = trimmed === '' ? 'Consumidor Final' : trimmed;
-        if (nameToUse !== 'Consumidor Final' && nameToUse.length < MIN_NAME_LENGTH) {
+        if (trimmed.length < MIN_NAME_LENGTH) {
             setQuickError('Ingresá al menos 2 caracteres.');
             return;
         }
-        // Reflect default in the input so the user sees what was used
-        if (trimmed === '') setQuickName('Consumidor Final');
         setQuickError(null);
         try {
             setPendingMode('quick');
             const customer = await createCustomer.mutateAsync({
                 ...quickDefaults,
-                name: nameToUse,
+                name: trimmed,
             });
             handleSelect(toSummary(customer), 'quick');
             setQuickName('');
@@ -160,18 +198,22 @@ export function SaleCustomerPicker({ value, onChange }: SaleCustomerPickerProps)
                             Cliente seleccionado {lastSelectionMode ? `(${modeLabels[lastSelectionMode]})` : ''}
                         </p>
                         <p className="text-lg font-semibold text-slate-900">{value.name}</p>
-                        <p className="text-sm text-slate-500">
-                            {value.doc_number
-                                ? `${value.doc_type?.toUpperCase() ?? ''} ${value.doc_number}`.trim()
-                                : value.email || value.phone || 'Sin datos adicionales'}
-                        </p>
+                        {value && !isConsumerFinal(value) ? (
+                            <p className="text-sm text-slate-500">
+                                {value.doc_number
+                                    ? `${value.doc_type?.toUpperCase() ?? ''} ${value.doc_number}`.trim()
+                                    : value.email || value.phone || 'Sin datos adicionales'}
+                            </p>
+                        ) : (
+                            <p className="text-sm text-slate-500">No se creará una ficha de cliente.</p>
+                        )}
                     </div>
                     <p className="text-sm text-slate-500">La selección se puede editar antes de confirmar.</p>
                 </div>
             ) : (
                 <div className="space-y-5">
-                    <div className="grid gap-3 lg:grid-cols-3">
-                        {(['quick', 'new', 'existing'] as CustomerMode[]).map((mode) => (
+                    <div className="grid gap-3 lg:grid-cols-4">
+                        {(['consumer_final', 'quick', 'new', 'existing'] as CustomerMode[]).map((mode) => (
                             <label
                                 key={mode}
                                 className={`relative flex cursor-pointer flex-col rounded-2xl border px-4 py-3 transition focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-slate-900 ${activeMode === mode ? 'border-slate-900 bg-slate-50' : 'border-slate-200 bg-white hover:border-slate-300'
@@ -182,19 +224,29 @@ export function SaleCustomerPicker({ value, onChange }: SaleCustomerPickerProps)
                                     name="customer-mode"
                                     value={mode}
                                     checked={activeMode === mode}
-                                    onChange={() => setActiveMode(mode)}
+                                    onChange={() => {
+                                        if (mode === 'consumer_final') {
+                                            handleSelectConsumerFinal();
+                                            setActiveMode('consumer_final');
+                                            return;
+                                        }
+                                        setActiveMode(mode);
+                                    }}
                                     className="sr-only"
                                     aria-label={`Elegir opción ${modeLabels[mode]}`}
                                 />
                                 <span className="text-sm font-semibold text-slate-900">{modeLabels[mode]}</span>
-                                <span className="text-xs text-slate-500">
-                                    {mode === 'quick' && 'Ingresá solo el nombre y seguí.'}
-                                    {mode === 'new' && 'Creá un cliente con los datos básicos.'}
-                                    {mode === 'existing' && 'Buscá entre tus clientes registrados.'}
-                                </span>
+                                <span className="text-xs text-slate-500">{modeDescriptions[mode]}</span>
                             </label>
                         ))}
                     </div>
+                    {activeMode === 'consumer_final' && (
+                        <div className="space-y-3" aria-label="Consumidor Final">
+                            <p className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                                La venta se registrará como Consumidor Final sin asociarse a una ficha de cliente.
+                            </p>
+                        </div>
+                    )}
                     {activeMode === 'quick' && (
                         <div className="space-y-3" aria-label="Crear cliente rápido">
                             <label className="text-sm font-semibold text-slate-700">
@@ -210,7 +262,7 @@ export function SaleCustomerPicker({ value, onChange }: SaleCustomerPickerProps)
                                         }
                                     }}
                                     minLength={MIN_NAME_LENGTH}
-                                    placeholder="Ej. Consumidor final"
+                                    placeholder="Ej. Juan Pérez"
                                     className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm focus:border-slate-900 focus:outline-none"
                                 />
                             </label>

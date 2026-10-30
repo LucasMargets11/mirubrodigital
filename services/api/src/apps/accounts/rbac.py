@@ -129,6 +129,14 @@ APPOINTMENTS_PERMISSIONS: Set[str] = {
   'view_leads',
   'manage_leads',
   'manage_agent_channels',
+  'view_own_appointments',
+  'manage_own_appointments',
+  'manage_own_schedule',
+  'view_own_customers',
+}
+
+APPOINTMENTS_OWN_PERMISSIONS = {
+  'view_own_appointments', 'manage_own_appointments', 'manage_own_schedule', 'view_own_customers',
 }
 
 ALL_PERMISSIONS: Set[str] = GESTION_PERMISSIONS.union(RESTAURANT_PERMISSIONS).union(MENU_QR_PERMISSIONS).union(QR_REVIEWS_PERMISSIONS).union(APPOINTMENTS_PERMISSIONS)
@@ -287,13 +295,14 @@ SERVICE_ROLE_PERMISSIONS: Dict[str, Dict[str, Set[str]]] = {
     },
   },
   'appointments': {
-    'owner': set(APPOINTMENTS_PERMISSIONS),
-    'admin': set(APPOINTMENTS_PERMISSIONS),
-    'manager': APPOINTMENTS_PERMISSIONS - {'manage_users', 'manage_reminder_automations', 'manage_agent_channels'},
+    'owner': APPOINTMENTS_PERMISSIONS - APPOINTMENTS_OWN_PERMISSIONS,
+    'admin': APPOINTMENTS_PERMISSIONS - APPOINTMENTS_OWN_PERMISSIONS,
+    'manager': APPOINTMENTS_PERMISSIONS - APPOINTMENTS_OWN_PERMISSIONS - {'manage_users', 'manage_reminder_automations', 'manage_agent_channels'},
     'viewer': {
       'view_appointments',
       'view_customers',
     },
+    'professional': set(APPOINTMENTS_OWN_PERMISSIONS),
   },
 }
 

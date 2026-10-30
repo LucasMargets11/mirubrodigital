@@ -65,10 +65,25 @@ function DayAppointmentCard({
     return (
         <article
             data-testid="appointment-card"
+            onClick={actions ? (event) => {
+                if (event.target instanceof Element && event.target.closest('a, button, input, select, textarea, [role="menuitem"]')) return;
+                actions.onEdit(appointment);
+            } : undefined}
             aria-current={highlighted ? 'true' : undefined}
             aria-label={`${start} · ${appointment.customer_name}`}
-            className={`relative grid grid-cols-[3.75rem,minmax(0,1fr)] gap-x-3 gap-y-3 rounded-xl border ${border} ${background} py-3 pl-4 pr-3 before:absolute before:inset-y-2 before:left-1.5 before:w-1 before:rounded-full ${appointmentAccentClass(appointment)} sm:grid-cols-[4.5rem,minmax(0,1fr),auto] sm:gap-x-4 sm:pl-5`}
+            className={`relative grid grid-cols-[3.75rem,minmax(0,1fr)] gap-x-3 gap-y-3 rounded-xl border ${border} ${background} py-3 pl-4 pr-3 before:absolute before:inset-y-2 before:left-1.5 before:w-1 before:rounded-full ${appointmentAccentClass(appointment)} sm:grid-cols-[4.5rem,minmax(0,1fr),auto] sm:gap-x-4 sm:pl-5 ${actions ? 'cursor-pointer hover:border-slate-900' : ''}`}
         >
+            {actions ? (
+                <button
+                    type="button"
+                    aria-label={`Abrir turno: ${start} · ${appointment.customer_name}`}
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        actions.onEdit(appointment);
+                    }}
+                    className="absolute inset-0 cursor-pointer rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900"
+                />
+            ) : null}
             <div className="tabular-nums">
                 <p className={`text-lg font-semibold leading-tight ${inactive ? 'text-slate-500' : 'text-slate-900'}`}>{start}</p>
                 <p className="text-xs text-slate-500">
@@ -90,7 +105,8 @@ function DayAppointmentCard({
                     </p>
                     <a
                         href={`tel:${appointment.customer_phone}`}
-                        className="mt-0.5 inline-flex items-center gap-1 rounded text-xs text-slate-500 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900"
+                        onClick={(event) => event.stopPropagation()}
+                        className="relative z-10 mt-0.5 inline-flex items-center gap-1 rounded text-xs text-slate-500 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900"
                     >
                         <Phone className="h-3 w-3" aria-hidden="true" />
                         <span className="sr-only">Llamar al </span>
@@ -115,7 +131,10 @@ function DayAppointmentCard({
             </div>
 
             {actions ? (
-                <div className="col-start-2 sm:col-start-3 sm:row-start-1 sm:self-start">
+                <div
+                    onClick={(event) => event.stopPropagation()}
+                    className="relative z-10 col-start-2 sm:col-start-3 sm:row-start-1 sm:self-start"
+                >
                     <AppointmentActions appointment={appointment} timeLabel={start} handlers={actions} />
                 </div>
             ) : null}

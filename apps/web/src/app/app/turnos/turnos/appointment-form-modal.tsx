@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
 
 import { DatePicker, formatLongDate } from '@/components/ui/date-picker';
@@ -12,9 +12,11 @@ import {
     useCreateAppointment,
     useUpdateAppointment,
 } from '@/features/appointments/hooks';
-import type { Appointment } from '@/features/appointments/types';
+import type { Appointment, AppointmentPayload } from '@/features/appointments/types';
 import { CustomerPicker, type PickedCustomer } from '@/features/customers/components/customer-picker';
 import type { Customer } from '@/features/customers/types';
+import { appointmentProposalErrorCode, PROPOSAL_SLOT_UNAVAILABLE, resolveLeadApiError } from '@/features/leads/errors';
+import type { AppointmentProposalPayload } from '@/features/leads/types';
 import { ApiError } from '@/lib/api/client';
 import { dateInTimeZone, timeInTimeZone, todayInTimeZone } from '@/lib/business-time';
 
@@ -105,6 +107,15 @@ type AppointmentFormModalProps = {
     onSaved: (appointment: Appointment, mode: 'create' | 'edit') => void;
     /** 403 del backend (p.ej. la sesión perdió `manage_appointments`). */
     onPermissionDenied?: () => void;
+    initialPatient?: Pick<AppointmentPayload, 'customer_name' | 'customer_phone' | 'notes'>;
+    /** Alta orquestada desde Lead; no ejecuta el create independiente. */
+    onCreate?: (payload: AppointmentPayload) => Promise<void>;
+    createPending?: boolean;
+    coordination?: {
+        context: string;
+        onPropose: (payload: AppointmentProposalPayload) => Promise<void>;
+        onAppointmentConflict: () => Promise<void>;
+    };
 };
 
 /**
@@ -123,14 +134,62 @@ export function AppointmentFormModal({
     onClose,
     onSaved,
     onPermissionDenied,
+    initialPatient,
+    onCreate,
+    createPending = false,
+    coordination,
 }: AppointmentFormModalProps) {
     const today = todayInTimeZone(timeZone);
-    const [form, setForm] = useState<FormState>(() => initialForm(editing, defaultDate ?? today, initialCustomer, timeZone));
+    const [form, setForm] = useState<FormState>(() => ({
+        ...initialForm(editing, defaultDate ?? (onCreate ? '' : today), initialCustomer, timeZone),
+        ...(!editing ? initialPatient : {}),
+    }));
     // Customer canónico elegido (identidad). Los `customer_*` del form son
     // los snapshots del turno: editarlos nunca modifica el Customer.
     const [pickedCustomer, setPickedCustomer] = useState<PickedCustomer | null>(() => initialPicked(editing, initialCustomer));
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [saveError, setSaveError] = useState('');
+    const [submitting, setSubmitting] = useState(false);
+    const submitLock = useRef(false);
+    const proposalKey = useRef<string | null>(null);
+    const fieldsetRef = useRef<HTMLFieldSetElement>(null);
+    const closeRef = useRef(onClose);
+    closeRef.current = onClose;
+    const coordinating = Boolean(coordination);
+
+    useEffect(() => {
+        if (!coordinating) return;
+        const opener = document.activeElement;
+        const dialog = fieldsetRef.current?.closest('[role="dialog"]');
+        const focusable = () => dialog ? Array.from(dialog.querySelectorAll<HTMLElement>(
+            'button:not(:disabled), select:not(:disabled), input:not(:disabled), textarea:not(:disabled), a[href]',
+        )).filter((element) => element.tabIndex >= 0
+            && (element.getAttribute('aria-label') !== 'Cerrar' || element.textContent?.trim())) : [];
+        fieldsetRef.current?.querySelector('select')?.focus();
+        const onKeyDown = (event: Event) => {
+            if (!(event instanceof KeyboardEvent)) return;
+            if (event.key === 'Escape' && !submitLock.current) {
+                event.preventDefault();
+                closeRef.current();
+            }
+            if (event.key !== 'Tab') return;
+            const elements = focusable();
+            const first = elements[0];
+            const last = elements[elements.length - 1];
+            if (event.shiftKey && document.activeElement === first) {
+                event.preventDefault();
+                last?.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault();
+                first?.focus();
+            }
+        };
+        dialog?.addEventListener('keydown', onKeyDown);
+        return () => {
+            dialog?.removeEventListener('keydown', onKeyDown);
+            if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
+        };
+    }, [coordinating]);
 
     const servicesQuery = useAppointmentServices('', false);
     const professionalsQuery = useAppointmentProfessionals('', false);
@@ -146,7 +205,7 @@ export function AppointmentFormModal({
 
     const createMutation = useCreateAppointment();
     const updateMutation = useUpdateAppointment();
-    const isSaving = createMutation.isPending || updateMutation.isPending;
+    const isSaving = submitting || createPending || createMutation.isPending || updateMutation.isPending;
 
     const services = useMemo(() => servicesQuery.data ?? [], [servicesQuery.data]);
     const professionals = useMemo(() => professionalsQuery.data ?? [], [professionalsQuery.data]);
@@ -170,19 +229,30 @@ export function AppointmentFormModal({
     }
 
     function handleServiceChange(serviceId: string) {
+        if (serviceId !== form.service_id) proposalKey.current = null;
         setForm((prev) => ({ ...prev, service_id: serviceId, professional_id: '', start_at: '' }));
     }
 
     function handleProfessionalChange(professionalId: string) {
+        if (professionalId !== form.professional_id) proposalKey.current = null;
         setForm((prev) => ({ ...prev, professional_id: professionalId, start_at: '' }));
     }
 
     function handleDateChange(nextDate: string) {
+        if (nextDate !== form.date) proposalKey.current = null;
         setForm((prev) => ({ ...prev, date: nextDate, start_at: '' }));
     }
 
-    async function handleSubmit() {
-        const parsed = appointmentFormSchema.safeParse(form);
+    async function handleSubmit(propose = false) {
+        if (submitLock.current || isSaving) return;
+        if (onCreate && eligibleProfessionals.length > 0 && !form.professional_id) {
+            setErrors({ professional_id: 'Elegí un profesional' });
+            return;
+        }
+        const schema = propose
+            ? appointmentFormSchema.pick({ service_id: true, professional_id: true, date: true, start_at: true })
+            : appointmentFormSchema;
+        const parsed = schema.safeParse(form);
         if (!parsed.success) {
             const fieldErrors: Record<string, string> = {};
             parsed.error.errors.forEach((err) => {
@@ -196,25 +266,52 @@ export function AppointmentFormModal({
         setErrors({});
         setSaveError('');
 
-        const payload = {
-            service_id: parsed.data.service_id,
-            professional_id: parsed.data.professional_id || null,
-            start_at: parsed.data.start_at,
+        const payload: AppointmentPayload = {
+            service_id: form.service_id,
+            professional_id: form.professional_id || null,
+            start_at: form.start_at,
             // Con Customer elegido el backend lo usa tal cual (sin resolver por teléfono).
             customer_id: canPickCustomer && pickedCustomer ? pickedCustomer.id : undefined,
-            customer_name: parsed.data.customer_name.trim(),
-            customer_phone: parsed.data.customer_phone.trim(),
-            customer_email: parsed.data.customer_email?.trim() || undefined,
-            notes: parsed.data.notes?.trim() || undefined,
+            customer_name: form.customer_name.trim(),
+            customer_phone: form.customer_phone.trim(),
+            customer_email: form.customer_email?.trim() || undefined,
+            notes: form.notes?.trim() || undefined,
         };
 
+        submitLock.current = true;
+        setSubmitting(true);
         try {
+            if (propose && coordination) {
+                proposalKey.current ??= crypto.randomUUID();
+                await coordination.onPropose({
+                    service_id: form.service_id,
+                    professional_id: form.professional_id || null,
+                    start_at: form.start_at,
+                    idempotency_key: proposalKey.current,
+                });
+                return;
+            }
+            if (!editing && onCreate) {
+                await onCreate(payload);
+                return;
+            }
             const saved = editing
                 ? await updateMutation.mutateAsync({ id: editing.id, payload })
                 : await createMutation.mutateAsync(payload);
             onSaved(saved, editing ? 'edit' : 'create');
         } catch (error) {
-            if (error instanceof ApiError && error.status === 403) {
+            const code = appointmentProposalErrorCode(error);
+            if (coordination && code === 'lead_has_appointment') {
+                try {
+                    await coordination.onAppointmentConflict();
+                } catch (refreshError) {
+                    setSaveError(resolveLeadApiError(refreshError, 'El Lead ya tiene un turno. No pudimos actualizar el detalle; cerrá y volvé a cargarlo.'));
+                }
+                return;
+            }
+            if (propose && code === 'idempotency_key_reused') {
+                setSaveError('Esta clave de envío ya se usó para otra propuesta. Cambiá la selección o iniciá una propuesta nueva.');
+            } else if (error instanceof ApiError && error.status === 403) {
                 setSaveError('Tu rol no tiene permiso para esta acción.');
                 onPermissionDenied?.();
             } else if (error instanceof ApiError && error.status === 400 && error.payload && typeof error.payload === 'object') {
@@ -227,21 +324,49 @@ export function AppointmentFormModal({
                 }
                 if (Object.keys(fieldErrors).length > 0) {
                     setErrors(fieldErrors);
+                    setSaveError(Object.entries(fieldErrors)
+                        .filter(([field]) => !['service_id', 'professional_id', 'date', 'start_at', 'customer_id', 'customer_name', 'customer_phone', 'customer_email', 'notes'].includes(field))
+                        .map(([, message]) => message).join(' '));
+                    if (fieldErrors.start_at) {
+                        if (propose) {
+                            setErrors((prev) => ({ ...prev, start_at: PROPOSAL_SLOT_UNAVAILABLE }));
+                        }
+                        setForm((prev) => ({ ...prev, start_at: '' }));
+                        proposalKey.current = null;
+                        void availabilityQuery.refetch();
+                    }
                 } else {
-                    setSaveError('No pudimos guardar el turno.');
+                    setSaveError(resolveLeadApiError(error, propose ? 'No pudimos enviar la propuesta.' : 'No pudimos guardar el turno.'));
                 }
             } else {
-                setSaveError('No pudimos guardar el turno.');
+                setSaveError(resolveLeadApiError(error, propose
+                    ? 'No pudimos verificar el envío de la propuesta. Reintentá sin cambiar la selección para evitar duplicados.'
+                    : 'No pudimos guardar el turno.'));
             }
+        } finally {
+            submitLock.current = false;
+            setSubmitting(false);
         }
     }
 
     return (
-        <Modal open onClose={onClose} title={editing ? 'Editar turno' : 'Nuevo turno'}>
-            <fieldset disabled={isSaving} className="space-y-4">
+        <Modal open onClose={() => { if (!submitLock.current && !isSaving) onClose(); }} title={coordination ? 'Coordinar turno' : editing ? 'Editar turno' : 'Nuevo turno'}>
+            <fieldset ref={fieldsetRef} disabled={isSaving} className="space-y-4">
                 <legend className="sr-only">{editing ? 'Formulario para editar turno' : 'Formulario para crear turno'}</legend>
 
+                {coordination ? (
+                    <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
+                        <p>{coordination.context}</p>
+                        <p className="mt-1 text-xs text-slate-500">La preferencia reportada es orientativa.</p>
+                    </div>
+                ) : null}
                 {editing ? <AppointmentPaymentSection appointment={editing} timeZone={timeZone} /> : null}
+                {servicesQuery.isError || professionalsQuery.isError ? (
+                    <div role="alert">
+                        <p>No pudimos cargar los servicios o profesionales.</p>
+                        <button type="button" onClick={() => { void servicesQuery.refetch(); void professionalsQuery.refetch(); }}>Reintentar carga</button>
+                    </div>
+                ) : null}
 
                 <div className="grid gap-4 md:grid-cols-2">
                     <label className="block text-sm font-medium text-slate-700">
@@ -294,13 +419,20 @@ export function AppointmentFormModal({
                     {errors.date && <span className="mt-1 block text-xs text-rose-600" role="alert">{errors.date}</span>}
                 </div>
 
-                <div>
+                <div role="group" aria-label="Horario disponible">
                     <p className="text-sm font-medium text-slate-700">
                         Horario <span className="text-rose-600" aria-hidden="true">*</span>
                     </p>
                     {!form.service_id ? (
                         <p className="mt-1 text-xs text-slate-500">Elegí un servicio para ver los horarios disponibles.</p>
-                    ) : availabilityQuery.isLoading ? (
+                    ) : !form.date ? (
+                        <p className="mt-1 text-xs text-slate-500">Elegí una fecha para ver los horarios disponibles.</p>
+                    ) : availabilityQuery.isError ? (
+                        <div role="alert">
+                            <p>No pudimos cargar la disponibilidad.</p>
+                            <button type="button" onClick={() => void availabilityQuery.refetch()}>Reintentar disponibilidad</button>
+                        </div>
+                    ) : availabilityQuery.isLoading || availabilityQuery.isFetching ? (
                         <p className="mt-1 text-xs text-slate-500">Buscando horarios disponibles...</p>
                     ) : availableSlots.length === 0 ? (
                         <p className="mt-1 text-xs text-slate-500">No hay horarios disponibles para esta fecha.</p>
@@ -310,7 +442,11 @@ export function AppointmentFormModal({
                                 <button
                                     key={slot.start}
                                     type="button"
-                                    onClick={() => setForm((prev) => ({ ...prev, start_at: slot.start }))}
+                                    onClick={() => {
+                                        if (slot.start !== form.start_at) proposalKey.current = null;
+                                        setForm((prev) => ({ ...prev, start_at: slot.start }));
+                                    }}
+                                    aria-pressed={form.start_at === slot.start}
                                     className={`rounded-full border px-3 py-1 text-xs font-semibold ${
                                         form.start_at === slot.start
                                             ? 'border-slate-900 bg-slate-900 text-white'
@@ -334,6 +470,7 @@ export function AppointmentFormModal({
                     />
                 ) : null}
 
+                {!coordination || !initialPatient?.customer_name || !initialPatient?.customer_phone || errors.customer_name || errors.customer_phone ? (
                 <div className="grid gap-4 md:grid-cols-2">
                     <label className="block text-sm font-medium text-slate-700">
                         {canPickCustomer ? 'Nombre en el turno' : 'Cliente'} <span className="text-rose-600" aria-hidden="true">*</span>
@@ -357,7 +494,9 @@ export function AppointmentFormModal({
                         {errors.customer_phone && <span className="mt-1 block text-xs text-rose-600" role="alert">{errors.customer_phone}</span>}
                     </label>
                 </div>
+                ) : null}
 
+                {!coordination ? (
                 <label className="block text-sm font-medium text-slate-700">
                     Email
                     <input
@@ -368,7 +507,9 @@ export function AppointmentFormModal({
                     />
                     {errors.customer_email && <span className="mt-1 block text-xs text-rose-600" role="alert">{errors.customer_email}</span>}
                 </label>
+                ) : null}
 
+                {!coordination ? (
                 <label className="block text-sm font-medium text-slate-700">
                     Notas
                     <textarea
@@ -378,6 +519,7 @@ export function AppointmentFormModal({
                         rows={2}
                     />
                 </label>
+                ) : null}
 
                 {saveError ? (
                     <p role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">
@@ -385,7 +527,25 @@ export function AppointmentFormModal({
                     </p>
                 ) : null}
 
-                <div className="flex justify-end gap-3 pt-2">
+                {coordination ? (
+                    <div className="space-y-3 border-t border-slate-100 pt-4">
+                        <div>
+                            <button type="button" onClick={() => void handleSubmit(true)} disabled={isSaving} aria-busy={isSaving}
+                                className="rounded-full bg-slate-900 px-5 py-2 text-sm font-semibold text-white disabled:opacity-60">
+                                Enviar propuesta
+                            </button>
+                            <p className="mt-1 text-xs text-slate-500">El paciente recibe una opción por WhatsApp. El horario todavía no está reservado. Se volverá a validar al confirmar.</p>
+                        </div>
+                        <div>
+                            <button type="button" onClick={() => void handleSubmit()} disabled={isSaving} aria-busy={isSaving}
+                                className="rounded-full border border-slate-300 px-5 py-2 text-sm font-semibold text-slate-700 disabled:opacity-60">
+                                Crear turno directamente
+                            </button>
+                            <p className="mt-1 text-xs text-slate-500">Crea el turno real inmediatamente.</p>
+                        </div>
+                        <button type="button" onClick={onClose} disabled={isSaving} className="text-sm text-slate-600 underline">Cancelar</button>
+                    </div>
+                ) : <div className="flex justify-end gap-3 pt-2">
                     <button
                         type="button"
                         onClick={onClose}
@@ -396,14 +556,14 @@ export function AppointmentFormModal({
                     </button>
                     <button
                         type="button"
-                        onClick={handleSubmit}
+                        onClick={() => void handleSubmit()}
                         disabled={isSaving}
                         className="rounded-full bg-slate-900 px-5 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
                         aria-busy={isSaving}
                     >
                         {isSaving ? 'Guardando...' : 'Guardar'}
                     </button>
-                </div>
+                </div>}
             </fieldset>
         </Modal>
     );

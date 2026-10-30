@@ -25,7 +25,7 @@ from django.utils import timezone
 from apps.notifications.business_notifications import on_commit_safely
 
 from .. import human_message_client as client
-from ..models import Lead, LeadStaffMessage
+from ..models import AppointmentProposal, Lead, LeadStaffMessage
 from .takeover import TakeoverUnavailable, conversation_id_for, takeover_enabled
 
 logger = logging.getLogger('apps.leads.human_messages')
@@ -74,16 +74,24 @@ def send_staff_message(lead: Lead, text: str, *, user) -> LeadStaffMessage:
     conversation_id = conversation_id_for(lead)
     if conversation_id is None:
         raise TakeoverUnavailable('conversation_unavailable')
-    clean_text = _validate_text(text)
-
-    now = timezone.now()
     with transaction.atomic():
-        message = LeadStaffMessage.objects.create(
-            lead=lead, text=clean_text, occurred_at=now, created_by=user,
-            status=Status.PENDING, next_attempt_at=now,
-        )
-        _kick(message.pk)
-        logger.info('human_message_queued msg=%s lead=%s', message.pk, lead.pk)
+        return enqueue_staff_message(lead, text, user=user)
+
+
+def enqueue_staff_message(lead: Lead, text: str, *, user) -> LeadStaffMessage:
+    """Crea la fila `pending` del outbox y agenda el kick after-commit.
+
+    Debe correr dentro de la transacción del caller (el mensaje y lo que lo
+    origina se confirman juntos). No valida flag ni conversación: eso es del caller.
+    """
+    clean_text = _validate_text(text)
+    now = timezone.now()
+    message = LeadStaffMessage.objects.create(
+        lead=lead, text=clean_text, occurred_at=now, created_by=user,
+        status=Status.PENDING, next_attempt_at=now,
+    )
+    _kick(message.pk)
+    logger.info('human_message_queued msg=%s lead=%s', message.pk, lead.pk)
     return message
 
 
@@ -151,6 +159,11 @@ def deliver_staff_message(message_id, *, send=None, now=None) -> str | None:
         client_message_id=message.client_message_id, business_id=message.lead.business_id,
         occurred_at=message.occurred_at, text=message.text,
     )
+    withdrawn = _withdrawn_proposal_error(message.pk)
+    if withdrawn is not None:
+        return _record_response(message.pk, message.attempts, client.AgentMessageResponse(
+            kind=client.KIND_TERMINAL, error_code=withdrawn,
+        ), now=now)
     send = send or client.send_message
     try:
         response = send(payload)
@@ -161,6 +174,25 @@ def deliver_staff_message(message_id, *, send=None, now=None) -> str | None:
         logger.exception('human_message_send_crashed msg=%s', message.pk)
         response = client.AgentMessageResponse(kind=client.KIND_RETRYABLE, error_code='client_error')
     return _record_response(message.pk, message.attempts, response, now=now)
+
+
+_WITHDRAWN_PROPOSAL_ERRORS = {
+    AppointmentProposal.Status.SUPERSEDED: 'proposal_superseded',
+    AppointmentProposal.Status.EXPIRED: 'proposal_expired',
+}
+
+
+def _withdrawn_proposal_error(message_id) -> str | None:
+    """Código terminal si el mensaje es de una propuesta reemplazada/vencida (no debe salir al agente).
+
+    Se consulta justo antes del HTTP. Límite inevitable: si la propuesta se
+    reemplaza después de esta lectura, este intento igual sale; y un mensaje
+    ya aceptado por el agente no puede retirarse.
+    """
+    status = (
+        AppointmentProposal.objects.filter(staff_message_id=message_id).values_list('status', flat=True).first()
+    )
+    return _WITHDRAWN_PROPOSAL_ERRORS.get(status)
 
 
 def _record_response(message_id, attempts, response: client.AgentMessageResponse, *, now=None) -> str | None:
@@ -184,6 +216,7 @@ def _record_response(message_id, attempts, response: client.AgentMessageResponse
                 message.failed_at = now
                 message.next_attempt_at = None
                 message.save(update_fields=fields)
+                _sync_proposal(message, now)
                 logger.error('human_message_exhausted %s error=%s', log_extra, response.error_code)
                 return Status.FAILED
             delay = _backoff_seconds(message.attempts)
@@ -200,6 +233,7 @@ def _record_response(message_id, attempts, response: client.AgentMessageResponse
             message.next_attempt_at = None
             message.last_error = response.error_code
             message.save(update_fields=fields)
+            _sync_proposal(message, now)
             logger.error('human_message_failed %s error=%s', log_extra, response.error_code)
             return Status.FAILED
 
@@ -211,8 +245,29 @@ def _record_response(message_id, attempts, response: client.AgentMessageResponse
         message.last_error = None
         message.next_attempt_at = None
         message.save(update_fields=fields)
+        _sync_proposal(message, now)
         logger.info('human_message_delivered %s result=%s message_id=%s', log_extra, response.result, response.message_id)
         return Status.DELIVERED
+
+
+def _sync_proposal(message: LeadStaffMessage, now) -> None:
+    """Refleja el resultado final del outbox en la `AppointmentProposal` del mensaje (Slice 3A).
+
+    Solo mueve propuestas que siguen `pending_delivery`: una ya reemplazada
+    (`superseded`) o vencida no revive, ni pasa a `delivery_failed` cuando el
+    guard `_withdrawn_proposal_error` cancela su mensaje a propósito.
+    `queued` = encolada en el agente, no entregada por WhatsApp; ahí arranca
+    la ventana de vencimiento.
+    """
+    proposals = AppointmentProposal.objects.filter(
+        staff_message_id=message.pk, status=AppointmentProposal.Status.PENDING_DELIVERY,
+    )
+    if message.status == Status.DELIVERED:
+        proposals.update(
+            status=AppointmentProposal.Status.QUEUED, expires_at=now + AppointmentProposal.QUEUED_TTL, updated_at=now,
+        )
+    elif message.status == Status.FAILED:
+        proposals.update(status=AppointmentProposal.Status.DELIVERY_FAILED, updated_at=now)
 
 
 # ── Barrido (Beat) ──────────────────────────────────────────────────────────

@@ -1,5 +1,36 @@
 import { ApiError } from '@/lib/api/client';
 
+export const PROPOSAL_TAKEOVER_REQUIRED = 'Para enviar una propuesta primero tenés que tomar la conversación.';
+export const PROPOSAL_SLOT_UNAVAILABLE = 'Ese horario ya no está disponible. Elegí otro.';
+
+export function appointmentProposalErrorCode(error: unknown): string | null {
+    if (!(error instanceof ApiError) || !error.payload || typeof error.payload !== 'object') return null;
+    const payload = error.payload as Record<string, unknown>;
+    return typeof payload.code === 'string' ? payload.code : null;
+}
+
+export function appointmentProposalConfirmationError(error: unknown): string {
+    const code = appointmentProposalErrorCode(error);
+    if (code === 'slot_unavailable') return 'Ese horario ya no está disponible. Elegí otro horario para continuar.';
+    if (code === 'proposal_expired') return 'La propuesta venció. Proponé otro horario.';
+    if (code === 'proposal_superseded') return 'La propuesta fue reemplazada. Actualizamos la información.';
+    if (code === 'proposal_delivery_failed') return 'No se pudo enviar esta propuesta. Proponé otro horario.';
+    if (code === 'lead_already_has_appointment') return 'El lead ya tiene un turno vinculado. Actualizamos la información.';
+    return resolveLeadApiError(error, 'No pudimos confirmar el turno. Intentá nuevamente.');
+}
+
+export function appointmentProposalDeliveryError(code: string | null): string {
+    if (code === 'conversation_not_taken') return PROPOSAL_TAKEOVER_REQUIRED;
+    if (code === 'conversation_not_found' || code === 'conversation_unavailable') return 'La conversación ya no está disponible.';
+    if (code === 'outside_service_window') return 'La ventana de atención de WhatsApp está cerrada. Esperá un nuevo mensaje del paciente.';
+    if (code === 'human_messages_disabled') return 'El envío de mensajes al paciente está deshabilitado.';
+    if (code === 'message_conflict') return 'El agente rechazó el envío por un conflicto de mensaje. Intentá otra propuesta.';
+    if (code === 'invalid_payload') return 'El agente no pudo procesar la propuesta. Revisá la integración.';
+    if (code === 'timeout' || code === 'network_error') return 'No pudimos comunicarnos con el agente.';
+    if (code && CONVERSATION_CONTROL_ERROR_MESSAGES[code]) return CONVERSATION_CONTROL_ERROR_MESSAGES[code];
+    return 'No se pudo completar el envío. Intentá otra propuesta o revisá la integración.';
+}
+
 /**
  * Primer mensaje legible de un error de la API de Leads: `detail`, luego el
  * primer error de campo (`{status: '...'}`, `{outcome: ['...']}`,

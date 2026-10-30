@@ -213,6 +213,7 @@ class Membership(models.Model):
     ('salon', 'Salon / Toma pedidos'),
     ('analyst', 'Analyst'),
     ('contador', 'Contador'),
+    ('professional', 'Professional'),
   ]
 
   user = models.ForeignKey(settings.AUTH_USER_MODEL, related_name='memberships', on_delete=models.CASCADE)
@@ -277,6 +278,15 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 def check_seat_limit(sender, instance, raw=False, **kwargs):
     if raw or instance.pk: 
         return
+
+    # Professional Memberships still consume user seats; only their plan eligibility differs.
+    if instance.role == 'professional':
+        from apps.appointments.services.professional_quota import professional_login_enabled
+
+        if not professional_login_enabled(instance.business):
+            raise DjangoValidationError(
+                'El acceso profesional requiere una suscripción activa de Turnos Pro o IA.'
+            )
 
     # Owner membership never consumes a seat — skip entirely.
     if instance.role == 'owner':
@@ -697,4 +707,3 @@ def _create_account_profile(sender, instance, created: bool, **kwargs):
 from apps.accounts.admin_internal_note import AdminInternalNote  # noqa: E402, F401
 from apps.accounts.admin_notification import AdminNotification    # noqa: E402, F401
 from apps.accounts.support_ticket import SupportTicket, TicketMessage  # noqa: E402, F401
-

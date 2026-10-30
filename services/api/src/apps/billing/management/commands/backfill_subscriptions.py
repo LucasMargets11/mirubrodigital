@@ -45,6 +45,7 @@ from django.core.management.base import BaseCommand
 from django.db import IntegrityError, transaction
 
 from apps.billing.models import Subscription as LegacyBillingSubscription, SubscriptionV2
+from apps.billing.runtime import is_appointments_plan_code
 from apps.business.models import Subscription as LegacyBizSubscription
 
 # Mapping billing.Subscription.status → SubscriptionV2.Status  (4-value, includes 'trial')
@@ -69,6 +70,10 @@ SERVICE_MAP: dict[str, str] = {
     'menu_qr':        SubscriptionV2.ServiceType.MENU_QR,
     'menu_qr_visual': SubscriptionV2.ServiceType.MENU_QR_VISUAL,
     'menu_qr_marca':  SubscriptionV2.ServiceType.MENU_QR_MARCA,
+    'appointments':       SubscriptionV2.ServiceType.APPOINTMENTS,
+    'appointments_base':  SubscriptionV2.ServiceType.APPOINTMENTS,
+    'appointments_pro':   SubscriptionV2.ServiceType.APPOINTMENTS,
+    'appointments_ai':    SubscriptionV2.ServiceType.APPOINTMENTS,
 }
 
 
@@ -172,9 +177,11 @@ class Command(BaseCommand):
             summary['billing_skipped'] += 1
             return
 
-        service_type = self._resolve_service(hq, 'billing.Subscription', leg.pk, summary)
-        v2_status    = BILLING_STATUS_MAP.get(leg.status, SubscriptionV2.Status.ACTIVE)
         plan_code    = self._derive_plan_code_billing(leg)
+        service_type = self._resolve_service(
+            hq, 'billing.Subscription', leg.pk, summary, plan_code=plan_code,
+        )
+        v2_status    = BILLING_STATUS_MAP.get(leg.status, SubscriptionV2.Status.ACTIVE)
 
         # Conflict guard: another non-canceled V2 for (hq, service_type) with different ref
         if self._has_conflict(hq, service_type, external_reference):
@@ -245,23 +252,11 @@ class Command(BaseCommand):
             summary['biz_skipped'] += 1
             return
 
-        raw_service = (
-            getattr(hq, 'service_type', None)
-            or getattr(hq, 'default_service', None)
-            or getattr(biz_sub, 'service', None)
-            or 'gestion'
-        )
-        service_type = SERVICE_MAP.get(raw_service)
-        if service_type is None:
-            self.stdout.write(self.style.WARNING(
-                f"  WARN  HQ #{hq.id}: unknown service '{raw_service}' "
-                f"\u2192 defaulting to 'gestion'."
-            ))
-            service_type = SubscriptionV2.ServiceType.GESTION
-            summary['service_unknown'] += 1
-
         v2_status = BIZ_STATUS_MAP.get(biz_sub.status, SubscriptionV2.Status.ACTIVE)
         plan_code = biz_sub.plan or 'legacy-unknown'
+        service_type = self._resolve_service(
+            hq, 'business.Subscription', biz_sub.pk, summary, plan_code=plan_code,
+        )
 
         # Conflict guard
         if self._has_conflict(hq, service_type, external_reference):
@@ -316,8 +311,11 @@ class Command(BaseCommand):
 
     # ── Shared helpers ─────────────────────────────────────────────────────────
 
-    def _resolve_service(self, hq, source_label: str, leg_pk: int, summary) -> str:
+    def _resolve_service(self, hq, source_label: str, leg_pk: int, summary, plan_code=None) -> str:
         """Resolve service_type string for hq, defaulting to 'gestion'."""
+        if is_appointments_plan_code(plan_code or ''):
+            return SubscriptionV2.ServiceType.APPOINTMENTS
+
         raw_service = (
             getattr(hq, 'service_type', None)
             or getattr(hq, 'default_service', None)

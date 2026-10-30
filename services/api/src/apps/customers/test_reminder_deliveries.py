@@ -24,6 +24,7 @@ from apps.appointments.tests import test_reminder_automation as automation_tests
 from apps.appointments.tests.test_appointment_payment_webhook import WEBHOOK_SETTINGS
 from apps.appointments.tests.test_customer_core_access import _login, _turnos_business
 from apps.appointments.tests.test_reminder_automation import MONDAY, at
+from apps.billing.models import SubscriptionV2
 from apps.notifications.models import BusinessNotification
 
 from . import reminder_deliveries
@@ -168,6 +169,10 @@ class ReminderDeliveryTests(APITestCase):
 
   def setUp(self):
     self._base_setUp()
+    SubscriptionV2.objects.create(
+      business=self.biz, service_type='appointments', plan_code='appointments_ai', usage_tier='ai_300',
+      status='active', is_active=True, provider='manual', external_reference=f'SUB-REMINDER-{self.biz.pk}',
+    )
     self.customer.email = 'Ana@Example.com'
     self.customer.save()
     boto = patch('boto3.client', side_effect=AssertionError('no real AWS client in tests'))

@@ -16,31 +16,41 @@ import uuid
 
 from django.db import transaction
 from django.db.models import BooleanField, Case, F, OuterRef, Prefetch, Q, Subquery, Value, When
+from django.db.models.functions import Substr
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from rest_framework import generics, status as http_status
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.accounts.access import resolve_business_context, resolve_request_membership
-from apps.accounts.permissions import HasBusinessMembership, HasEntitlement, HasPermission
+from apps.accounts.models import Membership
+from apps.accounts.permissions import HasBusinessMembership, HasEntitlement, HasPermission, request_has_permission
+from apps.appointments.serializers import AppointmentSerializer
 from apps.business.entitlements import APPOINTMENTS_LEADS_ENTITLEMENT
 
 from .crm_serializers import (
-    LeadDetailSerializer, LeadListSerializer, LeadMessageSerializer, LeadNoteSerializer, LeadSendMessageSerializer,
-    LeadUpdateSerializer, _user_ref,
+    AppointmentProposalCreateSerializer, LeadDetailSerializer, LeadListSerializer, LeadMessageSerializer,
+    LeadNoteSerializer, LeadSendMessageSerializer, LeadUpdateSerializer, _user_ref, serialize_appointment_proposal,
 )
-from .models import ConversationControl, Lead, LeadActivity, LeadAgentMessage, LeadNote, TakeoverCommand
-from .services.activity import record_attention_acknowledged
+from .models import ConversationControl, Lead, LeadActivity, LeadAgentMessage, LeadAgentState, LeadNote, TakeoverCommand
+from .services.activity import record_attention_acknowledged, record_update_activity, snapshot_for_activity
+from .services.appointment_proposals import (
+    ProposalConflict, ProposalInvalid, confirm_appointment_proposal, create_and_send_appointment_proposal, current_proposal,
+)
+from .services.lead_appointments import appointment_data_for_lead, link_lead_appointment
 from .services.assignees import assignable_memberships
 from .services.human_messages import authored_by_map, send_staff_message
 from .services.takeover import TakeoverConflict, TakeoverUnavailable, request_conversation_command
 
 UNASSIGNED = 'unassigned'
 UNLINKED = 'unlinked'
+APPOINTMENT_WITH = 'with'
+APPOINTMENT_WITHOUT = 'without'
+LAST_PATIENT_MESSAGE_PREVIEW_CHARS = 240
 ORDERING_PRIORITY = 'priority'
 _BOOLEAN_VALUES = {'true': True, 'false': False}
 _NON_DIGITS = re.compile(r'\D+')
@@ -117,7 +127,7 @@ class LeadListView(_LeadPermissionsMixin, generics.ListAPIView):
         business = getattr(self.request, 'business')
         params = self.request.query_params
         queryset = Lead.objects.filter(business=business).select_related(
-            'agent_state', 'assigned_to', 'customer',
+            'agent_state', 'assigned_to', 'customer', 'appointment', 'appointment__professional',
         ).annotate(
             # MIRUBRO TAKEOVER 05A: badge `conversation_state` sin query por fila.
             conversation_control_state=Subquery(
@@ -126,6 +136,14 @@ class LeadListView(_LeadPermissionsMixin, generics.ListAPIView):
                     external_conversation_id=OuterRef('agent_state__external_conversation_id'),
                 ).values('state')[:1]
             ),
+            # LEADS SLICE 2: preview del último mensaje del PACIENTE de este Lead
+            # (episodio). Solo `sender=patient`; nunca `summary` como fallback.
+            last_patient_message_text=Subquery(
+                _last_patient_messages().annotate(
+                    preview=Substr('text', 1, LAST_PATIENT_MESSAGE_PREVIEW_CHARS),
+                ).values('preview')[:1]
+            ),
+            last_patient_message_at=Subquery(_last_patient_messages().values('sent_at')[:1]),
         )
 
         status = _parse_choice(params, 'status', Lead.Status.values)
@@ -170,6 +188,11 @@ class LeadListView(_LeadPermissionsMixin, generics.ListAPIView):
                     raise ValidationError({'customer': f'Usar un id de cliente o "{UNLINKED}".'})
                 queryset = queryset.filter(customer_id=customer_id)
 
+        # `with` = hay un turno vinculado (FK), sea cual sea su estado o fecha.
+        appointment = _parse_choice(params, 'appointment', (APPOINTMENT_WITH, APPOINTMENT_WITHOUT))
+        if appointment:
+            queryset = queryset.filter(appointment__isnull=appointment == APPOINTMENT_WITHOUT)
+
         q = (params.get('q') or '').strip()
         if q:
             match = (
@@ -213,6 +236,47 @@ class LeadListView(_LeadPermissionsMixin, generics.ListAPIView):
             raise ValidationError({'ordering': f'Valores permitidos: {allowed}.'})
         return queryset.order_by(*self.ORDERINGS[ordering])
 
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        leads = page if page is not None else list(queryset)
+        context = self.get_serializer_context()
+        # Un único `now` por respuesta (is_upcoming / is_past / hold vencido coherentes).
+        context['now'] = timezone.now()
+        context['conversation_controls'] = _conversation_controls_by_id(getattr(request, 'business'), leads)
+        data = self.get_serializer_class()(leads, many=True, context=context).data
+        if page is not None:
+            return self.get_paginated_response(data)
+        return Response(data)
+
+
+def _last_patient_messages():
+    return LeadAgentMessage.objects.filter(
+        lead_id=OuterRef('pk'), sender=LeadAgentMessage.Sender.PATIENT,
+    ).order_by('-sent_at', '-id')
+
+
+def _conversation_controls_by_id(business, leads) -> dict[str, ConversationControl]:
+    """Controles de la página en UNA query, scopeados por Business + conversation id.
+
+    Varios Leads (episodios) comparten conversación; el mismo conversation id
+    en otro tenant nunca se mezcla. `taken_by` no se asume igual a `assigned_to`.
+    """
+    conversation_ids = set()
+    for lead in leads:
+        try:
+            conversation_id = lead.agent_state.external_conversation_id
+        except LeadAgentState.DoesNotExist:
+            continue
+        if conversation_id:
+            conversation_ids.add(conversation_id)
+    if not conversation_ids:
+        return {}
+    controls = ConversationControl.objects.filter(
+        business=business, external_conversation_id__in=conversation_ids,
+    ).select_related('taken_by')
+    return {control.external_conversation_id: control for control in controls}
+
 
 class LeadAssigneesView(_LeadPermissionsMixin, generics.GenericAPIView):
     """GET /api/v1/leads/assignees/ — personas asignables a Leads del Business actual (LEADS 05B.1).
@@ -247,6 +311,7 @@ class LeadDetailView(_LeadPermissionsMixin, generics.GenericAPIView):
             Lead.objects.select_related(
                 'agent_state__agent_instance', 'agent_state__channel', 'assigned_to', 'customer', 'appointment',
                 'closed_by', 'acknowledged_by',
+                'appointment__professional', 'appointment__customer',
             ).prefetch_related(
                 'notes__author',
                 Prefetch('activities', queryset=LeadActivity.objects.select_related('actor').order_by('-created_at', 'position')),
@@ -269,6 +334,40 @@ class LeadDetailView(_LeadPermissionsMixin, generics.GenericAPIView):
             serializer.is_valid(raise_exception=True)
             serializer.save()
         return Response(self._detail(lead.pk))
+
+
+class LeadCreateAppointmentView(LeadDetailView):
+    """POST /api/v1/leads/{id}/appointment/ — alta y vínculo atómicos.
+
+    Requiere manage_leads Y manage_appointments. Usa el payload de
+    AppointmentSerializer; customer_* omitidos se completan desde el Lead.
+    Lead.customer, si existe, es la identidad explícita y no puede reemplazarse
+    en este endpoint. El serializer calcula end_at y resuelve disponibilidad
+    y Customer. Responde 201 con LeadDetailSerializer; un Lead ya vinculado
+    devuelve 400 sin otra reserva (incluidos reintentos tras respuesta perdida).
+    No cambia estado/outcome/atención ni envía mensajes al paciente.
+    """
+
+    http_method_names = ['post', 'options']
+
+    def check_permissions(self, request):
+        super().check_permissions(request)
+        if not request_has_permission(request, 'manage_appointments'):
+            raise PermissionDenied(HasPermission.message)
+
+    def post(self, request, *args, **kwargs):
+        with transaction.atomic():
+            lead = self.get_lead(for_update=True)
+            if lead.appointment_id is not None:
+                raise ValidationError({'non_field_errors': ['El lead ya tiene un turno vinculado. Actualizá el detalle.']})
+            if not isinstance(request.data, dict):
+                raise ValidationError({'non_field_errors': ['El body debe ser un objeto JSON.']})
+            data = appointment_data_for_lead(lead, request.data)
+            serializer = AppointmentSerializer(data=data, context=self.get_serializer_context())
+            serializer.is_valid(raise_exception=True)
+            appointment = serializer.save(business=lead.business)
+            link_lead_appointment(lead, appointment, user=request.user)
+        return Response(self._detail(lead.pk), status=http_status.HTTP_201_CREATED)
 
 
 class LeadAcknowledgeAttentionView(LeadDetailView):
@@ -411,6 +510,107 @@ class LeadMessagesView(_LeadPermissionsMixin, generics.ListCreateAPIView):
             {'ok': True, 'status': 'queued_locally', 'id': str(message.pk)},
             status=http_status.HTTP_202_ACCEPTED,
         )
+
+
+def _takeover_unavailable_response(exc: TakeoverUnavailable) -> Response:
+    if exc.code == 'takeover_disabled':
+        return Response(
+            {'ok': False, 'code': exc.code, 'detail': 'El envío de mensajes no está habilitado.'},
+            status=http_status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+    return Response(
+        {'ok': False, 'code': exc.code, 'detail': 'El lead no tiene una conversación del agente.'},
+        status=http_status.HTTP_400_BAD_REQUEST,
+    )
+
+
+class _AppointmentProposalPermissionsMixin(_LeadPermissionsMixin):
+    """Slice 3A: además del permiso de Leads, la propuesta es de agenda (`*_appointments`)."""
+
+    appointments_permission_map = {'GET': 'view_appointments', 'POST': 'manage_appointments'}
+
+    def check_permissions(self, request):
+        super().check_permissions(request)
+        required = self.appointments_permission_map.get(request.method)
+        if required and not request_has_permission(request, required):
+            raise PermissionDenied(HasPermission.message)
+
+
+class LeadAppointmentProposalsView(_AppointmentProposalPermissionsMixin, generics.GenericAPIView):
+    """POST /api/v1/leads/{id}/appointment-proposals/ — crea y envía una propuesta de turno (Slice 3A).
+
+    Requiere `manage_leads` + `manage_appointments`. Es una acción estructurada
+    de recepción, independiente del control humano de la conversación: NO
+    requiere la conversación tomada, no hace takeover y no pausa el bot (se
+    puede enviar con el bot activo). No crea `Appointment` ni ocupa el slot.
+    Idempotente por `idempotency_key`: 201 al crear, 200 en replay con el
+    mismo payload, 409 si la key ya se usó con otro payload. 409 también si
+    el Lead está cerrado o ya tiene turno; 400 por servicio/profesional/horario
+    inválido; 503 con la integración apagada.
+    """
+
+    http_method_names = ['post', 'options']
+
+    def post(self, request, *args, **kwargs):
+        lead = self.get_lead()
+        serializer = AppointmentProposalCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            result = create_and_send_appointment_proposal(lead=lead, user=request.user, **serializer.validated_data)
+        except TakeoverUnavailable as exc:
+            return _takeover_unavailable_response(exc)
+        except ProposalConflict as exc:
+            return Response(
+                {'ok': False, 'code': exc.code, 'detail': exc.detail}, status=http_status.HTTP_409_CONFLICT,
+            )
+        except ProposalInvalid as exc:
+            raise ValidationError({exc.field: [exc.message]}) from exc
+        return Response(
+            serialize_appointment_proposal(result.proposal),
+            status=http_status.HTTP_201_CREATED if result.created else http_status.HTTP_200_OK,
+        )
+
+
+class LeadCurrentAppointmentProposalView(_AppointmentProposalPermissionsMixin, generics.GenericAPIView):
+    """GET /api/v1/leads/{id}/appointment-proposals/current/ — activa o último fallo de envío; 404 sin ellas."""
+
+    http_method_names = ['get', 'options']
+
+    def get(self, request, *args, **kwargs):
+        lead = self.get_lead()
+        proposal = current_proposal(lead)
+        if proposal is None:
+            latest = lead.appointment_proposals.select_related('service', 'professional', 'staff_message').order_by(
+                '-created_at', '-id',
+            ).first()
+            if latest is not None and latest.status == 'delivery_failed':
+                proposal = latest
+        if proposal is None:
+            return Response({'detail': 'El lead no tiene una propuesta activa.'}, status=http_status.HTTP_404_NOT_FOUND)
+        return Response(serialize_appointment_proposal(proposal))
+
+
+class LeadConfirmAppointmentProposalView(_AppointmentProposalPermissionsMixin, generics.GenericAPIView):
+    """Conversión manual; independiente de takeover y sin mensajes salientes."""
+
+    http_method_names = ['post', 'options']
+
+    def check_permissions(self, request):
+        super().check_permissions(request)
+        membership = resolve_request_membership(request)
+        if membership is None or membership.status != Membership.Status.ACTIVE:
+            raise PermissionDenied(HasBusinessMembership.message)
+
+    def post(self, request, *args, **kwargs):
+        try:
+            appointment = confirm_appointment_proposal(
+                lead=self.get_lead(), proposal_id=self.kwargs['proposal_id'], user=request.user,
+            )
+        except ProposalConflict as exc:
+            return Response(
+                {'ok': False, 'code': exc.code, 'detail': exc.detail}, status=http_status.HTTP_409_CONFLICT,
+            )
+        return Response(AppointmentSerializer(appointment).data)
 
 
 class _LeadNotesMixin(_LeadPermissionsMixin):

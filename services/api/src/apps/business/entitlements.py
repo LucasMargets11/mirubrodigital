@@ -17,6 +17,7 @@ POS_OFFLINE_CONTINGENCY_ENTITLEMENT = 'gestion.restaurant_pos_offline_contingenc
 # pendiente. Gateará el panel de Leads; la ingesta del agente no se gatea por
 # entitlement (canal activo + estado del Business).
 APPOINTMENTS_LEADS_ENTITLEMENT = 'appointments.leads'
+APPOINTMENTS_AUTOMATIONS_ENTITLEMENT = 'appointments.automations'
 
 
 # Entitlements por plan — 4 planes oficiales + aliases legacy
@@ -137,12 +138,22 @@ PLAN_ENTITLEMENTS['qr_reviews_pro'] = {
 }
 
 
-# Turnos — plan base. No incluye módulos comerciales de Gestión: solo el
-# acceso a Clientes core (entidad compartida, Turnos CUSTOMER 02) y la bandeja
-# de Leads del agente de WhatsApp (LEADS 04A.1).
+# Turnos — `appointments_base` conserva los entitlements legacy. Los planes
+# canónicos separan el core, Pro e IA sin conceder módulos de Gestión.
 PLAN_ENTITLEMENTS['appointments_base'] = {
     'appointments.customers',
     APPOINTMENTS_LEADS_ENTITLEMENT,
+}
+PLAN_ENTITLEMENTS['appointments'] = {
+    'appointments.customers',
+}
+PLAN_ENTITLEMENTS['appointments_pro'] = {
+    'appointments.customers',
+}
+PLAN_ENTITLEMENTS['appointments_ai'] = {
+    'appointments.customers',
+    APPOINTMENTS_LEADS_ENTITLEMENT,
+    APPOINTMENTS_AUTOMATIONS_ENTITLEMENT,
 }
 
 # Clientes core (`customers.Customer`) es una entidad compartida: alcanza con
@@ -180,7 +191,8 @@ ENTITLEMENT_UPGRADE_HINTS = {
     'gestion.restaurant_pos_offline_contingency': 'BUSINESS',
     'gestion.print_signage': 'PRO',
     'qr_reviews.print_posters': 'Reseñas PRO',
-    APPOINTMENTS_LEADS_ENTITLEMENT: 'Turnos Base',
+    APPOINTMENTS_LEADS_ENTITLEMENT: 'Turnos IA',
+    APPOINTMENTS_AUTOMATIONS_ENTITLEMENT: 'Automatizaciones o Turnos IA',
 }
 
 
@@ -205,6 +217,8 @@ def get_effective_entitlements(subscription) -> Set[str]:
         Set de códigos de entitlements efectivos
     """
     entitlements = get_plan_entitlements(subscription.plan)
+    if subscription.plan in ('appointments', 'appointments_pro', 'appointments_ai'):
+        return entitlements
     
     # Agregar entitlements de add-ons activos
     try:
@@ -238,10 +252,19 @@ def has_entitlement(business, entitlement_code: str) -> bool:
         True si el business tiene el entitlement activo, False en caso contrario
     """
     try:
+        if entitlement_code == APPOINTMENTS_AUTOMATIONS_ENTITLEMENT:
+            from apps.billing.services.appointments import can_use_appointments_automations
+
+            return can_use_appointments_automations(business)
+
         from apps.billing.runtime import resolve_subscription
         from apps.billing.enforcement import get_enforcement_decision
 
-        resolved = resolve_subscription(business)
+        service_type = entitlement_code.partition('.')[0]
+        if service_type in {'appointments', 'gestion'}:
+            resolved = resolve_subscription(business, service_type=service_type)
+        else:
+            resolved = resolve_subscription(business)
         decision = get_enforcement_decision(resolved)
 
         if not decision.access_allowed:

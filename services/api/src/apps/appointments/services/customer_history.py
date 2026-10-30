@@ -79,10 +79,13 @@ def occurred_at_expression(*, now):
   )
 
 
-def customer_appointments(customer) -> QuerySet:
+def customer_appointments(customer, *, professional=None) -> QuerySet:
   """Turnos del Customer, filtrando también por su Business (nunca solo la FK)."""
+  queryset = Appointment.objects.filter(business_id=customer.business_id, customer=customer)
+  if professional is not None:
+    queryset = queryset.filter(professional=professional)
   return (
-    Appointment.objects.filter(business_id=customer.business_id, customer=customer)
+    queryset
     .select_related('professional')
     .prefetch_related('payments')
   )
@@ -92,14 +95,14 @@ def upcoming_appointments(queryset: QuerySet, *, now) -> QuerySet:
   return queryset.occupying(now=now).filter(start_at__gt=now)
 
 
-def scoped_customer_appointments(customer, scope: str, *, now=None) -> QuerySet:
+def scoped_customer_appointments(customer, scope: str, *, now=None, professional=None) -> QuerySet:
   now = now or dj_timezone.now()
-  qs = customer_appointments(customer)
+  qs = customer_appointments(customer, professional=professional)
   if scope == SCOPE_UPCOMING:
     return upcoming_appointments(qs, now=now).order_by('start_at', 'pk')
   if scope == SCOPE_HISTORY:
     upcoming_pks = upcoming_appointments(
-      Appointment.objects.filter(business_id=customer.business_id, customer=customer), now=now,
+      customer_appointments(customer, professional=professional), now=now,
     ).values('pk')
     qs = qs.exclude(pk__in=upcoming_pks)
   elif scope != SCOPE_ALL:

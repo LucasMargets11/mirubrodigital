@@ -12,6 +12,8 @@ const LINK_LABEL: Record<BusinessNotification['kind'], string> = {
     appointment_confirmed: 'Ver turno',
     appointment_payment_review: 'Ver turno',
     customer_reminder_due: 'Ver cliente',
+    agent_lead_handoff: 'Ver consulta',
+    lead_assigned: 'Ver consulta',
 };
 
 /**

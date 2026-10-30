@@ -54,9 +54,11 @@ def _serialize(appointment: Appointment | None, now) -> dict | None:
   }
 
 
-def build_customer_appointments_summary(customer, *, now=None) -> dict:
+def build_customer_appointments_summary(customer, *, now=None, professional=None) -> dict:
   now = now or dj_timezone.now()
   qs = Appointment.objects.filter(business_id=customer.business_id, customer=customer)
+  if professional is not None:
+    qs = qs.filter(professional=professional)
 
   counts = qs.aggregate(
     total=Count('pk', filter=~_effective_expired_q(now)),

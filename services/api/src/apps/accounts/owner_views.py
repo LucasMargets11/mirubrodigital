@@ -916,6 +916,15 @@ def change_role(request: Request, user_id: int) -> Response:
 
     previous_role = target_membership.role
 
+    if new_role == 'professional':
+        from apps.appointments.services.professional_quota import professional_login_enabled
+
+        if not professional_login_enabled(target_membership.business):
+            return Response(
+                {'error': 'El acceso profesional requiere Turnos Pro o IA.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
     # Last-owner guard: only fires when demoting an owner to a non-owner role.
     if previous_role == 'owner' and new_role != 'owner':
         try:

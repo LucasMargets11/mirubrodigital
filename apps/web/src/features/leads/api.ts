@@ -1,7 +1,10 @@
-import { apiDelete, apiGet, apiPatch, apiPost } from '@/lib/api/client';
+import { ApiError, apiDelete, apiGet, apiPatch, apiPost } from '@/lib/api/client';
+import type { Appointment, AppointmentPayload } from '@/features/appointments/types';
 import type { PaginatedResponse } from '@/types/api';
 
 import type {
+    AppointmentProposal,
+    AppointmentProposalPayload,
     ConversationCommandResponse,
     LeadAssignee,
     LeadDetail,
@@ -23,6 +26,7 @@ export function buildLeadQuery(filters: LeadFilters): string {
     if (typeof filters.needsAttention === 'boolean') params.set('needs_attention', String(filters.needsAttention));
     if (filters.assignedTo) params.set('assigned_to', filters.assignedTo);
     if (filters.customer) params.set('customer', filters.customer);
+    if (filters.appointment) params.set('appointment', filters.appointment);
     if (filters.q) params.set('q', filters.q);
     if (typeof filters.limit === 'number') params.set('limit', String(filters.limit));
     if (typeof filters.offset === 'number') params.set('offset', String(filters.offset));
@@ -38,6 +42,27 @@ export function listLeads(filters: LeadFilters = {}) {
 
 export function getLead(id: string) {
     return apiGet<LeadDetail>(`/api/v1/leads/${id}/`);
+}
+
+export function createLeadAppointment(id: string, payload: AppointmentPayload) {
+    return apiPost<LeadDetail>(`/api/v1/leads/${id}/appointment/`, payload);
+}
+
+export function createAppointmentProposal(leadId: string, payload: AppointmentProposalPayload) {
+    return apiPost<AppointmentProposal>(`/api/v1/leads/${leadId}/appointment-proposals/`, payload);
+}
+
+export function confirmAppointmentProposal(leadId: string, proposalId: string) {
+    return apiPost<Appointment>(`/api/v1/leads/${leadId}/appointment-proposals/${proposalId}/confirm/`);
+}
+
+export async function getCurrentAppointmentProposal(leadId: string): Promise<AppointmentProposal | null> {
+    try {
+        return await apiGet<AppointmentProposal>(`/api/v1/leads/${leadId}/appointment-proposals/current/`);
+    } catch (error) {
+        if (error instanceof ApiError && error.status === 404) return null;
+        throw error;
+    }
 }
 
 /** PATCH CRM; responde el detalle completo (con `activity` actualizada). */

@@ -52,6 +52,29 @@ def build_business_context(business) -> Dict[str, object]:
 
     # ── Service list ───────────────────────────────────────────────────────
     service_list: List[str] = enabled_services(plan, feature_flags)
+    if resolved.service_type != 'appointments':
+        appointments_resolved = resolve_subscription(business, service_type='appointments')
+        if appointments_resolved.access_granted:
+            if appointments_resolved.subscription_v2 is not None:
+                appointments_flags = feature_flags_for_v2_subscription(
+                    appointments_resolved.subscription_v2, business,
+                )
+            else:
+                appointments_flags = feature_flags_for_plan(appointments_resolved.plan or '')
+            if appointments_flags['appointments_core']:
+                feature_flags['appointments_core'] = appointments_flags['appointments_core']
+                feature_flags['appointments_automations'] = appointments_flags['appointments_automations']
+                feature_flags['leads'] = appointments_flags['leads']
+                feature_flags['customers'] = (
+                    feature_flags.get('customers', False)
+                    or appointments_flags['customers']
+                )
+                if 'appointments' not in service_list:
+                    service_list.append('appointments')
+
+    from apps.billing.services.appointments import can_use_appointments_automations
+
+    feature_flags['appointments_automations'] = can_use_appointments_automations(business)
 
     # ── Active service ─────────────────────────────────────────────────────
     default_service = (

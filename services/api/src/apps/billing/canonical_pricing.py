@@ -45,12 +45,96 @@ def _find_pricing_json() -> Path:
 
 _PRICING_JSON_PATH = _find_pricing_json()
 
+
+def validate_appointments_catalog(data: dict) -> None:
+    """Validate S2 offers without applying the plan-price floor to overage."""
+    def integer(value, label, minimum=0):
+        if type(value) is not int or value < minimum:
+            raise ValueError(f"{label} must be an ARS/count integer >= {minimum}")
+
+    def recurring(offer, monthly='price_monthly', yearly='price_yearly'):
+        integer(offer[monthly], f"{offer['code']}.{monthly}", MIN_SANE_PRICE)
+        integer(offer[yearly], f"{offer['code']}.{yearly}", MIN_SANE_PRICE)
+        if offer[yearly] * 5 != offer[monthly] * 48:
+            raise ValueError(f"{offer['code']}: annual price must have exactly 20% discount")
+
+    indexes = {}
+    for section in ('products', 'plans', 'addons', 'extras', 'usage_tiers'):
+        rows = data[section]
+        indexes[section] = {row['code']: row for row in rows}
+        if len(indexes[section]) != len(rows):
+            raise ValueError(f"Duplicate codes in {section}")
+
+    product = indexes['products']['appointments']
+    if product['vertical'] != 'appointments' or type(product['is_active']) is not bool:
+        raise ValueError("Invalid appointments product metadata")
+    plans = indexes['plans']
+    for code in ('appointments', 'appointments_pro', 'appointments_ai'):
+        plan = plans[code]
+        if plan['vertical'] != 'appointments':
+            raise ValueError(f"{code}: invalid vertical")
+        integer(plan['professionals_included'], f'{code}.professionals_included')
+        integer(plan['secondary_users_included'], f'{code}.secondary_users_included')
+        if code != 'appointments_ai':
+            recurring(plan)
+
+    ai = plans['appointments_ai']
+    if (ai['pricing_mode'] != 'usage_tier'
+            or ai['price_monthly'] is not None or ai['price_yearly'] is not None
+            or ai['includes_plans'] != ['appointments_pro']
+            or ai['included_addons'] != ['appointments_automations']):
+        raise ValueError("appointments_ai must be tier-priced and include Pro + Automations")
+    tiers = indexes['usage_tiers']
+    expected_tiers = {'ai_300', 'ai_1500', 'ai_3000', 'custom'}
+    if set(ai['usage_tiers']) != expected_tiers:
+        raise ValueError("appointments_ai requires the canonical usage tiers")
+    for code in expected_tiers:
+        tier = tiers[code]
+        if tier['plan_code'] != 'appointments_ai':
+            raise ValueError(f'{code}: invalid usage tier plan')
+        if code == 'custom':
+            if (tier['purchase_mode'] != 'contact_sales' or tier['billing_mode'] != 'manual'
+                    or any(tier[key] is not None for key in (
+                        'monthly_price', 'annual_price', 'included_conversations',
+                        'extra_conversation_price', 'default_extra_spend_limit',
+                    ))):
+                raise ValueError("custom must be contact_sales/manual without self-service prices")
+        else:
+            if tier['purchase_mode'] != 'self_service':
+                raise ValueError(f'{code}: invalid purchase mode')
+            recurring(tier, 'monthly_price', 'annual_price')
+            integer(tier['included_conversations'], f'{code}.included_conversations', 1)
+            integer(tier['extra_conversation_price'], f'{code}.extra_conversation_price', 1)
+            integer(tier['default_extra_spend_limit'], f'{code}.default_extra_spend_limit')
+
+    addon = indexes['addons']['appointments_automations']
+    recurring(addon)
+    if (addon['vertical'] != 'appointments'
+            or addon['available_for'] != ['appointments', 'appointments_pro']
+            or addon['included_in'] != ['appointments_ai']):
+        raise ValueError("Automations must be purchasable only for Turnos/Pro and included in IA")
+    extra = indexes['extras']['appointments_extra_professional']
+    recurring(extra)
+    integer(extra['quantity_min'], 'appointments_extra_professional.quantity_min')
+    integer(extra['quantity_step'], 'appointments_extra_professional.quantity_step', 1)
+    if (extra['vertical'] != 'appointments'
+            or extra['quantity_min'] != 0 or extra['quantity_step'] != 1
+            or extra['available_for'] != ['appointments', 'appointments_pro', 'appointments_ai']
+            or extra['code'] in indexes['addons']):
+        raise ValueError("Extra professional must be a nonnegative integer quantity, not a fixed addon")
+
+
+# Subscription prices, not per-conversation overage.
+MIN_SANE_PRICE = 1000
+
+
 def _load_pricing() -> dict:
     with open(_PRICING_JSON_PATH, 'r', encoding='utf-8') as f:
         data = json.load(f)
     assert data.get('unit') == 'ARS_pesos_integer', (
         f"pricing.json unit must be 'ARS_pesos_integer', got '{data.get('unit')}'"
     )
+    validate_appointments_catalog(data)
     return data
 
 _DATA = _load_pricing()
@@ -61,11 +145,13 @@ PLANS: List[dict] = _DATA['plans']
 ADDONS: List[dict] = _DATA['addons']
 EXTRAS: List[dict] = _DATA['extras']
 PRODUCTS: List[dict] = _DATA.get('products', [])
+USAGE_TIERS: List[dict] = _DATA['usage_tiers']
 
 _PLAN_INDEX: Dict[str, dict] = {p['code']: p for p in PLANS}
 _ADDON_INDEX: Dict[str, dict] = {a['code']: a for a in ADDONS}
 _EXTRA_INDEX: Dict[str, dict] = {e['code']: e for e in EXTRAS}
 _PRODUCT_INDEX: Dict[str, dict] = {p['code']: p for p in PRODUCTS}
+_USAGE_TIER_INDEX: Dict[str, dict] = {t['code']: t for t in USAGE_TIERS}
 
 
 def get_plan(code: str) -> Optional[dict]:
@@ -84,6 +170,30 @@ def get_product(code: str) -> Optional[dict]:
     return _PRODUCT_INDEX.get(code)
 
 
+def get_usage_tier(code: str) -> Optional[dict]:
+    return _USAGE_TIER_INDEX.get(code)
+
+
+def get_inactive_product_verticals() -> List[str]:
+    return [p['vertical'] for p in PRODUCTS if not p['is_active']]
+
+
+def is_plan_product_active(code: str) -> bool:
+    plan = get_plan(code)
+    return plan is None or plan['vertical'] not in get_inactive_product_verticals()
+
+
+def get_appointments_catalog() -> dict:
+    """Internal declarative catalog; availability is still controlled by product metadata."""
+    return {
+        'product': get_product('appointments'),
+        'plans': [p for p in PLANS if p['vertical'] == 'appointments'],
+        'addons': [a for a in ADDONS if a['vertical'] == 'appointments'],
+        'extras': [e for e in EXTRAS if e['vertical'] == 'appointments'],
+        'usage_tiers': [t for t in USAGE_TIERS if t['plan_code'] == 'appointments_ai'],
+    }
+
+
 def get_products_catalog() -> List[dict]:
     """
     Return active products ordered by the canonical metadata in pricing.json.
@@ -93,10 +203,23 @@ def get_products_catalog() -> List[dict]:
     return sorted(products, key=lambda p: (p.get('order', 999), p.get('code', '')))
 
 
-def plan_price(code: str, cycle: str = 'monthly') -> int:
+def usage_tier_price(code: str, cycle: str = 'monthly') -> int:
+    tier = _USAGE_TIER_INDEX[code]
+    if tier['purchase_mode'] != 'self_service':
+        raise ValueError(f"{code} requires contact_sales/manual pricing")
+    if cycle not in ('monthly', 'yearly'):
+        raise ValueError(f"Invalid billing cycle: {cycle}")
+    return tier['monthly_price' if cycle == 'monthly' else 'annual_price']
+
+
+def plan_price(code: str, cycle: str = 'monthly', *, usage_tier: str | None = None) -> int:
     """Return canonical plan price in ARS pesos. Raises KeyError if not found."""
     key = f'price_{cycle}'
     p = _PLAN_INDEX[code]
+    if p.get('pricing_mode') == 'usage_tier':
+        if usage_tier is None or usage_tier not in p['usage_tiers']:
+            raise ValueError(f"{code} requires a valid usage_tier")
+        return usage_tier_price(usage_tier, cycle)
     return p[key]
 
 
@@ -116,8 +239,6 @@ def extra_price(code: str, cycle: str = 'monthly') -> int:
 
 # Any non-custom plan/addon/extra with a price below this is suspicious
 # (likely still in centavos or a unit error).
-MIN_SANE_PRICE = 1000  # ARS $1.000 — lowest realistic price
-
 def assert_not_centavos(value: int | float, label: str = '') -> None:
     """
     Raise ValueError if a price value looks like it's still in centavos.

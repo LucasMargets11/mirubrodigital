@@ -186,6 +186,7 @@ class LeadAssignedNotificationTests(LeadApiMixin, APITestCase):
         self.assertEqual(notification.related_object_type, 'lead')
         self.assertEqual(notification.related_object_id, str(self.lead.pk))
         self.assertEqual(notification.metadata['assigned_by'], self.owner.pk)
+        self.assertEqual(notification.action_url, f'/app/turnos/leads/{self.lead.pk}')
 
     def test_reassignment_notifies_only_new_assignee(self):
         self.patch({'assigned_to': self.alice.pk})

@@ -322,6 +322,7 @@ class LeadListTests(LeadApiMixin, APITestCase):
         self.assertEqual(set(row), {
             'id', 'source', 'status', 'outcome', 'created_at', 'updated_at', 'needs_attention_at',
             'needs_attention', 'acknowledged_at', 'assigned_to', 'customer', 'agent', 'conversation_state',
+            'conversation_control', 'appointment', 'last_patient_message_text', 'last_patient_message_at',
         })
         self.assertEqual(set(row['agent']), {
             'patient_name', 'whatsapp_profile_name', 'phone_e164', 'reason', 'preferred_time', 'urgency',
@@ -602,7 +603,11 @@ class LeadDetailTests(LeadApiMixin, TurnosAgendaMixin, APITestCase):
         self.assertEqual(data['closed_by'], {'id': closer.pk, 'display_name': 'Mara Paz'})
         self.assertEqual(data['customer'], {'id': str(customer.pk), 'display_name': 'Ana Cliente'})
         self.assertEqual(data['appointment']['id'], str(appointment.pk))
-        self.assertEqual(set(data['appointment']), {'id', 'start_at', 'end_at', 'status', 'service_name'})
+        self.assertEqual(set(data['appointment']), {
+            'id', 'start_at', 'end_at', 'status', 'service_name', 'professional_name', 'customer',
+        })
+        self.assertEqual(data['appointment']['professional_name'], pro.name)
+        self.assertEqual(data['appointment']['customer'], {'id': str(customer.pk), 'display_name': 'Ana Cliente'})
         self.assertEqual(set(data['agent_state']), {
             'agent_instance_id', 'external_lead_id', 'external_conversation_id', 'previous_external_lead_id',
             'channel', 'phone_e164', 'patient_name', 'whatsapp_profile_name', 'reason', 'preferred_time', 'urgency',

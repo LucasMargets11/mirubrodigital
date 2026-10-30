@@ -62,7 +62,7 @@ class AgentPrincipal:
 
 
 def well_formed_request_id(value: str | None) -> str | None:
-    return value if value and _REQUEST_ID_RE.match(value) else None
+    return value if value and _REQUEST_ID_RE.fullmatch(value) else None
 
 
 def _header(request, name: str) -> str | None:
@@ -72,7 +72,7 @@ def _header(request, name: str) -> str | None:
 
 def _log_failure(reason: str, key_id: str | None, request_id: str | None) -> None:
     # Solo valores ya validados por regex (nunca el header crudo).
-    safe_key = key_id if key_id and _KEY_ID_RE.match(key_id) else None
+    safe_key = key_id if key_id and _KEY_ID_RE.fullmatch(key_id) else None
     logger.warning(
         'agent_auth_failed reason=%s key_id=%s request_id=%s',
         reason, safe_key, well_formed_request_id(request_id),
@@ -85,6 +85,7 @@ def _fail(reason: str, key_id: str | None, request_id: str | None) -> errors.Age
 
 
 class AgentHmacAuthentication(BaseAuthentication):
+    nonce_fail_closed = False
 
     def authenticate_header(self, request) -> str:
         return 'AgentHMAC'
@@ -98,10 +99,10 @@ class AgentHmacAuthentication(BaseAuthentication):
 
         # 1. Headers
         if not (
-            key_id and _KEY_ID_RE.match(key_id)
-            and timestamp and _TIMESTAMP_RE.match(timestamp)
-            and request_id and _REQUEST_ID_RE.match(request_id)
-            and signature and _SIGNATURE_RE.match(signature)
+            key_id and _KEY_ID_RE.fullmatch(key_id)
+            and timestamp and _TIMESTAMP_RE.fullmatch(timestamp)
+            and request_id and _REQUEST_ID_RE.fullmatch(request_id)
+            and signature and _SIGNATURE_RE.fullmatch(signature)
         ):
             raise _fail('malformed_headers', key_id, request_id)
 
@@ -154,14 +155,15 @@ class AgentHmacAuthentication(BaseAuthentication):
         if not hmac.compare_digest(expected.encode('ascii'), signature.encode('ascii')):
             raise _fail('bad_signature', key_id, request_id)
 
-        # 11. Replay (nonce). Fail-open SOLO si el cache falla: firma y
-        # timestamp ya se verificaron y la idempotencia por versión hace
-        # inocuo un PUT repetido.
+        # Legacy sync is idempotent and tolerates cache failure; AI admission
+        # opts into fail-closed replay protection.
         nonce_key = f'agent-req:{key_id}:{request_id.lower()}'
         try:
             first_use = cache.add(nonce_key, 1, timeout=NONCE_TTL_SECONDS)
         except Exception:
             logger.error('agent_nonce_unavailable key_id=%s request_id=%s', key_id, request_id)
+            if self.nonce_fail_closed:
+                raise errors.unavailable()
             first_use = True
         if not first_use:
             raise _fail('replayed_request_id', key_id, request_id)

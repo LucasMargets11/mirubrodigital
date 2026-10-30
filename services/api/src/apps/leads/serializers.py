@@ -208,6 +208,29 @@ class LeadSyncMessageSerializer(serializers.Serializer):
     status = StrictChoiceField(LeadAgentMessage.Status.values, allow_null=True)
 
 
+class ProposalContextSerializer(serializers.Serializer):
+    id = serializers.UUIDField()
+    status = serializers.CharField()
+    service_name = serializers.CharField()
+    professional_name = serializers.CharField(allow_null=True)
+    proposed_start_at = serializers.DateTimeField()
+    expires_at = serializers.DateTimeField(allow_null=True)
+
+
+class AppointmentContextSerializer(serializers.Serializer):
+    id = serializers.UUIDField()
+    status = serializers.CharField()
+    start_at = serializers.DateTimeField()
+
+
+class ProposalConfirmationSerializer(serializers.Serializer):
+    """Intención estructurada del paciente sobre una propuesta identificada."""
+
+    proposal_id = StrictUUIDField()
+    intent = StrictChoiceField(('confirm',))
+    message_id = StrictCharField(max_length=64)
+
+
 def _field_error(field: str, code: str) -> serializers.ValidationError:
     return serializers.ValidationError({field: [ErrorDetail('Valor incoherente.', code=code)]})
 
@@ -252,6 +275,9 @@ class LeadSyncSerializer(serializers.Serializer):
     # LEADS 05C: opcional (default []) — forward-compatible con agentes que
     # todavía no lo mandan; no participa de ningún check de inmutabilidad.
     messages = LeadSyncMessageSerializer(many=True, required=False, default=list)
+    # Aditivo al Contract V1. Solo se envía cuando el agente identifica una
+    # respuesta afirmativa a una propuesta vigente.
+    proposal_confirmation = ProposalConfirmationSerializer(required=False)
 
     def validate_schema_version(self, value):
         if value != SCHEMA_VERSION:

@@ -23,6 +23,11 @@ ASSIGNED_NOTIFICATION_TITLE = 'Te asignaron una consulta'
 ASSIGNED_NOTIFICATION_MESSAGE = 'Una consulta quedó asignada a vos.'
 
 
+def lead_detail_action_url(lead_id) -> str:
+    """Deep link de las notificaciones de Leads al detalle en la bandeja `/app/turnos/leads`."""
+    return f'/app/turnos/leads/{lead_id}'
+
+
 def schedule_lead_assigned_notification(lead: Lead, *, actor) -> None:
     """Llamar dentro de la transacción del PATCH, después de guardar un cambio de `assigned_to`."""
     recipient_id = lead.assigned_to_id
@@ -42,8 +47,8 @@ def schedule_lead_assigned_notification(lead: Lead, *, actor) -> None:
             title=ASSIGNED_NOTIFICATION_TITLE,
             message=ASSIGNED_NOTIFICATION_MESSAGE,
             severity=BusinessNotification.Severity.INFO,
-            # Igual que agent_lead_handoff: el panel de leads todavía no existe.
-            action_url='',
+            # Deep link a la bandeja operativa (LEADS SLICE 2); leerla no asigna ni reconoce nada.
+            action_url=lead_detail_action_url(lead_id),
             related_object_type='lead',
             related_object_id=str(lead_id),
             metadata={'source': 'crm', 'assigned_by': getattr(actor, 'pk', None)},
