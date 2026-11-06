@@ -23,7 +23,7 @@ from apps.business.models import (
     Subscription,
 )
 from apps.catalog.models import Product, ProductCategory
-from apps.inventory.models import ProductStock
+from apps.inventory.services import primary_stock_queryset
 from apps.invoices.models import DocumentSeries
 from apps.treasury.models import Account, TreasurySettings
 
@@ -107,7 +107,7 @@ def _task_products(business: Business) -> bool:
 
 
 def _task_initial_stock(business: Business) -> bool:
-    return ProductStock.objects.filter(business=business, quantity__gt=0).exists()
+    return primary_stock_queryset(business).filter(quantity__gt=0).exists()
 
 
 def _task_treasury_accounts(business: Business) -> bool:

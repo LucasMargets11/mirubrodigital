@@ -38,7 +38,7 @@ from apps.accounts.models import EmployeeProfile
 from apps.business.models import Business, CommercialSettings
 from apps.cash.models import CashRegister, CashSession
 from apps.catalog.models import Product, ProductCategory
-from apps.inventory.models import ProductStock
+from apps.inventory.services import ensure_stock_record
 
 URL_BOOTSTRAP = '/api/v1/pos/offline/bootstrap/'
 
@@ -262,11 +262,9 @@ class PosOfflineBootstrapTests(TestCase):
         self.assertFalse(response.data['offline_policy']['enabled'])
 
     def test_product_includes_stock_and_category_id(self):
-        ProductStock.objects.update_or_create(
-            business=self.business,
-            product=self.product,
-            defaults={'quantity': Decimal('12.00')},
-        )
+        stock = ensure_stock_record(self.business, self.product)
+        stock.quantity = Decimal('12.00')
+        stock.save(update_fields=['quantity', 'updated_at'])
         response = self._get()
         product = next(
             p for p in response.data['products'] if p['id'] == str(self.product.pk)

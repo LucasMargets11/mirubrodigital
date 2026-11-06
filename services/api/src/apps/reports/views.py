@@ -878,6 +878,10 @@ class StockAlertsReportView(APIView):
 
 		base_queryset = ProductStock.objects.select_related('product').filter(
 			business__in=business_ids,
+			product__business_id=F('business_id'),
+			location__business_id=F('business_id'),
+			location__is_primary=True,
+			location__is_active=True,
 			product__is_active=True,
 		)
 		annotated_queryset = base_queryset.annotate(

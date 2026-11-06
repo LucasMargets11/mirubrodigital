@@ -42,7 +42,7 @@ from apps.accounts.models import EmployeeProfile, Membership
 from apps.business.models import Business, BusinessPlan, Subscription
 from apps.cash.models import CashRegister, Terminal
 from apps.catalog.models import Product, ProductCategory
-from apps.inventory.models import ProductStock
+from apps.inventory.services import ensure_stock_record
 
 User = get_user_model()
 
@@ -386,10 +386,10 @@ class Command(BaseCommand):
                 )
                 product.refresh_from_db()
 
-            ProductStock.objects.get_or_create(
-                product=product,
-                defaults={"business": business, "quantity": INITIAL_STOCK},
-            )
+            stock = ensure_stock_record(business, product)
+            if stock.quantity != INITIAL_STOCK:
+                stock.quantity = INITIAL_STOCK
+                stock.save(update_fields=['quantity', 'updated_at'])
 
             products.append(product)
 

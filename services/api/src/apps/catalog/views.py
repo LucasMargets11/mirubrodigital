@@ -1,9 +1,10 @@
 from django.db import models
-from django.db.models import Q, F, Count
+from django.db.models import Count, F, Prefetch, Q
 from rest_framework import generics
 from rest_framework.permissions import IsAuthenticated
 
 from apps.accounts.permissions import HasBusinessMembership, HasPermission
+from apps.inventory.services import primary_stock_queryset
 from .models import Product, ProductCategory
 from .serializers import ProductSerializer, ProductCategorySerializer
 
@@ -73,7 +74,13 @@ class ProductListCreateView(generics.ListCreateAPIView):
 
 	def get_queryset(self):
 		business = getattr(self.request, 'business')
-		queryset = Product.objects.filter(business=business).select_related('stock_level', 'category')
+		queryset = Product.objects.filter(business=business).select_related('category').prefetch_related(
+			Prefetch(
+				'stock_levels',
+				queryset=primary_stock_queryset(business),
+				to_attr='_primary_stock_records',
+			)
+		)
 
 		include_inactive = self.request.query_params.get('include_inactive', 'false').lower() == 'true'
 		if not include_inactive:
@@ -128,7 +135,13 @@ class ProductDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 	def get_queryset(self):
 		business = getattr(self.request, 'business')
-		return Product.objects.filter(business=business).select_related('stock_level', 'category')
+		return Product.objects.filter(business=business).select_related('category').prefetch_related(
+			Prefetch(
+				'stock_levels',
+				queryset=primary_stock_queryset(business),
+				to_attr='_primary_stock_records',
+			)
+		)
 
 	def perform_destroy(self, instance):
 		instance.is_active = False

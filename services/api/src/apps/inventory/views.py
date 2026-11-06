@@ -27,7 +27,8 @@ from .importer import (
 	parse_inventory_import,
 	serialize_preview_rows,
 )
-from .models import InventoryImportJob, ProductStock, StockMovement, StockReplenishment
+from .models import InventoryImportJob, StockMovement, StockReplenishment
+from .services import primary_stock_queryset
 from .serializers import (
     InventoryImportJobSerializer,
 	ProductStockSerializer,
@@ -66,7 +67,9 @@ class ProductStockListView(generics.ListAPIView):
 
 	def get_queryset(self):
 		business = getattr(self.request, 'business')
-		queryset = ProductStock.objects.select_related('product', 'product__category').filter(business=business, product__is_active=True)
+		queryset = primary_stock_queryset(business).select_related(
+			'product', 'product__category'
+		).filter(product__is_active=True)
 
 		# Filter by category
 		category_id = self.request.query_params.get('category')
@@ -142,7 +145,9 @@ class InventorySummaryView(APIView):
 
 	def get(self, request):
 		business = getattr(request, 'business')
-		queryset = ProductStock.objects.select_related('product').filter(business=business, product__is_active=True)
+		queryset = primary_stock_queryset(business).select_related(
+			'product'
+		).filter(product__is_active=True)
 		total_products = queryset.count()
 		low_stock = queryset.filter(quantity__lt=F('product__stock_min'), quantity__gt=0).count()
 		out_of_stock = queryset.filter(quantity__lte=0).count()
@@ -175,8 +180,7 @@ class LowStockAlertView(generics.ListAPIView):
 
 	def get_queryset(self):
 		business = getattr(self.request, 'business')
-		queryset = ProductStock.objects.select_related('product').filter(
-			business=business,
+		queryset = primary_stock_queryset(business).select_related('product').filter(
 			product__is_active=True,
 		)
 		if self.status_filter == 'low':
@@ -224,7 +228,7 @@ class InventoryValuationView(APIView):
 
 		can_view_costs = request_has_permission(request, 'manage_products')
 		business = membership.business
-		queryset = ProductStock.objects.select_related('product').filter(business=business)
+		queryset = primary_stock_queryset(business).select_related('product')
 
 		active_param = request.query_params.get('active')
 		if active_param == 'false':

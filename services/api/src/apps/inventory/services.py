@@ -5,17 +5,61 @@ from typing import Any, Dict, List, Tuple
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db.models import QuerySet
 from django.utils import timezone
 
 from apps.catalog.models import Product
 from apps.business.models import Business
-from .models import ProductStock, StockMovement, StockReplenishment
+from .models import ProductStock, StockLocation, StockMovement, StockReplenishment
 
 
-def ensure_stock_record(business: Business, product: Product) -> ProductStock:
+@transaction.atomic
+def get_primary_stock_location(business: Business) -> StockLocation:
+  location = StockLocation.objects.filter(business=business, is_primary=True).first()
+  if location is not None and location.is_active:
+    return location
+
+  Business.objects.select_for_update().get(pk=business.pk)
+  location = StockLocation.objects.filter(business=business, is_primary=True).first()
+  if location is not None:
+    if not location.is_active:
+      location.is_active = True
+      location.save(update_fields=['is_active', 'updated_at'])
+    return location
+
+  base_name = 'Local principal'
+  name = base_name
+  suffix = 2
+  while StockLocation.objects.filter(business=business, name=name).exists():
+    name = f'{base_name} ({suffix})'
+    suffix += 1
+
+  return StockLocation.objects.create(
+    business=business,
+    name=name,
+    is_primary=True,
+    is_active=True,
+  )
+
+
+def ensure_stock_record(
+  business: Business,
+  product: Product,
+  location: StockLocation | None = None,
+) -> ProductStock:
+  if product.business_id != business.pk:
+    raise ValidationError('Producto fuera del negocio actual.')
+
+  location = location or get_primary_stock_location(business)
+  if location.business_id != business.pk:
+    raise ValidationError('La ubicación no pertenece a este negocio.')
+  if not location.is_active:
+    raise ValidationError('La ubicación está inactiva.')
+
   stock, _ = ProductStock.objects.get_or_create(
     business=business,
     product=product,
+    location=location,
     defaults={'quantity': Decimal('0')},
   )
   if transaction.get_connection().in_atomic_block:
@@ -23,60 +67,14 @@ def ensure_stock_record(business: Business, product: Product) -> ProductStock:
   return stock
 
 
-@transaction.atomic
-def register_stock_movement(
-  *,
-  business: Business,
-  product: Product,
-  movement_type: str,
-  quantity: Decimal,
-  note: str = '',
-  created_by=None,
-  reason: str = '',
-  metadata: Dict[str, Any] | None = None,
-  allow_negative_stock: bool = False,
-) -> Tuple[StockMovement, ProductStock]:
-  if product.business_id != business.id:
-    raise ValidationError('Producto fuera del negocio actual.')
-
-  stock = ensure_stock_record(business, product)
-  normalized_qty = Decimal(quantity)
-  movement_enum = StockMovement.MovementType
-  if movement_type == movement_enum.ADJUST:
-    if normalized_qty < 0:
-      raise ValidationError('La cantidad debe ser mayor o igual a cero para un ajuste.')
-  else:
-    if normalized_qty <= 0:
-      raise ValidationError('La cantidad debe ser mayor a cero.')
-
-  if movement_type not in movement_enum.values:
-    raise ValidationError('Tipo de movimiento invalido.')
-
-  if movement_type == movement_enum.ADJUST:
-    new_quantity = normalized_qty
-  elif movement_type == movement_enum.IN:
-    new_quantity = stock.quantity + normalized_qty
-  else:
-    new_quantity = stock.quantity - normalized_qty
-
-  if new_quantity < 0 and not allow_negative_stock:
-    raise ValidationError('Stock insuficiente para realizar la operacion solicitada.')
-
-  metadata_payload: Dict[str, Any] = metadata or {}
-  stock.quantity = new_quantity
-  stock.save(update_fields=['quantity', 'updated_at'])
-
-  movement = StockMovement.objects.create(
+def primary_stock_queryset(business: Business) -> QuerySet[ProductStock]:
+  return ProductStock.objects.filter(
     business=business,
-    product=product,
-    movement_type=movement_type,
-    quantity=normalized_qty,
-    note=note,
-    reason=reason,
-    metadata=metadata_payload,
-    created_by=created_by,
+    product__business=business,
+    location__business=business,
+    location__is_primary=True,
+    location__is_active=True,
   )
-  return movement, stock
 
 
 @transaction.atomic
@@ -351,16 +349,26 @@ def void_stock_replenishment(
 
 
 @transaction.atomic
-def reserve_stock(business: Business, product: Product, quantity: Decimal) -> ProductStock:
-  stock = ensure_stock_record(business, product)
+def reserve_stock(
+  business: Business,
+  product: Product,
+  quantity: Decimal,
+  location: StockLocation | None = None,
+) -> ProductStock:
+  stock = ensure_stock_record(business, product, location=location)
   stock.reserved_quantity += Decimal(quantity)
   stock.save(update_fields=['reserved_quantity', 'updated_at'])
   return stock
 
 
 @transaction.atomic
-def release_stock(business: Business, product: Product, quantity: Decimal) -> ProductStock:
-  stock = ensure_stock_record(business, product)
+def release_stock(
+  business: Business,
+  product: Product,
+  quantity: Decimal,
+  location: StockLocation | None = None,
+) -> ProductStock:
+  stock = ensure_stock_record(business, product, location=location)
   stock.reserved_quantity -= Decimal(quantity)
   if stock.reserved_quantity < 0:
     stock.reserved_quantity = Decimal(0)
@@ -380,11 +388,12 @@ def register_stock_movement(
   reason: str = '',
   metadata: Dict[str, Any] | None = None,
   allow_negative_stock: bool = False,
+  location: StockLocation | None = None,
 ) -> Tuple[StockMovement, ProductStock]:
   if product.business_id != business.id:
     raise ValidationError('Producto fuera del negocio actual.')
 
-  stock = ensure_stock_record(business, product)
+  stock = ensure_stock_record(business, product, location=location)
   normalized_qty = Decimal(quantity)
   movement_enum = StockMovement.MovementType
   if movement_type == movement_enum.ADJUST:

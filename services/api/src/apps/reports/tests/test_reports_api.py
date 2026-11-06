@@ -15,6 +15,7 @@ from apps.cash.models import CashMovement, CashRegister, CashSession, Payment
 from apps.cash.services import compute_session_totals
 from apps.catalog.models import Product
 from apps.inventory.models import ProductStock
+from apps.inventory.services import ensure_stock_record
 from apps.sales.models import Sale, SaleItem
 
 
@@ -132,7 +133,9 @@ class ReportsAPITests(APITestCase):
       cost=Decimal('40.00'),
       stock_min=stock_min,
     )
-    ProductStock.objects.create(business=target_business, product=product, quantity=stock)
+    stock_record = ensure_stock_record(target_business, product)
+    stock_record.quantity = stock
+    stock_record.save(update_fields=['quantity', 'updated_at'])
     return product
 
   def test_summary_returns_expected_fields(self):

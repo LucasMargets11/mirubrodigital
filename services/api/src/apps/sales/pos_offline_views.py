@@ -216,7 +216,13 @@ class PosOfflineBootstrapView(APIView):
         stock_map = {
             row['product_id']: row['quantity']
             for row in ProductStock.objects
-            .filter(business=business)
+            .filter(
+                business=business,
+                product__business=business,
+                location__business=business,
+                location__is_primary=True,
+                location__is_active=True,
+            )
             .values('product_id', 'quantity')
         }
 

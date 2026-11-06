@@ -18,6 +18,7 @@ from apps.cash.models import CashRegister, CashSession
 from apps.catalog.models import Product
 from apps.customers.models import Customer
 from apps.inventory.models import ProductStock, StockMovement
+from apps.inventory.services import ensure_stock_record
 from apps.menu.models import MenuCategory, MenuItem, ensure_menu_branding, ensure_public_menu_config
 from apps.orders.models import Order, OrderItem
 from apps.resto.models import Table, TableLayout
@@ -242,11 +243,9 @@ class Command(BaseCommand):
             )
             
             # Stock init
-            ProductStock.objects.update_or_create(
-                business=business,
-                product=p,
-                defaults={'quantity': 100}
-            )
+            stock = ensure_stock_record(business, p)
+            stock.quantity = 100
+            stock.save(update_fields=['quantity', 'updated_at'])
             # Create a movement if none exists to show history
             if not StockMovement.objects.filter(business=business, product=p).exists():
                 StockMovement.objects.create(
@@ -300,7 +299,8 @@ class Command(BaseCommand):
                 )
                 
                 # Impact stock
-                ProductStock.objects.filter(business=business, product=prod).update(
+                stock = ensure_stock_record(business, prod)
+                ProductStock.objects.filter(pk=stock.pk).update(
                     quantity=models.F('quantity') - qty
                 )
                 StockMovement.objects.create(
@@ -566,7 +566,9 @@ class Command(BaseCommand):
                      business=branch, sku=p.sku, 
                      defaults={'name': p.name, 'price': p.price, 'stock_min': 5, 'is_active': True}
                  )
-                 ProductStock.objects.update_or_create(business=branch, product=bp, defaults={'quantity': 50})
+                 stock = ensure_stock_record(branch, bp)
+                 stock.quantity = 50
+                 stock.save(update_fields=['quantity', 'updated_at'])
         
         self.stdout.write("  Branches seeded.")
 

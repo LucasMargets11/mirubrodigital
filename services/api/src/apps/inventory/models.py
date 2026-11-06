@@ -108,18 +108,12 @@ class StockMovement(models.Model):
 
 
 class StockLocation(models.Model):
-  """Ubicación física de stock dentro de un negocio (ej: Local principal, Depósito).
-
-  PR1: solo el esquema. No hay backfill ni creación automática de ubicaciones:
-  un negocio puede no tener todavía ninguna `StockLocation`, y eso es válido
-  mientras `ProductStock.location` siga siendo nullable.
-  """
+  """Ubicación física de stock dentro de un negocio."""
 
   id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
   business = models.ForeignKey('business.Business', related_name='stock_locations', on_delete=models.CASCADE)
   name = models.CharField(max_length=120)
-  # Como máximo una ubicación principal por negocio (ver constraint en Meta).
-  # No implica que todo negocio ya tenga una: eso se resuelve en un PR posterior.
+  # La migración crea las principales existentes y el servicio al primer uso futuro.
   is_primary = models.BooleanField(default=False)
   is_active = models.BooleanField(default=True)
   created_at = models.DateTimeField(auto_now_add=True)
@@ -130,7 +124,6 @@ class StockLocation(models.Model):
     constraints = [
       models.UniqueConstraint(fields=['business', 'name'], name='unique_stock_location_name_per_business'),
       # Garantiza como máximo una ubicación principal por negocio.
-      # No garantiza que exista una: eso queda para el PR de backfill.
       models.UniqueConstraint(
         fields=['business'],
         condition=Q(is_primary=True),
@@ -147,15 +140,10 @@ class StockLocation(models.Model):
 
 class ProductStock(models.Model):
   business = models.ForeignKey('business.Business', related_name='inventory_levels', on_delete=models.CASCADE)
-  product = models.OneToOneField('catalog.Product', related_name='stock_level', on_delete=models.CASCADE)
-  # PR1: FK nullable y sin uso todavía. El saldo operativo sigue siendo
-  # `quantity`/`reserved_quantity` a nivel de negocio+producto, no de ubicación.
-  # on_delete=PROTECT: no se puede borrar una ubicación referenciada por un saldo.
+  product = models.ForeignKey('catalog.Product', related_name='stock_levels', on_delete=models.CASCADE)
   location = models.ForeignKey(
     StockLocation,
     related_name='product_stocks',
-    null=True,
-    blank=True,
     on_delete=models.PROTECT,
   )
   quantity = models.DecimalField(max_digits=12, decimal_places=2, default=0)
@@ -164,7 +152,7 @@ class ProductStock(models.Model):
 
   class Meta:
     constraints = [
-      models.UniqueConstraint(fields=['business', 'product'], name='product_stock_business_product'),
+      models.UniqueConstraint(fields=['product', 'location'], name='product_stock_product_location'),
     ]
     indexes = [
       models.Index(fields=['business', 'location']),
