@@ -7,8 +7,21 @@ from rest_framework import serializers
 from apps.catalog.models import Product
 from apps.catalog.serializers import ProductSummarySerializer
 from apps.treasury.models import Account, TransactionCategory
-from .models import InventoryImportJob, ProductStock, StockMovement, StockReplenishment
-from .services import register_stock_movement, create_stock_replenishment, void_stock_replenishment
+from .models import (
+  InventoryImportJob,
+  ProductStock,
+  StockLocation,
+  StockMovement,
+  StockReplenishment,
+  StockTransfer,
+  StockTransferLine,
+)
+from .services import (
+  confirm_stock_transfer,
+  create_stock_replenishment,
+  register_stock_movement,
+  void_stock_replenishment,
+)
 
 
 class ProductStockSerializer(serializers.ModelSerializer):
@@ -247,6 +260,122 @@ class StockReplenishmentDetailSerializer(serializers.ModelSerializer):
       reason='replenishment',
     ).select_related('product')
     return ReplenishmentMovementSummarySerializer(movements, many=True).data
+
+
+# ---------------------------------------------------------------------------
+# Stock transfer serializers
+# ---------------------------------------------------------------------------
+
+class StockTransferLineInputSerializer(serializers.Serializer):
+  product_id = serializers.UUIDField()
+  quantity = serializers.DecimalField(max_digits=12, decimal_places=2)
+
+  def validate_quantity(self, value: Decimal) -> Decimal:
+    if value <= 0:
+      raise serializers.ValidationError('La cantidad debe ser mayor a cero.')
+    return value
+
+
+class StockTransferConfirmSerializer(serializers.Serializer):
+  origin_location_id = serializers.UUIDField()
+  destination_location_id = serializers.UUIDField()
+  idempotency_key = serializers.CharField(max_length=255, allow_blank=False, trim_whitespace=True)
+  lines = StockTransferLineInputSerializer(many=True, min_length=1)
+
+  def _resolve_location(self, value, *, field_name: str) -> StockLocation:
+    request = self.context['request']
+    business = getattr(request, 'business')
+    try:
+      return StockLocation.objects.get(pk=value, business=business)
+    except StockLocation.DoesNotExist as exc:
+      raise serializers.ValidationError(
+        f'Ubicación de {field_name} no encontrada en este negocio.'
+      ) from exc
+
+  def validate_origin_location_id(self, value):
+    location = self._resolve_location(value, field_name='origen')
+    self.context['origin_location'] = location
+    return value
+
+  def validate_destination_location_id(self, value):
+    location = self._resolve_location(value, field_name='destino')
+    self.context['destination_location'] = location
+    return value
+
+  def validate_lines(self, value):
+    product_ids = [str(line['product_id']) for line in value]
+    if len(product_ids) != len(set(product_ids)):
+      raise serializers.ValidationError('No se permiten renglones duplicados para el mismo producto.')
+    return value
+
+  def create(self, validated_data):
+    request = self.context['request']
+    business = getattr(request, 'business')
+    origin_location = self.context['origin_location']
+    destination_location = self.context['destination_location']
+    lines = [
+      {'product_id': line['product_id'], 'quantity': line['quantity']}
+      for line in validated_data['lines']
+    ]
+    try:
+      transfer, created = confirm_stock_transfer(
+        business=business,
+        origin_location=origin_location,
+        destination_location=destination_location,
+        lines=lines,
+        idempotency_key=validated_data['idempotency_key'],
+        created_by=request.user,
+      )
+    except DjangoValidationError as exc:
+      message = getattr(exc, 'message', None) or '; '.join(exc.messages)
+      raise serializers.ValidationError({'detail': message}) from exc
+    self.context['created'] = created
+    return transfer
+
+  def to_representation(self, instance):
+    return StockTransferDetailSerializer(instance, context=self.context).data
+
+
+class StockTransferLineSerializer(serializers.ModelSerializer):
+  product = ProductSummarySerializer(read_only=True)
+  out_movement_id = serializers.UUIDField(read_only=True)
+  in_movement_id = serializers.UUIDField(read_only=True)
+
+  class Meta:
+    model = StockTransferLine
+    fields = ['id', 'product', 'quantity', 'out_movement_id', 'in_movement_id']
+    read_only_fields = fields
+
+
+class StockTransferListSerializer(serializers.ModelSerializer):
+  origin_location_id = serializers.UUIDField(read_only=True)
+  origin_location_name = serializers.CharField(source='origin_location.name', read_only=True)
+  destination_location_id = serializers.UUIDField(read_only=True)
+  destination_location_name = serializers.CharField(source='destination_location.name', read_only=True)
+  created_by_name = serializers.SerializerMethodField()
+  lines = StockTransferLineSerializer(many=True, read_only=True)
+
+  class Meta:
+    model = StockTransfer
+    fields = [
+      'id',
+      'origin_location_id', 'origin_location_name',
+      'destination_location_id', 'destination_location_name',
+      'created_by_name', 'created_at',
+      'lines',
+    ]
+    read_only_fields = fields
+
+  def get_created_by_name(self, obj: StockTransfer) -> str | None:
+    user = obj.created_by
+    if user is None:
+      return None
+    return user.get_full_name() or user.email
+
+
+class StockTransferDetailSerializer(StockTransferListSerializer):
+  class Meta(StockTransferListSerializer.Meta):
+    pass
 
 
 class InventoryImportJobSerializer(serializers.ModelSerializer):

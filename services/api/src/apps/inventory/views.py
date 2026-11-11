@@ -27,8 +27,8 @@ from .importer import (
 	parse_inventory_import,
 	serialize_preview_rows,
 )
-from .models import InventoryImportJob, StockMovement, StockReplenishment
-from .services import primary_stock_queryset
+from .models import InventoryImportJob, StockMovement, StockReplenishment, StockTransfer
+from .services import primary_stock_queryset, StockTransferConflict
 from .serializers import (
     InventoryImportJobSerializer,
 	ProductStockSerializer,
@@ -37,6 +37,9 @@ from .serializers import (
 	StockReplenishmentCreateSerializer,
 	StockReplenishmentDetailSerializer,
 	StockReplenishmentListSerializer,
+	StockTransferConfirmSerializer,
+	StockTransferDetailSerializer,
+	StockTransferListSerializer,
 )
 
 
@@ -548,3 +551,60 @@ class ReplenishmentVoidView(APIView):
 		)
 		serializer = StockReplenishmentDetailSerializer(replenishment, context={'request': request})
 		return Response(serializer.data)
+
+
+# ---------------------------------------------------------------------------
+# Stock transfer views
+# ---------------------------------------------------------------------------
+
+class StockTransferListCreateView(APIView):
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	permission_map = {
+		'GET': 'view_stock',
+		'POST': 'manage_stock',
+	}
+
+	def get_required_permission(self):
+		return self.permission_map.get(self.request.method.upper())
+
+	def get(self, request):
+		business = getattr(request, 'business')
+		limit = _resolve_limit(request.query_params.get('limit'), default=50, maximum=200)
+		queryset = (
+			StockTransfer.objects
+			.filter(business=business)
+			.select_related('origin_location', 'destination_location', 'created_by')
+			.prefetch_related('lines__product')
+			.order_by('-created_at')[:limit]
+		)
+		serializer = StockTransferListSerializer(queryset, many=True, context={'request': request})
+		return Response(serializer.data)
+
+	def post(self, request):
+		serializer = StockTransferConfirmSerializer(data=request.data, context={'request': request})
+		serializer.is_valid(raise_exception=True)
+		try:
+			transfer = serializer.save()
+		except StockTransferConflict as exc:
+			return Response(
+				{'error': {'code': 'IDEMPOTENCY_KEY_CONFLICT', 'message': str(exc)}},
+				status=status.HTTP_409_CONFLICT,
+			)
+		created = serializer.context.get('created', True)
+		response_status = status.HTTP_201_CREATED if created else status.HTTP_200_OK
+		return Response(serializer.data, status=response_status)
+
+
+class StockTransferDetailView(generics.RetrieveAPIView):
+	serializer_class = StockTransferDetailSerializer
+	permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+	required_permission = 'view_stock'
+
+	def get_queryset(self):
+		business = getattr(self.request, 'business')
+		return (
+			StockTransfer.objects
+			.filter(business=business)
+			.select_related('origin_location', 'destination_location', 'created_by')
+			.prefetch_related('lines__product')
+		)

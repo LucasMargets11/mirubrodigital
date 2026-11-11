@@ -4,13 +4,20 @@ from decimal import Decimal
 from typing import Any, Dict, List, Tuple
 
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 
 from apps.catalog.models import Product
 from apps.business.models import Business
-from .models import ProductStock, StockLocation, StockMovement, StockReplenishment
+from .models import (
+  ProductStock,
+  StockLocation,
+  StockMovement,
+  StockReplenishment,
+  StockTransfer,
+  StockTransferLine,
+)
 
 
 @transaction.atomic
@@ -65,6 +72,40 @@ def ensure_stock_record(
   if transaction.get_connection().in_atomic_block:
     stock = ProductStock.objects.select_for_update().get(pk=stock.pk)
   return stock
+
+
+def stock_lock_key(product_id, location_id) -> Tuple[str, str]:
+  """Orden global de bloqueo de saldos: (product_id, location_id) como texto.
+
+  Todo escritor que bloquee más de un ProductStock en una misma transacción
+  debe adquirirlos en este orden para no cerrar ciclos con otro escritor.
+  """
+  return (str(product_id), str(location_id))
+
+
+def lock_stock_records(
+  business: Business,
+  pairs: List[Tuple[Product, StockLocation | None]],
+) -> Dict[Tuple[str, str], ProductStock]:
+  """Crea si falta y bloquea cada saldo (producto, ubicación) en orden global.
+
+  location=None resuelve la ubicación principal antes de ordenar. Devuelve
+  los saldos bloqueados indexados por stock_lock_key. Debe llamarse dentro
+  de una transacción para que los locks se retengan hasta el commit.
+  """
+  resolved: Dict[Tuple[str, str], Tuple[Product, StockLocation]] = {}
+  primary: StockLocation | None = None
+  for product, location in pairs:
+    if location is None:
+      primary = primary or get_primary_stock_location(business)
+      location = primary
+    resolved[stock_lock_key(product.pk, location.pk)] = (product, location)
+
+  locked: Dict[Tuple[str, str], ProductStock] = {}
+  for key in sorted(resolved):
+    product, location = resolved[key]
+    locked[key] = ensure_stock_record(business, product, location=location)
+  return locked
 
 
 def primary_stock_queryset(business: Business) -> QuerySet[ProductStock]:
@@ -429,5 +470,222 @@ def register_stock_movement(
     reason=reason,
     metadata=metadata_payload,
     created_by=created_by,
+    # Ubicación efectiva ya resuelta por ensure_stock_record (explícita o
+    # principal por defecto). No es una segunda escritura de saldo: solo
+    # registra, en el movimiento, dónde impactó la que ya hizo este mismo
+    # llamado más arriba.
+    location_id=stock.location_id,
   )
   return movement, stock
+
+
+class StockTransferConflict(Exception):
+  """Se reintentó una clave de idempotencia de traslado con contenido distinto."""
+
+
+def _normalize_transfer_lines(lines: List[Dict[str, Any]]) -> List[Tuple[str, Decimal]]:
+  """[(product_id, quantity)] ordenado por product_id, para comparar contenido."""
+  normalized = [
+    (str(line['product_id']), Decimal(str(line['quantity'])))
+    for line in lines
+  ]
+  return sorted(normalized, key=lambda pair: pair[0])
+
+
+def _stock_transfer_matches(
+  transfer: StockTransfer,
+  *,
+  origin_location: StockLocation,
+  destination_location: StockLocation,
+  lines: List[Dict[str, Any]],
+) -> bool:
+  if transfer.origin_location_id != origin_location.pk:
+    return False
+  if transfer.destination_location_id != destination_location.pk:
+    return False
+  existing_lines = sorted(
+    ((str(line.product_id), line.quantity) for line in transfer.lines.all()),
+    key=lambda pair: pair[0],
+  )
+  return existing_lines == _normalize_transfer_lines(lines)
+
+
+def _validate_transfer_shape(
+  *,
+  business: Business,
+  origin_location: StockLocation,
+  destination_location: StockLocation,
+  lines: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+  if origin_location.pk == destination_location.pk:
+    raise ValidationError('El origen y el destino del traslado deben ser ubicaciones distintas.')
+  if origin_location.business_id != business.pk or destination_location.business_id != business.pk:
+    raise ValidationError('Las ubicaciones del traslado deben pertenecer a este negocio.')
+  if not origin_location.is_active or not destination_location.is_active:
+    raise ValidationError('Las ubicaciones del traslado deben estar activas.')
+  if not lines:
+    raise ValidationError('El traslado debe incluir al menos un producto.')
+
+  product_ids = [str(line['product_id']) for line in lines]
+  if len(product_ids) != len(set(product_ids)):
+    raise ValidationError('No se permiten renglones duplicados para el mismo producto.')
+
+  resolved_lines: List[Dict[str, Any]] = []
+  for line in lines:
+    quantity = Decimal(str(line['quantity']))
+    if quantity <= 0:
+      raise ValidationError('La cantidad de cada renglón debe ser mayor a cero.')
+    try:
+      product = Product.objects.get(pk=line['product_id'], business=business)
+    except Product.DoesNotExist as exc:
+      raise ValidationError(
+        f"Producto {line['product_id']} no encontrado en este negocio."
+      ) from exc
+    resolved_lines.append({'product': product, 'quantity': quantity})
+  return resolved_lines
+
+
+@transaction.atomic
+def confirm_stock_transfer(
+  *,
+  business: Business,
+  origin_location: StockLocation,
+  destination_location: StockLocation,
+  lines: List[Dict[str, Any]],
+  idempotency_key: str,
+  created_by=None,
+) -> Tuple[StockTransfer, bool]:
+  """
+  Confirma un traslado de stock entre dos ubicaciones del mismo negocio.
+
+  Descuenta el disponible (cantidad física - reservada) de cada producto en
+  el origen y lo suma al destino, sin tocar reservas. Reutiliza
+  register_stock_movement para la única escritura de saldo por renglón y
+  ensure_stock_record para crear el saldo de destino de forma segura
+  frente a concurrencia. Devuelve (traslado, created): created=False cuando
+  la clave de idempotencia ya resolvió un traslado idéntico (reintento
+  seguro, incluso ante reintentos simultáneos).
+  """
+  if not idempotency_key or not idempotency_key.strip():
+    raise ValidationError('La clave de idempotencia es obligatoria.')
+  idempotency_key = idempotency_key.strip()
+
+  existing = (
+    StockTransfer.objects
+    .filter(business=business, idempotency_key=idempotency_key)
+    .prefetch_related('lines')
+    .first()
+  )
+  if existing is not None:
+    if _stock_transfer_matches(
+      existing,
+      origin_location=origin_location,
+      destination_location=destination_location,
+      lines=lines,
+    ):
+      return existing, False
+    raise StockTransferConflict(
+      'Ya existe un traslado confirmado con esta clave de idempotencia y contenido distinto.'
+    )
+
+  resolved_lines = _validate_transfer_shape(
+    business=business,
+    origin_location=origin_location,
+    destination_location=destination_location,
+    lines=lines,
+  )
+
+  # Reserva atómica de la clave de idempotencia, en un savepoint propio: si
+  # pierde la carrera contra un commit concurrente, revierte solo este
+  # intento de insert (sin movimientos ni saldos creados todavía) y
+  # devuelve/rechaza según corresponda.
+  try:
+    with transaction.atomic():
+      transfer = StockTransfer.objects.create(
+        business=business,
+        origin_location=origin_location,
+        destination_location=destination_location,
+        created_by=created_by,
+        idempotency_key=idempotency_key,
+      )
+  except IntegrityError:
+    existing = (
+      StockTransfer.objects
+      .filter(business=business, idempotency_key=idempotency_key)
+      .prefetch_related('lines')
+      .first()
+    )
+    if existing is not None and _stock_transfer_matches(
+      existing,
+      origin_location=origin_location,
+      destination_location=destination_location,
+      lines=lines,
+    ):
+      return existing, False
+    raise StockTransferConflict(
+      'Ya existe un traslado confirmado con esta clave de idempotencia y contenido distinto.'
+    )
+
+  # Orden global de bloqueo (stock_lock_key): por (product_id, location_id),
+  # sin distinguir origen/destino. Es el mismo orden que usa la venta, así
+  # que traslados opuestos entre sí, o un traslado y una venta con renglones
+  # en otro orden comercial, no cierran ciclos. ensure_stock_record (vía
+  # lock_stock_records) crea el saldo de destino si todavía no existe.
+  stock_by_key = lock_stock_records(
+    business,
+    [
+      (item['product'], location)
+      for item in resolved_lines
+      for location in (origin_location, destination_location)
+    ],
+  )
+
+  for item in resolved_lines:
+    product = item['product']
+    quantity = item['quantity']
+    origin_stock = stock_by_key[stock_lock_key(product.pk, origin_location.pk)]
+    available = origin_stock.quantity - origin_stock.reserved_quantity
+    if available < quantity:
+      raise ValidationError(
+        f'Stock insuficiente en el origen para {product.name}: '
+        f'disponible {available}, solicitado {quantity}.'
+      )
+
+  for item in resolved_lines:
+    product = item['product']
+    quantity = item['quantity']
+
+    out_movement, _ = register_stock_movement(
+      business=business,
+      product=product,
+      movement_type=StockMovement.MovementType.OUT,
+      quantity=quantity,
+      note=f'Traslado a {destination_location.name}',
+      created_by=created_by,
+      reason='transfer',
+      location=origin_location,
+    )
+    in_movement, _ = register_stock_movement(
+      business=business,
+      product=product,
+      movement_type=StockMovement.MovementType.IN,
+      quantity=quantity,
+      note=f'Traslado desde {origin_location.name}',
+      created_by=created_by,
+      reason='transfer',
+      location=destination_location,
+    )
+    out_movement.transfer = transfer
+    out_movement.save(update_fields=['transfer'])
+    in_movement.transfer = transfer
+    in_movement.save(update_fields=['transfer'])
+
+    StockTransferLine.objects.create(
+      transfer=transfer,
+      product=product,
+      quantity=quantity,
+      out_movement=out_movement,
+      in_movement=in_movement,
+    )
+
+  return transfer, True

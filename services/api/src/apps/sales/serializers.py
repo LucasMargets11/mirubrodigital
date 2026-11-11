@@ -16,7 +16,7 @@ from apps.catalog.models import Product
 from apps.customers.models import Customer
 from apps.customers.serializers import CustomerSummarySerializer
 from apps.inventory.models import StockMovement
-from apps.inventory.services import ensure_stock_record, register_stock_movement
+from apps.inventory.services import ensure_stock_record, lock_stock_records, register_stock_movement
 from apps.invoices.models import Invoice
 from .models import Sale, SaleItem, Order, OrderItem, OrderPayment, OrderHistory
 
@@ -296,8 +296,19 @@ class SaleCreateSerializer(serializers.Serializer):
     bulk_items: List[SaleItem] = []
     items_payload: List[dict[str, Any]] = validated_data['items']
 
+    # Bloquear todos los saldos de la venta en el orden global de inventario
+    # (stock_lock_key) antes de procesar los renglones en su orden comercial.
+    # Sin esto, una venta B, A y un traslado A, B sobre Local principal se
+    # bloquean en orden inverso y PostgreSQL aborta una por deadlock.
+    products_by_id: dict[str, Product] = {}
     for payload in items_payload:
-      product = self._resolve_product(business, payload['product_id'])
+      key = str(payload['product_id'])
+      if key not in products_by_id:
+        products_by_id[key] = self._resolve_product(business, payload['product_id'])
+    lock_stock_records(business, [(product, None) for product in products_by_id.values()])
+
+    for payload in items_payload:
+      product = products_by_id[str(payload['product_id'])]
       quantity = Decimal(payload['quantity'])
       raw_unit_price = payload.get('unit_price')
       unit_price = Decimal(raw_unit_price) if raw_unit_price is not None else Decimal(product.price)

@@ -2,7 +2,7 @@ import uuid
 
 from django.conf import settings
 from django.db import models
-from django.db.models import Q
+from django.db.models import F, Q
 
 
 class StockReplenishment(models.Model):
@@ -86,6 +86,23 @@ class StockMovement(models.Model):
     blank=True,
     on_delete=models.SET_NULL,
   )
+  # PR3: ubicación efectiva del movimiento y, si corresponde, el traslado que
+  # lo originó. Nullable: los movimientos previos a PR3 nunca registraron una
+  # ubicación y no se infiere una por ellos; quedan en NULL para siempre.
+  location = models.ForeignKey(
+    'StockLocation',
+    related_name='stock_movements',
+    null=True,
+    blank=True,
+    on_delete=models.PROTECT,
+  )
+  transfer = models.ForeignKey(
+    'StockTransfer',
+    related_name='movements',
+    null=True,
+    blank=True,
+    on_delete=models.PROTECT,
+  )
   created_by = models.ForeignKey(
     settings.AUTH_USER_MODEL,
     related_name='inventory_movements',
@@ -101,6 +118,7 @@ class StockMovement(models.Model):
       models.Index(fields=['business', 'created_at']),
       models.Index(fields=['business', 'product']),
       models.Index(fields=['business', 'replenishment']),
+      models.Index(fields=['business', 'transfer']),
     ]
 
   def __str__(self) -> str:
@@ -160,6 +178,86 @@ class ProductStock(models.Model):
 
   def __str__(self) -> str:
     return f"{self.product_id} · {self.quantity}"
+
+
+class StockTransfer(models.Model):
+  """Traslado confirmado de stock entre dos ubicaciones del mismo negocio.
+
+  La confirmación y la trazabilidad de saldos viven en services.py
+  (confirm_stock_transfer): este modelo solo persiste el encabezado.
+  """
+
+  id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+  business = models.ForeignKey('business.Business', related_name='stock_transfers', on_delete=models.CASCADE)
+  origin_location = models.ForeignKey(
+    StockLocation,
+    related_name='stock_transfers_out',
+    on_delete=models.PROTECT,
+  )
+  destination_location = models.ForeignKey(
+    StockLocation,
+    related_name='stock_transfers_in',
+    on_delete=models.PROTECT,
+  )
+  created_by = models.ForeignKey(
+    settings.AUTH_USER_MODEL,
+    related_name='stock_transfers_created',
+    null=True,
+    blank=True,
+    on_delete=models.SET_NULL,
+  )
+  # Única por negocio cuando está presente: permite reintentos seguros desde
+  # el cliente. Misma clave + mismo contenido devuelve el traslado existente;
+  # misma clave + contenido distinto se rechaza. Ver confirm_stock_transfer.
+  idempotency_key = models.CharField(max_length=255, null=True, blank=True)
+  created_at = models.DateTimeField(auto_now_add=True)
+
+  class Meta:
+    ordering = ['-created_at']
+    constraints = [
+      models.UniqueConstraint(
+        fields=['business', 'idempotency_key'],
+        condition=Q(idempotency_key__isnull=False),
+        name='unique_stock_transfer_idempotency_key_per_business',
+      ),
+      models.CheckConstraint(
+        check=~Q(origin_location=F('destination_location')),
+        name='stock_transfer_origin_destination_differ',
+      ),
+    ]
+    indexes = [
+      models.Index(fields=['business', 'created_at']),
+    ]
+
+  def __str__(self) -> str:
+    return f"Traslado {self.origin_location_id} → {self.destination_location_id}"
+
+
+class StockTransferLine(models.Model):
+  """Renglón de un traslado confirmado: un producto, su cantidad y sus dos movimientos."""
+
+  id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+  transfer = models.ForeignKey(StockTransfer, related_name='lines', on_delete=models.CASCADE)
+  product = models.ForeignKey('catalog.Product', related_name='stock_transfer_lines', on_delete=models.PROTECT)
+  quantity = models.DecimalField(max_digits=12, decimal_places=2)
+  out_movement = models.OneToOneField(
+    StockMovement,
+    related_name='transfer_line_out',
+    on_delete=models.PROTECT,
+  )
+  in_movement = models.OneToOneField(
+    StockMovement,
+    related_name='transfer_line_in',
+    on_delete=models.PROTECT,
+  )
+
+  class Meta:
+    constraints = [
+      models.UniqueConstraint(fields=['transfer', 'product'], name='unique_stock_transfer_line_product'),
+    ]
+
+  def __str__(self) -> str:
+    return f"{self.product_id} x {self.quantity}"
 
 
 class InventoryImportJob(models.Model):
