@@ -20,6 +20,11 @@ from .models import (
 )
 
 
+# Texto del ValidationError de salida sin saldo; los consumidores lo usan para
+# distinguir el error de negocio esperado de otras validaciones.
+INSUFFICIENT_STOCK_MESSAGE = 'Stock insuficiente para realizar la operacion solicitada.'
+
+
 @transaction.atomic
 def get_primary_stock_location(business: Business) -> StockLocation:
   location = StockLocation.objects.filter(business=business, is_primary=True).first()
@@ -471,7 +476,7 @@ def register_stock_movement(
     new_quantity = stock.quantity - normalized_qty
 
   if new_quantity < 0 and not allow_negative_stock:
-    raise ValidationError('Stock insuficiente para realizar la operacion solicitada.')
+    raise ValidationError(INSUFFICIENT_STOCK_MESSAGE)
 
   metadata_payload: Dict[str, Any] = metadata or {}
   stock.quantity = new_quantity

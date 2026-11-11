@@ -501,7 +501,9 @@ class OrderSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
         fields = '__all__'
-        read_only_fields = ['number', 'created_by', 'business', 'total', 'subtotal', 'discount_total', 'surcharge_total', 'total_paid', 'pending_balance', 'created_at', 'updated_at']
+        # status solo cambia por las acciones de transición (PR3.3): un PATCH
+        # no puede sacar un pedido de CANCELLED/DELIVERED ni saltear stock.
+        read_only_fields = ['number', 'created_by', 'business', 'status', 'total', 'subtotal', 'discount_total', 'surcharge_total', 'total_paid', 'pending_balance', 'created_at', 'updated_at']
 
 class OrderListSerializer(serializers.ModelSerializer):
     customer_name = serializers.CharField(source='customer.name', read_only=True)

@@ -5,9 +5,11 @@ from uuid import UUID
 
 from django.db.models import Count, Q, Sum, DecimalField, OuterRef, Subquery, Value
 from django.db.models.functions import Coalesce
+from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics
+from rest_framework.exceptions import APIException
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.response import Response
@@ -15,7 +17,7 @@ from rest_framework.views import APIView
 
 from apps.accounts.permissions import HasBusinessMembership, HasPermission
 from apps.cash.models import Payment, CashSession, CashMovement
-from apps.inventory.services import reserve_stock, release_stock, register_stock_movement, ensure_stock_record, lock_stock_records
+from apps.inventory.services import INSUFFICIENT_STOCK_MESSAGE, reserve_stock, release_stock, register_stock_movement, ensure_stock_record, lock_stock_records
 from apps.inventory.models import StockMovement
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
@@ -268,6 +270,26 @@ class _OrderTransitionRejected(Exception):
     """Transición de pedido incompatible con el estado bloqueado; no modifica stock."""
 
 
+class _OrderDeliveryStockShortage(Exception):
+    """Un renglón de la entrega no pudo descontar stock; la entrega se revierte completa."""
+
+    def __init__(self, item):
+        super().__init__(item.name_snapshot)
+        self.item_id = item.pk
+        self.item_name = item.name_snapshot
+
+
+# Transiciones de sales.Order por acción (PR3.3). CANCELLED y DELIVERED son
+# terminales: no figuran como origen de ninguna acción que avance el circuito.
+MARK_IN_PREPARATION_FROM = frozenset({Order.Status.CONFIRMED})
+MARK_READY_FROM = frozenset({Order.Status.CONFIRMED, Order.Status.IN_PREPARATION})
+DELIVER_FROM = frozenset({
+    Order.Status.CONFIRMED,
+    Order.Status.IN_PREPARATION,
+    Order.Status.READY_FOR_DELIVERY,
+})
+
+
 class OrderViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
     permission_map = {
@@ -322,13 +344,19 @@ class OrderViewSet(viewsets.ModelViewSet):
                     item.reserved_quantity = item.quantity
                     item.save(update_fields=['reserved_quantity'])
 
+                from_status = order.status
                 order.status = Order.Status.CONFIRMED
                 order.save(update_fields=['status'])
-                OrderHistory.objects.create(order=order, action='confirmed', user=request.user, to_status=Order.Status.CONFIRMED)
+                OrderHistory.objects.create(
+                    order=order, action='confirmed', user=request.user,
+                    from_status=from_status, to_status=Order.Status.CONFIRMED,
+                )
         except _OrderTransitionRejected as e:
             return Response({'error': str(e)}, status=400)
         except DjangoValidationError as e:
             return Response({'error': ' '.join(e.messages)}, status=400)
+        except (Http404, APIException):
+            raise
         except Exception:
             logger.exception('No se pudo confirmar el pedido %s', pk)
             return Response({'error': 'No pudimos reservar el stock del pedido. No se aplicó ningún cambio.'}, status=400)
@@ -358,34 +386,69 @@ class OrderViewSet(viewsets.ModelViewSet):
                         item.reserved_quantity = 0
                         item.save(update_fields=['reserved_quantity'])
 
+                from_status = order.status
                 order.status = Order.Status.CANCELLED
                 order.deleted_at = timezone.now()
                 order.save(update_fields=['status', 'deleted_at'])
-                OrderHistory.objects.create(order=order, action='cancelled', user=request.user, to_status=Order.Status.CANCELLED)
+                OrderHistory.objects.create(
+                    order=order, action='cancelled', user=request.user,
+                    from_status=from_status, to_status=Order.Status.CANCELLED,
+                )
         except _OrderTransitionRejected as e:
             return Response({'error': str(e)}, status=400)
         return Response(OrderSerializer(order).data)
 
-    @action(detail=True, methods=['post'])
-    def mark_in_preparation(self, request, pk=None):
-        order = self.get_object()
-        if order.status != Order.Status.CONFIRMED:
-             return Response({'error': 'Debe estar confirmado'}, status=400)
-        order.status = Order.Status.IN_PREPARATION
-        order.save(update_fields=['status'])
-        OrderHistory.objects.create(order=order, action='in_preparation', user=request.user, to_status=Order.Status.IN_PREPARATION)
+    def _advance_status(self, request, *, allowed_from, to_status, history_action, rejection):
+        """Avance de etapa sin efectos de stock (preparación / listo).
+
+        La decisión se toma sobre la fila bloqueada. Un reintento idéntico
+        (el pedido ya está en `to_status`) responde 200 con el pedido actual
+        y no registra historial: no hubo cambio. Los estados terminales
+        nunca están en `allowed_from`.
+        """
+        try:
+            with transaction.atomic():
+                order = self._lock_order()
+                if order.status == to_status:
+                    return Response(OrderSerializer(order).data)
+                if order.status not in allowed_from:
+                    raise _OrderTransitionRejected(rejection)
+                from_status = order.status
+                order.status = to_status
+                order.save(update_fields=['status'])
+                OrderHistory.objects.create(
+                    order=order, action=history_action, user=request.user,
+                    from_status=from_status, to_status=to_status,
+                )
+        except _OrderTransitionRejected as e:
+            return Response({'error': str(e)}, status=400)
         return Response(OrderSerializer(order).data)
 
-    @action(detail=True, methods=['post'])
+    @action(detail=True, methods=['post'], permission_map={'POST': 'change_order_status'})
+    def mark_in_preparation(self, request, pk=None):
+        return self._advance_status(
+            request,
+            allowed_from=MARK_IN_PREPARATION_FROM,
+            to_status=Order.Status.IN_PREPARATION,
+            history_action='in_preparation',
+            rejection='Debe estar confirmado',
+        )
+
+    @action(detail=True, methods=['post'], permission_map={'POST': 'change_order_status'})
     def mark_ready(self, request, pk=None):
-        order = self.get_object()
-        order.status = Order.Status.READY_FOR_DELIVERY
-        order.save(update_fields=['status'])
-        OrderHistory.objects.create(order=order, action='ready', user=request.user, to_status=Order.Status.READY_FOR_DELIVERY)
-        return Response(OrderSerializer(order).data)
+        return self._advance_status(
+            request,
+            allowed_from=MARK_READY_FROM,
+            to_status=Order.Status.READY_FOR_DELIVERY,
+            history_action='ready',
+            rejection='Debe estar confirmado o en preparación',
+        )
 
     @action(detail=True, methods=['post'], permission_map={'POST': 'deliver_orders'})
     def deliver(self, request, pk=None):
+        # La respuesta de error se arma fuera del bloque atómico: para
+        # entonces la transacción ya revirtió liberaciones y salidas de los
+        # renglones anteriores.
         try:
             with transaction.atomic():
                 order = self._lock_order()
@@ -393,9 +456,25 @@ class OrderViewSet(viewsets.ModelViewSet):
                     return Response(OrderSerializer(order).data)
                 if order.status == Order.Status.CANCELLED:
                     raise _OrderTransitionRejected('No se puede entregar un pedido cancelado')
-                return self._deliver_locked(order, request)
+                if order.status not in DELIVER_FROM:
+                    raise _OrderTransitionRejected('Debe estar confirmado')
+                self._deliver_locked(order, request)
         except _OrderTransitionRejected as e:
             return Response({'error': str(e)}, status=400)
+        except _OrderDeliveryStockShortage as e:
+            return Response({
+                'error': f'No hay stock suficiente para entregar "{e.item_name}". No se aplicó ningún cambio.',
+                'code': 'insufficient_stock',
+                'item_id': str(e.item_id),
+            }, status=400)
+        except DjangoValidationError as e:
+            return Response({'error': ' '.join(e.messages)}, status=400)
+        except (Http404, APIException):
+            raise
+        except Exception:
+            logger.exception('No se pudo entregar el pedido %s', pk)
+            return Response({'error': 'No pudimos registrar la entrega del pedido. No se aplicó ningún cambio.'}, status=400)
+        return Response(OrderSerializer(order).data)
 
     def _deliver_locked(self, order, request):
         # Lock: Order (ya tomado) → saldos en orden global.
@@ -408,24 +487,34 @@ class OrderViewSet(viewsets.ModelViewSet):
             if item.reserved_quantity > 0:
                 release_stock(order.business, item.product, item.reserved_quantity)
                 item.reserved_quantity = 0
-            
+
             # Stock movement OUT
-            register_stock_movement(
-                business=order.business,
-                product=item.product,
-                movement_type=StockMovement.MovementType.OUT,
-                quantity=item.quantity,
-                note=f"Entrega Pedido {order.number}",
-                created_by=request.user,
-                reason='order_delivery'
-            )
+            try:
+                register_stock_movement(
+                    business=order.business,
+                    product=item.product,
+                    movement_type=StockMovement.MovementType.OUT,
+                    quantity=item.quantity,
+                    note=f"Entrega Pedido {order.number}",
+                    created_by=request.user,
+                    reason='order_delivery'
+                )
+            except DjangoValidationError as exc:
+                if INSUFFICIENT_STOCK_MESSAGE not in exc.messages:
+                    raise
+                # Error de negocio esperado: se propaga para que atomic
+                # revierta los renglones anteriores y la vista responda 400.
+                raise _OrderDeliveryStockShortage(item) from exc
             item.delivered_quantity = item.quantity
             item.save(update_fields=['delivered_quantity', 'reserved_quantity'])
 
+        from_status = order.status
         order.status = Order.Status.DELIVERED
         order.save(update_fields=['status'])
-        OrderHistory.objects.create(order=order, action='delivered', user=request.user, to_status=Order.Status.DELIVERED)
-        return Response(OrderSerializer(order).data)
+        OrderHistory.objects.create(
+            order=order, action='delivered', user=request.user,
+            from_status=from_status, to_status=Order.Status.DELIVERED,
+        )
 
     @action(detail=True, methods=['post'], permission_map={'POST': 'collect_payment'})
     @transaction.atomic

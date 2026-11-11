@@ -393,6 +393,13 @@ def _register_gestion_capabilities():
         'gestion'
     )
     register_capability(
+        'deliver_orders',
+        'Entregar Pedidos',
+        'Marcar pedidos como entregados y descontar su stock',
+        'Pedidos',
+        'gestion'
+    )
+    register_capability(
         'close_orders',
         'Cerrar Pedidos',
         'Finalizar pedidos y cobrar',
