@@ -330,6 +330,15 @@ def void_stock_replenishment(
   """
   from apps.treasury.models import Transaction
 
+  # Lock: StockReplenishment → Transaction de tesorería → saldos en orden
+  # global → pagos/gasto. La propia reposición serializa las anulaciones,
+  # tenga o no transacción vinculada; el estado se lee de la fila bloqueada.
+  replenishment = (
+    StockReplenishment.objects.select_for_update(of=('self',))
+    .select_related('business')
+    .get(pk=replenishment.pk)
+  )
+
   # Idempotent: already voided
   if replenishment.status == StockReplenishment.Status.VOIDED:
     return replenishment

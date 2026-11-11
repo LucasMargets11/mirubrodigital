@@ -421,7 +421,11 @@ class SaleCancelSerializer(serializers.Serializer):
 
   @transaction.atomic
   def save(self, **kwargs):
-    sale: Sale = self.context['sale']
+    # Lock: Sale → saldos en orden global. El estado se decide sobre la fila
+    # bloqueada: una segunda anulación espera a la primera, ve CANCELLED y
+    # devuelve la venta sin repetir la reversa.
+    sale: Sale = Sale.objects.select_for_update().get(pk=self.context['sale'].pk)
+    self.context['sale'] = sale
     if sale.status == Sale.Status.CANCELLED:
       return sale
 

@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
@@ -160,7 +161,7 @@ class SaleCancelView(APIView):
 		sale = get_object_or_404(Sale, pk=pk, business=business)
 		serializer = SaleCancelSerializer(data=request.data, context={'sale': sale, 'user': request.user})
 		serializer.is_valid(raise_exception=True)
-		serializer.save()
+		sale = serializer.save()
 		return Response(SaleDetailSerializer(sale, context={'request': request}).data)
 
 
@@ -260,6 +261,13 @@ class SalesTopProductsView(APIView):
 			days = 7
 		return max(1, min(days, 90))
 
+logger = logging.getLogger(__name__)
+
+
+class _OrderTransitionRejected(Exception):
+    """Transición de pedido incompatible con el estado bloqueado; no modifica stock."""
+
+
 class OrderViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
     permission_map = {
@@ -284,57 +292,78 @@ class OrderViewSet(viewsets.ModelViewSet):
             return OrderListSerializer
         return OrderSerializer
 
-    @action(detail=True, methods=['post'], permission_map={'POST': 'confirm_orders'})
-    @transaction.atomic
-    def confirm(self, request, pk=None):
+    def _lock_order(self):
+        """Pedido persistido bloqueado. Debe llamarse dentro de transaction.atomic.
+
+        get_object() conserva el alcance por negocio y el 404; el estado que
+        decide la transición se lee recién de la fila bloqueada, nunca de una
+        instancia obtenida antes del lock.
+        """
         order = self.get_object()
-        if order.status != Order.Status.DRAFT and order.status != Order.Status.PENDING_CONFIRMATION:
-            return Response({'error': 'Solo pedidos en borrador o pendientes se pueden confirmar'}, status=400)
+        return Order.objects.select_for_update().get(pk=order.pk)
 
-        items = list(order.items.select_related('product'))
-        # Saldos en el orden global de inventario antes de la primera reserva.
+    @action(detail=True, methods=['post'], permission_map={'POST': 'confirm_orders'})
+    def confirm(self, request, pk=None):
+        # Lock: Order → (Business si falta la ubicación principal) → saldos
+        # en orden global. Cualquier fallo revierte todas las reservas de
+        # esta confirmación; la respuesta de negocio se arma fuera del
+        # bloque atómico.
         try:
-            lock_stock_records(order.business, [(item.product, None) for item in items if item.product is not None])
-        except DjangoValidationError as e:
+            with transaction.atomic():
+                order = self._lock_order()
+                if order.status not in (Order.Status.DRAFT, Order.Status.PENDING_CONFIRMATION):
+                    raise _OrderTransitionRejected('Solo pedidos en borrador o pendientes se pueden confirmar')
+
+                items = list(order.items.select_related('product'))
+                lock_stock_records(order.business, [(item.product, None) for item in items if item.product is not None])
+
+                for item in items:
+                    reserve_stock(order.business, item.product, item.quantity)
+                    item.reserved_quantity = item.quantity
+                    item.save(update_fields=['reserved_quantity'])
+
+                order.status = Order.Status.CONFIRMED
+                order.save(update_fields=['status'])
+                OrderHistory.objects.create(order=order, action='confirmed', user=request.user, to_status=Order.Status.CONFIRMED)
+        except _OrderTransitionRejected as e:
             return Response({'error': str(e)}, status=400)
-
-        for item in items:
-            try:
-                reserve_stock(order.business, item.product, item.quantity)
-                item.reserved_quantity = item.quantity
-                item.save(update_fields=['reserved_quantity'])
-            except Exception as e:
-                # If stock not sufficient or strict check fails
-                return Response({'error': str(e)}, status=400)
-
-        order.status = Order.Status.CONFIRMED
-        order.save(update_fields=['status'])
-        OrderHistory.objects.create(order=order, action='confirmed', user=request.user, to_status=Order.Status.CONFIRMED)
+        except DjangoValidationError as e:
+            return Response({'error': ' '.join(e.messages)}, status=400)
+        except Exception:
+            logger.exception('No se pudo confirmar el pedido %s', pk)
+            return Response({'error': 'No pudimos reservar el stock del pedido. No se aplicó ningún cambio.'}, status=400)
         return Response(OrderSerializer(order).data)
 
     @action(detail=True, methods=['post'], permission_map={'POST': 'cancel_orders'})
-    @transaction.atomic
     def cancel(self, request, pk=None):
-        order = self.get_object()
-        if order.status == Order.Status.CANCELLED:
-             return Response(OrderSerializer(order).data)
+        try:
+            with transaction.atomic():
+                order = self._lock_order()
+                if order.status == Order.Status.CANCELLED:
+                    return Response(OrderSerializer(order).data)
+                if order.status == Order.Status.DELIVERED:
+                    # El stock ya salió: cancelar no lo devuelve ni hay
+                    # reservas que liberar.
+                    raise _OrderTransitionRejected('No se puede cancelar un pedido entregado')
 
-        items = list(order.items.select_related('product'))
-        lock_stock_records(
-            order.business,
-            [(item.product, None) for item in items if item.product is not None and item.reserved_quantity > 0],
-        )
+                items = list(order.items.select_related('product'))
+                lock_stock_records(
+                    order.business,
+                    [(item.product, None) for item in items if item.product is not None and item.reserved_quantity > 0],
+                )
 
-        for item in items:
-            if item.reserved_quantity > 0:
-                release_stock(order.business, item.product, item.reserved_quantity)
-                item.reserved_quantity = 0
-                item.save(update_fields=['reserved_quantity'])
+                for item in items:
+                    if item.reserved_quantity > 0:
+                        release_stock(order.business, item.product, item.reserved_quantity)
+                        item.reserved_quantity = 0
+                        item.save(update_fields=['reserved_quantity'])
 
-        order.status = Order.Status.CANCELLED
-        order.deleted_at = timezone.now()
-        order.save(update_fields=['status', 'deleted_at'])
-        OrderHistory.objects.create(order=order, action='cancelled', user=request.user, to_status=Order.Status.CANCELLED)
+                order.status = Order.Status.CANCELLED
+                order.deleted_at = timezone.now()
+                order.save(update_fields=['status', 'deleted_at'])
+                OrderHistory.objects.create(order=order, action='cancelled', user=request.user, to_status=Order.Status.CANCELLED)
+        except _OrderTransitionRejected as e:
+            return Response({'error': str(e)}, status=400)
         return Response(OrderSerializer(order).data)
 
     @action(detail=True, methods=['post'])
@@ -356,12 +385,20 @@ class OrderViewSet(viewsets.ModelViewSet):
         return Response(OrderSerializer(order).data)
 
     @action(detail=True, methods=['post'], permission_map={'POST': 'deliver_orders'})
-    @transaction.atomic
     def deliver(self, request, pk=None):
-        order = self.get_object()
-        if order.status == Order.Status.DELIVERED:
-            return Response(OrderSerializer(order).data)
+        try:
+            with transaction.atomic():
+                order = self._lock_order()
+                if order.status == Order.Status.DELIVERED:
+                    return Response(OrderSerializer(order).data)
+                if order.status == Order.Status.CANCELLED:
+                    raise _OrderTransitionRejected('No se puede entregar un pedido cancelado')
+                return self._deliver_locked(order, request)
+        except _OrderTransitionRejected as e:
+            return Response({'error': str(e)}, status=400)
 
+    def _deliver_locked(self, order, request):
+        # Lock: Order (ya tomado) → saldos en orden global.
         items = list(order.items.select_related('product'))
         # Liberación de reserva y salida comparten saldo por renglón: se
         # bloquean todos en el orden global antes de tocar el primero.
