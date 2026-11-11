@@ -1,280 +1,412 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { type LucideIcon, BarChart3, Boxes, Check, ChefHat, FileText, Image, Layers, ListChecks, Map, MessageSquareHeart, Palette, QrCode, RefreshCw, ShieldCheck, ShoppingBag, Smartphone, Star, Wallet } from 'lucide-react';
+import {
+  type LucideIcon,
+  Bot,
+  Boxes,
+  CalendarDays,
+  Check,
+  FileText,
+  Image,
+  Layers,
+  MessageSquareHeart,
+  Palette,
+  QrCode,
+  RefreshCw,
+  ShieldCheck,
+  ShoppingBag,
+  Smartphone,
+  Star,
+  Users,
+  Wallet,
+  Zap,
+} from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 export const metadata: Metadata = {
+  title: 'Servicios — Mirubro',
+  description:
+    'Gestión Comercial, Menú QR Online, QR de Reseñas y Turnos. Descubrí los módulos disponibles para cada vertical de tu negocio.',
+  alternates: { canonical: 'https://www.mirubro.com/services' },
+  openGraph: {
     title: 'Servicios — Mirubro',
     description:
-        'Gestión Comercial, Menú QR Online y QR de Reseñas. Descubrí los módulos disponibles para cada vertical de tu negocio.',
-    alternates: { canonical: 'https://www.mirubro.com/services' },
-    openGraph: {
-        title: 'Servicios — Mirubro',
-        description:
-            'Gestión Comercial, Menú QR Online y QR de Reseñas. Módulos para cada vertical de tu negocio.',
-        url: 'https://www.mirubro.com/services',
-        siteName: 'Mirubro',
-        type: 'website',
-        locale: 'es_AR',
-    },
-    twitter: {
-        card: 'summary_large_image',
-        title: 'Servicios — Mirubro',
-        description:
-            'Gestión Comercial, Menú QR Online y QR de Reseñas. Módulos para cada vertical de tu negocio.',
-    },
+      'Gestión Comercial, Menú QR Online, QR de Reseñas y Turnos. Módulos para cada vertical de tu negocio.',
+    url: 'https://www.mirubro.com/services',
+    siteName: 'Mirubro',
+    type: 'website',
+    locale: 'es_AR',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Servicios — Mirubro',
+    description:
+      'Gestión Comercial, Menú QR Online, QR de Reseñas y Turnos. Módulos para cada vertical de tu negocio.',
+  },
 };
 
-
-type ServiceVertical = 'commercial' | 'restaurant' | 'menu_qr' | 'qr_resenas';
+type ServiceVertical = 'commercial' | 'restaurant' | 'menu_qr' | 'qr_resenas' | 'appointments';
 
 type FeatureCardData = {
-    title: string;
-    description: string;
-    bullets: string[];
-    icon: LucideIcon;
-    className?: string;
+  title: string;
+  description: string;
+  bullets: string[];
+  icon: LucideIcon;
+  className?: string;
 };
 
 type ServiceConfig = {
-    id: ServiceVertical;
-    title: string;
-    description: string;
-    features: FeatureCardData[];
+  id: ServiceVertical;
+  title: string;
+  description: string;
+  features: FeatureCardData[];
 };
 
-const SERVICE_QUERY: Record<ServiceVertical, string> = {
-    commercial: 'commerce',
-    restaurant: 'restaurant',
-    menu_qr: 'menu_qr',
-    qr_resenas: 'menu_qr'
+const SERVICE_QUERY: Record<Exclude<ServiceVertical, 'appointments'>, string> = {
+  commercial: 'commerce',
+  restaurant: 'restaurant',
+  menu_qr: 'menu_qr',
+  qr_resenas: 'menu_qr',
 };
 
 const SERVICE_ANCHOR: Record<ServiceVertical, string> = {
-    commercial: 'gestion-comercial',
-    restaurant: 'restaurante',
-    menu_qr: 'carta-online',
-    qr_resenas: 'qr-resenas'
+  commercial: 'gestion-comercial',
+  restaurant: 'restaurante',
+  menu_qr: 'carta-online',
+  qr_resenas: 'qr-resenas',
+  appointments: 'turnos',
 };
 
 const SERVICES: ServiceConfig[] = [
-    {
-        id: 'commercial',
-        title: 'Gestión Comercial',
-        description: 'Plataforma integral para el control de inventario, ventas, caja y facturación. Diseñada para crecer desde un emprendimiento hasta una red de sucursales.',
-        features: [
-            {
-                title: 'Inventario & Stock',
-                description: 'Gestión eficiente de productos con traza total de movimientos.',
-                bullets: ['Alertas automáticas de stock mínimo', 'Valuación de inventario y costos', 'Registro de mermas y ajustes', 'Reposición de compras a proveedores'],
-                icon: Boxes
-            },
-            {
-                title: 'Ventas & POS',
-                description: 'Punto de venta mostrador ágil y flexible para tu equipo.',
-                bullets: ['Ventas rápidas con múltiples pagos', 'Emisión de Presupuestos (Quotes)', 'Cuentas Corrientes de clientes', 'Descuentos y promociones'],
-                icon: ShoppingBag
-            },
-            {
-                title: 'Caja & Turnos',
-                description: 'Control estricto del efectivo con arqueos y auditoría.',
-                bullets: ['Apertura y Cierre de caja guiados', 'Detalle de egresos y gastos de caja', 'Múltiples cajas por sucursal', 'Control de diferencias por turno'],
-                icon: Wallet
-            },
-            {
-                title: 'Facturación & Finanzas',
-                description: 'Cumplí con AFIP y ordená las cuentas del negocio.',
-                bullets: ['Facturación Electrónica integrada', 'Notas de Crédito y Débito', 'Gestión de Gastos fijos y variables', 'Reportes de IVA y Ventas (Excel/CSV)'],
-                icon: FileText
-            },
-            {
-                title: 'Multi-sucursal & Seguridad',
-                description: 'Escalabilidad real para dueños y gerentes.',
-                bullets: ['Gestión centralizada de sucursales', 'Roles de usuario (Dueño, Vendedor)', 'Auditoría de operaciones sensibles', 'Métricas consolidadas (Business+)'],
-                icon: ShieldCheck,
-                className: 'lg:col-span-2'
-            }
-        ]
-    },
-    // TODO: Restaurante Inteligente oculto temporalmente
-    // {
-    //     id: 'restaurant',
-    //     title: 'Restaurante Inteligente',
-    //     description: 'Orquesten salón, cocina y carta desde un solo sistema — en tiempo real, en cualquier dispositivo.',
-    //     features: [
-    //         { title: 'Órdenes & Pedidos', ... },
-    //         { title: 'Cocina en vivo', ... },
-    //         { title: 'Mapa de mesas', ... },
-    //         { title: 'Carta online QR', ... },
-    //         { title: 'Factura/Comprobante', ... }
-    //     ]
-    // },
-    {
-        id: 'menu_qr',
-        title: 'Menú QR Online',
-        description: 'Tu carta digital con marca propia, fotos y analytics — sin apps, sin impresiones, sin comisiones.',
-        features: [
-            {
-                title: 'QR y URL propios',
-                description: 'URL propia y QR en alta resolución, listos para imprimir.',
-                bullets: ['Subdominio propio', 'QR descargables', 'Dominio personalizado (Premium)'],
-                icon: QrCode
-            },
-            {
-                title: 'Editor de carta',
-                description: 'Categorías, precios y disponibilidad desde el panel.',
-                bullets: ['Categorías flexibles', 'Precios y disponibilidad', 'Destacados'],
-                icon: Layers
-            },
-            {
-                title: 'Branding personalizable',
-                description: 'Colores, tipografías y logo alineados a tu marca.',
-                bullets: ['Paleta propia', 'Fuentes', 'Logo en portada'],
-                icon: Palette
-            },
-            {
-                title: 'Fotos por producto',
-                description: 'Mostrá cada ítem con imágenes HD.',
-                bullets: ['Galería por ítem (Pro+)', 'Formatos optimizados', 'Carga masiva'],
-                icon: Image
-            },
-            {
-                title: 'Reseñas y acceso',
-                description: 'Escaneás y ves al instante — con reseñas y propinas integradas.',
-                bullets: ['Sin apps ni descargas', 'Reseñas de Google (Pro+)', 'Propinas Mercado Pago (Pro+)'],
-                icon: Smartphone
-            },
-            {
-                title: 'Multi-sucursal',
-                description: 'Administrá múltiples cartas desde un único panel.',
-                bullets: ['Cartas independientes (Premium)', 'Panel unificado', 'Edición segura'],
-                icon: RefreshCw,
-                className: 'lg:col-span-2'
-            }
-        ]
-    },
-    {
-        id: 'qr_resenas',
-        title: 'QR de Reseñas',
-        description: 'Impulsá la reputación de tu negocio con un QR que lleva directo a tus reseñas de Google — sin fricciones, sin apps.',
-        features: [
-            {
-                title: 'QR directo a Google',
-                description: 'Un escaneo y tu cliente ya está dejando su opinión.',
-                bullets: ['Link directo a Google Reviews', 'QR descargable en alta resolución', 'Sin pasos intermedios'],
-                icon: QrCode
-            },
-            {
-                title: 'Más reseñas positivas',
-                description: 'Facilitá el proceso para que más clientes opinen.',
-                bullets: ['Flujo optimizado para móvil', 'Visible en mesas, mostrador o delivery', 'Aumentá tu rating de Google'],
-                icon: Star
-            },
-            {
-                title: 'Panel de seguimiento',
-                description: 'Visualizá el impacto de tus reseñas desde tu panel.',
-                bullets: ['Historial de escaneos', 'Métricas de uso', 'Gestión multi-sucursal'],
-                icon: MessageSquareHeart
-            }
-        ]
-    }
+  {
+    id: 'commercial',
+    title: 'Gestión Comercial',
+    description:
+      'Plataforma integral para el control de inventario, ventas, caja y facturación. Diseñada para crecer desde un emprendimiento hasta una red de sucursales.',
+    features: [
+      {
+        title: 'Inventario & Stock',
+        description: 'Gestión eficiente de productos con traza total de movimientos.',
+        bullets: [
+          'Alertas automáticas de stock mínimo',
+          'Valuación de inventario y costos',
+          'Registro de mermas y ajustes',
+          'Reposición de compras a proveedores',
+        ],
+        icon: Boxes,
+      },
+      {
+        title: 'Ventas & POS',
+        description: 'Punto de venta mostrador ágil y flexible para tu equipo.',
+        bullets: [
+          'Ventas rápidas con múltiples pagos',
+          'Emisión de Presupuestos (Quotes)',
+          'Cuentas Corrientes de clientes',
+          'Descuentos y promociones',
+        ],
+        icon: ShoppingBag,
+      },
+      {
+        title: 'Caja & Turnos',
+        description: 'Control estricto del efectivo con arqueos y auditoría.',
+        bullets: [
+          'Apertura y Cierre de caja guiados',
+          'Detalle de egresos y gastos de caja',
+          'Múltiples cajas por sucursal',
+          'Control de diferencias por turno',
+        ],
+        icon: Wallet,
+      },
+      {
+        title: 'Facturación & Finanzas',
+        description: 'Cumplí con AFIP y ordená las cuentas del negocio.',
+        bullets: [
+          'Facturación Electrónica integrada',
+          'Notas de Crédito y Débito',
+          'Gestión de Gastos fijos y variables',
+          'Reportes de IVA y Ventas (Excel/CSV)',
+        ],
+        icon: FileText,
+      },
+      {
+        title: 'Multi-sucursal & Seguridad',
+        description: 'Escalabilidad real para dueños y gerentes.',
+        bullets: [
+          'Gestión centralizada de sucursales',
+          'Roles de usuario (Dueño, Vendedor)',
+          'Auditoría de operaciones sensibles',
+          'Métricas consolidadas (Business+)',
+        ],
+        icon: ShieldCheck,
+        className: 'lg:col-span-2',
+      },
+    ],
+  },
+  // TODO: Restaurante Inteligente oculto temporalmente
+  // {
+  //     id: 'restaurant',
+  //     title: 'Restaurante Inteligente',
+  //     description: 'Orquesten salón, cocina y carta desde un solo sistema — en tiempo real, en cualquier dispositivo.',
+  //     features: [
+  //         { title: 'Órdenes & Pedidos', ... },
+  //         { title: 'Cocina en vivo', ... },
+  //         { title: 'Mapa de mesas', ... },
+  //         { title: 'Carta online QR', ... },
+  //         { title: 'Factura/Comprobante', ... }
+  //     ]
+  // },
+  {
+    id: 'menu_qr',
+    title: 'Menú QR Online',
+    description:
+      'Tu carta digital con marca propia, fotos y analytics — sin apps, sin impresiones, sin comisiones.',
+    features: [
+      {
+        title: 'QR y URL propios',
+        description: 'URL propia y QR en alta resolución, listos para imprimir.',
+        bullets: ['Subdominio propio', 'QR descargables', 'Dominio personalizado (Premium)'],
+        icon: QrCode,
+      },
+      {
+        title: 'Editor de carta',
+        description: 'Categorías, precios y disponibilidad desde el panel.',
+        bullets: ['Categorías flexibles', 'Precios y disponibilidad', 'Destacados'],
+        icon: Layers,
+      },
+      {
+        title: 'Branding personalizable',
+        description: 'Colores, tipografías y logo alineados a tu marca.',
+        bullets: ['Paleta propia', 'Fuentes', 'Logo en portada'],
+        icon: Palette,
+      },
+      {
+        title: 'Fotos por producto',
+        description: 'Mostrá cada ítem con imágenes HD.',
+        bullets: ['Galería por ítem (Pro+)', 'Formatos optimizados', 'Carga masiva'],
+        icon: Image,
+      },
+      {
+        title: 'Reseñas y acceso',
+        description: 'Escaneás y ves al instante — con reseñas y propinas integradas.',
+        bullets: [
+          'Sin apps ni descargas',
+          'Reseñas de Google (Pro+)',
+          'Propinas Mercado Pago (Pro+)',
+        ],
+        icon: Smartphone,
+      },
+      {
+        title: 'Multi-sucursal',
+        description: 'Administrá múltiples cartas desde un único panel.',
+        bullets: ['Cartas independientes (Premium)', 'Panel unificado', 'Edición segura'],
+        icon: RefreshCw,
+        className: 'lg:col-span-2',
+      },
+    ],
+  },
+  {
+    id: 'qr_resenas',
+    title: 'QR de Reseñas',
+    description:
+      'Impulsá la reputación de tu negocio con un QR que lleva directo a tus reseñas de Google — sin fricciones, sin apps.',
+    features: [
+      {
+        title: 'QR directo a Google',
+        description: 'Un escaneo y tu cliente ya está dejando su opinión.',
+        bullets: [
+          'Link directo a Google Reviews',
+          'QR descargable en alta resolución',
+          'Sin pasos intermedios',
+        ],
+        icon: QrCode,
+      },
+      {
+        title: 'Más reseñas positivas',
+        description: 'Facilitá el proceso para que más clientes opinen.',
+        bullets: [
+          'Flujo optimizado para móvil',
+          'Visible en mesas, mostrador o delivery',
+          'Aumentá tu rating de Google',
+        ],
+        icon: Star,
+      },
+      {
+        title: 'Panel de seguimiento',
+        description: 'Visualizá el impacto de tus reseñas desde tu panel.',
+        bullets: ['Historial de escaneos', 'Métricas de uso', 'Gestión multi-sucursal'],
+        icon: MessageSquareHeart,
+      },
+    ],
+  },
+  {
+    id: 'appointments',
+    title: 'Turnos',
+    description:
+      'Organizá tu agenda, profesionales, clientes y reservas. Sumá automatizaciones e IA Recepcionista según el plan.',
+    features: [
+      {
+        title: 'Agenda y reservas',
+        description: 'La atención de tu negocio en un solo lugar.',
+        bullets: ['Agenda centralizada', 'Horarios y disponibilidad', 'Enlace de reserva online'],
+        icon: CalendarDays,
+      },
+      {
+        title: 'Profesionales y clientes',
+        description: 'Organizá tu equipo y conectá las reservas con tus clientes.',
+        bullets: [
+          'Profesionales y servicios',
+          'Horarios de atención',
+          'Historial de turnos por cliente',
+        ],
+        icon: Users,
+      },
+      {
+        title: 'Automatizaciones',
+        description: 'Opciones para acompañar la gestión de reservas según el plan.',
+        bullets: [
+          'Recordatorios de turnos',
+          'Seguimiento de inasistencias',
+          'Disponibilidad según el plan',
+        ],
+        icon: Zap,
+      },
+      {
+        title: 'IA Recepcionista',
+        description: 'Atención asistida por IA, disponible según el plan.',
+        bullets: [
+          'Consultas sobre disponibilidad',
+          'Asistencia para reservar',
+          'Opciones según el plan',
+        ],
+        icon: Bot,
+      },
+    ],
+  },
 ];
 
 export default function ServicesPage() {
-    return (
-        <div className="mx-auto w-full max-w-7xl px-4 py-10 sm:px-6 md:py-14 lg:px-8">
-            <div className="flex flex-col gap-10">
-                <div className="text-center space-y-4">
-                    <p className="text-sm font-semibold uppercase tracking-[0.3em] text-brand-600">Servicios</p>
-                    <h1 className="text-4xl font-display font-bold text-slate-900 md:text-5xl">Construido para cada vertical</h1>
-                    <p className="mx-auto max-w-2xl text-lg text-slate-600">
-                        Elige el servicio que mejor representa tu operación y descubre los módulos disponibles para cada flujo.
-                    </p>
-                </div>
-
-                <div className="space-y-8">
-                    {SERVICES.map((service) => (
-                        <ServiceSection key={service.id} service={service} />
-                    ))}
-                </div>
-            </div>
+  return (
+    <div className="mx-auto w-full max-w-7xl px-4 py-10 sm:px-6 md:py-14 lg:px-8">
+      <div className="flex flex-col gap-10">
+        <div className="text-center space-y-4">
+          <p className="text-sm font-semibold uppercase tracking-[0.3em] text-brand-600">
+            Servicios
+          </p>
+          <h1 className="text-4xl font-display font-bold text-slate-900 md:text-5xl">
+            Construido para cada vertical
+          </h1>
+          <p className="mx-auto max-w-2xl text-lg text-slate-600">
+            Elige el servicio que mejor representa tu operación y descubre los módulos disponibles
+            para cada flujo.
+          </p>
         </div>
-    );
+
+        <div className="space-y-8">
+          {SERVICES.map((service) => (
+            <ServiceSection key={service.id} service={service} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 type ServiceSectionProps = {
-    service: ServiceConfig;
+  service: ServiceConfig;
 };
 
 function ServiceSection({ service }: ServiceSectionProps) {
-    return (
-        <section id={SERVICE_ANCHOR[service.id]} className="w-full scroll-mt-24 rounded-2xl border border-slate-200 bg-white p-5 shadow-md shadow-slate-100/50 ring-1 ring-slate-100 transition-shadow md:p-6 lg:p-7">
-            <div className="flex flex-col gap-6 lg:grid lg:grid-cols-[340px_1fr] lg:gap-8 lg:items-start">
-                <div className="space-y-4">
-                    <div className="space-y-2">
-                        <p className="text-xs font-semibold uppercase tracking-[0.4em] text-brand-500">Servicio</p>
-                        <h2 className="text-2xl font-display font-semibold text-slate-900 md:text-3xl">{service.title}</h2>
-                        <p className="text-sm text-slate-600 md:text-base">{service.description}</p>
-                    </div>
-                    <Button
-                        asChild
-                        size="lg"
-                        className="w-fit bg-brand-600 text-white hover:bg-brand-700 focus-visible:ring-brand-500"
-                    >
-                        <Link href={`/pricing?service=${SERVICE_QUERY[service.id]}`} aria-label={`Ver planes para ${service.title}`}>
-                            Ver planes
-                        </Link>
-                    </Button>
-                </div>
-                <div className="w-full">
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                        {service.features.map((feature) => (
-                            <FeatureCard key={feature.title} feature={feature} />
-                        ))}
-                    </div>
-                </div>
-            </div>
-        </section>
-    );
+  return (
+    <section
+      id={SERVICE_ANCHOR[service.id]}
+      className="w-full scroll-mt-24 rounded-2xl border border-slate-200 bg-white p-5 shadow-md shadow-slate-100/50 ring-1 ring-slate-100 transition-shadow md:p-6 lg:p-7"
+    >
+      <div className="flex flex-col gap-6 lg:grid lg:grid-cols-[340px_1fr] lg:gap-8 lg:items-start">
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-[0.4em] text-brand-500">
+              Servicio
+            </p>
+            <h2 className="text-2xl font-display font-semibold text-slate-900 md:text-3xl">
+              {service.title}
+            </h2>
+            <p className="text-sm text-slate-600 md:text-base">{service.description}</p>
+          </div>
+          <Button
+            asChild
+            size="lg"
+            className="w-fit bg-brand-600 text-white hover:bg-brand-700 focus-visible:ring-brand-500"
+          >
+            <Link
+              href={
+                service.id === 'appointments'
+                  ? '/turnos'
+                  : `/pricing?service=${SERVICE_QUERY[service.id]}`
+              }
+              aria-label={
+                service.id === 'appointments'
+                  ? 'Conocer Turnos'
+                  : `Ver planes para ${service.title}`
+              }
+            >
+              {service.id === 'appointments' ? 'Conocer Turnos' : 'Ver planes'}
+            </Link>
+          </Button>
+        </div>
+        <div className="w-full">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {service.features.map((feature) => (
+              <FeatureCard key={feature.title} feature={feature} />
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
 }
 
 type FeatureCardProps = {
-    feature: FeatureCardData;
+  feature: FeatureCardData;
 };
 
 function FeatureCard({ feature }: FeatureCardProps) {
-    const Icon = feature.icon;
+  const Icon = feature.icon;
 
-    return (
-        <Card
-            role="group"
-            tabIndex={0}
-            className={cn(
-                'flex h-full flex-col border-slate-200 bg-slate-50/40 transition-all duration-200 hover:border-brand-200 hover:bg-white hover:shadow-lg hover:ring-2 hover:ring-brand-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2',
-                feature.className
-            )}
-        >
-            <CardHeader className="space-y-3 pb-3 text-center">
-                <div className="mx-auto rounded-xl bg-brand-50 p-2.5 text-brand-600 shadow-inner">
-                    <Icon className="h-5 w-5" aria-hidden="true" />
-                </div>
-                <div className="space-y-1">
-                    <CardTitle className="text-base font-semibold text-slate-900">{feature.title}</CardTitle>
-                    <CardDescription className="text-xs leading-relaxed text-slate-500">{feature.description}</CardDescription>
-                </div>
-            </CardHeader>
-            <CardContent className="mt-auto pt-3">
-                <ul className="space-y-1.5 text-xs text-slate-600">
-                    {feature.bullets.map((bullet) => (
-                        <li key={bullet} className="flex items-start gap-1.5">
-                            <Check className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-brand-500" aria-hidden="true" />
-                            <span>{bullet}</span>
-                        </li>
-                    ))}
-                </ul>
-            </CardContent>
-        </Card>
-    );
+  return (
+    <Card
+      role="group"
+      tabIndex={0}
+      className={cn(
+        'flex h-full flex-col border-slate-200 bg-slate-50/40 transition-all duration-200 hover:border-brand-200 hover:bg-white hover:shadow-lg hover:ring-2 hover:ring-brand-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2',
+        feature.className,
+      )}
+    >
+      <CardHeader className="space-y-3 pb-3 text-center">
+        <div className="mx-auto rounded-xl bg-brand-50 p-2.5 text-brand-600 shadow-inner">
+          <Icon className="h-5 w-5" aria-hidden="true" />
+        </div>
+        <div className="space-y-1">
+          <CardTitle className="text-base font-semibold text-slate-900">{feature.title}</CardTitle>
+          <CardDescription className="text-xs leading-relaxed text-slate-500">
+            {feature.description}
+          </CardDescription>
+        </div>
+      </CardHeader>
+      <CardContent className="mt-auto pt-3">
+        <ul className="space-y-1.5 text-xs text-slate-600">
+          {feature.bullets.map((bullet) => (
+            <li key={bullet} className="flex items-start gap-1.5">
+              <Check
+                className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-brand-500"
+                aria-hidden="true"
+              />
+              <span>{bullet}</span>
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
+  );
 }

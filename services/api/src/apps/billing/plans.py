@@ -4,8 +4,8 @@ Plan-level seat limits.
 Maps plan tiers (as resolved by billing.runtime._extract_plan_tier) to
 the maximum number of *secondary* users (owner excluded) allowed.
 
-This is a static lookup — no DB model involved.  To change a plan's
-seat limit, update PLAN_SEAT_LIMITS and redeploy.
+Legacy plan limits are static. Canonical Turnos limits come from the
+commercial pricing catalog.
 """
 
 PLAN_SEAT_LIMITS: dict[str, int] = {
@@ -31,4 +31,13 @@ def get_seat_limit(plan_tier: str | None) -> int:
     """Return the maximum secondary-user seats for *plan_tier*."""
     if not plan_tier:
         return DEFAULT_SEAT_LIMIT
+    from apps.billing.appointments_plans import PLAN_CODES
+
+    if plan_tier in PLAN_CODES:
+        from apps.billing.canonical_pricing import get_plan
+
+        plan = get_plan(plan_tier)
+        if plan is None:
+            raise RuntimeError(f'Canonical Turnos plan missing from catalog: {plan_tier}')
+        return plan['secondary_users_included']
     return PLAN_SEAT_LIMITS.get(plan_tier, DEFAULT_SEAT_LIMIT)

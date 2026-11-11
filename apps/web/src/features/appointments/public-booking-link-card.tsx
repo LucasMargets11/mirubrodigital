@@ -65,6 +65,7 @@ export function PublicBookingLinkCard({ publicBooking }: Props) {
 
     return (
         <section
+      id="public-booking-link"
             aria-labelledby="public-booking-title"
             className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
         >

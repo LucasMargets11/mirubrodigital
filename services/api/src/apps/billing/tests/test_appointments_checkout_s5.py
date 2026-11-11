@@ -194,6 +194,9 @@ class AppointmentsQuoteS5Tests(TestCase):
 
 class AppointmentsCheckoutWebhookS5Tests(TestCase):
     def setUp(self):
+        sdk_constructor = patch('apps.billing.mp_service.MercadoPagoService.__init__', return_value=None)
+        sdk_constructor.start()
+        self.addCleanup(sdk_constructor.stop)
         self.user = User.objects.create_user(
             username='appointments-owner@test.invalid',
             email='appointments-owner@test.invalid',
@@ -538,4 +541,5 @@ class AppointmentsCheckoutWebhookS5Tests(TestCase):
                 automations='disabled',
                 quote_snapshot=checkout.quote_snapshot,
                 metadata_json=checkout.metadata_json,
+                expires_at=checkout.expires_at,
             )

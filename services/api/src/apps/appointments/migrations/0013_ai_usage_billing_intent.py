@@ -183,11 +183,11 @@ class Migration(migrations.Migration):
             options={
                 "constraints": [
                     models.CheckConstraint(
-                        condition=models.Q(("currency", "ARS")),
+                        check=models.Q(("currency", "ARS")),
                         name="appt_ai_intent_currency",
                     ),
                     models.CheckConstraint(
-                        condition=models.Q(
+                        check=models.Q(
                             models.Q(
                                 ("amount__gt", 0),
                                 ("attempt_token__isnull", True),

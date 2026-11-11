@@ -156,6 +156,16 @@ export type AvailabilityResult = {
     slots: AvailabilitySlot[];
 };
 
+export type AppointmentOnboardingStatus = {
+  active_services_count: number;
+  has_active_services: boolean;
+  has_reservable_service: boolean;
+  has_valid_availability: boolean;
+  active_professionals_count: number;
+  public_booking_available: boolean;
+  ready_to_receive_bookings: boolean;
+};
+
 /* ── Turnos (Appointment) ─────────────────────────────────────────────── */
 
 export type AppointmentStatus =

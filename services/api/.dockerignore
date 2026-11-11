@@ -20,6 +20,7 @@ coverage.xml
 *.log
 .git
 .gitignore
+.env
 .pytest_cache/
 .mypy_cache/
 .DS_Store

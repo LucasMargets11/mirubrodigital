@@ -243,7 +243,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="appointmentaiusagesettlement",
             constraint=models.CheckConstraint(
-                condition=models.Q(
+                check=models.Q(
                     ("usage_period_end__gt", models.F("usage_period_start"))
                 ),
                 name="appt_ai_settlement_period",
@@ -252,7 +252,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="appointmentaiusagesettlement",
             constraint=models.CheckConstraint(
-                condition=models.Q(
+                check=models.Q(
                     ("currency", "ARS"),
                     (
                         "total_sessions",
@@ -269,7 +269,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="appointmentaiusagesettlement",
             constraint=models.CheckConstraint(
-                condition=models.Q(
+                check=models.Q(
                     models.Q(("finalized_at__isnull", True), ("status", "pending")),
                     models.Q(
                         ("finalized_at__gte", models.F("usage_period_end")),

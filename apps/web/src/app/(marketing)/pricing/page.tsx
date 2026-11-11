@@ -5,12 +5,12 @@ import PricingClient from './pricing-client';
 export const metadata: Metadata = {
     title: 'Planes y precios — Mirubro',
     description:
-        'Planes flexibles para Gestión Comercial, Menú QR Online y QR de Reseñas. Precios transparentes que crecen con tu negocio.',
+        'Planes flexibles para Gestión Comercial, Menú QR Online, QR de Reseñas y MiRubro Turnos. Precios transparentes que crecen con tu negocio.',
     alternates: { canonical: 'https://www.mirubro.com/pricing' },
     openGraph: {
         title: 'Planes y precios — Mirubro',
         description:
-            'Planes flexibles para Gestión Comercial, Menú QR Online y QR de Reseñas. Precios transparentes que crecen con tu negocio.',
+            'Planes flexibles para Gestión Comercial, Menú QR Online, QR de Reseñas y MiRubro Turnos. Precios transparentes que crecen con tu negocio.',
         url: 'https://www.mirubro.com/pricing',
         siteName: 'Mirubro',
         type: 'website',
@@ -20,7 +20,7 @@ export const metadata: Metadata = {
         card: 'summary_large_image',
         title: 'Planes y precios — Mirubro',
         description:
-            'Planes flexibles para Gestión Comercial, Menú QR Online y QR de Reseñas. Precios transparentes que crecen con tu negocio.',
+            'Planes flexibles para Gestión Comercial, Menú QR Online, QR de Reseñas y MiRubro Turnos. Precios transparentes que crecen con tu negocio.',
     },
 };
 

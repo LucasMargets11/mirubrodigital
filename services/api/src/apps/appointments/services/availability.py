@@ -36,6 +36,7 @@ datetimes timezone-aware.
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from zoneinfo import ZoneInfo
 
@@ -51,6 +52,7 @@ from ..models import (
   AppointmentSchedule,
   AppointmentService,
 )
+from .deposit import deposit_config_error
 
 # Intervalo fijo entre slots candidatos. Centralizado acá para poder
 # ajustarlo a futuro (p.ej. configurable por negocio) sin tocar el algoritmo.
@@ -201,6 +203,75 @@ def _intersect_intervals(a: list[TimeInterval], b: list[TimeInterval]) -> list[T
         result.append((start, end))
   result.sort()
   return result
+
+
+def is_publicly_reservable_service(service: AppointmentService) -> bool:
+  return deposit_config_error(
+    price=service.price,
+    deposit_type=service.deposit_type,
+    deposit_value=service.deposit_value,
+  ) is None
+
+
+def has_configured_availability(
+  *, business: Business, services: Iterable[AppointmentService] | None = None,
+) -> bool:
+  """Whether an active service has a recurring schedule capable of a slot.
+
+  This checks the same business/professional schedule intersection and service
+  duration used by public availability. Date-specific exceptions and occupied
+  appointments do not erase a recurring schedule from first-run setup status.
+  """
+  active_services = services if services is not None else AppointmentService.objects.filter(
+    business=business, is_active=True,
+  )
+  schedules = list(
+    AppointmentSchedule.objects.filter(business=business).values(
+      'weekday', 'start_time', 'end_time', 'professional_id',
+    )
+  )
+  business_schedules: dict[int, list[TimeInterval]] = {}
+  professional_schedules: dict[str, dict[int, list[TimeInterval]]] = {}
+  for schedule in schedules:
+    weekday = schedule['weekday']
+    interval = (schedule['start_time'], schedule['end_time'])
+    professional_id = schedule['professional_id']
+    if professional_id is None:
+      business_schedules.setdefault(weekday, []).append(interval)
+    else:
+      professional_schedules.setdefault(str(professional_id), {}).setdefault(
+        weekday, [],
+      ).append(interval)
+
+  reference_date = dt.date(2000, 1, 1)
+  for service in active_services:
+    if not is_publicly_reservable_service(service):
+      continue
+    duration = dt.timedelta(minutes=service.duration_minutes)
+    professional_ids = list(
+      eligible_professionals(service).values_list('id', flat=True),
+    )
+    for weekday in range(7):
+      business_intervals = business_schedules.get(weekday, [])
+      if not business_intervals:
+        continue
+      candidate_intervals = business_intervals
+      if professional_ids:
+        candidate_intervals = []
+        for professional_id in professional_ids:
+          candidate_intervals.extend(
+            _intersect_intervals(
+              business_intervals,
+              professional_schedules.get(str(professional_id), {}).get(weekday, []),
+            )
+          )
+      if any(
+        dt.datetime.combine(reference_date, end)
+        - dt.datetime.combine(reference_date, start) >= duration
+        for start, end in candidate_intervals
+      ):
+        return True
+  return False
 
 
 def _business_intervals(business: Business, target_date: dt.date) -> list[TimeInterval]:

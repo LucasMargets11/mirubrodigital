@@ -587,20 +587,20 @@ class AppointmentAIUsageSession(models.Model):
         name='appt_ai_opening_event_unique',
       ),
       models.CheckConstraint(
-        condition=Q(expires_at=models.F('started_at') + timedelta(hours=24)),
+        check=Q(expires_at=models.F('started_at') + timedelta(hours=24)),
         name='appt_ai_session_fixed_24h',
       ),
       models.CheckConstraint(
-        condition=Q(usage_period_start__lte=models.F('started_at'))
+        check=Q(usage_period_start__lte=models.F('started_at'))
         & Q(usage_period_end__gt=models.F('started_at')),
         name='appt_ai_start_in_usage_period',
       ),
       models.CheckConstraint(
-        condition=Q(usage_tier__in=['ai_300', 'ai_1500', 'ai_3000']),
+        check=Q(usage_tier__in=['ai_300', 'ai_1500', 'ai_3000']),
         name='appt_ai_session_resolved_tier',
       ),
       models.CheckConstraint(
-        condition=~Q(external_conversation_id=''),
+        check=~Q(external_conversation_id=''),
         name='appt_ai_conversation_not_empty',
       ),
     ]
@@ -662,19 +662,19 @@ class AppointmentAIUsageCharge(models.Model):
     ]
     constraints = [
       models.CheckConstraint(
-        condition=Q(usage_period_end__gt=models.F('usage_period_start')),
+        check=Q(usage_period_end__gt=models.F('usage_period_start')),
         name='appt_ai_charge_positive_period',
       ),
       models.CheckConstraint(
-        condition=Q(usage_tier__in=['ai_300', 'ai_1500', 'ai_3000']) & Q(currency='ARS'),
+        check=Q(usage_tier__in=['ai_300', 'ai_1500', 'ai_3000']) & Q(currency='ARS'),
         name='appt_ai_charge_resolved_terms',
       ),
       models.CheckConstraint(
-        condition=Q(session_ordinal__gt=0) & Q(included_sessions_snapshot__gt=0),
+        check=Q(session_ordinal__gt=0) & Q(included_sessions_snapshot__gt=0),
         name='appt_ai_charge_positive_usage',
       ),
       models.CheckConstraint(
-        condition=(
+        check=(
           Q(classification='included', unit_price=0, amount=0)
           & Q(session_ordinal__lte=models.F('included_sessions_snapshot'))
         ) | (
@@ -721,17 +721,17 @@ class AppointmentAIUsageSettlement(models.Model):
         name='appt_ai_settlement_period_unique',
       ),
       models.CheckConstraint(
-        condition=Q(usage_period_end__gt=models.F('usage_period_start')),
+        check=Q(usage_period_end__gt=models.F('usage_period_start')),
         name='appt_ai_settlement_period',
       ),
       models.CheckConstraint(
-        condition=Q(currency='ARS') & Q(
+        check=Q(currency='ARS') & Q(
           total_sessions=models.F('included_sessions_snapshot') + models.F('overage_sessions'),
         ),
         name='appt_ai_settlement_totals',
       ),
       models.CheckConstraint(
-        condition=Q(status='pending', finalized_at__isnull=True) | (
+        check=Q(status='pending', finalized_at__isnull=True) | (
           Q(status='finalized', finalized_at__gte=models.F('usage_period_end'))
           & Q(finalized_at__isnull=False)
         ),
@@ -782,10 +782,10 @@ class AppointmentAIUsageBillingIntent(models.Model):
   class Meta:
     constraints = [
       models.CheckConstraint(
-        condition=Q(currency='ARS'), name='appt_ai_intent_currency',
+        check=Q(currency='ARS'), name='appt_ai_intent_currency',
       ),
       models.CheckConstraint(
-        condition=(
+        check=(
           Q(status='pending', amount__gt=0, attempt_token__isnull=True,
             processing_started_at__isnull=True, completed_at__isnull=True)
           | Q(status='processing', amount__gt=0, attempt_token__isnull=False,
@@ -819,7 +819,7 @@ class AppointmentAIUsageBillingAttempt(models.Model):
   class Meta:
     constraints = [
       models.CheckConstraint(
-        condition=(
+        check=(
           Q(status='succeeded', provider_reference__isnull=False, failure_code__isnull=True)
           | Q(status__in=['failed', 'outcome_unknown'], failure_code__in=[
             'declined', 'provider_not_enabled', 'provider_error', 'timeout', 'dispatch_incomplete',

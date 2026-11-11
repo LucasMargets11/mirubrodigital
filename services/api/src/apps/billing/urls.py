@@ -10,6 +10,9 @@ from .views import (
     CheckoutSessionReconcileView,
     AppointmentsQuoteView,
     AppointmentsCheckoutView,
+    PublicAppointmentsQuoteView,
+    PublicAppointmentsCheckoutView,
+    PublicAppointmentsCheckoutStatusView,
     ValidatePromoCodeView,
 )
 from .commercial_views import (
@@ -43,6 +46,13 @@ urlpatterns = [
     path('checkout-sessions/<uuid:session_id>/reconcile/', CheckoutSessionReconcileView.as_view(), name='checkout-session-reconcile'),
     path('internal/appointments/quote/', AppointmentsQuoteView.as_view(), name='appointments-quote-internal'),
     path('internal/appointments/checkout/', AppointmentsCheckoutView.as_view(), name='appointments-checkout-internal'),
+    path('appointments/quote/', PublicAppointmentsQuoteView.as_view(), name='appointments-quote'),
+    path('appointments/checkout/', PublicAppointmentsCheckoutView.as_view(), name='appointments-checkout'),
+    path(
+        'appointments/checkouts/<uuid:checkout_id>/status/',
+        PublicAppointmentsCheckoutStatusView.as_view(),
+        name='appointments-checkout-status',
+    ),
     path('appointments/lifecycle/quote/', AppointmentsLifecycleQuoteView.as_view(), name='appointments-lifecycle-quote'),
     path('appointments/lifecycle/change/', AppointmentsLifecycleChangeView.as_view(), name='appointments-lifecycle-change'),
     path('appointments/lifecycle/changes/<uuid:pending_change_id>/resolve/', AppointmentsLifecycleResolveView.as_view(), name='appointments-lifecycle-resolve'),

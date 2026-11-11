@@ -73,7 +73,7 @@ class Migration(migrations.Migration):
                 ('intent', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='provider_attempts', to='appointments.appointmentaiusagebillingintent')),
             ],
             options={
-                'constraints': [models.CheckConstraint(condition=models.Q(models.Q(('failure_code__isnull', True), ('provider_reference__isnull', False), ('status', 'succeeded')), models.Q(('failure_code__in', ['declined', 'provider_not_enabled', 'provider_error', 'timeout', 'dispatch_incomplete']), ('failure_code__isnull', False), ('status__in', ['failed', 'outcome_unknown'])), _connector='OR'), name='appt_ai_provider_result')],
+                'constraints': [models.CheckConstraint(check=models.Q(models.Q(('failure_code__isnull', True), ('provider_reference__isnull', False), ('status', 'succeeded')), models.Q(('failure_code__in', ['declined', 'provider_not_enabled', 'provider_error', 'timeout', 'dispatch_incomplete']), ('failure_code__isnull', False), ('status__in', ['failed', 'outcome_unknown'])), _connector='OR'), name='appt_ai_provider_result')],
             },
         ),
         migrations.RunSQL(ATTEMPT_GUARDS, DROP_ATTEMPT_GUARDS),

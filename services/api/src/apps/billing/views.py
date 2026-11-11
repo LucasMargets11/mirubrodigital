@@ -13,6 +13,7 @@ import logging
 import uuid
 
 from apps.accounts.access import resolve_request_membership
+from apps.accounts.access import BUSINESS_COOKIE_NAME
 from apps.accounts.permissions import HasBusinessMembership, RequiresEmailVerified
 from apps.business.models import Business
 from apps.accounts.models import Membership
@@ -727,6 +728,89 @@ def _appointments_quote_request(data):
     }
 
 
+def _appointments_public_quote_request(data):
+    from django.core.exceptions import ValidationError
+
+    allowed_fields = {
+        'plan_code',
+        'billing_cycle',
+        'usage_tier',
+        'automations',
+        'extra_professionals',
+    }
+    if not isinstance(data, dict):
+        raise ValidationError({'detail': 'Expected a JSON object.'})
+
+    unexpected_fields = set(data) - allowed_fields
+    if unexpected_fields:
+        raise ValidationError({
+            field: 'This field is not accepted.'
+            for field in sorted(unexpected_fields)
+        })
+
+    missing_fields = {'plan_code', 'billing_cycle'} - set(data)
+    if missing_fields:
+        raise ValidationError({
+            field: 'This field is required.'
+            for field in sorted(missing_fields)
+        })
+
+    for field in ('plan_code', 'billing_cycle'):
+        if not isinstance(data[field], str):
+            raise ValidationError({field: 'Must be a string.'})
+    if 'usage_tier' in data and data['usage_tier'] is not None and not isinstance(data['usage_tier'], str):
+        raise ValidationError({'usage_tier': 'Must be a string.'})
+
+    return {
+        field: data[field]
+        for field in allowed_fields
+        if field in data
+    } | {'extra_professionals': data.get('extra_professionals', 0)}
+
+
+def _appointments_owner_business(request):
+    memberships = list(
+        Membership.objects.select_related('business').filter(
+            user=request.user,
+            status=Membership.Status.ACTIVE,
+        )
+    )
+    if not memberships:
+        return None, Response({
+            'code': 'business_membership_required',
+            'detail': 'An active business membership is required.',
+        }, status=status.HTTP_403_FORBIDDEN)
+
+    business_context = (
+        request.META.get('HTTP_X_BUSINESS_ID')
+        or request.COOKIES.get(BUSINESS_COOKIE_NAME)
+    )
+    if business_context:
+        membership = next(
+            (item for item in memberships if str(item.business_id) == str(business_context)),
+            None,
+        )
+        if membership is None:
+            return None, Response({
+                'code': 'business_membership_required',
+                'detail': 'No active membership exists for the selected business.',
+            }, status=status.HTTP_403_FORBIDDEN)
+    elif len(memberships) == 1:
+        membership = memberships[0]
+    else:
+        return None, Response({
+            'code': 'business_context_ambiguous',
+            'detail': 'Select an active business context before requesting a Turnos quote.',
+        }, status=status.HTTP_403_FORBIDDEN)
+
+    if membership.role != 'owner':
+        return None, Response({
+            'code': 'owner_required',
+            'detail': 'Only a business owner can access Turnos billing.',
+        }, status=status.HTTP_403_FORBIDDEN)
+    return membership.business, None
+
+
 class AppointmentsQuoteView(APIView):
     """Staff-only Turnos quote endpoint while the product remains unpublished."""
     permission_classes = [IsAdminUser]
@@ -746,6 +830,137 @@ class AppointmentsQuoteView(APIView):
             detail = exc.message_dict if hasattr(exc, 'message_dict') else exc.messages
             return Response({'detail': detail}, status=status.HTTP_400_BAD_REQUEST)
         return Response(quote)
+
+
+class PublicAppointmentsQuoteView(APIView):
+    """Owner-scoped Turnos quote using canonical server-side pricing."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from django.core.exceptions import ValidationError
+        from .services.appointments_checkout import ManualContractRequired, quote_appointments
+
+        business, error = _appointments_owner_business(request)
+        if error:
+            return error
+
+        try:
+            quote_request = _appointments_public_quote_request(request.data)
+            quote = quote_appointments(**quote_request)
+        except ManualContractRequired:
+            return Response({
+                'status': 'contact_sales',
+                'code': 'manual_contract_required',
+            }, status=status.HTTP_409_CONFLICT)
+        except ValidationError as exc:
+            detail = exc.message_dict if hasattr(exc, 'message_dict') else exc.messages
+            return Response({'detail': detail}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(quote)
+
+
+class PublicAppointmentsCheckoutView(APIView):
+    """Owner-scoped Turnos checkout; unavailable until the product is active."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from django.core.exceptions import ValidationError
+        from .services.appointments_checkout import (
+            ManualContractRequired,
+            create_appointments_checkout,
+            quote_appointments,
+        )
+
+        business, error = _appointments_owner_business(request)
+        if error:
+            return error
+
+        try:
+            quote_request = _appointments_public_quote_request(request.data)
+            quote_appointments(**quote_request)
+        except ManualContractRequired:
+            return Response({
+                'status': 'contact_sales',
+                'code': 'manual_contract_required',
+            }, status=status.HTTP_409_CONFLICT)
+        except ValidationError as exc:
+            detail = exc.message_dict if hasattr(exc, 'message_dict') else exc.messages
+            return Response({'detail': detail}, status=status.HTTP_400_BAD_REQUEST)
+
+        plan_code = quote_request['plan_code']
+        if not is_plan_product_active(plan_code):
+            return Response({
+                'status': 'unavailable',
+                'code': 'product_not_active',
+                'detail': 'La contratación online de Turnos todavía no está disponible.',
+            }, status=status.HTTP_409_CONFLICT)
+
+        try:
+            result = create_appointments_checkout(
+                user=request.user,
+                business=business,
+                **quote_request,
+            )
+        except ManualContractRequired:
+            return Response({
+                'status': 'contact_sales',
+                'code': 'manual_contract_required',
+            }, status=status.HTTP_409_CONFLICT)
+        except ValidationError as exc:
+            detail = exc.message_dict if hasattr(exc, 'message_dict') else exc.messages
+            return Response({'detail': detail}, status=status.HTTP_400_BAD_REQUEST)
+        except ValueError as exc:
+            return Response({
+                'code': 'checkout_unavailable',
+                'detail': str(exc),
+            }, status=status.HTTP_409_CONFLICT)
+        return Response(result, status=status.HTTP_200_OK if result['reused'] else status.HTTP_201_CREATED)
+
+
+class PublicAppointmentsCheckoutStatusView(APIView):
+    """Return only the authenticated owner's public Turnos checkout state."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, checkout_id):
+        from .models import AppointmentsCheckout, SubscriptionV2
+        from .canonical_pricing import is_plan_product_active
+        from .services.appointments_checkout import expire_stale_appointments_checkouts
+
+        business, error = _appointments_owner_business(request)
+        if error:
+            return error
+
+        expire_stale_appointments_checkouts(business=business)
+        checkout = AppointmentsCheckout.objects.filter(
+            business=business,
+        ).select_related('subscription_v2').filter(pk=checkout_id).first()
+        if checkout is None:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        has_active_subscription = SubscriptionV2.objects.filter(
+            business=business,
+            service_type=SubscriptionV2.ServiceType.APPOINTMENTS,
+            is_active=True,
+        ).exists()
+        return Response({
+            'checkout_id': str(checkout.pk),
+            'status': checkout.status,
+            'plan_code': checkout.plan_code,
+            'usage_tier': checkout.usage_tier,
+            'billing_cycle': checkout.billing_cycle,
+            'subscription_status': (
+                checkout.subscription_v2.status if checkout.subscription_v2_id else None
+            ),
+            'can_retry': (
+                checkout.status in (
+                    AppointmentsCheckout.Status.FAILED,
+                    AppointmentsCheckout.Status.EXPIRED,
+                )
+                and is_plan_product_active(checkout.plan_code)
+                and not has_active_subscription
+                and checkout.failure_code != 'multiple_authorized_payments'
+            ),
+            'failure_code': checkout.failure_code or None,
+        })
 
 
 class AppointmentsCheckoutView(APIView):

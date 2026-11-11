@@ -8,8 +8,14 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('next/link', () => ({
   __esModule: true,
-  default: ({ href, children, ...props }: AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => (
-    <a href={href} {...props}>{children}</a>
+  default: ({
+    href,
+    children,
+    ...props
+  }: AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => (
+    <a href={href} {...props}>
+      {children}
+    </a>
   ),
 }));
 
@@ -54,6 +60,16 @@ const baseProps = {
 } satisfies Parameters<typeof Sidebar>[0];
 
 describe('Sidebar Turnos navigation', () => {
+  it('does not expose the public receptionist demo as an operational module', () => {
+    render(
+      <Sidebar
+        {...baseProps}
+        permissions={{ ...baseProps.permissions, view_appointments: true }}
+      />,
+    );
+    expect(screen.queryByRole('link', { name: /Recepcionista/i })).not.toBeInTheDocument();
+    expect(document.querySelector('a[href*="recepcionista"]')).toBeNull();
+  });
   it('shows the Turnos group with an Inicio link pointing to /app/turnos', () => {
     render(<Sidebar {...baseProps} />);
 
@@ -63,7 +79,12 @@ describe('Sidebar Turnos navigation', () => {
   });
 
   it('shows a Turnos link pointing to /app/turnos/turnos', () => {
-    render(<Sidebar {...baseProps} permissions={{ ...baseProps.permissions, view_appointments: true }} />);
+    render(
+      <Sidebar
+        {...baseProps}
+        permissions={{ ...baseProps.permissions, view_appointments: true }}
+      />,
+    );
 
     const link = screen.getByRole('link', { name: 'Turnos' });
     expect(link).toHaveAttribute('href', '/app/turnos/turnos');
@@ -112,7 +133,10 @@ describe('Sidebar Turnos navigation', () => {
       />,
     );
 
-    expect(screen.getByRole('link', { name: 'Leads' })).toHaveAttribute('href', '/app/turnos/leads');
+    expect(screen.getByRole('link', { name: 'Leads' })).toHaveAttribute(
+      'href',
+      '/app/turnos/leads',
+    );
   });
 
   it('hides Leads without view_leads permission', () => {

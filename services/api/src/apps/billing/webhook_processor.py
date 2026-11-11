@@ -487,10 +487,19 @@ def _handle_authorized_payment(authorized_payment_id: str, delivery: WebhookDeli
         if not created:
             # Update mutable fields (status can change, e.g. pending → authorized).
             changed = {}
-            if invoice_event.provider_status != ap_status:
-                changed['provider_status'] = ap_status
-            if not invoice_event.paid_at and _parse_dt(paid_at_str):
-                changed['paid_at'] = _parse_dt(paid_at_str)
+            for field, value in (
+                ('provider_payment_id', payment_id),
+                ('provider_subscription_id', preapproval_id),
+                ('amount', amount),
+                ('currency', currency),
+                ('provider_status', ap_status),
+                ('raw_payload_json', ap_data),
+            ):
+                if getattr(invoice_event, field) != value:
+                    changed[field] = value
+            parsed_paid_at = _parse_dt(paid_at_str)
+            if parsed_paid_at and invoice_event.paid_at != parsed_paid_at:
+                changed['paid_at'] = parsed_paid_at
             if changed:
                 for k, v in changed.items():
                     setattr(invoice_event, k, v)
@@ -514,12 +523,25 @@ def _handle_authorized_payment(authorized_payment_id: str, delivery: WebhookDeli
 
         if subscription is None:
             # May happen if the preapproval webhook fired AFTER the payment webhook
-            # (race condition).  Log as orphan — the reconciliation job will fix it.
-            logger.warning(
-                "[webhook/authorized_payment] No SubscriptionV2 for preapproval_id=%s "
-                "auth_payment_id=%s delivery=%s — orphan invoice event, will be reconciled.",
-                preapproval_id, authorized_payment_id, delivery.id,
-            )
+            # (race condition). If the validated preapproval has since been
+            # correlated to a Turnos checkout, recover it now.
+            if ap_status == 'authorized' and preapproval_id:
+                from .services.appointments_checkout import recover_appointments_orphan_payment
+
+                activated = recover_appointments_orphan_payment(
+                    provider_subscription_id=preapproval_id,
+                    invoice_event=invoice_event,
+                    payment_data=ap_data,
+                )
+                subscription = SubscriptionV2.objects.filter(
+                    provider_sub_id=preapproval_id,
+                ).first()
+            if subscription is None:
+                logger.warning(
+                    "[webhook/authorized_payment] No SubscriptionV2 for preapproval_id=%s "
+                    "auth_payment_id=%s delivery=%s — orphan invoice event.",
+                    preapproval_id, authorized_payment_id, delivery.id,
+                )
         else:
             # Link invoice event to subscription (idempotent).
             if invoice_event.subscription_id != subscription.pk:
@@ -544,15 +566,6 @@ def _handle_authorized_payment(authorized_payment_id: str, delivery: WebhookDeli
                     f"authorized_payment.preapproval_id={preapproval_id!r}. "
                     f"Refusing activation."
                 )
-            appointments_checkout = False
-            if subscription.service_type == SubscriptionV2.ServiceType.APPOINTMENTS:
-                from .services.appointments_checkout import (
-                    validate_appointments_authorized_payment,
-                )
-                appointments_checkout = validate_appointments_authorized_payment(
-                    subscription=subscription,
-                    payment_data=ap_data,
-                )
             # Warn on zero-amount payments (free trials, test charges).
             if float(amount or 0) <= 0:
                 logger.warning(
@@ -561,10 +574,25 @@ def _handle_authorized_payment(authorized_payment_id: str, delivery: WebhookDeli
                     "but flagging for manual review.",
                     amount, authorized_payment_id, subscription.pk,
                 )
-            # Guard: refuse to activate a subscription in a terminal state.
-            # A late authorized_payment webhook for a CANCELED subscription must not
-            # resurrect it — that requires an explicit operator action.
-            if not subscription.can_activate():
+            from .models import AppointmentsCheckout
+            appointments_checkout = (
+                subscription.service_type == SubscriptionV2.ServiceType.APPOINTMENTS
+                and (
+                    AppointmentsCheckout.objects.filter(subscription_v2=subscription).exists()
+                    or AppointmentsCheckout.objects.filter(
+                        provider_preapproval_id=preapproval_id,
+                    ).exists()
+                )
+            )
+            if appointments_checkout:
+                from .services.appointments_checkout import finalize_appointments_authorized_payment
+
+                activated = finalize_appointments_authorized_payment(
+                    subscription=subscription,
+                    invoice_event=invoice_event,
+                    payment_data=ap_data,
+                )
+            elif not subscription.can_activate():
                 logger.warning(
                     "[webhook/authorized_payment] Subscription %s is in terminal "
                     "status=%s — refusing activation for auth_payment=%s delivery=%s",
@@ -575,29 +603,7 @@ def _handle_authorized_payment(authorized_payment_id: str, delivery: WebhookDeli
                     invoice_event=invoice_event,
                     subscription=subscription,
                 )
-                if appointments_checkout:
-                    from .services.appointments_checkout import (
-                        apply_appointments_authorized_payment,
-                    )
-                    from .models import AppointmentsCheckout
-
-                    checkout = AppointmentsCheckout.objects.filter(
-                        subscription_v2=subscription,
-                    ).first()
-                    if checkout and checkout.status != AppointmentsCheckout.Status.ACTIVE:
-                        apply_appointments_authorized_payment(
-                            subscription=subscription,
-                            invoice_event=invoice_event,
-                            payment_data=ap_data,
-                        )
-                    elif not activated:
-                        from .services.appointments_lifecycle import apply_appointments_renewal
-
-                        apply_appointments_renewal(
-                            subscription=subscription,
-                            invoice_event=invoice_event,
-                        )
-                elif (
+                if (
                     subscription.service_type == SubscriptionV2.ServiceType.APPOINTMENTS
                     and not activated
                 ):
@@ -620,11 +626,16 @@ def _handle_authorized_payment(authorized_payment_id: str, delivery: WebhookDeli
         and subscription.service_type == SubscriptionV2.ServiceType.APPOINTMENTS
     ):
         from .subscription_activator import record_failed_payment
+        from .services.appointments_checkout import fail_appointments_checkout
 
         record_failed_payment(
             invoice_event=invoice_event,
             subscription=subscription,
             reason=ap_status_detail or ap_status,
+        )
+        fail_appointments_checkout(
+            subscription=subscription,
+            failure_code='payment_failed',
         )
 
     # Step 5: handle promotional discount cycles.

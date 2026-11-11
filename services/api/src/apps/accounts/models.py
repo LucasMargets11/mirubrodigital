@@ -4,7 +4,7 @@ import uuid
 from datetime import timedelta
 
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 
 
@@ -265,6 +265,18 @@ class Membership(models.Model):
       models.Index(fields=['business', 'status'], name='membership_business_status_idx'),
       models.Index(fields=['user',     'status'], name='membership_user_status_idx'),
     ]
+
+  def save(self, *args, **kwargs):
+    if not self._state.adding or self.role == 'owner' or not self.business_id:
+      return super().save(*args, **kwargs)
+
+    from apps.business.models import Business
+
+    with transaction.atomic():
+      business = Business.objects.only('parent_id').get(pk=self.business_id)
+      hq_id = business.parent_id or business.pk
+      Business.objects.select_for_update().only('pk').get(pk=hq_id)
+      return super().save(*args, **kwargs)
 
   def __str__(self) -> str:
     return f"{self.user} → {self.business} ({self.role})"

@@ -7,6 +7,7 @@ import type {
     AppointmentException,
     AppointmentExceptionPayload,
     AppointmentListParams,
+  AppointmentOnboardingStatus,
     AppointmentPayload,
     AppointmentProfessional,
     AppointmentProfessionalPayload,
@@ -30,6 +31,10 @@ function buildQuery(params: Record<string, string | undefined>) {
     });
     const serialized = searchParams.toString();
     return serialized ? `?${serialized}` : '';
+}
+
+export function fetchAppointmentOnboardingStatus() {
+  return apiGet<AppointmentOnboardingStatus>('/api/v1/appointments/onboarding-status/');
 }
 
 // Categories

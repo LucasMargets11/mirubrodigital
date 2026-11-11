@@ -17,6 +17,7 @@ import {
     fetchAppointment,
     fetchAppointmentCategories,
     fetchAppointmentExceptions,
+  fetchAppointmentOnboardingStatus,
     fetchAppointmentProfessionals,
     fetchAppointmentSchedules,
     fetchAppointmentServices,
@@ -53,10 +54,18 @@ const servicesBaseKey = ['appointments', 'services'];
 const professionalsBaseKey = ['appointments', 'professionals'];
 const schedulesBaseKey = ['appointments', 'schedules'];
 const exceptionsBaseKey = ['appointments', 'exceptions'];
+const onboardingStatusKey = ['appointments', 'onboarding-status'];
 const appointmentsBaseKey = ['appointments', 'appointments'];
 const availabilityBaseKey = ['appointments', 'availability'];
 
 // Categories
+
+export function useAppointmentOnboardingStatus() {
+  return useQuery({
+    queryKey: onboardingStatusKey,
+    queryFn: fetchAppointmentOnboardingStatus,
+  });
+}
 
 export function useAppointmentCategories(search: string = '', includeInactive: boolean = false, options?: { enabled?: boolean }) {
     return useQuery({

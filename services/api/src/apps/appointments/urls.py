@@ -16,6 +16,7 @@ from .views import (
   AppointmentExceptionDetailView,
   AppointmentExceptionListCreateView,
   AppointmentListCreateView,
+  AppointmentOnboardingStatusView,
   AppointmentProfessionalDetailView,
   AppointmentProfessionalListCreateView,
   AppointmentScheduleDetailView,
@@ -43,6 +44,7 @@ urlpatterns = [
   path('appointments/', AppointmentListCreateView.as_view(), name='appointment-list'),
   path('appointments/<uuid:pk>/', AppointmentDetailView.as_view(), name='appointment-detail'),
   path('availability/', AppointmentAvailabilityView.as_view(), name='availability'),
+  path('onboarding-status/', AppointmentOnboardingStatusView.as_view(), name='onboarding-status'),
   path('reminder-automation/', ReminderAutomationSettingsView.as_view(), name='reminder-automation'),
   path('communication-settings/', CustomerCommunicationSettingsView.as_view(), name='communication-settings'),
   path(

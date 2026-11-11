@@ -29,7 +29,13 @@ from .serializers import (
   AppointmentServiceSerializer,
 )
 from .services import admin_mutation
-from .services.availability import AvailabilityError, compute_availability, resolve_business_timezone
+from .services.availability import (
+  AvailabilityError,
+  compute_availability,
+  has_configured_availability,
+  is_publicly_reservable_service,
+  resolve_business_timezone,
+)
 
 
 def _filter_by_professional(queryset, request):
@@ -486,6 +492,46 @@ class _HasTurnosAccess(BasePermission):
 
   def has_permission(self, request, view) -> bool:
     return request_has_permission(request, 'view_appointments')
+
+
+class AppointmentOnboardingStatusView(APIView):
+  """Read-only summary of real first-run setup state for Turnos."""
+
+  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission, _HasTurnosAccess]
+  permission_map = {'GET': 'view_appointments'}
+  http_method_names = ['get', 'head', 'options']
+
+  def get(self, request):
+    from .public_page import public_booking_snapshot
+
+    business = request.business
+    active_services = AppointmentService.objects.filter(business=business, is_active=True)
+    active_service_list = list(active_services)
+    active_services_count = len(active_service_list)
+    reservable_services = [
+      service for service in active_service_list
+      if is_publicly_reservable_service(service)
+    ]
+    public_booking_available = public_booking_snapshot(business)['available']
+    has_valid_availability = has_configured_availability(
+      business=business, services=reservable_services,
+    )
+
+    return Response({
+      'active_services_count': active_services_count,
+      'has_active_services': active_services_count > 0,
+      'has_reservable_service': bool(reservable_services),
+      'has_valid_availability': has_valid_availability,
+      'active_professionals_count': AppointmentProfessional.objects.filter(
+        business=business, is_active=True,
+      ).count(),
+      'public_booking_available': public_booking_available,
+      'ready_to_receive_bookings': (
+        bool(reservable_services)
+        and has_valid_availability
+        and public_booking_available
+      ),
+    })
 
 
 class ReminderAutomationSettingsView(APIView):

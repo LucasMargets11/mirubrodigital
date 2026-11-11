@@ -15,39 +15,44 @@ export const CONTACT_WHATSAPP_NUMBER = '5493764705901';
 export const CONTACT_WHATSAPP_DISPLAY = '376 470-5901';
 
 export const INQUIRY_OPTIONS = [
-    { value: '', label: 'Seleccioná el tipo de consulta' },
-    { value: 'Quiero solicitar una demo', label: 'Quiero solicitar una demo' },
-    { value: 'Quiero conocer los planes', label: 'Quiero conocer los planes' },
-    {
-        value: 'Quiero más información sobre Gestión Comercial',
-        label: 'Quiero más información sobre Gestión Comercial',
-    },
-    {
-        value: 'Quiero más información sobre Menú QR Online',
-        label: 'Quiero más información sobre Menú QR Online',
-    },
-    {
-        value: 'Quiero más información sobre QR para reseñas',
-        label: 'Quiero más información sobre QR para reseñas',
-    },
-    {
-        value: 'Quiero hacer una consulta general',
-        label: 'Quiero hacer una consulta general',
-    },
-    { value: 'Otro', label: 'Otro' },
+  { value: '', label: 'Seleccioná el tipo de consulta' },
+  { value: 'Quiero solicitar una demo', label: 'Quiero solicitar una demo' },
+  { value: 'Quiero conocer los planes', label: 'Quiero conocer los planes' },
+  {
+    value: 'Quiero más información sobre Gestión Comercial',
+    label: 'Quiero más información sobre Gestión Comercial',
+  },
+  {
+    value: 'Quiero más información sobre Menú QR Online',
+    label: 'Quiero más información sobre Menú QR Online',
+  },
+  {
+    value: 'Quiero más información sobre QR para reseñas',
+    label: 'Quiero más información sobre QR para reseñas',
+  },
+  {
+    value: 'Quiero más información sobre Turnos',
+    label: 'Quiero más información sobre Turnos',
+  },
+  {
+    value: 'Quiero hacer una consulta general',
+    label: 'Quiero hacer una consulta general',
+  },
+  { value: 'Otro', label: 'Otro' },
 ] as const;
 
 export const PREFERRED_CHANNEL_OPTIONS = [
-    { value: 'Email', label: 'Email' },
-    { value: 'WhatsApp', label: 'WhatsApp' },
+  { value: 'Email', label: 'Email' },
+  { value: 'WhatsApp', label: 'WhatsApp' },
 ] as const;
 
 export const CONTACT_TOPICS = [
-    'Solicitar una demo',
-    'Consultar por planes',
-    'Conocer qué solución se adapta mejor a tu negocio',
-    'Obtener más información sobre Gestión Comercial',
-    'Obtener más información sobre Menú QR Online',
-    'Obtener más información sobre QR para reseñas',
-    'Realizar consultas generales sobre Mi Rubro',
+  'Solicitar una demo',
+  'Consultar por planes',
+  'Conocer qué solución se adapta mejor a tu negocio',
+  'Obtener más información sobre Gestión Comercial',
+  'Obtener más información sobre Menú QR Online',
+  'Obtener más información sobre QR para reseñas',
+  'Obtener más información sobre Turnos',
+  'Realizar consultas generales sobre Mi Rubro',
 ] as const;

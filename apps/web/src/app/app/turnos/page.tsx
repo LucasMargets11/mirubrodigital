@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { PublicBookingLinkCard } from '@/features/appointments/public-booking-link-card';
 import { getSession } from '@/lib/auth';
 
+import { AppointmentsOnboardingChecklist } from './appointments-onboarding-checklist';
 import { WhatsappContactCard } from './whatsapp-contact-card';
 
 export default async function TurnosPage() {
@@ -14,6 +15,7 @@ export default async function TurnosPage() {
     }
 
     const canManageSettings = Boolean(session.permissions?.manage_settings);
+  const canManageAppointments = Boolean(session.permissions?.manage_appointments);
 
     return (
         <section className="space-y-4">
@@ -40,6 +42,8 @@ export default async function TurnosPage() {
                     </Link>
                 )}
             </nav>
+
+      {canManageAppointments && <AppointmentsOnboardingChecklist />}
 
             <PublicBookingLinkCard publicBooking={session.current.business.public_booking} />
 

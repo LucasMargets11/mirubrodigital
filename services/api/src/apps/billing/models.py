@@ -854,6 +854,7 @@ class AppointmentsCheckout(models.Model):
         LINKED = 'linked', 'Linked'
         ACTIVE = 'active', 'Active'
         FAILED = 'failed', 'Failed'
+        EXPIRED = 'expired', 'Expired'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     business = models.ForeignKey(
@@ -882,6 +883,8 @@ class AppointmentsCheckout(models.Model):
     quote_snapshot = models.JSONField(default=dict)
     metadata_json = models.JSONField(default=dict)
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    failure_code = models.CharField(max_length=64, blank=True)
+    expires_at = models.DateTimeField()
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     activated_at = models.DateTimeField(null=True, blank=True)

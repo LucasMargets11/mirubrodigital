@@ -69,7 +69,7 @@ def reconcile_session(session_id: str) -> dict:
 
     Safe to call multiple times — fully idempotent.
     """
-    from .models import BillingInvoiceEvent, MpCheckoutSession, SubscriptionV2
+    from .models import AppointmentsCheckout, BillingInvoiceEvent, MpCheckoutSession, SubscriptionV2
     from .mp_service import MercadoPagoService
     from .subscription_activator import activate_subscription_from_invoice
     from .webhook_processor import _upsert_subscription_v2
@@ -393,7 +393,7 @@ def reconcile_subscription(provider_subscription_id: str) -> dict:
     Returns a dict with keys:
         provider_subscription_id, subscription_id, action_taken, error
     """
-    from .models import BillingInvoiceEvent, MpCheckoutSession, SubscriptionV2
+    from .models import AppointmentsCheckout, BillingInvoiceEvent, MpCheckoutSession, SubscriptionV2
     from .mp_service import MercadoPagoService
     from .subscription_activator import activate_subscription_from_invoice
 
@@ -416,6 +416,26 @@ def reconcile_subscription(provider_subscription_id: str) -> dict:
         return result
 
     plan_id = preapproval.get('preapproval_plan_id', '')
+
+    appointments_checkout = AppointmentsCheckout.objects.filter(
+        provider_preapproval_plan_id=plan_id,
+    ).first() if plan_id else None
+    if appointments_checkout is not None:
+        from .services.appointments_checkout import apply_appointments_preapproval
+
+        apply_appointments_preapproval(
+            preapproval_id=provider_subscription_id,
+            plan_id=plan_id,
+            preapproval=preapproval,
+        )
+        sub = SubscriptionV2.objects.filter(provider_sub_id=provider_subscription_id).first()
+        if sub is not None:
+            result['subscription_id'] = str(sub.pk)
+        appointments_checkout.refresh_from_db()
+        result['action_taken'].append(
+            f"Reconciled AppointmentsCheckout {appointments_checkout.pk} status={appointments_checkout.status}"
+        )
+        return result
 
     # Find or create the SubscriptionV2.
     sub = SubscriptionV2.objects.filter(provider_sub_id=provider_subscription_id).first()
@@ -538,7 +558,7 @@ def reconcile_invoice_event(provider_authorized_payment_id: str) -> dict:
     Returns a dict with keys:
         provider_authorized_payment_id, invoice_event_id, action_taken, error
     """
-    from .models import BillingInvoiceEvent, SubscriptionV2
+    from .models import AppointmentsCheckout, BillingInvoiceEvent, SubscriptionV2
     from .mp_service import MercadoPagoService
     from .subscription_activator import activate_subscription_from_invoice
 
@@ -561,10 +581,17 @@ def reconcile_invoice_event(provider_authorized_payment_id: str) -> dict:
 
     ap_status      = ap_data.get('status', '')
     preapproval_id = ap_data.get('preapproval_id', '')
-    amount         = ap_data.get('transaction_amount') or 0
+    amount         = ap_data.get('transaction_amount') or ap_data.get('total_paid_amount') or 0
     currency       = ap_data.get('currency_id', 'ARS')
-    payment_id     = str(ap_data.get('payment_id', '') or '')
+    payment_id     = str(ap_data.get('payment_id', '') or ap_data.get('id', ''))
     paid_at_str    = ap_data.get('date_approved') or ap_data.get('date_created')
+    returned_id = str(ap_data.get('id', ''))
+    if returned_id and returned_id != str(provider_authorized_payment_id):
+        result['error'] = 'Mercado Pago returned a different authorized payment ID'
+        return result
+    if ap_status == 'authorized' and not preapproval_id:
+        result['error'] = 'Authorized payment has no preapproval correlation'
+        return result
 
     invoice_event, created = BillingInvoiceEvent.objects.get_or_create(
         provider_authorized_payment_id=provider_authorized_payment_id,
@@ -578,25 +605,74 @@ def reconcile_invoice_event(provider_authorized_payment_id: str) -> dict:
             'raw_payload_json': ap_data,
         },
     )
+    if not created:
+        changed = {}
+        for field, value in (
+            ('provider_payment_id', payment_id),
+            ('provider_subscription_id', preapproval_id),
+            ('amount', amount),
+            ('currency', currency),
+            ('provider_status', ap_status),
+            ('raw_payload_json', ap_data),
+        ):
+            if getattr(invoice_event, field) != value:
+                changed[field] = value
+        parsed_paid_at = _parse_dt(paid_at_str)
+        if parsed_paid_at and invoice_event.paid_at != parsed_paid_at:
+            changed['paid_at'] = parsed_paid_at
+        if changed:
+            for field, value in changed.items():
+                setattr(invoice_event, field, value)
+            invoice_event.save(update_fields=[*changed, 'updated_at'])
     result['invoice_event_id'] = str(invoice_event.id)
     result['action_taken'].append(
         ("Created" if created else "Found") + f" BillingInvoiceEvent {invoice_event.id}"
     )
 
-    # Find subscription.
+    # Find subscription, or recover an orphaned Turnos checkout from its
+    # persisted preapproval correlation.
     sub = SubscriptionV2.objects.filter(provider_sub_id=preapproval_id).first() if preapproval_id else None
+    if sub is None and ap_status == 'authorized' and preapproval_id:
+        from .services.appointments_checkout import recover_appointments_orphan_payment
+
+        finalized = recover_appointments_orphan_payment(
+            provider_subscription_id=preapproval_id,
+            invoice_event=invoice_event,
+            payment_data=ap_data,
+        )
+        sub = SubscriptionV2.objects.filter(provider_sub_id=preapproval_id).first()
+        if finalized:
+            result['action_taken'].append('Recovered Turnos checkout from authorized invoice')
     if sub is None:
         result['error'] = f"No SubscriptionV2 for preapproval_id={preapproval_id}"
         logger.warning("[reconcile] %s", result['error'])
         return result
 
-    if ap_status == 'authorized' and not sub.is_active:
-        activated = activate_subscription_from_invoice(
-            invoice_event=invoice_event,
-            subscription=sub,
-        )
-        if activated:
-            result['action_taken'].append(f"Activated subscription {sub.pk}")
+    if ap_status == 'authorized':
+        checkout = AppointmentsCheckout.objects.filter(
+            subscription_v2=sub,
+        ).first()
+        if checkout is None:
+            checkout = AppointmentsCheckout.objects.filter(
+                provider_preapproval_id=preapproval_id,
+            ).first()
+        if checkout is not None:
+            from .services.appointments_checkout import finalize_appointments_authorized_payment
+
+            activated = finalize_appointments_authorized_payment(
+                subscription=sub,
+                invoice_event=invoice_event,
+                payment_data=ap_data,
+            )
+            if activated:
+                result['action_taken'].append(f"Finalized Turnos checkout {checkout.pk}")
+        elif not sub.is_active:
+            activated = activate_subscription_from_invoice(
+                invoice_event=invoice_event,
+                subscription=sub,
+            )
+            if activated:
+                result['action_taken'].append(f"Activated subscription {sub.pk}")
 
     return result
 

@@ -13,6 +13,7 @@ from django.test import TestCase, TransactionTestCase
 
 from apps.billing.appointments_plans import AUTOMATIONS, EXTRA_PROFESSIONAL
 from apps.billing.models import PendingSubscriptionChange, SubscriptionV2
+from apps.billing.plans import get_seat_limit
 from apps.billing.payment_webhook import process_payment_event
 from apps.billing.runtime import resolve_subscription
 from apps.billing.services.appointments import resolve_appointments_subscription_config
@@ -210,19 +211,30 @@ class AppointmentsCommercialV2Tests(TestCase):
         self.assertEqual(addon.quantity, 1)
 
     def test_effective_limits_base_pro_ai_with_extras(self):
-        for plan, included in (('appointments', 2), ('appointments_pro', 5), ('appointments_ai', 5)):
-            with self.subTest(plan=plan):
-                sub = self.make_subscription(
-                    plan, usage_tier='ai_1500' if plan == 'appointments_ai' else None,
-                    status='canceled',
-                )
-                self.addon(sub, quantity=3)
-                config = resolve_appointments_subscription_config(sub)
-                self.assertEqual(config.plan_code, plan)
-                self.assertEqual(config.included_professionals, included)
-                self.assertEqual(config.included_secondary_users, included)
-                self.assertEqual(config.extra_professionals, 3)
-                self.assertEqual(config.effective_professional_limit, included + 3)
+        for plan, included, tiers in (
+            ('appointments', 2, (None,)),
+            ('appointments_pro', 5, (None,)),
+            ('appointments_ai', 5, ('ai_300', 'ai_1500', 'ai_3000')),
+        ):
+            for tier in tiers:
+                with self.subTest(plan=plan, usage_tier=tier):
+                    sub = self.make_subscription(plan, usage_tier=tier, status='canceled')
+                    self.addon(sub, quantity=3)
+                    config = resolve_appointments_subscription_config(sub)
+                    self.assertEqual(config.plan_code, plan)
+                    self.assertEqual(config.included_professionals, included)
+                    self.assertEqual(config.included_secondary_users, included)
+                    self.assertEqual(get_seat_limit(plan), config.included_secondary_users)
+                    self.assertEqual(config.extra_professionals, 3)
+                    self.assertEqual(config.effective_professional_limit, included + 3)
+
+    def test_extra_professional_addon_does_not_increase_membership_seats(self):
+        sub = self.make_subscription('appointments_pro', status='canceled')
+        self.addon(sub, quantity=3)
+        config = resolve_appointments_subscription_config(sub)
+        self.assertEqual(config.effective_professional_limit, 8)
+        self.assertEqual(config.included_secondary_users, 5)
+        self.assertEqual(get_seat_limit(config.plan_code), 5)
 
     def test_inactive_extra_does_not_increase_limit(self):
         sub = self.make_subscription()

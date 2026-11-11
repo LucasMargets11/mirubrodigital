@@ -9,8 +9,9 @@ import type { QrReviewsSubscribeConfig } from '@/features/billing/components/QrR
 import type { ProModule } from '@/features/billing/data/menu-qr-catalog';
 import type { BillingVertical, Bundle } from '@/features/billing/types';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { QrCode, Store, Star, type LucideIcon } from 'lucide-react';
+import { CalendarDays, QrCode, Store, Star, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { AppointmentsPricingSection } from './appointments-pricing-section';
 
 // ── Lazy-loaded billing builders (code-split per vertical) ───────────────────
 
@@ -41,10 +42,10 @@ const CommercialPlanBuilder = dynamic(() =>
 
 // ── Types & constants ────────────────────────────────────────────────────────
 
-type VerticalOption = BillingVertical;
+type PricingVertical = BillingVertical | 'appointments';
 
 type ServiceOption = {
-    key: VerticalOption;
+    key: PricingVertical;
     label: string;
     icon: LucideIcon;
     queryValue: string;
@@ -80,17 +81,24 @@ const SERVICE_OPTIONS: ServiceOption[] = [
         icon: Star,
         queryValue: 'qr_reviews',
         description: 'Más reseñas positivas en Google'
+    },
+    {
+        key: 'appointments',
+        label: 'Turnos',
+        icon: CalendarDays,
+        queryValue: 'appointments',
+        description: 'Agenda, profesionales y reservas'
     }
 ];
 
-const DEFAULT_VERTICAL: VerticalOption = 'commercial';
+const DEFAULT_VERTICAL: PricingVertical = 'commercial';
 
-const QUERY_TO_VERTICAL = SERVICE_OPTIONS.reduce<Record<string, VerticalOption>>((acc, option) => {
+const QUERY_TO_VERTICAL = SERVICE_OPTIONS.reduce<Record<string, PricingVertical>>((acc, option) => {
     acc[option.queryValue] = option.key;
     return acc;
-}, {} as Record<string, VerticalOption>);
+}, {} as Record<string, PricingVertical>);
 
-const resolveVerticalFromQuery = (param: string | null): VerticalOption | null => {
+const resolveVerticalFromQuery = (param: string | null): PricingVertical | null => {
     if (!param) {
         return null;
     }
@@ -98,12 +106,16 @@ const resolveVerticalFromQuery = (param: string | null): VerticalOption | null =
     return QUERY_TO_VERTICAL[param] ?? null;
 };
 
+function isBillingVertical(vertical: PricingVertical): vertical is BillingVertical {
+    return vertical !== 'appointments';
+}
+
 // ── Main client component ────────────────────────────────────────────────────
 
 export default function PricingClient() {
     const router = useRouter();
     const searchParams = useSearchParams();
-    const [vertical, setVertical] = useState<VerticalOption>(() => resolveVerticalFromQuery(searchParams.get('service')) ?? DEFAULT_VERTICAL);
+    const [vertical, setVertical] = useState<PricingVertical>(() => resolveVerticalFromQuery(searchParams.get('service')) ?? DEFAULT_VERTICAL);
     const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>('monthly');
 
     const effectiveBillingPeriod = vertical === 'qr_reviews' ? 'monthly' : billingPeriod;
@@ -129,6 +141,7 @@ export default function PricingClient() {
     }, [serviceParam]);
 
     const handleSubscribeBundle = (bundle: Bundle) => {
+        if (!isBillingVertical(vertical)) return;
         const params = new URLSearchParams({
             plan_code: bundle.code,
             billing_period: effectiveBillingPeriod,
@@ -138,6 +151,7 @@ export default function PricingClient() {
     };
 
     const handleSubscribeCustom = (config: any) => {
+        if (!isBillingVertical(vertical)) return;
         const params = new URLSearchParams({
             plan_code: config.bundleCode || 'custom',
             billing_period: effectiveBillingPeriod,
@@ -149,6 +163,7 @@ export default function PricingClient() {
     };
 
     const handleSubscribeGc = (config: GcSubscribeConfig) => {
+        if (!isBillingVertical(vertical)) return;
         const params = new URLSearchParams({
             plan_code: config.planCode,
             billing_period: effectiveBillingPeriod,
@@ -158,6 +173,7 @@ export default function PricingClient() {
     };
 
     const handleSubscribeMenuQr = (config: MenuQrSubscribeConfig) => {
+        if (!isBillingVertical(vertical)) return;
         const params = new URLSearchParams({
             plan_code: config.planCode,
             billing_period: effectiveBillingPeriod,
@@ -173,6 +189,7 @@ export default function PricingClient() {
     };
 
     const handleSubscribeQrReviews = (config: QrReviewsSubscribeConfig) => {
+        if (!isBillingVertical(vertical)) return;
         const params = new URLSearchParams({
             plan_code: config.planCode,
             billing_period: effectiveBillingPeriod,
@@ -255,7 +272,11 @@ export default function PricingClient() {
                 />
             )}
 
-            {mode === 'packs' && vertical !== 'menu_qr' && vertical !== 'commercial' && vertical !== 'qr_reviews' && (
+            {mode === 'packs' && vertical === 'appointments' && (
+                <AppointmentsPricingSection billingPeriod={effectiveBillingPeriod} />
+            )}
+
+            {mode === 'packs' && isBillingVertical(vertical) && vertical !== 'menu_qr' && vertical !== 'commercial' && vertical !== 'qr_reviews' && (
                 <PlansBundles
                     vertical={vertical}
                     billingPeriod={effectiveBillingPeriod}
@@ -263,7 +284,7 @@ export default function PricingClient() {
                 />
             )}
 
-            {mode === 'custom' && (
+            {mode === 'custom' && vertical !== 'appointments' && (
                 <div className="animate-in fade-in zoom-in duration-300">
                     {vertical === 'commercial' ? (
                         <CommercialPlanBuilder
@@ -293,15 +314,15 @@ export default function PricingClient() {
 // ── Sub-components ───────────────────────────────────────────────────────────
 
 type ServiceSelectorCardsProps = {
-    value: VerticalOption;
-    onChange: (nextValue: VerticalOption) => void;
+    value: PricingVertical;
+    onChange: (nextValue: PricingVertical) => void;
     options: ServiceOption[];
 };
 
 function ServiceSelectorCards({ value, onChange, options }: ServiceSelectorCardsProps) {
     return (
         <div className="w-full flex justify-center">
-            <div className="grid w-full max-w-4xl grid-cols-1 gap-4 sm:grid-cols-3">
+            <div className="grid w-full max-w-6xl grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 {options.map((service) => (
                     <ServiceCardOption
                         key={service.key}
@@ -318,7 +339,7 @@ function ServiceSelectorCards({ value, onChange, options }: ServiceSelectorCards
 type ServiceCardOptionProps = {
     option: ServiceOption;
     isSelected: boolean;
-    onSelect: (key: VerticalOption) => void;
+    onSelect: (key: PricingVertical) => void;
 };
 
 function ServiceCardOption({ option, isSelected, onSelect }: ServiceCardOptionProps) {

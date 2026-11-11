@@ -70,7 +70,7 @@ class Migration(migrations.Migration):
                         name="appt_ai_opening_event_unique",
                     ),
                     models.CheckConstraint(
-                        condition=models.Q(
+                        check=models.Q(
                             (
                                 "expires_at",
                                 django.db.models.expressions.CombinedExpression(
@@ -83,20 +83,20 @@ class Migration(migrations.Migration):
                         name="appt_ai_session_fixed_24h",
                     ),
                     models.CheckConstraint(
-                        condition=models.Q(
+                        check=models.Q(
                             ("usage_period_start__lte", models.F("started_at")),
                             ("usage_period_end__gt", models.F("started_at")),
                         ),
                         name="appt_ai_start_in_usage_period",
                     ),
                     models.CheckConstraint(
-                        condition=models.Q(
+                        check=models.Q(
                             ("usage_tier__in", ["ai_300", "ai_1500", "ai_3000"])
                         ),
                         name="appt_ai_session_resolved_tier",
                     ),
                     models.CheckConstraint(
-                        condition=models.Q(
+                        check=models.Q(
                             ("external_conversation_id", ""), _negated=True
                         ),
                         name="appt_ai_conversation_not_empty",

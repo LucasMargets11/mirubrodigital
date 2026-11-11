@@ -113,3 +113,141 @@ body {
     scroll-behavior: auto;
   }
 }
+
+/* TURNOS RECEPCIONISTA 01: microanimaciones del sandbox de simulación */
+.receptionist-message-enter {
+  animation: receptionist-message-in 220ms ease-out both;
+}
+
+@keyframes receptionist-message-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.receptionist-typing-dot {
+  animation: receptionist-typing-bounce 1.1s ease-in-out infinite;
+}
+
+@keyframes receptionist-typing-bounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.5;
+  }
+  30% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .receptionist-message-enter {
+    animation: none !important;
+    opacity: 1;
+    transform: none;
+  }
+
+  .receptionist-typing-dot {
+    animation: none !important;
+    opacity: 0.6;
+  }
+}
+
+/* TURNOS RECEPCIONISTA 02: cambios discretos del panel Inteligencia */
+.receptionist-intent-enter,
+.receptionist-field-enter {
+  animation: receptionist-intelligence-in 320ms ease-out both;
+}
+
+.receptionist-check-enter {
+  animation: receptionist-check-in 280ms ease-out both;
+}
+
+.receptionist-card-update {
+  animation: receptionist-card-update 950ms ease-out;
+}
+
+.receptionist-activity-enter {
+  animation: receptionist-activity-in 220ms ease-out both;
+}
+
+.receptionist-step-active {
+  animation: receptionist-step-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes receptionist-intelligence-in {
+  from {
+    opacity: 0.35;
+    transform: translateY(2px) scale(0.99);
+    box-shadow: inset 3px 0 rgb(139 92 246 / 65%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    box-shadow: inset 0 0 transparent;
+  }
+}
+
+@keyframes receptionist-check-in {
+  from {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes receptionist-card-update {
+  0% {
+    opacity: 0.8;
+    transform: scale(0.99);
+    box-shadow: 0 0 0 2px rgb(16 185 129 / 35%);
+    background-color: rgb(209 250 229);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgb(16 185 129 / 0%);
+    background-color: rgb(255 255 255);
+  }
+}
+
+@keyframes receptionist-activity-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes receptionist-step-pulse {
+  50% {
+    opacity: 0.55;
+    transform: scale(0.82);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .receptionist-intent-enter,
+  .receptionist-field-enter,
+  .receptionist-check-enter,
+  .receptionist-card-update,
+  .receptionist-activity-enter,
+  .receptionist-step-active {
+    animation: none !important;
+    opacity: 1;
+    transform: none;
+  }
+}

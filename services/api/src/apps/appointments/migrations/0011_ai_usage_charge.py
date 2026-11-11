@@ -79,27 +79,27 @@ class Migration(migrations.Migration):
                 ],
                 "constraints": [
                     models.CheckConstraint(
-                        condition=models.Q(
+                        check=models.Q(
                             ("usage_period_end__gt", models.F("usage_period_start"))
                         ),
                         name="appt_ai_charge_positive_period",
                     ),
                     models.CheckConstraint(
-                        condition=models.Q(
+                        check=models.Q(
                             ("usage_tier__in", ["ai_300", "ai_1500", "ai_3000"]),
                             ("currency", "ARS"),
                         ),
                         name="appt_ai_charge_resolved_terms",
                     ),
                     models.CheckConstraint(
-                        condition=models.Q(
+                        check=models.Q(
                             ("session_ordinal__gt", 0),
                             ("included_sessions_snapshot__gt", 0),
                         ),
                         name="appt_ai_charge_positive_usage",
                     ),
                     models.CheckConstraint(
-                        condition=models.Q(
+                        check=models.Q(
                             models.Q(
                                 ("amount", 0),
                                 ("classification", "included"),
