@@ -428,9 +428,12 @@ class SaleCancelSerializer(serializers.Serializer):
     user = self.context.get('user')
     reason = (self.validated_data.get('reason') or '').strip()
 
-    for item in sale.items.select_related('product'):
-      if item.product is None:
-        continue
+    items = [item for item in sale.items.select_related('product') if item.product is not None]
+    # Saldos de la reversa en el orden global (stock_lock_key) antes de la
+    # primera escritura; los renglones se procesan después en su orden.
+    lock_stock_records(sale.business, [(item.product, None) for item in items])
+
+    for item in items:
       register_stock_movement(
         business=sale.business,
         product=item.product,

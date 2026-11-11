@@ -14,8 +14,9 @@ from rest_framework.views import APIView
 
 from apps.accounts.permissions import HasBusinessMembership, HasPermission
 from apps.cash.models import Payment, CashSession, CashMovement
-from apps.inventory.services import reserve_stock, release_stock, register_stock_movement, ensure_stock_record
+from apps.inventory.services import reserve_stock, release_stock, register_stock_movement, ensure_stock_record, lock_stock_records
 from apps.inventory.models import StockMovement
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -289,8 +290,15 @@ class OrderViewSet(viewsets.ModelViewSet):
         order = self.get_object()
         if order.status != Order.Status.DRAFT and order.status != Order.Status.PENDING_CONFIRMATION:
             return Response({'error': 'Solo pedidos en borrador o pendientes se pueden confirmar'}, status=400)
-        
-        for item in order.items.all():
+
+        items = list(order.items.select_related('product'))
+        # Saldos en el orden global de inventario antes de la primera reserva.
+        try:
+            lock_stock_records(order.business, [(item.product, None) for item in items if item.product is not None])
+        except DjangoValidationError as e:
+            return Response({'error': str(e)}, status=400)
+
+        for item in items:
             try:
                 reserve_stock(order.business, item.product, item.quantity)
                 item.reserved_quantity = item.quantity
@@ -310,8 +318,14 @@ class OrderViewSet(viewsets.ModelViewSet):
         order = self.get_object()
         if order.status == Order.Status.CANCELLED:
              return Response(OrderSerializer(order).data)
-        
-        for item in order.items.all():
+
+        items = list(order.items.select_related('product'))
+        lock_stock_records(
+            order.business,
+            [(item.product, None) for item in items if item.product is not None and item.reserved_quantity > 0],
+        )
+
+        for item in items:
             if item.reserved_quantity > 0:
                 release_stock(order.business, item.product, item.reserved_quantity)
                 item.reserved_quantity = 0
@@ -348,7 +362,12 @@ class OrderViewSet(viewsets.ModelViewSet):
         if order.status == Order.Status.DELIVERED:
             return Response(OrderSerializer(order).data)
 
-        for item in order.items.all():
+        items = list(order.items.select_related('product'))
+        # Liberación de reserva y salida comparten saldo por renglón: se
+        # bloquean todos en el orden global antes de tocar el primero.
+        lock_stock_records(order.business, [(item.product, None) for item in items if item.product is not None])
+
+        for item in items:
             if item.reserved_quantity > 0:
                 release_stock(order.business, item.product, item.reserved_quantity)
                 item.reserved_quantity = 0

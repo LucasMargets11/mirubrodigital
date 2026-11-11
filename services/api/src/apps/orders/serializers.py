@@ -15,7 +15,7 @@ from apps.cash.models import CashSession, Payment
 from apps.catalog.models import Product
 from apps.customers.models import Customer
 from apps.inventory.models import StockMovement
-from apps.inventory.services import ensure_stock_record, register_stock_movement
+from apps.inventory.services import ensure_stock_record, lock_stock_records, register_stock_movement
 from apps.menu.models import MenuItem
 from apps.sales.models import Sale, SaleItem
 from apps.resto.services import ensure_table_available
@@ -1234,6 +1234,14 @@ class OrderSaleMixin(serializers.Serializer):
         notes=normalized_notes,
         created_by=user if getattr(user, 'is_authenticated', False) else None,
         cash_session=cash_session,
+      )
+
+      # Saldos de todos los renglones en el orden global (stock_lock_key)
+      # antes del primer _register_stock; varios renglones del mismo
+      # producto comparten un único saldo.
+      lock_stock_records(
+        business,
+        [(item.product, None) for item in items if item.product is not None],
       )
 
       sale_items: list[SaleItem] = []

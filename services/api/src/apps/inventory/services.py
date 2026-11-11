@@ -215,6 +215,10 @@ def create_stock_replenishment(
     created_by=created_by,
   )
 
+  # Saldos en el orden global antes del primer movimiento; los renglones se
+  # registran después en el orden recibido.
+  lock_stock_records(business, [(item['product'], None) for item in validated_items])
+
   # Create stock movements (IN) for each item
   for item in validated_items:
     movement, _ = register_stock_movement(
@@ -337,11 +341,14 @@ def void_stock_replenishment(
     )
 
   # Create compensatory OUT movements
-  in_movements = (
+  in_movements = list(
     StockMovement.objects
     .filter(replenishment=replenishment, movement_type=StockMovement.MovementType.IN)
     .select_related('product')
   )
+  # Mismo saldo que usa register_stock_movement (location=None → principal),
+  # bloqueado en el orden global antes de la primera reversa.
+  lock_stock_records(replenishment.business, [(movement.product, None) for movement in in_movements])
 
   for movement in in_movements:
     # Idempotent: skip if compensatory already exists

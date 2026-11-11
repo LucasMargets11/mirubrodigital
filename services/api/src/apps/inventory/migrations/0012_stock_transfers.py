@@ -168,7 +168,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="stocktransfer",
             constraint=models.CheckConstraint(
-                condition=models.Q(
+                check=models.Q(
                     ("origin_location", models.F("destination_location")), _negated=True
                 ),
                 name="stock_transfer_origin_destination_differ",
