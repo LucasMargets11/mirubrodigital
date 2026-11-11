@@ -16,7 +16,8 @@ from datetime import timedelta
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import check_password, make_password
-from django.test import TestCase
+from django.core.cache import cache
+from django.test import TestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.backends import TokenBackend
@@ -27,6 +28,11 @@ from apps.accounts.models import AccessAuditLog, EmployeeProfile, Membership
 from apps.business.models import Business
 
 User = get_user_model()
+
+# Throttled endpoints (employee-login / employee-change-pin) keep DRF rate
+# counters in the default cache. Use an isolated LocMem cache, cleared per
+# test, so results never depend on test order or on the dev Redis.
+_ISOLATED_CACHES = {'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}}
 
 
 # ── Shared fixtures ───────────────────────────────────────────────────────────
@@ -315,12 +321,14 @@ class PosHealthViewTest(TestCase):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
+@override_settings(CACHES=_ISOLATED_CACHES)
 class EmployeeChangePinTest(TestCase):
     """Tests for POST /api/v1/auth/employee-change-pin/ — DISABLED (returns 403)."""
 
     URL = '/api/v1/auth/employee-change-pin/'
 
     def setUp(self):
+        cache.clear()
         self.biz = _make_business('PinChangeBiz')
         self.pin = '123456'
         self.employee = _make_employee(
@@ -353,6 +361,7 @@ class EmployeeChangePinTest(TestCase):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
+@override_settings(CACHES=_ISOLATED_CACHES)
 class PinChangeEnforcementTest(TestCase):
     """
     When must_change_pin=True, the employee can access ONLY whitelisted routes.
@@ -360,6 +369,7 @@ class PinChangeEnforcementTest(TestCase):
     """
 
     def setUp(self):
+        cache.clear()
         self.biz = _make_business('PinEnfBiz')
         self.employee = _make_employee(
             self.biz, code='EMP-ENF01', pin='111222', must_change_pin=True,
@@ -520,10 +530,12 @@ class PosTokenEdgeCasesTest(TestCase):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
+@override_settings(CACHES=_ISOLATED_CACHES)
 class LoginHardeningTest(TestCase):
     """Tests for login hardening: generic errors, no info leakage."""
 
     def setUp(self):
+        cache.clear()
         self.biz = _make_business('LoginHardenBiz')
         self.employee = _make_employee(self.biz, code='EMP-LH01', pin='777888')
 
@@ -559,6 +571,7 @@ class LoginHardeningTest(TestCase):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
+@override_settings(CACHES=_ISOLATED_CACHES)
 class EmployeePinNeverForcedTest(TestCase):
     """
     Verify that PIN self-change is fully disabled:
@@ -568,6 +581,7 @@ class EmployeePinNeverForcedTest(TestCase):
     """
 
     def setUp(self):
+        cache.clear()
         self.biz = _make_business('PinNeverForcedBiz')
         self.user = User.objects.create_user(
             username='owner_pnf@test.com', email='owner_pnf@test.com', password='pass1234!',

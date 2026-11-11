@@ -384,13 +384,19 @@ class StartSubscriptionView(APIView):
 
     Signup path (new users)
     -----------------------
-    Creates user + business + legacy Subscription records for backward compat,
+    Creates user + business + SubscriptionIntent (no legacy Subscription),
     then delegates to checkout_session_service for the MP plan creation.
 
     Returning user path
     -------------------
-    If the email is already registered, we look up the user's open checkout
-    session for the requested plan and return it.  No new user/business created.
+    If the email is already registered, the password must authenticate that
+    account (401 with a generic message otherwise, including accounts without
+    a usable password such as Google-only). Then the user's open checkout
+    session for the same business + plan is reused, or a new one is created.
+    No new user/business created.
+
+    Status codes: 201 when a checkout session is created, 200 when an open
+    session is reused (same checkout_session_id and init_point).
 
     Response
     --------
@@ -427,6 +433,19 @@ class StartSubscriptionView(APIView):
         # ── Case 1: returning user with an existing open session ──────────────
         existing_user = User.objects.filter(email=email).first()
         if existing_user:
+            # The caller must prove ownership of the account before any checkout
+            # is created or reused for it. Accounts without a usable password
+            # (e.g. Google-only) never authenticate here. Same generic 401 for
+            # every failure, returned before any read of plan data or any write.
+            from django.contrib.auth import authenticate
+            authenticated = authenticate(request=request, username=email, password=password)
+            if authenticated is None or authenticated.pk != existing_user.pk:
+                logger.info(
+                    "[StartSubscriptionView] Returning user path rejected: invalid credentials user=%s",
+                    existing_user.pk,
+                )
+                return Response({'error': 'Credenciales inválidas.'}, status=401)
+
             try:
                 plan = Plan.objects.get(code=plan_code, plan_status='active')
             except Plan.DoesNotExist:
@@ -436,7 +455,7 @@ class StartSubscriptionView(APIView):
             try:
                 result = start_checkout(
                     user=existing_user,
-                    tenant=_get_first_tenant(existing_user),
+                    tenant=_get_returning_user_tenant(existing_user),
                     plan_code=plan_code,
                     frontend_url=frontend_url,
                 )
@@ -444,7 +463,9 @@ class StartSubscriptionView(APIView):
                     "[StartSubscriptionView] Returning user path user=%s plan=%s reused=%s session=%s",
                     existing_user.pk, plan_code, result.get('reused'), result.get('checkout_session_id'),
                 )
-                return Response(result, status=200)
+                # 200 when the open session for this (user, business, plan) was
+                # reused; 201 when a new checkout session was created.
+                return Response(result, status=200 if result.get('reused') else 201)
             except ValueError as e:
                 return Response({'error': str(e)}, status=400)
             except Exception as e:
@@ -519,11 +540,34 @@ class StartSubscriptionView(APIView):
                 "[StartSubscriptionView] New user signup user=%s business=%s plan=%s session=%s",
                 user.pk, business.pk, plan_code, result.get('checkout_session_id'),
             )
-            return Response(result, status=201)
+            return Response(result, status=200 if result.get('reused') else 201)
 
         except Exception as e:
             logger.exception("[StartSubscriptionView] Signup failed: %s", e)
             return Response({'error': str(e)}, status=500)
+
+
+def _get_returning_user_tenant(user):
+    """
+    Business a returning user's checkout belongs to.
+
+    Users created by this signup path have no Membership until activation
+    (subscription_activator creates it), so fall back to the business created
+    by their own most recent SubscriptionIntent. Without this, a retry resolved
+    tenant=None and could not find the open session of the original signup,
+    creating a second session and a second MP plan.
+    """
+    tenant = _get_first_tenant(user)
+    if tenant is None:
+        intent = (
+            SubscriptionIntent.objects
+            .filter(user=user)
+            .select_related('tenant')
+            .order_by('-pk')
+            .first()
+        )
+        tenant = intent.tenant if intent else None
+    return tenant
 
 
 def _get_first_tenant(user):
@@ -557,8 +601,12 @@ class CheckoutSessionStatusView(APIView):
                 "amount": ...
             } | null
         }
+
+    Access: only the user who owns the session. Anonymous → 401; any other
+    user (same business, staff included) or unknown UUID → 404, so the
+    endpoint never reveals whether a session exists.
     """
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request, session_id):
         from .models import BillingInvoiceEvent, MpCheckoutSession
@@ -568,7 +616,7 @@ class CheckoutSessionStatusView(APIView):
                 MpCheckoutSession.objects
                 .select_related('plan', 'tenant')
                 .prefetch_related('subscriptions')
-                .get(id=session_id)
+                .get(id=session_id, user=request.user)
             )
         except MpCheckoutSession.DoesNotExist:
             return Response({'error': 'Not found'}, status=404)

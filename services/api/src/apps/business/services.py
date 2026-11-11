@@ -2,11 +2,14 @@
 Servicios helper para acceso centralizado a configuración de negocio.
 Provee métodos de conveniencia para obtener datos de emisor, branding y series.
 """
+import logging
 from typing import Dict, Optional, Any
 from django.db import transaction
 
 from .models import Business, BusinessBillingProfile, BusinessBranding
 from apps.invoices.models import DocumentSeries
+
+logger = logging.getLogger(__name__)
 
 
 class BusinessDocumentConfig:

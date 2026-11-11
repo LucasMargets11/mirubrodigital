@@ -29,6 +29,8 @@ from unittest.mock import MagicMock, patch
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
+from rest_framework.parsers import JSONParser
+from rest_framework.request import Request
 from rest_framework.test import APIClient, APIRequestFactory
 
 from apps.billing.models import (
@@ -46,6 +48,42 @@ User = get_user_model()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Network guard: no test in this module may reach Mercado Pago (or any host).
+# MercadoPagoService is imported locally at call time by
+# checkout_session_service and webhook_processor, so tests patch it at its
+# source (apps.billing.mp_service). If a patch ever stops intercepting, the MP
+# SDK's requests.Session.request is rejected here and the test fails closed.
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _NetworkGuard:
+    def __init__(self):
+        self.target_calls = []
+        self._patcher = patch('requests.sessions.Session.request', side_effect=self._reject)
+
+    def _reject(self, method, url, *args, **kwargs):
+        self.target_calls.append((method, url))
+        raise AssertionError(f'Real HTTP request attempted in tests: {method} {url}')
+
+    def start(self):
+        self.target_calls.clear()
+        self._patcher.start()
+
+    def stop(self):
+        self._patcher.stop()
+
+
+_network_guard = _NetworkGuard()
+
+
+def setUpModule():
+    _network_guard.start()
+
+
+def tearDownModule():
+    _network_guard.stop()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Shared factories
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -60,7 +98,9 @@ def _make_plan(code='pro', **kwargs):
         name='Pro Plan',
         price=50000,  # ARS pesos (canonical Pro = 50000)
         currency='ARS',
-        billing_cycle='monthly',
+        interval='monthly',
+        frequency=1,
+        frequency_type='months',
         plan_status='active',
     )
     defaults.update(kwargs)
@@ -82,7 +122,7 @@ def _make_subscription_v2(business, plan, preapproval_plan_id=None, session=None
         provider=SubscriptionV2.Provider.MERCADOPAGO,
         provider_sub_id=f'preapp-{uuid.uuid4()}',
         external_reference=f'ref-{uuid.uuid4()}',
-        status=SubscriptionV2.Status.PENDING,
+        status=SubscriptionV2.Status.CHECKOUT_PENDING,
         provider_preapproval_plan_id=preapproval_plan_id,
         checkout_session=session,
     )
@@ -137,7 +177,7 @@ class StartCheckoutIdempotencyTest(TestCase):
         self.business = _make_business(self.user)
         self.frontend_url = 'https://app.test'
 
-    @patch('apps.billing.checkout_session_service.MercadoPagoService')
+    @patch('apps.billing.mp_service.MercadoPagoService')
     def test_creates_session_once(self, MockMPService):
         """First call creates exactly one session and one MP plan."""
         mock_sdk = MagicMock()
@@ -158,7 +198,7 @@ class StartCheckoutIdempotencyTest(TestCase):
         self.assertEqual(MpCheckoutSession.objects.count(), 1)
         mock_sdk.create_preapproval_plan.assert_called_once()
 
-    @patch('apps.billing.checkout_session_service.MercadoPagoService')
+    @patch('apps.billing.mp_service.MercadoPagoService')
     def test_double_click_returns_same_session(self, MockMPService):
         """Second call with same user+plan must reuse existing session — no new MP plan."""
         mock_sdk = MagicMock()
@@ -179,7 +219,7 @@ class StartCheckoutIdempotencyTest(TestCase):
         self.assertEqual(mock_sdk.create_preapproval_plan.call_count, 1)
         self.assertEqual(MpCheckoutSession.objects.count(), 1)
 
-    @patch('apps.billing.checkout_session_service.MercadoPagoService')
+    @patch('apps.billing.mp_service.MercadoPagoService')
     def test_expired_session_triggers_new_checkout(self, MockMPService):
         """If the existing session is expired, a new session and MP plan are created."""
         mock_sdk = MagicMock()
@@ -318,15 +358,14 @@ class ReceiveWebhookDeduplicationTest(TestCase):
 
     def _make_request(self, payload, x_request_id='req-001'):
         body = json.dumps(payload).encode()
-        request = self.factory.post(
+        wsgi_request = self.factory.post(
             '/api/v1/billing/mercadopago/webhook',
             data=body,
             content_type='application/json',
             HTTP_X_REQUEST_ID=x_request_id,
         )
-        # DRF parses .data lazily; prime it now.
-        request.data  # noqa: B018
-        return request
+        # receive_webhook takes the DRF Request the view hands it (.body, .headers, .data).
+        return Request(wsgi_request, parsers=[JSONParser()])
 
     @patch('apps.billing.webhook_processor._verify_mp_signature', return_value=True)
     def test_receive_persists_delivery(self, _mock_sig):
@@ -371,7 +410,11 @@ class SubscriptionActivatorTest(TestCase):
         self.user  = _make_user('owner@activator.test')
         self.plan  = _make_plan()
         self.biz   = _make_business(self.user)
+        # By activation time the preapproval webhook has already linked the
+        # session to its SubscriptionV2; the state machine only allows
+        # LINKED → ACTIVATED.
         self.session = _make_checkout_session(self.user, self.plan, tenant=self.biz,
+                                               status=MpCheckoutSession.Status.LINKED,
                                                provider_preapproval_plan_id='PLAN-ACT-001')
         self.sub = _make_subscription_v2(
             self.biz, self.plan,
@@ -460,7 +503,7 @@ class CorrelationByPlanIdTest(TestCase):
             x_request_id='req-corr-007',
         )
 
-    @patch('apps.billing.webhook_processor.MercadoPagoService')
+    @patch('apps.billing.mp_service.MercadoPagoService')
     def test_handles_preapproval_finds_session_by_plan_id(self, MockMP):
         """_handle_subscription_preapproval finds session via plan_id, not email."""
         from apps.billing.webhook_processor import _handle_subscription_preapproval
@@ -482,7 +525,7 @@ class CorrelationByPlanIdTest(TestCase):
         self.assertIsNotNone(sub, "SubscriptionV2 should be created by plan_id correlation")
         self.assertEqual(sub.checkout_session, self.session)
 
-    @patch('apps.billing.webhook_processor.MercadoPagoService')
+    @patch('apps.billing.mp_service.MercadoPagoService')
     def test_unknown_plan_id_does_not_activate_random_session(self, MockMP):
         """If plan_id has no matching session, no activation occurs."""
         from apps.billing.webhook_processor import _handle_subscription_preapproval
@@ -509,6 +552,11 @@ class CorrelationByPlanIdTest(TestCase):
 # ─────────────────────────────────────────────────────────────────────────────
 
 class CheckoutSessionStatusViewTest(TestCase):
+    """
+    Access contract: only the session owner may poll it. Anonymous → 401;
+    every other user (same business included) and unknown UUIDs → 404 with a
+    body that carries no session data.
+    """
 
     def setUp(self):
         self.user    = _make_user('poller@test.com')
@@ -520,37 +568,98 @@ class CheckoutSessionStatusViewTest(TestCase):
     def _make_session(self, status=MpCheckoutSession.Status.CHECKOUT_CREATED):
         return _make_checkout_session(self.user, self.plan, tenant=self.biz, status=status)
 
-    def test_returns_pending_before_webhook(self):
-        """Polling before any webhook shows awaiting or checkout_created status."""
+    def _url(self, session_id):
+        return f'/api/v1/billing/checkout-sessions/{session_id}'
+
+    def _client_for(self, user):
+        client = APIClient()
+        client.force_authenticate(user=user)
+        return client
+
+    def _assert_not_found_without_leak(self, response, session):
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.data, {'error': 'Not found'})
+        body = response.content.decode()
+        self.assertNotIn(str(session.id), body)
+        self.assertNotIn(session.plan.code, body)
+        self.assertNotIn(session.status, body)
+
+    def test_owner_gets_status_payload(self):
+        """Owner → 200 with the unchanged payload shape the onboarding poller reads."""
         session = self._make_session(status=MpCheckoutSession.Status.CHECKOUT_CREATED)
-        url = f'/api/v1/billing/checkout-sessions/{session.id}'
-        response = self.client.get(url)
-        self.assertIn(response.status_code, [200, 404])  # depends on URL routing
-        if response.status_code == 200:
-            self.assertIn(response.data['status'], [
-                MpCheckoutSession.Status.CHECKOUT_CREATED,
-                MpCheckoutSession.Status.AWAITING_WEBHOOK,
-            ])
+        response = self.client.get(self._url(session.id))
+        self.plan.refresh_from_db()  # price as stored (Decimal), as the view reads it
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, {
+            'checkout_session_id': str(session.id),
+            'status': MpCheckoutSession.Status.CHECKOUT_CREATED,
+            'catalog_plan': {
+                'code': self.plan.code,
+                'name': self.plan.name,
+                'amount': str(self.plan.price),
+            },
+            'subscription': None,
+            'last_payment': None,
+        })
 
-    def test_returns_activated_after_subscription_actives(self):
-        """Polling after activation shows activated status."""
+    def test_owner_sees_activated_subscription(self):
+        """Polling after activation shows activated status and the subscription block."""
         session = self._make_session(status=MpCheckoutSession.Status.ACTIVATED)
-        url = f'/api/v1/billing/checkout-sessions/{session.id}'
-        response = self.client.get(url)
-        if response.status_code == 200:
-            self.assertEqual(response.data['status'], MpCheckoutSession.Status.ACTIVATED)
+        sub = _make_subscription_v2(self.biz, self.plan, session=session)
+        sub.status = SubscriptionV2.Status.ACTIVE
+        sub.is_active = True
+        sub.save(update_fields=['status', 'is_active'])
 
-    def test_other_user_cannot_view_session(self):
-        """A different user must NOT be able to view another user's session."""
-        other_user = _make_user('thief@test.com')
+        response = self.client.get(self._url(session.id))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['status'], MpCheckoutSession.Status.ACTIVATED)
+        self.assertEqual(response.data['subscription'], {
+            'provider_subscription_id': sub.provider_sub_id,
+            'provider_status': SubscriptionV2.Status.ACTIVE,
+            'is_active': True,
+            'service_type': sub.service_type,
+            'plan_code': self.plan.code,
+        })
+
+    def test_anonymous_gets_401(self):
         session = self._make_session()
+        response = APIClient().get(self._url(session.id))
+        self.assertEqual(response.status_code, 401)
+        self.assertNotIn(str(session.id), response.content.decode())
 
-        other_client = APIClient()
-        other_client.force_authenticate(user=other_user)
-        url = f'/api/v1/billing/checkout-sessions/{session.id}'
-        response = other_client.get(url)
-        # Must be 403 or 404 — never 200
-        self.assertIn(response.status_code, [403, 404])
+    def test_other_user_gets_404(self):
+        """A different user must NOT be able to view another user's session."""
+        session = self._make_session()
+        response = self._client_for(_make_user('thief@test.com')).get(self._url(session.id))
+        self._assert_not_found_without_leak(response, session)
+
+    def test_unknown_uuid_gets_404(self):
+        response = self.client.get(self._url(uuid.uuid4()))
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.data, {'error': 'Not found'})
+
+    def test_same_business_member_not_owner_gets_404(self):
+        """Membership in the session's business does not grant access to it."""
+        from apps.accounts.models import Membership
+
+        session = self._make_session()
+        Membership.objects.create(user=self.user, business=self.biz, role='owner')
+        colleague = _make_user('colleague@test.com')
+        Membership.objects.create(user=colleague, business=self.biz, role='owner')
+
+        response = self._client_for(colleague).get(self._url(session.id))
+        self._assert_not_found_without_leak(response, session)
+
+    def test_staff_superuser_not_owner_gets_404(self):
+        """This endpoint grants no special access to staff or superusers."""
+        session = self._make_session()
+        admin = _make_user('admin@test.com')
+        admin.is_staff = True
+        admin.is_superuser = True
+        admin.save(update_fields=['is_staff', 'is_superuser'])
+
+        response = self._client_for(admin).get(self._url(session.id))
+        self._assert_not_found_without_leak(response, session)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
