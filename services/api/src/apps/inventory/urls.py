@@ -16,6 +16,8 @@ from .views import (
 	ReplenishmentVoidView,
 	StockMovementDetailView,
 	StockMovementListCreateView,
+	StockTransferDetailView,
+	StockTransferListCreateView,
 )
 
 app_name = 'inventory'
@@ -37,4 +39,7 @@ urlpatterns = [
 	path('replenishments/', ReplenishmentListCreateView.as_view(), name='replenishment-list'),
 	path('replenishments/<uuid:pk>/', ReplenishmentDetailView.as_view(), name='replenishment-detail'),
 	path('replenishments/<uuid:pk>/void/', ReplenishmentVoidView.as_view(), name='replenishment-void'),
+	# Transfers (traslados entre ubicaciones)
+	path('transfers/', StockTransferListCreateView.as_view(), name='transfer-list'),
+	path('transfers/<uuid:pk>/', StockTransferDetailView.as_view(), name='transfer-detail'),
 ]

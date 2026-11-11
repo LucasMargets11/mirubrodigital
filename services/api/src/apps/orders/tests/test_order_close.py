@@ -9,6 +9,7 @@ from apps.accounts.models import Membership
 from apps.business.models import Business, BusinessPlan, CommercialSettings, Subscription
 from apps.catalog.models import Product
 from apps.inventory.models import ProductStock
+from apps.inventory.services import ensure_stock_record
 from apps.orders.models import Order, OrderItem
 from apps.sales.models import Sale
 
@@ -42,7 +43,9 @@ class OrderCloseAPITests(APITestCase):
       price=Decimal('250.00'),
       stock_min=Decimal('2.00'),
     )
-    ProductStock.objects.create(business=business, product=product, quantity=stock)
+    stock_record = ensure_stock_record(business, product)
+    stock_record.quantity = stock
+    stock_record.save(update_fields=['quantity', 'updated_at'])
     return product
 
   def _create_order(self, business: Business, product: Product, *, quantity: Decimal = Decimal('1'), unit_price: Decimal = Decimal('100')) -> Order:

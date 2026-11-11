@@ -16,7 +16,7 @@ from apps.catalog.models import Product
 from apps.customers.models import Customer
 from apps.customers.serializers import CustomerSummarySerializer
 from apps.inventory.models import StockMovement
-from apps.inventory.services import ensure_stock_record, register_stock_movement
+from apps.inventory.services import ensure_stock_record, lock_stock_records, register_stock_movement
 from apps.invoices.models import Invoice
 from .models import Sale, SaleItem, Order, OrderItem, OrderPayment, OrderHistory
 
@@ -296,8 +296,19 @@ class SaleCreateSerializer(serializers.Serializer):
     bulk_items: List[SaleItem] = []
     items_payload: List[dict[str, Any]] = validated_data['items']
 
+    # Bloquear todos los saldos de la venta en el orden global de inventario
+    # (stock_lock_key) antes de procesar los renglones en su orden comercial.
+    # Sin esto, una venta B, A y un traslado A, B sobre Local principal se
+    # bloquean en orden inverso y PostgreSQL aborta una por deadlock.
+    products_by_id: dict[str, Product] = {}
     for payload in items_payload:
-      product = self._resolve_product(business, payload['product_id'])
+      key = str(payload['product_id'])
+      if key not in products_by_id:
+        products_by_id[key] = self._resolve_product(business, payload['product_id'])
+    lock_stock_records(business, [(product, None) for product in products_by_id.values()])
+
+    for payload in items_payload:
+      product = products_by_id[str(payload['product_id'])]
       quantity = Decimal(payload['quantity'])
       raw_unit_price = payload.get('unit_price')
       unit_price = Decimal(raw_unit_price) if raw_unit_price is not None else Decimal(product.price)
@@ -410,16 +421,23 @@ class SaleCancelSerializer(serializers.Serializer):
 
   @transaction.atomic
   def save(self, **kwargs):
-    sale: Sale = self.context['sale']
+    # Lock: Sale → saldos en orden global. El estado se decide sobre la fila
+    # bloqueada: una segunda anulación espera a la primera, ve CANCELLED y
+    # devuelve la venta sin repetir la reversa.
+    sale: Sale = Sale.objects.select_for_update().get(pk=self.context['sale'].pk)
+    self.context['sale'] = sale
     if sale.status == Sale.Status.CANCELLED:
       return sale
 
     user = self.context.get('user')
     reason = (self.validated_data.get('reason') or '').strip()
 
-    for item in sale.items.select_related('product'):
-      if item.product is None:
-        continue
+    items = [item for item in sale.items.select_related('product') if item.product is not None]
+    # Saldos de la reversa en el orden global (stock_lock_key) antes de la
+    # primera escritura; los renglones se procesan después en su orden.
+    lock_stock_records(sale.business, [(item.product, None) for item in items])
+
+    for item in items:
       register_stock_movement(
         business=sale.business,
         product=item.product,
@@ -483,7 +501,9 @@ class OrderSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
         fields = '__all__'
-        read_only_fields = ['number', 'created_by', 'business', 'total', 'subtotal', 'discount_total', 'surcharge_total', 'total_paid', 'pending_balance', 'created_at', 'updated_at']
+        # status solo cambia por las acciones de transición (PR3.3): un PATCH
+        # no puede sacar un pedido de CANCELLED/DELIVERED ni saltear stock.
+        read_only_fields = ['number', 'created_by', 'business', 'status', 'total', 'subtotal', 'discount_total', 'surcharge_total', 'total_paid', 'pending_balance', 'created_at', 'updated_at']
 
 class OrderListSerializer(serializers.ModelSerializer):
     customer_name = serializers.CharField(source='customer.name', read_only=True)

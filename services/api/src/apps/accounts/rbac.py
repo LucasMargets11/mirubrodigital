@@ -56,6 +56,9 @@ GESTION_PERMISSIONS: Set[str] = {
   'delete_orders',
   'confirm_orders',
   'cancel_orders',
+  # Entrega con salida de stock (PR3.3): mismo criterio que `manage_stock`,
+  # solo owner/admin/manager. cashier/staff no la reciben por defecto.
+  'deliver_orders',
   'change_order_status',
   'close_orders',
 }

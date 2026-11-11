@@ -22,6 +22,7 @@ from apps.business.models import (
 )
 from apps.catalog.models import Product, ProductCategory
 from apps.inventory.models import ProductStock
+from apps.inventory.services import ensure_stock_record
 from apps.invoices.models import DocumentSeries
 from apps.treasury.models import Account, TreasurySettings
 
@@ -197,7 +198,9 @@ class GestionSetupContextTests(APITestCase):
     def test_initial_stock_completed_when_stock_gt_zero(self):
         business = self._bootstrap()
         product = Product.objects.create(business=business, name='Café', price='150.00', sku='CAF-02')
-        ProductStock.objects.create(business=business, product=product, quantity=10)
+        stock = ensure_stock_record(business, product)
+        stock.quantity = 10
+        stock.save(update_fields=['quantity', 'updated_at'])
         data = self.client.get(reverse(URL)).data
         self.assertEqual(data['status_map']['gestion.initial_stock'], 'completed')
 

@@ -34,7 +34,8 @@ from apps.business.models import (
 from apps.cash.models import CashMovement, CashRegister, CashSession, Payment
 from apps.catalog.models import Product, ProductCategory
 from apps.customers.models import Customer
-from apps.inventory.models import ProductStock, StockMovement
+from apps.inventory.models import StockMovement
+from apps.inventory.services import ensure_stock_record
 from apps.invoices.models import DocumentSeries, Invoice, InvoiceSeries
 from apps.sales.models import Quote, QuoteItem, QuoteSequence, Sale, SaleItem
 from apps.treasury.models import (
@@ -641,10 +642,9 @@ class Command(BaseCommand):
                     note='Stock inicial', reason='initial_stock',
                     created_by=user,
                 )
-                ProductStock.objects.update_or_create(
-                    business=business, product=product,
-                    defaults={'quantity': qty},
-                )
+                stock = ensure_stock_record(business, product)
+                stock.quantity = qty
+                stock.save(update_fields=['quantity', 'updated_at'])
                 count += 1
 
         # ADJUST movements (1 per 5 products)
@@ -694,10 +694,9 @@ class Command(BaseCommand):
                 note='Ingreso por compra proveedor', reason='purchase',
                 created_by=user,
             )
-            ProductStock.objects.update_or_create(
-                business=business, product=product,
-                defaults={'quantity': in_qty},
-            )
+            stock = ensure_stock_record(business, product)
+            stock.quantity = in_qty
+            stock.save(update_fields=['quantity', 'updated_at'])
             count += 1
 
             # Second IN (replenishment)
@@ -709,9 +708,9 @@ class Command(BaseCommand):
                     note='Reposición de stock', reason='replenishment',
                     created_by=user,
                 )
-                ProductStock.objects.filter(business=business, product=product).update(
-                    quantity=in_qty + replenish
-                )
+                stock = ensure_stock_record(business, product)
+                stock.quantity = in_qty + replenish
+                stock.save(update_fields=['quantity', 'updated_at'])
                 count += 1
 
             # ADJUST

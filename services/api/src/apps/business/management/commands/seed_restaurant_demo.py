@@ -29,7 +29,7 @@ from apps.business.models import (
 )
 from apps.cash.models import CashRegister, CashSession
 from apps.catalog.models import Product, ProductCategory
-from apps.inventory.models import ProductStock
+from apps.inventory.services import ensure_stock_record, primary_stock_queryset
 from apps.menu.models import MenuCategory, MenuItem, PublicMenuConfig
 from apps.resto.models import RestaurantOperationSettings
 from apps.reviews.models import ReviewConfig
@@ -341,12 +341,9 @@ class Command(BaseCommand):
         stock_qty_map = {p['sku']: p['stock_qty'] for p in DEMO_PRODUCTS}
         for sku, product in product_map.items():
             qty = stock_qty_map.get(sku, 0)
-            stock, created = ProductStock.objects.get_or_create(
-                business=business,
-                product=product,
-                defaults={'quantity': Decimal(str(qty))},
-            )
-            if not created and stock.quantity != Decimal(str(qty)):
+            created = not primary_stock_queryset(business).filter(product=product).exists()
+            stock = ensure_stock_record(business, product)
+            if stock.quantity != Decimal(str(qty)):
                 stock.quantity = Decimal(str(qty))
                 stock.save(update_fields=['quantity', 'updated_at'])
             self._log('ProductStock', f'{product.name} → {qty}', created)

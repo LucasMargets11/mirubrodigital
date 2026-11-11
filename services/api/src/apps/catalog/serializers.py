@@ -142,10 +142,8 @@ class ProductSerializer(serializers.ModelSerializer):
     return data
   
   def get_stock_quantity(self, obj):
-    stock_level = getattr(obj, 'stock_level', None)
-    if stock_level is None:
-      return None
-    return stock_level.quantity
+    primary_stock = getattr(obj, '_primary_stock_records', [])
+    return primary_stock[0].quantity if primary_stock else None
 
 
 class ProductSummarySerializer(serializers.ModelSerializer):

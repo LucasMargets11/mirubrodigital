@@ -9,7 +9,8 @@ from apps.accounts.models import Membership
 from apps.business.models import Business, CommercialSettings, Subscription
 from apps.catalog.models import Product
 from apps.cash.models import CashSession, Payment
-from apps.inventory.models import ProductStock, StockMovement
+from apps.inventory.models import ProductStock, StockLocation, StockMovement
+from apps.inventory.services import ensure_stock_record
 from apps.sales.models import Sale, SaleItem
 
 
@@ -48,7 +49,9 @@ class SalesAPITests(APITestCase):
       price=Decimal('120'),
       stock_min=Decimal('2'),
     )
-    ProductStock.objects.create(business=business, product=product, quantity=stock)
+    stock_record = ensure_stock_record(business, product)
+    stock_record.quantity = stock
+    stock_record.save(update_fields=['quantity', 'updated_at'])
     return product
 
   def _create_sale_with_items(self, business: Business, items) -> Sale:
@@ -285,6 +288,58 @@ class SalesAPITests(APITestCase):
     self.assertEqual(cancel_response.status_code, status.HTTP_200_OK)
     stock.refresh_from_db()
     self.assertEqual(stock.quantity, Decimal('1.00'))
+
+  def test_sale_and_cancellation_use_only_primary_location_stock(self):
+    business = self._create_business('Stock por ubicación')
+    product = self._create_product(business, Decimal('3'))
+    primary_stock = ProductStock.objects.get(product=product)
+    depot = StockLocation.objects.create(
+      business=business,
+      name='Depósito',
+      is_active=True,
+    )
+    depot_stock = ProductStock.objects.create(
+      business=business,
+      product=product,
+      location=depot,
+      quantity=Decimal('10'),
+    )
+    self._authenticate(business, role='manager')
+    create_url = reverse('sales:sale-list')
+
+    sale_response = self.client.post(
+      create_url,
+      {'items': [{'product_id': str(product.id), 'quantity': '2'}]},
+      format='json',
+    )
+    self.assertEqual(sale_response.status_code, status.HTTP_201_CREATED)
+    primary_stock.refresh_from_db()
+    depot_stock.refresh_from_db()
+    self.assertEqual(primary_stock.quantity, Decimal('1'))
+    self.assertEqual(depot_stock.quantity, Decimal('10'))
+
+    blocked_response = self.client.post(
+      create_url,
+      {'items': [{'product_id': str(product.id), 'quantity': '2'}]},
+      format='json',
+    )
+    self.assertEqual(blocked_response.status_code, status.HTTP_400_BAD_REQUEST)
+    self.assertEqual(blocked_response.data['error']['code'], 'OUT_OF_STOCK')
+    primary_stock.refresh_from_db()
+    depot_stock.refresh_from_db()
+    self.assertEqual(primary_stock.quantity, Decimal('1'))
+    self.assertEqual(depot_stock.quantity, Decimal('10'))
+
+    cancel_response = self.client.post(
+      reverse('sales:sale-cancel', args=[sale_response.data['id']]),
+      {'reason': 'Reversa de prueba'},
+      format='json',
+    )
+    self.assertEqual(cancel_response.status_code, status.HTTP_200_OK)
+    primary_stock.refresh_from_db()
+    depot_stock.refresh_from_db()
+    self.assertEqual(primary_stock.quantity, Decimal('3'))
+    self.assertEqual(depot_stock.quantity, Decimal('10'))
 
   def test_sale_list_paid_total_not_duplicated_by_items(self):
     business = self._create_business('Pagos sin duplicar')

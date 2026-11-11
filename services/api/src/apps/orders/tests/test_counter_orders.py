@@ -10,6 +10,7 @@ from apps.business.models import Business, BusinessPlan, CommercialSettings, Sub
 from apps.cash.models import Payment
 from apps.catalog.models import Product
 from apps.inventory.models import ProductStock
+from apps.inventory.services import ensure_stock_record
 from apps.orders.models import Order, OrderItem
 
 
@@ -42,7 +43,9 @@ class CounterOrderCreateTests(APITestCase):
       stock_min=Decimal('1.00'),
       is_active=is_active,
     )
-    ProductStock.objects.create(business=business, product=product, quantity=Decimal(stock))
+    stock_record = ensure_stock_record(business, product)
+    stock_record.quantity = Decimal(stock)
+    stock_record.save(update_fields=['quantity', 'updated_at'])
     return product
 
   def test_create_counter_order_creates_pickup_order_without_table(self):
@@ -374,4 +377,3 @@ class AppOrderCreateChannelTests(APITestCase):
     order = Order.objects.get(pk=order_id)
     self.assertEqual(order.status, Order.Status.PAID)
     self.assertIsNotNone(order.sale_id)
-

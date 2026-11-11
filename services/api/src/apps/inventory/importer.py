@@ -10,7 +10,7 @@ from openpyxl import load_workbook
 from apps.business.models import Business
 from apps.catalog.models import Product
 from .models import InventoryImportJob
-from .services import ensure_stock_record, register_stock_movement
+from .services import ensure_stock_record, lock_stock_records, register_stock_movement
 
 MAX_ROWS = 2000
 PREVIEW_LIMIT = 200
@@ -132,6 +132,11 @@ def apply_inventory_import(job: InventoryImportJob, *, business: Business, user)
 			job.status = InventoryImportJob.Status.PROCESSING
 			job.save(update_fields=['status', 'updated_at'])
 
+			# Fase 1: productos en el orden del archivo. Los ajustes de stock se
+			# difieren para poder bloquear sus saldos en el orden global
+			# (stock_lock_key) antes del primero; un producto nuevo recién
+			# tiene id después de crearse.
+			pending_adjustments: list[tuple[Product, Decimal, str]] = []
 			for row in job.rows:
 				if row.get('status') == 'error':
 					invalid_rows += 1
@@ -149,17 +154,23 @@ def apply_inventory_import(job: InventoryImportJob, *, business: Business, user)
 
 				stock_value = _to_decimal(payload.get('stock'))
 				if stock_value is not None:
-					register_stock_movement(
-						business=business,
-						product=product,
-						movement_type='ADJUST',
-						quantity=stock_value,
-						note=payload.get('note') or DEFAULT_NOTE,
-						created_by=user if getattr(user, 'is_authenticated', False) else None,
-					)
+					pending_adjustments.append((product, stock_value, payload.get('note') or DEFAULT_NOTE))
 					adjusted += 1
 				else:
 					skipped += 1
+
+			# Fase 2: saldos bloqueados en orden global; fase 3: ajustes en el
+			# orden del archivo (si un producto se repite, gana la última fila).
+			lock_stock_records(business, [(product, None) for product, _, _ in pending_adjustments])
+			for product, stock_value, note in pending_adjustments:
+				register_stock_movement(
+					business=business,
+					product=product,
+					movement_type='ADJUST',
+					quantity=stock_value,
+					note=note,
+					created_by=user if getattr(user, 'is_authenticated', False) else None,
+				)
 
 			job.status = InventoryImportJob.Status.DONE
 			job.created_count = created

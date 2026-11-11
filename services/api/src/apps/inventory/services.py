@@ -4,18 +4,74 @@ from decimal import Decimal
 from typing import Any, Dict, List, Tuple
 
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
+from django.db.models import QuerySet
 from django.utils import timezone
 
 from apps.catalog.models import Product
 from apps.business.models import Business
-from .models import ProductStock, StockMovement, StockReplenishment
+from .models import (
+  ProductStock,
+  StockLocation,
+  StockMovement,
+  StockReplenishment,
+  StockTransfer,
+  StockTransferLine,
+)
 
 
-def ensure_stock_record(business: Business, product: Product) -> ProductStock:
+# Texto del ValidationError de salida sin saldo; los consumidores lo usan para
+# distinguir el error de negocio esperado de otras validaciones.
+INSUFFICIENT_STOCK_MESSAGE = 'Stock insuficiente para realizar la operacion solicitada.'
+
+
+@transaction.atomic
+def get_primary_stock_location(business: Business) -> StockLocation:
+  location = StockLocation.objects.filter(business=business, is_primary=True).first()
+  if location is not None and location.is_active:
+    return location
+
+  Business.objects.select_for_update().get(pk=business.pk)
+  location = StockLocation.objects.filter(business=business, is_primary=True).first()
+  if location is not None:
+    if not location.is_active:
+      location.is_active = True
+      location.save(update_fields=['is_active', 'updated_at'])
+    return location
+
+  base_name = 'Local principal'
+  name = base_name
+  suffix = 2
+  while StockLocation.objects.filter(business=business, name=name).exists():
+    name = f'{base_name} ({suffix})'
+    suffix += 1
+
+  return StockLocation.objects.create(
+    business=business,
+    name=name,
+    is_primary=True,
+    is_active=True,
+  )
+
+
+def ensure_stock_record(
+  business: Business,
+  product: Product,
+  location: StockLocation | None = None,
+) -> ProductStock:
+  if product.business_id != business.pk:
+    raise ValidationError('Producto fuera del negocio actual.')
+
+  location = location or get_primary_stock_location(business)
+  if location.business_id != business.pk:
+    raise ValidationError('La ubicación no pertenece a este negocio.')
+  if not location.is_active:
+    raise ValidationError('La ubicación está inactiva.')
+
   stock, _ = ProductStock.objects.get_or_create(
     business=business,
     product=product,
+    location=location,
     defaults={'quantity': Decimal('0')},
   )
   if transaction.get_connection().in_atomic_block:
@@ -23,60 +79,48 @@ def ensure_stock_record(business: Business, product: Product) -> ProductStock:
   return stock
 
 
-@transaction.atomic
-def register_stock_movement(
-  *,
+def stock_lock_key(product_id, location_id) -> Tuple[str, str]:
+  """Orden global de bloqueo de saldos: (product_id, location_id) como texto.
+
+  Todo escritor que bloquee más de un ProductStock en una misma transacción
+  debe adquirirlos en este orden para no cerrar ciclos con otro escritor.
+  """
+  return (str(product_id), str(location_id))
+
+
+def lock_stock_records(
   business: Business,
-  product: Product,
-  movement_type: str,
-  quantity: Decimal,
-  note: str = '',
-  created_by=None,
-  reason: str = '',
-  metadata: Dict[str, Any] | None = None,
-  allow_negative_stock: bool = False,
-) -> Tuple[StockMovement, ProductStock]:
-  if product.business_id != business.id:
-    raise ValidationError('Producto fuera del negocio actual.')
+  pairs: List[Tuple[Product, StockLocation | None]],
+) -> Dict[Tuple[str, str], ProductStock]:
+  """Crea si falta y bloquea cada saldo (producto, ubicación) en orden global.
 
-  stock = ensure_stock_record(business, product)
-  normalized_qty = Decimal(quantity)
-  movement_enum = StockMovement.MovementType
-  if movement_type == movement_enum.ADJUST:
-    if normalized_qty < 0:
-      raise ValidationError('La cantidad debe ser mayor o igual a cero para un ajuste.')
-  else:
-    if normalized_qty <= 0:
-      raise ValidationError('La cantidad debe ser mayor a cero.')
+  location=None resuelve la ubicación principal antes de ordenar. Devuelve
+  los saldos bloqueados indexados por stock_lock_key. Debe llamarse dentro
+  de una transacción para que los locks se retengan hasta el commit.
+  """
+  resolved: Dict[Tuple[str, str], Tuple[Product, StockLocation]] = {}
+  primary: StockLocation | None = None
+  for product, location in pairs:
+    if location is None:
+      primary = primary or get_primary_stock_location(business)
+      location = primary
+    resolved[stock_lock_key(product.pk, location.pk)] = (product, location)
 
-  if movement_type not in movement_enum.values:
-    raise ValidationError('Tipo de movimiento invalido.')
+  locked: Dict[Tuple[str, str], ProductStock] = {}
+  for key in sorted(resolved):
+    product, location = resolved[key]
+    locked[key] = ensure_stock_record(business, product, location=location)
+  return locked
 
-  if movement_type == movement_enum.ADJUST:
-    new_quantity = normalized_qty
-  elif movement_type == movement_enum.IN:
-    new_quantity = stock.quantity + normalized_qty
-  else:
-    new_quantity = stock.quantity - normalized_qty
 
-  if new_quantity < 0 and not allow_negative_stock:
-    raise ValidationError('Stock insuficiente para realizar la operacion solicitada.')
-
-  metadata_payload: Dict[str, Any] = metadata or {}
-  stock.quantity = new_quantity
-  stock.save(update_fields=['quantity', 'updated_at'])
-
-  movement = StockMovement.objects.create(
+def primary_stock_queryset(business: Business) -> QuerySet[ProductStock]:
+  return ProductStock.objects.filter(
     business=business,
-    product=product,
-    movement_type=movement_type,
-    quantity=normalized_qty,
-    note=note,
-    reason=reason,
-    metadata=metadata_payload,
-    created_by=created_by,
+    product__business=business,
+    location__business=business,
+    location__is_primary=True,
+    location__is_active=True,
   )
-  return movement, stock
 
 
 @transaction.atomic
@@ -175,6 +219,10 @@ def create_stock_replenishment(
     status=StockReplenishment.Status.POSTED,
     created_by=created_by,
   )
+
+  # Saldos en el orden global antes del primer movimiento; los renglones se
+  # registran después en el orden recibido.
+  lock_stock_records(business, [(item['product'], None) for item in validated_items])
 
   # Create stock movements (IN) for each item
   for item in validated_items:
@@ -287,6 +335,15 @@ def void_stock_replenishment(
   """
   from apps.treasury.models import Transaction
 
+  # Lock: StockReplenishment → Transaction de tesorería → saldos en orden
+  # global → pagos/gasto. La propia reposición serializa las anulaciones,
+  # tenga o no transacción vinculada; el estado se lee de la fila bloqueada.
+  replenishment = (
+    StockReplenishment.objects.select_for_update(of=('self',))
+    .select_related('business')
+    .get(pk=replenishment.pk)
+  )
+
   # Idempotent: already voided
   if replenishment.status == StockReplenishment.Status.VOIDED:
     return replenishment
@@ -298,11 +355,14 @@ def void_stock_replenishment(
     )
 
   # Create compensatory OUT movements
-  in_movements = (
+  in_movements = list(
     StockMovement.objects
     .filter(replenishment=replenishment, movement_type=StockMovement.MovementType.IN)
     .select_related('product')
   )
+  # Mismo saldo que usa register_stock_movement (location=None → principal),
+  # bloqueado en el orden global antes de la primera reversa.
+  lock_stock_records(replenishment.business, [(movement.product, None) for movement in in_movements])
 
   for movement in in_movements:
     # Idempotent: skip if compensatory already exists
@@ -351,16 +411,26 @@ def void_stock_replenishment(
 
 
 @transaction.atomic
-def reserve_stock(business: Business, product: Product, quantity: Decimal) -> ProductStock:
-  stock = ensure_stock_record(business, product)
+def reserve_stock(
+  business: Business,
+  product: Product,
+  quantity: Decimal,
+  location: StockLocation | None = None,
+) -> ProductStock:
+  stock = ensure_stock_record(business, product, location=location)
   stock.reserved_quantity += Decimal(quantity)
   stock.save(update_fields=['reserved_quantity', 'updated_at'])
   return stock
 
 
 @transaction.atomic
-def release_stock(business: Business, product: Product, quantity: Decimal) -> ProductStock:
-  stock = ensure_stock_record(business, product)
+def release_stock(
+  business: Business,
+  product: Product,
+  quantity: Decimal,
+  location: StockLocation | None = None,
+) -> ProductStock:
+  stock = ensure_stock_record(business, product, location=location)
   stock.reserved_quantity -= Decimal(quantity)
   if stock.reserved_quantity < 0:
     stock.reserved_quantity = Decimal(0)
@@ -380,11 +450,12 @@ def register_stock_movement(
   reason: str = '',
   metadata: Dict[str, Any] | None = None,
   allow_negative_stock: bool = False,
+  location: StockLocation | None = None,
 ) -> Tuple[StockMovement, ProductStock]:
   if product.business_id != business.id:
     raise ValidationError('Producto fuera del negocio actual.')
 
-  stock = ensure_stock_record(business, product)
+  stock = ensure_stock_record(business, product, location=location)
   normalized_qty = Decimal(quantity)
   movement_enum = StockMovement.MovementType
   if movement_type == movement_enum.ADJUST:
@@ -405,7 +476,7 @@ def register_stock_movement(
     new_quantity = stock.quantity - normalized_qty
 
   if new_quantity < 0 and not allow_negative_stock:
-    raise ValidationError('Stock insuficiente para realizar la operacion solicitada.')
+    raise ValidationError(INSUFFICIENT_STOCK_MESSAGE)
 
   metadata_payload: Dict[str, Any] = metadata or {}
   stock.quantity = new_quantity
@@ -420,5 +491,222 @@ def register_stock_movement(
     reason=reason,
     metadata=metadata_payload,
     created_by=created_by,
+    # Ubicación efectiva ya resuelta por ensure_stock_record (explícita o
+    # principal por defecto). No es una segunda escritura de saldo: solo
+    # registra, en el movimiento, dónde impactó la que ya hizo este mismo
+    # llamado más arriba.
+    location_id=stock.location_id,
   )
   return movement, stock
+
+
+class StockTransferConflict(Exception):
+  """Se reintentó una clave de idempotencia de traslado con contenido distinto."""
+
+
+def _normalize_transfer_lines(lines: List[Dict[str, Any]]) -> List[Tuple[str, Decimal]]:
+  """[(product_id, quantity)] ordenado por product_id, para comparar contenido."""
+  normalized = [
+    (str(line['product_id']), Decimal(str(line['quantity'])))
+    for line in lines
+  ]
+  return sorted(normalized, key=lambda pair: pair[0])
+
+
+def _stock_transfer_matches(
+  transfer: StockTransfer,
+  *,
+  origin_location: StockLocation,
+  destination_location: StockLocation,
+  lines: List[Dict[str, Any]],
+) -> bool:
+  if transfer.origin_location_id != origin_location.pk:
+    return False
+  if transfer.destination_location_id != destination_location.pk:
+    return False
+  existing_lines = sorted(
+    ((str(line.product_id), line.quantity) for line in transfer.lines.all()),
+    key=lambda pair: pair[0],
+  )
+  return existing_lines == _normalize_transfer_lines(lines)
+
+
+def _validate_transfer_shape(
+  *,
+  business: Business,
+  origin_location: StockLocation,
+  destination_location: StockLocation,
+  lines: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+  if origin_location.pk == destination_location.pk:
+    raise ValidationError('El origen y el destino del traslado deben ser ubicaciones distintas.')
+  if origin_location.business_id != business.pk or destination_location.business_id != business.pk:
+    raise ValidationError('Las ubicaciones del traslado deben pertenecer a este negocio.')
+  if not origin_location.is_active or not destination_location.is_active:
+    raise ValidationError('Las ubicaciones del traslado deben estar activas.')
+  if not lines:
+    raise ValidationError('El traslado debe incluir al menos un producto.')
+
+  product_ids = [str(line['product_id']) for line in lines]
+  if len(product_ids) != len(set(product_ids)):
+    raise ValidationError('No se permiten renglones duplicados para el mismo producto.')
+
+  resolved_lines: List[Dict[str, Any]] = []
+  for line in lines:
+    quantity = Decimal(str(line['quantity']))
+    if quantity <= 0:
+      raise ValidationError('La cantidad de cada renglón debe ser mayor a cero.')
+    try:
+      product = Product.objects.get(pk=line['product_id'], business=business)
+    except Product.DoesNotExist as exc:
+      raise ValidationError(
+        f"Producto {line['product_id']} no encontrado en este negocio."
+      ) from exc
+    resolved_lines.append({'product': product, 'quantity': quantity})
+  return resolved_lines
+
+
+@transaction.atomic
+def confirm_stock_transfer(
+  *,
+  business: Business,
+  origin_location: StockLocation,
+  destination_location: StockLocation,
+  lines: List[Dict[str, Any]],
+  idempotency_key: str,
+  created_by=None,
+) -> Tuple[StockTransfer, bool]:
+  """
+  Confirma un traslado de stock entre dos ubicaciones del mismo negocio.
+
+  Descuenta el disponible (cantidad física - reservada) de cada producto en
+  el origen y lo suma al destino, sin tocar reservas. Reutiliza
+  register_stock_movement para la única escritura de saldo por renglón y
+  ensure_stock_record para crear el saldo de destino de forma segura
+  frente a concurrencia. Devuelve (traslado, created): created=False cuando
+  la clave de idempotencia ya resolvió un traslado idéntico (reintento
+  seguro, incluso ante reintentos simultáneos).
+  """
+  if not idempotency_key or not idempotency_key.strip():
+    raise ValidationError('La clave de idempotencia es obligatoria.')
+  idempotency_key = idempotency_key.strip()
+
+  existing = (
+    StockTransfer.objects
+    .filter(business=business, idempotency_key=idempotency_key)
+    .prefetch_related('lines')
+    .first()
+  )
+  if existing is not None:
+    if _stock_transfer_matches(
+      existing,
+      origin_location=origin_location,
+      destination_location=destination_location,
+      lines=lines,
+    ):
+      return existing, False
+    raise StockTransferConflict(
+      'Ya existe un traslado confirmado con esta clave de idempotencia y contenido distinto.'
+    )
+
+  resolved_lines = _validate_transfer_shape(
+    business=business,
+    origin_location=origin_location,
+    destination_location=destination_location,
+    lines=lines,
+  )
+
+  # Reserva atómica de la clave de idempotencia, en un savepoint propio: si
+  # pierde la carrera contra un commit concurrente, revierte solo este
+  # intento de insert (sin movimientos ni saldos creados todavía) y
+  # devuelve/rechaza según corresponda.
+  try:
+    with transaction.atomic():
+      transfer = StockTransfer.objects.create(
+        business=business,
+        origin_location=origin_location,
+        destination_location=destination_location,
+        created_by=created_by,
+        idempotency_key=idempotency_key,
+      )
+  except IntegrityError:
+    existing = (
+      StockTransfer.objects
+      .filter(business=business, idempotency_key=idempotency_key)
+      .prefetch_related('lines')
+      .first()
+    )
+    if existing is not None and _stock_transfer_matches(
+      existing,
+      origin_location=origin_location,
+      destination_location=destination_location,
+      lines=lines,
+    ):
+      return existing, False
+    raise StockTransferConflict(
+      'Ya existe un traslado confirmado con esta clave de idempotencia y contenido distinto.'
+    )
+
+  # Orden global de bloqueo (stock_lock_key): por (product_id, location_id),
+  # sin distinguir origen/destino. Es el mismo orden que usa la venta, así
+  # que traslados opuestos entre sí, o un traslado y una venta con renglones
+  # en otro orden comercial, no cierran ciclos. ensure_stock_record (vía
+  # lock_stock_records) crea el saldo de destino si todavía no existe.
+  stock_by_key = lock_stock_records(
+    business,
+    [
+      (item['product'], location)
+      for item in resolved_lines
+      for location in (origin_location, destination_location)
+    ],
+  )
+
+  for item in resolved_lines:
+    product = item['product']
+    quantity = item['quantity']
+    origin_stock = stock_by_key[stock_lock_key(product.pk, origin_location.pk)]
+    available = origin_stock.quantity - origin_stock.reserved_quantity
+    if available < quantity:
+      raise ValidationError(
+        f'Stock insuficiente en el origen para {product.name}: '
+        f'disponible {available}, solicitado {quantity}.'
+      )
+
+  for item in resolved_lines:
+    product = item['product']
+    quantity = item['quantity']
+
+    out_movement, _ = register_stock_movement(
+      business=business,
+      product=product,
+      movement_type=StockMovement.MovementType.OUT,
+      quantity=quantity,
+      note=f'Traslado a {destination_location.name}',
+      created_by=created_by,
+      reason='transfer',
+      location=origin_location,
+    )
+    in_movement, _ = register_stock_movement(
+      business=business,
+      product=product,
+      movement_type=StockMovement.MovementType.IN,
+      quantity=quantity,
+      note=f'Traslado desde {origin_location.name}',
+      created_by=created_by,
+      reason='transfer',
+      location=destination_location,
+    )
+    out_movement.transfer = transfer
+    out_movement.save(update_fields=['transfer'])
+    in_movement.transfer = transfer
+    in_movement.save(update_fields=['transfer'])
+
+    StockTransferLine.objects.create(
+      transfer=transfer,
+      product=product,
+      quantity=quantity,
+      out_movement=out_movement,
+      in_movement=in_movement,
+    )
+
+  return transfer, True

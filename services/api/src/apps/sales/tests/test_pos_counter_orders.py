@@ -17,6 +17,7 @@ from apps.business.models import Business, BusinessPlan, CommercialSettings, Sub
 from apps.cash.models import Payment
 from apps.catalog.models import Product
 from apps.inventory.models import ProductStock, StockMovement
+from apps.inventory.services import ensure_stock_record
 from apps.orders.models import Order
 from apps.sales.models import Sale
 
@@ -109,7 +110,9 @@ def _make_product(
         stock_min=Decimal('1.00'),
         is_active=is_active,
     )
-    ProductStock.objects.create(business=business, product=product, quantity=Decimal(stock))
+    stock_record = ensure_stock_record(business, product)
+    stock_record.quantity = Decimal(stock)
+    stock_record.save(update_fields=['quantity', 'updated_at'])
     return product
 
 

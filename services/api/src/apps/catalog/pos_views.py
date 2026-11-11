@@ -16,14 +16,14 @@ from __future__ import annotations
 
 import uuid as uuid_module
 
-from django.db.models import Count, Q
+from django.db.models import Count, Prefetch, Q
 from rest_framework import serializers as drf_serializers
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.authentication import EmployeeTokenAuthentication
 from apps.accounts.permissions import EmployeeIsAuthenticated, PinChangeNotRequired
-from apps.inventory.services import ensure_stock_record
+from apps.inventory.services import primary_stock_queryset
 
 from .models import Product, ProductCategory
 
@@ -41,9 +41,8 @@ class PosProductSerializer(drf_serializers.Serializer):
     is_active = drf_serializers.BooleanField()
 
     def get_stock_quantity(self, obj: Product) -> str:
-        business = self.context.get('business') or obj.business
-        stock = ensure_stock_record(business, obj)
-        return str(stock.quantity)
+        stock_records = getattr(obj, '_primary_stock_records', [])
+        return str(stock_records[0].quantity if stock_records else 0)
 
     def get_category_id(self, obj: Product) -> str | None:
         return str(obj.category_id) if obj.category_id else None
@@ -92,6 +91,13 @@ class PosCatalogProductsView(APIView):
             Product.objects
             .filter(business=business, is_active=True)
             .select_related('category')
+            .prefetch_related(
+                Prefetch(
+                    'stock_levels',
+                    queryset=primary_stock_queryset(business),
+                    to_attr='_primary_stock_records',
+                )
+            )
             .order_by('name')
         )
 
@@ -109,12 +115,11 @@ class PosCatalogProductsView(APIView):
 
         products = list(qs[:limit])
 
-        # Apply in_stock_only after fetching so we can use ensure_stock_record.
-        # This trades a DB hit per product; acceptable for POS catalog sizes.
         if in_stock_only:
             products = [
                 p for p in products
-                if float(ensure_stock_record(business, p).quantity) > 0
+                if getattr(p, '_primary_stock_records', [])
+                and getattr(p, '_primary_stock_records')[0].quantity > 0
             ]
 
         data = PosProductSerializer(products, many=True, context={'business': business}).data
