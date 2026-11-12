@@ -49,7 +49,7 @@ HANDOFF_NOTIFICATION_MESSAGE = 'Una consulta necesita revisión de recepción.'
 AGENT_OWNED_FIELDS = (
     'patient_name', 'whatsapp_profile_name', 'reason', 'preferred_time', 'urgency',
     'agent_status', 'handoff_requested', 'handoff_requested_at', 'handoff_reasons',
-    'summary', 'closed_at', 'close_reason', 'last_message_at',
+    'summary', 'closed_at', 'close_reason', 'last_message_at', 'handoff_paused_at',
 )
 SYNC_METADATA_FIELDS = ('applied_version', 'payload_hash', 'last_event_id', 'last_synced_at')
 
@@ -106,6 +106,9 @@ def _agent_fields(data: dict) -> dict:
         'closed_at': data['closed_at'],
         'close_reason': data['close_reason'],
         'last_message_at': data['last_message_at'],
+        # Aditivo: ausente = el agente todavía no derivó este lead (o es un
+        # agente viejo). Se guarda tal cual lo informa la revisión aplicada.
+        'handoff_paused_at': data.get('handoff_paused_at'),
     }
 
 

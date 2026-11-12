@@ -1677,6 +1677,28 @@ describe('control de la conversación (TAKEOVER 05B)', () => {
         expect(screen.queryByRole('button', { name: 'Tomar conversación' })).not.toBeInTheDocument();
     });
 
+    it('derivado a recepción: bot pausado, solo "Tomar chat" (nunca Reactivar) y sin composer hasta tomarlo', async () => {
+        leadsApi.getLead.mockResolvedValue(
+            withControl({ state: 'active', handoff_pending: true, handoff_paused_at: '2026-10-05T15:00:00Z' }),
+        );
+        leadsApi.takeoverLead.mockResolvedValue({ ok: true, state: 'takeover_pending', command_version: 1 });
+        renderClient();
+
+        const block = await screen.findByTestId('lead-conversation-control');
+        expect(block).toHaveAttribute('data-state', 'handoff');
+        expect(within(block).getByText('Pendiente de recepción · bot pausado')).toBeInTheDocument();
+        expect(within(block).queryByText('Bot habilitado')).not.toBeInTheDocument();
+        expect(within(block).queryByRole('button', { name: 'Reactivar bot' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('textbox', { name: /mensaje/i })).not.toBeInTheDocument();
+
+        fireEvent.click(within(block).getByRole('button', { name: 'Tomar chat' }));
+        const dialog = await screen.findByRole('dialog', { name: '¿Tomar este chat?' });
+        expect(dialog).toHaveTextContent('El bot ya está pausado desde la derivación');
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Tomar chat' }));
+        await waitFor(() => expect(leadsApi.takeoverLead).toHaveBeenCalledTimes(1));
+        expect(leadsApi.releaseLead).not.toHaveBeenCalled();
+    });
+
     it('active: confirma y pide takeover; muestra el pending que devuelve el backend (no taken)', async () => {
         leadsApi.getLead
             .mockResolvedValueOnce(withControl())
@@ -1687,12 +1709,12 @@ describe('control de la conversación (TAKEOVER 05B)', () => {
         const block = await screen.findByTestId('lead-conversation-control');
         expect(within(block).getByText('Bot habilitado')).toBeInTheDocument();
         expect(within(block).getByRole('link', { name: 'Abrir WhatsApp' })).toBeInTheDocument();
-        expect(within(block).getByText('Tomar conversación pausa las respuestas del bot hasta reanudarlo.')).toBeInTheDocument();
+        expect(within(block).getByText('Tomar conversación pausa las respuestas del bot hasta reactivarlo.')).toBeInTheDocument();
 
         // Cancelar no pide nada.
         fireEvent.click(within(block).getByRole('button', { name: 'Tomar conversación' }));
         const dialog = await screen.findByRole('dialog', { name: '¿Tomar esta conversación?' });
-        expect(dialog).toHaveTextContent('Tomar conversación pausa las respuestas del bot hasta reanudarlo.');
+        expect(dialog).toHaveTextContent('Tomar conversación pausa las respuestas del bot hasta reactivarlo.');
         expect(dialog).toHaveTextContent('El bot dejará de responder mensajes nuevos en este chat hasta que vuelvas a habilitarlo.');
         expect(dialog.textContent).not.toMatch(/MiRubro/);
         fireEvent.click(within(dialog).getByRole('button', { name: 'Cancelar' }));
@@ -1729,15 +1751,15 @@ describe('control de la conversación (TAKEOVER 05B)', () => {
         expect(leadsApi.takeoverLead).not.toHaveBeenCalled();
     }, 10_000);
 
-    it('taken: muestra quién la tomó, Abrir WhatsApp y Reanudar bot; abrir WhatsApp no toma ni libera', async () => {
+    it('taken: muestra quién la tomó, Abrir WhatsApp y Reactivar bot; abrir WhatsApp no toma ni libera', async () => {
         leadsApi.getLead.mockResolvedValue(withControl(TAKEN));
         renderClient();
 
         const block = await screen.findByTestId('lead-conversation-control');
         expect(within(block).getByText('Conversación tomada')).toBeInTheDocument();
-        expect(within(block).getByText('Tomada por Bea Paz · desde 05/10/2026 12:00. El bot está pausado.')).toBeInTheDocument();
+        expect(within(block).getByText('Tomada por Bea Paz · desde 05/10/2026 12:00. El bot está pausado: respondé desde acá. Reactivalo solo cuando termine la atención humana.')).toBeInTheDocument();
         const whatsapp = within(block).getByRole('link', { name: 'Abrir WhatsApp' });
-        expect(within(block).getAllByRole('button').map((b) => b.textContent)).toEqual(['Reanudar bot']);
+        expect(within(block).getAllByRole('button').map((b) => b.textContent)).toEqual(['Reactivar bot']);
 
         fireEvent.click(whatsapp);
         expect(leadsApi.takeoverLead).not.toHaveBeenCalled();
@@ -1751,22 +1773,22 @@ describe('control de la conversación (TAKEOVER 05B)', () => {
         expect(await screen.findByText(/Tomada por vos/)).toBeInTheDocument();
     });
 
-    it('Reanudar bot: confirma con la semántica real del agente y queda release_pending', async () => {
+    it('Reactivar bot: confirma con la semántica real del agente y queda release_pending', async () => {
         leadsApi.getLead
             .mockResolvedValueOnce(withControl(TAKEN))
             .mockResolvedValue(withControl({ ...TAKEN, state: 'release_pending', command_version: 2, last_action: 'release' }));
         leadsApi.releaseLead.mockResolvedValue({ ok: true, state: 'release_pending', command_version: 2 });
         renderClient();
 
-        fireEvent.click(await screen.findByRole('button', { name: 'Reanudar bot' }));
-        const dialog = await screen.findByRole('dialog', { name: '¿Reanudar el bot?' });
-        expect(dialog).toHaveTextContent('El bot volverá a responder a partir del próximo mensaje nuevo del paciente.');
-        expect(dialog).toHaveTextContent('Los mensajes recibidos mientras la conversación estuvo tomada no serán respondidos retroactivamente.');
-        fireEvent.click(within(dialog).getByRole('button', { name: 'Reanudar bot' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Reactivar bot' }));
+        const dialog = await screen.findByRole('dialog', { name: '¿Reactivar las respuestas automáticas del bot?' });
+        expect(dialog).toHaveTextContent('El bot volverá a responder automáticamente a partir del próximo mensaje nuevo del paciente.');
+        expect(dialog).toHaveTextContent('Los mensajes recibidos mientras el chat estuvo tomado no se responden retroactivamente.');
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Reactivar bot' }));
 
         expect(await screen.findByText('Estamos devolviendo la conversación al bot.')).toBeInTheDocument();
         expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-        expect(screen.getByRole('button', { name: 'Reanudando bot…' })).toBeDisabled();
+        expect(screen.getByRole('button', { name: 'Reactivando bot…' })).toBeDisabled();
         expect(leadsApi.releaseLead).toHaveBeenCalledTimes(1);
         expect(leadsApi.releaseLead).toHaveBeenCalledWith('lead-1');
         expect(leadsApi.takeoverLead).not.toHaveBeenCalled();
@@ -1778,9 +1800,9 @@ describe('control de la conversación (TAKEOVER 05B)', () => {
             .mockResolvedValue(withControl({ state: 'active', command_version: 2, last_action: 'release', released_at: '2026-10-05T16:00:00Z' }));
         renderClient();
 
-        expect(await screen.findByRole('button', { name: 'Reanudando bot…' })).toBeDisabled();
+        expect(await screen.findByRole('button', { name: 'Reactivando bot…' })).toBeDisabled();
         expect(await screen.findByText('Bot habilitado', {}, { timeout: 6000 })).toBeInTheDocument();
-        expect(screen.getByText('Bot reanudado.')).toBeInTheDocument();
+        expect(screen.getByText('Bot reactivado.')).toBeInTheDocument();
         expect(screen.getByRole('button', { name: 'Tomar conversación' })).toBeEnabled();
     }, 10_000);
 
@@ -1811,7 +1833,7 @@ describe('control de la conversación (TAKEOVER 05B)', () => {
         expect(within(block).getByRole('alert')).toHaveTextContent('El estado de la conversación está desincronizado.');
         expect(within(block).queryByRole('button', { name: 'Reintentar tomar conversación' })).not.toBeInTheDocument();
         fireEvent.click(within(block).getByRole('button', { name: 'Reintentar reanudar bot' }));
-        await confirmInDialog('¿Reanudar el bot?', 'Reanudar bot');
+        await confirmInDialog('¿Reactivar las respuestas automáticas del bot?', 'Reactivar bot');
         await waitFor(() => expect(leadsApi.releaseLead).toHaveBeenCalledTimes(1));
         expect(leadsApi.takeoverLead).not.toHaveBeenCalled();
     });
@@ -1868,7 +1890,7 @@ describe('control de la conversación (TAKEOVER 05B)', () => {
         await confirmInDialog('¿Tomar esta conversación?', 'Tomar conversación');
 
         expect(await screen.findByText('El estado de la conversación cambió. Actualizamos la información.')).toBeInTheDocument();
-        expect(await screen.findByRole('button', { name: 'Reanudando bot…' })).toBeDisabled();
+        expect(await screen.findByRole('button', { name: 'Reactivando bot…' })).toBeDisabled();
         expect(screen.queryByText(/No pudimos cambiar el control/)).not.toBeInTheDocument();
         expect(screen.queryByText('Hay otra acción en curso.')).not.toBeInTheDocument();
         expect(screen.queryByRole('alert')).not.toBeInTheDocument();
@@ -1884,7 +1906,7 @@ describe('control de la conversación (TAKEOVER 05B)', () => {
         await confirmInDialog('¿Tomar esta conversación?', 'Tomar conversación');
 
         expect(await screen.findByText('Conversación tomada')).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: 'Reanudar bot' })).toBeEnabled();
+        expect(screen.getByRole('button', { name: 'Reactivar bot' })).toBeEnabled();
         expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     });
 

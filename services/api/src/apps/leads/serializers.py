@@ -278,6 +278,10 @@ class LeadSyncSerializer(serializers.Serializer):
     # Aditivo al Contract V1. Solo se envía cuando el agente identifica una
     # respuesta afirmativa a una propuesta vigente.
     proposal_confirmation = ProposalConfirmationSerializer(required=False)
+    # Aditivo al Contract V1 (derivación a recepción). Sin default: si el
+    # agente no lo manda, no entra en validated_data ni en el payload_hash,
+    # así las revisiones anteriores siguen dando el mismo hash.
+    handoff_paused_at = AwareDateTimeField(required=False)
 
     def validate_schema_version(self, value):
         if value != SCHEMA_VERSION:

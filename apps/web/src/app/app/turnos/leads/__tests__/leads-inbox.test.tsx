@@ -459,7 +459,7 @@ describe('control de la conversación (TAKEOVER 05B)', () => {
             'Tomada por vos',
             'Conversación tomada',
             'Tomando la conversación…',
-            'Reanudando el bot…',
+            'Reactivando el bot…',
             'Error de control del bot',
             null,
             null,

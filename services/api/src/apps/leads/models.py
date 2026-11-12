@@ -354,6 +354,11 @@ class LeadAgentState(models.Model):
     closed_at = models.DateTimeField(null=True, blank=True)
     close_reason = models.CharField(max_length=16, choices=CloseReason.choices, null=True, blank=True)
     last_message_at = models.DateTimeField()
+    # Derivación a recepción: cuándo el bot se pausó a sí mismo entregando
+    # ESTE lead a recepción (lead.sync `handoff_paused_at`, aditivo). Lo
+    # informa el agente; MiRubro lo usa para mostrar "pendiente de
+    # recepción · bot pausado" hasta un release posterior.
+    handoff_paused_at = models.DateTimeField(null=True, blank=True)
 
     # Metadata de sync
     applied_version = models.PositiveBigIntegerField()

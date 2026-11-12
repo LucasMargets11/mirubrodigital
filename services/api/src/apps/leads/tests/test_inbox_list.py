@@ -216,7 +216,7 @@ class ConversationControlSummaryTests(InboxListMixin, APITestCase):
 
     def test_without_control_is_active(self):
         row = self._row(self.lead)
-        self.assertEqual(row['conversation_control'], {'state': State.ACTIVE, 'taken_by': None, 'taken_at': None})
+        self.assertEqual(row['conversation_control'], {'state': State.ACTIVE, 'taken_by': None, 'taken_at': None, 'handoff_pending': False})
         self.assertEqual(row['conversation_state'], State.ACTIVE)
 
     def test_without_agent_state_is_null(self):
@@ -253,7 +253,7 @@ class ConversationControlSummaryTests(InboxListMixin, APITestCase):
         self._lead(other_biz, other_channel, external_conversation_id=self.conv)
         self._control(other_biz, self.conv, taken_by=intruder)
         row = self._row(self.lead)
-        self.assertEqual(row['conversation_control'], {'state': State.ACTIVE, 'taken_by': None, 'taken_at': None})
+        self.assertEqual(row['conversation_control'], {'state': State.ACTIVE, 'taken_by': None, 'taken_at': None, 'handoff_pending': False})
         self.assertEqual(row['conversation_state'], State.ACTIVE)
         self.assertNotIn('Intrusa', str(self._rows()))
 

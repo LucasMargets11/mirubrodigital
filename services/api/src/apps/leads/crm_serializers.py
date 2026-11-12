@@ -109,7 +109,8 @@ class LeadAgentStateSerializer(serializers.ModelSerializer):
             'agent_instance_id', 'external_lead_id', 'external_conversation_id', 'previous_external_lead_id',
             'channel', 'phone_e164', 'patient_name', 'whatsapp_profile_name', 'reason', 'preferred_time', 'urgency',
             'agent_status', 'handoff_requested', 'handoff_requested_at', 'handoff_reasons', 'summary',
-            'opened_at', 'closed_at', 'close_reason', 'last_message_at', 'applied_version', 'last_synced_at',
+            'opened_at', 'closed_at', 'close_reason', 'last_message_at', 'handoff_paused_at', 'applied_version',
+            'last_synced_at',
         ]
         read_only_fields = fields
 
@@ -253,9 +254,16 @@ class LeadListSerializer(serializers.ModelSerializer):
             return None
         controls = self.context.get('conversation_controls') or {}
         control = controls.get(state.external_conversation_id)
+        pending = handoff_pending(state, control)
         if control is None:
-            return {'state': self.get_conversation_state(obj), 'taken_by': None, 'taken_at': None}
-        return {'state': control.state, 'taken_by': _user_ref(control.taken_by), 'taken_at': control.taken_at}
+            return {
+                'state': self.get_conversation_state(obj), 'taken_by': None, 'taken_at': None,
+                'handoff_pending': pending,
+            }
+        return {
+            'state': control.state, 'taken_by': _user_ref(control.taken_by), 'taken_at': control.taken_at,
+            'handoff_pending': pending,
+        }
 
     def get_appointment(self, obj: Lead) -> dict[str, Any] | None:
         now = self.context.get('now') or timezone.now()
@@ -336,6 +344,26 @@ class LeadDetailSerializer(serializers.ModelSerializer):
         return serialize_conversation_control(obj)
 
 
+def handoff_pending(state: LeadAgentState | None, control: ConversationControl | None) -> bool:
+    """El bot se pausó derivando este lead a recepción y nadie lo reactivó después.
+
+    Es el estado "pendiente de recepción · bot pausado": el bot ya no
+    responde (pausa persistida en el agente, informada como
+    `handoff_paused_at`) y todavía nadie tomó el chat. Con un control
+    tomado / en curso / con error manda ese estado. Con `active` después de
+    un release, solo vuelve a estar pendiente si el agente informó una
+    derivación POSTERIOR al release (p. ej. un nuevo pedido explícito de
+    hablar con una persona).
+    """
+    if state is None or state.handoff_paused_at is None:
+        return False
+    if control is None:
+        return True
+    if control.state != ConversationControl.State.ACTIVE:
+        return False
+    return control.released_at is None or state.handoff_paused_at > control.released_at
+
+
 def serialize_conversation_control(lead: Lead) -> dict[str, Any] | None:
     """Pausa del bot de la conversación del Lead (MIRUBRO TAKEOVER 05A).
 
@@ -344,11 +372,14 @@ def serialize_conversation_control(lead: Lead) -> dict[str, Any] | None:
     puede pedir (flag encendido y conversation id con formato del agente).
     `last_action` dice qué pidió el último comando (para reintentar desde `error`).
     """
-    if _agent_state(lead) is None:
+    state = _agent_state(lead)
+    if state is None:
         return None
     control = control_for_lead(lead)
     data = {
         'state': ConversationControl.State.ACTIVE,
+        'handoff_pending': handoff_pending(state, control),
+        'handoff_paused_at': state.handoff_paused_at,
         'command_version': 0,
         'last_action': None,
         'taken_at': None,

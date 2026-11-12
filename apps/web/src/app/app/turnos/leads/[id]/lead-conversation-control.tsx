@@ -24,7 +24,23 @@ const STATE_PILL: Record<ConversationControlState, { label: string; className: s
     error: { label: 'Error de control', className: 'bg-rose-100 text-rose-700' },
 };
 
-const TAKEOVER_HINT = 'Tomar conversación pausa las respuestas del bot hasta reanudarlo.';
+const TAKEOVER_HINT = 'Tomar conversación pausa las respuestas del bot hasta reactivarlo.';
+
+// Derivación a recepción: el bot se pausó solo al entregar el lead (no hubo
+// comando, por eso `state` sigue `active`). Nadie lo reactiva desde acá:
+// primero se toma el chat y, recién desde `taken`, se puede reactivar el bot.
+const HANDOFF_PILL = { label: 'Pendiente de recepción · bot pausado', className: 'bg-amber-100 text-amber-800' };
+const HANDOFF_HINT = 'El bot dejó de responder al derivar este lead. Tomá el chat para responderle al paciente desde acá.';
+const HANDOFF_TAKEOVER_COPY = {
+    label: 'Tomar chat',
+    retryLabel: 'Reintentar tomar chat',
+    pendingLabel: 'Tomando el chat…',
+    title: '¿Tomar este chat?',
+    body: [
+        'El bot ya está pausado desde la derivación: no va a responder mensajes nuevos.',
+        'Al tomarlo quedás a cargo de la atención y podés responderle al paciente desde acá.',
+    ],
+};
 
 const ACTION_COPY: Record<
     ConversationCommandAction,
@@ -40,14 +56,16 @@ const ACTION_COPY: Record<
             'El bot dejará de responder mensajes nuevos en este chat hasta que vuelvas a habilitarlo. Podés continuar la atención desde WhatsApp.',
         ],
     },
+    // Acción explícita y separada de "responder": reactiva respuestas
+    // automáticas. Nunca se ofrece mientras el lead espera a recepción.
     release: {
-        label: 'Reanudar bot',
-        retryLabel: 'Reintentar reanudar bot',
-        pendingLabel: 'Reanudando bot…',
-        title: '¿Reanudar el bot?',
+        label: 'Reactivar bot',
+        retryLabel: 'Reintentar reactivar bot',
+        pendingLabel: 'Reactivando bot…',
+        title: '¿Reactivar las respuestas automáticas del bot?',
         body: [
-            'El bot volverá a responder a partir del próximo mensaje nuevo del paciente.',
-            'Los mensajes recibidos mientras la conversación estuvo tomada no serán respondidos retroactivamente.',
+            'El bot volverá a responder automáticamente a partir del próximo mensaje nuevo del paciente.',
+            'Usalo solo si terminó la atención humana. Los mensajes recibidos mientras el chat estuvo tomado no se responden retroactivamente.',
         ],
     },
 };
@@ -65,7 +83,7 @@ const PENDING_STALL_WARNING_MS = 20_000;
 /** Mensaje de cierre al ver pasar el estado de `*_pending` al resultado (una sola vez por transición). */
 function completionMessage(previous: ConversationControlState | undefined, current: ConversationControlState): string | null {
     if (previous === 'takeover_pending' && current === 'taken') return 'Conversación tomada.';
-    if (previous === 'release_pending' && current === 'active') return 'Bot reanudado.';
+    if (previous === 'release_pending' && current === 'active') return 'Bot reactivado.';
     return null;
 }
 
@@ -147,10 +165,13 @@ export function LeadConversationControl({
     const takenSince = state === 'taken' && control.taken_at ? `desde ${dateTimeInTimeZone(control.taken_at, timeZone)}` : null;
     const takenDetail = [takenBy, takenSince].filter(Boolean).join(' · ');
 
-    const pill = STATE_PILL[state] ?? STATE_PILL.error;
+    const handoff = state === 'active' && control.handoff_pending === true;
+    const pill = handoff ? HANDOFF_PILL : STATE_PILL[state] ?? STATE_PILL.error;
+    const copyFor = (action: ConversationCommandAction) =>
+        handoff && action === 'takeover' ? HANDOFF_TAKEOVER_COPY : ACTION_COPY[action];
 
     return (
-        <div data-testid="lead-conversation-control" data-state={state} className="space-y-2">
+        <div data-testid="lead-conversation-control" data-state={handoff ? 'handoff' : state} className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
                 <span className={cn('rounded-full px-2.5 py-1 text-xs font-semibold', pill.className)}>{pill.label}</span>
                 {whatsappAction}
@@ -171,12 +192,13 @@ export function LeadConversationControl({
                         className={cn(BUTTON_BASE, nextAction === 'takeover' ? PRIMARY : OUTLINE)}
                     >
                         {requesting ? <Spinner /> : null}
-                        {state === 'error' ? ACTION_COPY[nextAction].retryLabel : ACTION_COPY[nextAction].label}
+                        {state === 'error' ? copyFor(nextAction).retryLabel : copyFor(nextAction).label}
                     </button>
                 ) : null}
             </div>
 
-            {state === 'active' && actionable && nextAction === 'takeover' ? (
+            {handoff ? <p className="text-xs text-amber-800">{HANDOFF_HINT}</p> : null}
+            {!handoff && state === 'active' && actionable && nextAction === 'takeover' ? (
                 <p className="text-xs text-slate-500">{TAKEOVER_HINT}</p>
             ) : null}
             {state === 'takeover_pending' ? <p className="text-xs text-slate-600">Estamos pausando el bot.</p> : null}
@@ -188,7 +210,7 @@ export function LeadConversationControl({
             ) : null}
             {state === 'taken' ? (
                 <p className="text-xs text-slate-600">
-                    {takenDetail ? `${takenDetail}. ` : ''}El bot está pausado.
+                    {takenDetail ? `${takenDetail}. ` : ''}El bot está pausado: respondé desde acá. Reactivalo solo cuando termine la atención humana.
                 </p>
             ) : null}
             {state === 'error' ? (
@@ -198,7 +220,7 @@ export function LeadConversationControl({
             ) : null}
             {!control.available ? (
                 <p className="text-xs text-slate-500">
-                    {state === 'active'
+                    {state === 'active' && !handoff
                         ? 'El bot está habilitado para este paciente (este estado no confirma que sus mensajes se estén entregando: revisá el historial de la conversación). Pausarlo o retomarlo manualmente desde acá no está disponible: el control manual no está habilitado para este canal.'
                         : 'El control manual (pausar/retomar el bot) no está habilitado para este canal.'}
                 </p>
@@ -218,6 +240,7 @@ export function LeadConversationControl({
             {actionable && confirming ? (
                 <ConfirmCommandModal
                     action={confirming}
+                    copy={copyFor(confirming)}
                     pending={requesting}
                     onConfirm={() => void submit(confirming)}
                     onClose={() => {
@@ -235,16 +258,17 @@ function Spinner() {
 
 function ConfirmCommandModal({
     action,
+    copy = ACTION_COPY[action],
     pending,
     onConfirm,
     onClose,
 }: {
     action: ConversationCommandAction;
+    copy?: (typeof ACTION_COPY)[ConversationCommandAction];
     pending: boolean;
     onConfirm: () => void;
     onClose: () => void;
 }) {
-    const copy = ACTION_COPY[action];
     const footer = (
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end sm:gap-3">
             <button

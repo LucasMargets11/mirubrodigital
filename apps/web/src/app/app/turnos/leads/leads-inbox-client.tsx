@@ -327,7 +327,7 @@ export function leadDisplayName(lead: LeadListItem): string {
  */
 const CONVERSATION_PENDING_LABEL: Partial<Record<ConversationControlState, string>> = {
     takeover_pending: 'Tomando la conversación…',
-    release_pending: 'Reanudando el bot…',
+    release_pending: 'Reactivando el bot…',
     error: 'Error de control del bot',
 };
 
@@ -338,6 +338,10 @@ function conversationState(lead: LeadListItem): ConversationControlState | null 
 /** "Tomada por X" / "Tomada por vos"; nunca asume que el asignado es quien la tomó. */
 export function conversationLabel(lead: LeadListItem, currentUserId: number | null): string | null {
     const state = conversationState(lead);
+    // Derivación: el bot ya no responde y nadie tomó el chat todavía
+    if (state === 'active' && lead.conversation_control?.handoff_pending) {
+        return 'Pendiente de recepción · bot pausado';
+    }
     if (state === 'taken') {
         const takenBy = lead.conversation_control?.taken_by;
         if (!takenBy) return 'Conversación tomada';

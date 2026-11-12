@@ -612,7 +612,8 @@ class LeadDetailTests(LeadApiMixin, TurnosAgendaMixin, APITestCase):
             'agent_instance_id', 'external_lead_id', 'external_conversation_id', 'previous_external_lead_id',
             'channel', 'phone_e164', 'patient_name', 'whatsapp_profile_name', 'reason', 'preferred_time', 'urgency',
             'agent_status', 'handoff_requested', 'handoff_requested_at', 'handoff_reasons', 'summary',
-            'opened_at', 'closed_at', 'close_reason', 'last_message_at', 'applied_version', 'last_synced_at',
+            'opened_at', 'closed_at', 'close_reason', 'last_message_at', 'handoff_paused_at', 'applied_version',
+            'last_synced_at',
         })
         self.assertEqual(data['agent_state']['agent_instance_id'], self.channel.agent_instance.external_id)
         self.assertEqual(data['agent_state']['channel'], 'whatsapp_cloud')

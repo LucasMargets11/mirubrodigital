@@ -68,6 +68,8 @@ export type LeadListConversationControl = {
     state: ConversationControlState;
     taken_by: LeadUserRef | null;
     taken_at: string | null;
+    /** Bot pausado por derivación, esperando que recepción tome el chat. */
+    handoff_pending?: boolean;
 };
 
 /**
@@ -164,6 +166,8 @@ export type LeadAgentState = {
     opened_at: string | null;
     closed_at: string | null;
     last_message_at: string;
+    /** Cuándo el bot se pausó derivando el lead a recepción (null = nunca). */
+    handoff_paused_at?: string | null;
 };
 
 /** Referencia mínima del turno vinculado; `status` es el efectivo. */
@@ -314,6 +318,13 @@ export type LeadConversationControl = {
     /** Se puede pedir takeover/release (integración encendida y conversación del agente válida). */
     available: boolean;
     state: ConversationControlState;
+    /**
+     * Derivación a recepción: el bot se pausó a sí mismo al entregar el lead
+     * y nadie tomó el chat todavía (`state` sigue `active` porque no hubo
+     * comando). Mientras sea true el bot NO responde.
+     */
+    handoff_pending?: boolean;
+    handoff_paused_at?: string | null;
     command_version: number;
     /** Acción del último comando pedido: decide qué se reintenta desde `error`. */
     last_action: ConversationCommandAction | null;
