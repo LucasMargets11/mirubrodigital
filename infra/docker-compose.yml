@@ -31,7 +31,10 @@ services:
       target: runtime
     container_name: mirubro-api
     restart: unless-stopped
-    command: sh -c "python manage.py migrate && exec gunicorn --bind 0.0.0.0:8000 --workers 4 --timeout 120 --access-logfile - --error-logfile - config.wsgi:application"
+    # Migrations go through docker-entrypoint.sh (metering-safe migrate + post-checks).
+    # For coordinated cutovers run `docker compose run --rm --no-deps api migrate` first;
+    # this start-time migrate is then a no-op.
+    command: sh -c "sh docker-entrypoint.sh migrate && exec gunicorn --bind 0.0.0.0:8000 --workers 4 --timeout 120 --access-logfile - --error-logfile - config.wsgi:application"
     env_file:
       - ../services/api/.env
     volumes:

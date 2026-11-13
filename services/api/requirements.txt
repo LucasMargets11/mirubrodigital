@@ -3,7 +3,10 @@ djangorestframework>=3.15,<3.16
 django-cors-headers>=4.4,<5.0
 psycopg[binary]>=3.1,<4.0
 python-dotenv>=1.0,<2.0
-celery>=5.3,<6.0
+# Pinned: celery 5.7.0 (what >=5.3,<6.0 resolved to) exits 1 when the worker
+# starts; 5.6.3 + kombu 5.6.2 ran worker and beat in the 2026-11-12 rehearsal.
+celery==5.6.3
+kombu==5.6.2
 redis>=5.0,<6.0
 drf-spectacular>=0.27,<0.28
 djangorestframework-simplejwt>=5.3,<6.0
