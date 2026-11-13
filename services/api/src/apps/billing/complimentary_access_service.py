@@ -105,12 +105,31 @@ def _check_plan_service_compatibility(plan_code: str, service_type: str) -> None
         )
 
 
+# Verticals whose catalog is not for sale yet but whose first clients are
+# provisioned by a platform admin. Their Plan rows are seeded with
+# plan_status='inactive' (seed_appointments_catalog) so that no public checkout
+# offers them; public checkout stays gated by is_plan_product_active(). A
+# complimentary grant never charges, so it may use those seeded rows.
+_INTERNAL_PROVISIONING_VERTICALS = frozenset({'appointments'})
+
+
+def _is_provisionable_plan(plan: Plan) -> bool:
+    if plan.plan_status == 'active':
+        return True
+    canonical_plan = _get_canonical_plan(plan.code)
+    return (
+        canonical_plan is not None
+        and canonical_plan.get('vertical') in _INTERNAL_PROVISIONING_VERTICALS
+    )
+
+
 def list_provisioning_options() -> list[dict]:
     """
     Enumerate the (service_type, plan_code) combinations that
     ``grant_complimentary_access()`` currently accepts — read-only, no writes.
 
-    For each ``Plan`` with ``plan_status='active'``, derives its service_type
+    For each provisionable ``Plan`` (``plan_status='active'``, or a seeded
+    plan of an internal-provisioning vertical such as Turnos), derives its service_type
     from the same canonical vertical mapping (``_VERTICAL_TO_SERVICE_TYPE``)
     and re-validates the pair through the exact same
     ``_check_plan_service_compatibility()`` helper ``grant_complimentary_access()``
@@ -123,9 +142,9 @@ def list_provisioning_options() -> list[dict]:
     dicts, sorted deterministically by service_type then plan code.
     """
     services: dict[str, dict] = {}
-    active_plans = Plan.objects.filter(plan_status='active').order_by('code')
-
-    for plan in active_plans:
+    for plan in Plan.objects.order_by('code'):
+        if not _is_provisionable_plan(plan):
+            continue
         canonical_plan = _get_canonical_plan(plan.code)
         if canonical_plan is None:
             continue
@@ -212,7 +231,8 @@ def grant_complimentary_access(
         raise InvalidServiceTypeError(f"service_type '{service_type}' no es válido.")
 
     # ── 3. Validate plan_code against the existing Plan catalog ────────────
-    if not Plan.objects.filter(code=plan_code, plan_status='active').exists():
+    plan = Plan.objects.filter(code=plan_code).first()
+    if plan is None or not _is_provisionable_plan(plan):
         raise PlanNotAvailableError(f"El plan '{plan_code}' no existe o no está activo.")
 
     # ── 3b. Validate plan_code's vertical matches the requested service ────
