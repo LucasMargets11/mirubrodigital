@@ -49,6 +49,38 @@ def prorate_upgrade_amount(
     return int(amount.quantize(Decimal('1'), rounding=ROUND_HALF_UP))
 
 
+def is_complimentary_grant(subscription) -> bool:
+    """
+    Platform-admin complimentary access (ADMIN-CLIENTES 01A): manual + trialing
+    with no trial_ends_at. Same split as billing.runtime._v2_grants_access:
+    a row with trial_ends_at is a trial (S7A keeps trials fail-closed); the
+    complimentary window is current_period_start/end instead.
+    """
+    from apps.billing.models import SubscriptionV2
+
+    return (
+        subscription.provider == SubscriptionV2.Provider.MANUAL
+        and subscription.status == SubscriptionV2.Status.TRIALING
+        and subscription.trial_ends_at is None
+    )
+
+
+def complimentary_grant_active(subscription, *, at=None) -> bool:
+    """
+    True while a complimentary grant is inside its bonified window
+    [current_period_start, current_period_end) — the same end rule as
+    billing.runtime._v2_grants_access (end instant excluded), plus the start:
+    a grant that has not started yet gives no access. Revoked grants are
+    'canceled' and suspended ones are not 'trialing', so both stay out.
+    Never applies to Mercado Pago trials.
+    """
+    at = at or timezone.now()
+    if not is_complimentary_grant(subscription):
+        return False
+    start, end = subscription.current_period_start, subscription.current_period_end
+    return start is not None and end is not None and start <= at < end
+
+
 def subscription_lifecycle_access(subscription, *, at=None) -> bool:
     """Lifecycle-only access; cancellation-at-period-end expires at the boundary."""
     from apps.billing.models import SubscriptionV2
@@ -60,6 +92,8 @@ def subscription_lifecycle_access(subscription, *, at=None) -> bool:
         if subscription.current_period_end <= at:
             return False
     if subscription.status == SubscriptionV2.Status.ACTIVE:
+        return True
+    if complimentary_grant_active(subscription, at=at):
         return True
     return (
         subscription.status == SubscriptionV2.Status.PAST_DUE

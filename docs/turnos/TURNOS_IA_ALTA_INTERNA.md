@@ -80,12 +80,116 @@ este worktree en 127.0.0.1:8100 y 127.0.0.1:3100.
   emitió un JWT para esa cuenta (sin tocar la suscripción). En producción, el
   responsable entra con su Google real.
 
+## Uso de IA del piloto bonificado (2026-11-17, segundo commit)
+
+### Problema
+
+El bot pide permiso antes de cada interacción con
+`POST /api/internal/appointments/ai-usage/authorize/`, firmado con la HMAC del
+agente. Antes del cambio, el piloto creado por el formulario recibía
+`{"allowed": false, "reason": "suspended"}` por tres condiciones:
+
+1. `_locked_subscription` exigía `Business.status='active'`, y el alta
+   bonificada deja `trialing`.
+2. `subscription_lifecycle_access` solo aceptaba `active` o `past_due` en
+   gracia, no `manual` + `trialing`. Por la misma causa, el negocio bonificado
+   **tampoco podía crear turnos** ni usar automatizaciones
+   (`appointments_v2_allows_creation=False`).
+3. `resolve_appointments_ai_usage_period` exigía `billing_cycle` mensual o
+   anual, y el alta deja `''`.
+
+### Regla implementada
+
+- **Elegibilidad** (`complimentary_grant_active`, en
+  `billing/services/appointments_lifecycle.py`). Aplica solo a
+  `provider=manual` + `status=trialing` **sin `trial_ends_at`**, que es la forma
+  exacta del alta del admin. Una fila con `trial_ends_at` es un trial y sigue
+  sin acceso (regla S7A). Exige
+  `current_period_start <= ahora < current_period_end`. El fin es el mismo que ya usaba
+  `billing.runtime._v2_grants_access`, sin incluir ese instante; además, un
+  beneficio futuro no da acceso.
+- Quedan afuera los beneficios futuros, los vencidos, los revocados
+  (`canceled`) y los suspendidos. Los trials de Mercado Pago no cambian.
+- Esa regla se suma a `subscription_lifecycle_access`. Con eso, el bonificado
+  vigente también puede crear turnos, tomar reservas públicas y, si el plan las
+  incluye, usar automatizaciones. Para la IA, `_locked_subscription` acepta
+  `Business.status='trialing'` solo con un bonificado vigente.
+- Se siguen exigiendo servicio `appointments`, plan `appointments_ai`, un
+  nivel de uso con conversaciones incluidas, autenticación HMAC del agente,
+  canal activo y conversación ligada a un lead del mismo negocio.
+
+### Período de consumo
+
+- Se reutiliza la regla mensual de la IA anual. El período **empieza en
+  `current_period_start`**, es decir, en la fecha de inicio que se cargó en el
+  alta. Se renueva el mismo día de cada mes siguiente y, en meses cortos, en el
+  último día.
+- El último período **se recorta en `current_period_end`**. Un beneficio de 6
+  meses da 6 períodos contiguos, y uno de 10 días da un único período de 10
+  días.
+- Al llegar a `current_period_end` el beneficio termina, sin gracia: se
+  responde `allowed:false` y no se registra uso.
+- El nivel de uso funciona como **tope sin excedente**: con `ai_300`, la
+  conversación 301 del mes responde `hard_cap_reached`. Una ventana de 24 h ya
+  abierta se sigue reutilizando. Los cargos quedan como `included` con monto 0,
+  así que no hay cobro.
+- No se modifica la suscripción (`manual`, `trialing`, `billing_cycle=''`) ni se
+  necesita corregir nada por shell. Los pilotos ya creados con `bc85c3f`
+  quedan cubiertos tal como están.
+
+### Evidencia
+
+**Ejecutado por HTTP** en el entorno aislado (`api-tia`, base
+`mirubro_turnos_ia`, negocio `clinica-piloto-ia` creado por el formulario):
+
+- Preparación:
+  - `provision_agent` creó la instancia `pilot-ia-agent`, la credencial
+    `pilot-ia-key-1` y un canal ficticio.
+  - `PUT /api/v1/integrations/agent/leads/<uuid>/` firmado respondió `201`:
+    lead creado con su conversación.
+  - No se conectó WhatsApp.
+- Antes del cambio: `authorize` → `200 {"allowed":false,"reason":"suspended"}`.
+- Después del cambio:
+  - Consumo antes: `used 0 / included 300`, período del 17/11 al 17/12, 03:00
+    UTC.
+  - Misma interacción: `{"allowed":true,"created":true,"used":1,"remaining":299}`.
+  - Reintento del mismo evento: `created:false`, mismo `session_id`,
+    `used:1`.
+  - Segunda interacción de la misma conversación dentro de 24 h: misma sesión,
+    `used:1`.
+  - Filas: 1 sesión, 1 cargo `('included', 0)`, 2 autorizaciones.
+  - La suscripción sigue `appointments_ai / ai_300 / manual / trialing / ''`.
+- Control con Turnos convencional bonificado (canal y lead propios):
+  `{"allowed":false,"reason":"no_ai_entitlement"}`.
+
+**Cubierto solo por pruebas**
+(`apps/appointments/tests/test_ai_usage_complimentary.py`, con fechas
+controladas):
+
+- Tope del nivel.
+- Comienzo del mes siguiente.
+- Seis períodos que terminan exactamente en el fin del beneficio.
+- Recorte de un beneficio corto.
+- Vencimiento, beneficio futuro, revocado y suspendido.
+- Aislamiento entre negocios y firma inválida (401).
+- Trial de Mercado Pago sin cambios.
+- IA mensual paga sin cambios, con excedente habilitado.
+
+### Cómo ver cuánto cupo consumió el piloto
+
+```bash
+docker compose -f infra/docker-compose.yml exec api python manage.py shell -c "from django.utils import timezone; from apps.business.models import Business; from apps.appointments.services.ai_usage import get_appointments_ai_usage; print(get_appointments_ai_usage(Business.objects.get(slug='<slug>'), at=timezone.now()))"
+```
+
+Devuelve `usage_tier`, `period_start`, `period_end`, `used`, `included` y
+`remaining` del período en curso. Es solo lectura. Si el beneficio no está
+vigente, lanza `AIUsageUnavailable`.
+
 ## Pendiente para la próxima entrega
 
-- Medición de uso de IA con alta bonificada: `resolve_appointments_ai_usage_period`
-  exige `billing_cycle` mensual o anual, y `_locked_subscription` exige
-  `Business.status='active'`. El alta bonificada deja `billing_cycle=''` y el
-  negocio en `trialing`. El bot podría quedar sin cupo autorizado hasta
-  resolverlo.
+- (Resuelto en el segundo commit) Medición de uso de IA con alta bonificada.
+- Diferencia conocida: `billing.runtime` (menú y entitlements) todavía da
+  acceso a un bonificado **futuro**, porque no mira el inicio. El ciclo de vida
+  de Turnos, la IA y la creación de turnos sí lo excluyen.
 - Alojamiento del bot, tokens permanentes, webhook de Meta, `provision_agent` y
   activación en producción.

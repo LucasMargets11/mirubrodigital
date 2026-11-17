@@ -14,7 +14,21 @@ from apps.billing.models import SubscriptionV2
 from apps.billing.runtime import resolve_subscription
 from apps.billing.services.appointments import resolve_appointments_subscription_config
 from apps.billing.services.appointments_checkout import ManualContractRequired, appointments_period_end
-from apps.billing.services.appointments_lifecycle import subscription_lifecycle_access
+from apps.billing.services.appointments_lifecycle import (
+    complimentary_grant_active, is_complimentary_grant, subscription_lifecycle_access,
+)
+
+# Cycle used for a complimentary grant (billing_cycle=''): monthly usage
+# periods anchored at the grant start and clipped to the grant end.
+COMPLIMENTARY_CYCLE = 'complimentary'
+
+
+def _usage_cycle(subscription: SubscriptionV2) -> str:
+    if subscription.billing_cycle in ('monthly', 'yearly'):
+        return subscription.billing_cycle
+    if is_complimentary_grant(subscription):
+        return COMPLIMENTARY_CYCLE
+    return subscription.billing_cycle
 from apps.business.models import Business
 from apps.leads.models import LeadAgentState
 
@@ -73,10 +87,14 @@ def resolve_appointments_ai_usage_period(
         raise AIUsageUnavailable('The subscription renewal anchor is unresolved.')
     start = _utc(subscription.current_period_start)
     end = _utc(subscription.current_period_end)
-    if end <= start or at < start or subscription.billing_cycle not in ('monthly', 'yearly'):
+    cycle = _usage_cycle(subscription)
+    if end <= start or at < start or cycle not in ('monthly', 'yearly', COMPLIMENTARY_CYCLE):
         raise AIUsageUnavailable('The subscription billing period is invalid or historical.')
-    if subscription.billing_cycle == 'monthly' and at < end:
+    if cycle == 'monthly' and at < end:
         return start, end
+    if cycle == COMPLIMENTARY_CYCLE and at >= end:
+        # No grace after a complimentary grant: the benefit simply ends.
+        raise AIUsageUnavailable('The complimentary access has ended.', reason='suspended')
     # During S6 grace the next usage month still starts at the renewal boundary.
     anchor = end if at >= end else start
     offset = (at.year - anchor.year) * 12 + at.month - anchor.month
@@ -95,7 +113,12 @@ def _locked_subscription(business: Business, *, at: datetime) -> SubscriptionV2:
     if resolved.subscription_v2 is None:
         raise AIUsageUnavailable('No effective appointments_ai subscription.', reason='no_ai_entitlement')
     subscription = SubscriptionV2.objects.select_for_update().get(pk=resolved.subscription_v2.pk)
-    if business.status != 'active' or not subscription_lifecycle_access(subscription, at=at):
+    # A complimentary grant leaves the Business in 'trialing' (01A); only an
+    # in-window grant may use that status, never a Mercado Pago trial.
+    business_ok = business.status == 'active' or (
+        business.status == 'trialing' and complimentary_grant_active(subscription, at=at)
+    )
+    if not business_ok or not subscription_lifecycle_access(subscription, at=at):
         raise AIUsageUnavailable('AI usage is not allowed by the current lifecycle.', reason='suspended')
     if subscription.cancel_at_period_end and subscription.current_period_end is None:
         raise AIUsageUnavailable('The cancellation boundary is unresolved.')
@@ -179,6 +202,10 @@ def get_or_create_ai_usage_session(
 
 @transaction.atomic
 def get_appointments_ai_usage(business: Business, *, at: datetime) -> dict:
+    return _appointments_ai_usage(business, at=at)[0]
+
+
+def _appointments_ai_usage(business: Business, *, at: datetime) -> tuple[dict, SubscriptionV2]:
     at = _utc(at)
     business = Business.objects.select_for_update().get(pk=business.pk)
     subscription = _locked_subscription(business, at=at)
@@ -194,7 +221,7 @@ def get_appointments_ai_usage(business: Business, *, at: datetime) -> dict:
         'used': used,
         'included': included,
         'remaining': max(0, included - used),
-    }
+    }, subscription
 
 
 @transaction.atomic
@@ -204,7 +231,7 @@ def resolve_ai_usage_policy(business: Business, *, at: datetime) -> dict:
     Unresolved/manual contracts and lifecycle denials retain S8A's explicit
     exceptions. Monetary values are integer ARS from the canonical catalog.
     """
-    usage = get_appointments_ai_usage(business, at=at)
+    usage, subscription = _appointments_ai_usage(business, at=at)
     tier = canonical_pricing.get_usage_tier(usage['usage_tier'])
     if tier is None:
         raise AIUsageUnavailable('An explicit resolved AI usage tier is required.')
@@ -212,6 +239,9 @@ def resolve_ai_usage_policy(business: Business, *, at: datetime) -> dict:
     cap = tier.get('default_extra_spend_limit')
     if type(price) is not int or price <= 0 or type(cap) is not int or cap < 0:
         raise AIUsageUnavailable('The AI overage price or hard cap is unresolved.')
+    if is_complimentary_grant(subscription):
+        # A complimentary grant never charges: no overage, the tier is the cap.
+        cap = 0
     overage = max(0, usage['used'] - usage['included'])
     max_overage = cap // price
     max_total = usage['included'] + max_overage
