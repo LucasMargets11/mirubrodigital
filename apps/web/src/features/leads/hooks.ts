@@ -91,12 +91,21 @@ function leadNotesKey(id: string) {
     return [...leadsBaseKey, 'notes', id];
 }
 
+/**
+ * Refresco de la bandeja abierta: una derivación nueva aparece sin recargar.
+ * Mismo mecanismo que los avisos (`refetchInterval` de React Query); se pausa
+ * con la pestaña oculta y se pone al día al volver (refetch on focus). Solo
+ * lee: el GET de la bandeja no marca avisos ni atención como vistos.
+ */
+export const LEADS_INBOX_POLL_MS = 10_000;
+
 /** Bandeja paginada. Conserva la página anterior mientras carga la siguiente (sin parpadeo). */
 export function useLeads(filters: LeadFilters) {
     return useQuery({
         queryKey: [...leadsListKey, filters],
         queryFn: () => listLeads(filters),
         placeholderData: keepPreviousData,
+        refetchInterval: LEADS_INBOX_POLL_MS,
     });
 }
 

@@ -1814,7 +1814,7 @@ describe('control de la conversación (TAKEOVER 05B)', () => {
         const block = await screen.findByTestId('lead-conversation-control');
         expect(within(block).getByRole('alert')).toHaveTextContent('No pudimos comunicarnos con el bot.');
         expect(block.textContent).not.toMatch(/network_error|command_version/);
-        expect(within(block).queryByRole('button', { name: 'Reintentar reanudar bot' })).not.toBeInTheDocument();
+        expect(within(block).queryByRole('button', { name: 'Reintentar reactivar bot' })).not.toBeInTheDocument();
 
         fireEvent.click(within(block).getByRole('button', { name: 'Reintentar tomar conversación' }));
         await confirmInDialog('¿Tomar esta conversación?', 'Tomar conversación');
@@ -1822,7 +1822,7 @@ describe('control de la conversación (TAKEOVER 05B)', () => {
         expect(leadsApi.releaseLead).not.toHaveBeenCalled();
     });
 
-    it('error de release: Reintentar reanudar bot según last_action (aunque haya taken_at)', async () => {
+    it('error de release: Reintentar reactivar bot según last_action (aunque haya taken_at)', async () => {
         leadsApi.getLead.mockResolvedValue(
             withControl({ ...TAKEN, state: 'error', command_version: 2, last_action: 'release', last_error_code: 'version_regression' }),
         );
@@ -1832,7 +1832,7 @@ describe('control de la conversación (TAKEOVER 05B)', () => {
         const block = await screen.findByTestId('lead-conversation-control');
         expect(within(block).getByRole('alert')).toHaveTextContent('El estado de la conversación está desincronizado.');
         expect(within(block).queryByRole('button', { name: 'Reintentar tomar conversación' })).not.toBeInTheDocument();
-        fireEvent.click(within(block).getByRole('button', { name: 'Reintentar reanudar bot' }));
+        fireEvent.click(within(block).getByRole('button', { name: 'Reintentar reactivar bot' }));
         await confirmInDialog('¿Reactivar las respuestas automáticas del bot?', 'Reactivar bot');
         await waitFor(() => expect(leadsApi.releaseLead).toHaveBeenCalledTimes(1));
         expect(leadsApi.takeoverLead).not.toHaveBeenCalled();
@@ -2061,6 +2061,37 @@ describe('historial de la conversación (LEADS 05C)', () => {
             // El primer mensaje sigue ahí: no se volvió a pedir ni redibujar todo.
             expect(screen.getByText('hola')).toBeInTheDocument();
             expect(screen.getByText('nuevo')).toBeInTheDocument();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('chat tomado: el mensaje nuevo del paciente llega sin perder el borrador, el foco ni el chat abierto', async () => {
+        vi.useFakeTimers();
+        try {
+            leadsApi.getLead.mockResolvedValue(withControl(TAKEN));
+            leadsApi.listLeadMessages
+                .mockResolvedValueOnce(messagesPage([msg({ id: 'm1', sent_at: '2026-10-05T13:00:00Z' })]))
+                .mockResolvedValue(
+                    messagesPage([msg({ id: 'm2', text: '¿me confirmás?', sent_at: '2026-10-05T13:05:00Z' })]),
+                );
+            renderClient();
+
+            const textarea = await vi.waitFor(() => screen.getByRole('textbox', { name: 'Mensaje para el paciente' }));
+            textarea.focus();
+            fireEvent.change(textarea, { target: { value: 'Te escribo en un minuto' } });
+            (textarea as HTMLTextAreaElement).setSelectionRange(3, 10);
+
+            await vi.advanceTimersByTimeAsync(8100);
+            await vi.waitFor(() => expect(screen.getByText('¿me confirmás?')).toBeInTheDocument());
+
+            const after = screen.getByRole('textbox', { name: 'Mensaje para el paciente' });
+            expect(after).toBe(textarea);
+            expect(after).toHaveValue('Te escribo en un minuto');
+            expect(document.activeElement).toBe(after);
+            expect([(after as HTMLTextAreaElement).selectionStart, (after as HTMLTextAreaElement).selectionEnd]).toEqual([3, 10]);
+            expect(screen.getByRole('heading', { name: 'Ana Pérez' })).toBeInTheDocument();
+            expect(leadsApi.getLead).toHaveBeenCalledTimes(1);
         } finally {
             vi.useRealTimers();
         }

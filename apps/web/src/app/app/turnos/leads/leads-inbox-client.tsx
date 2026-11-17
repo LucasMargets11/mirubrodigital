@@ -128,6 +128,14 @@ export function LeadsInboxClient({
         [filters, debouncedSearch, offset, currentUserId],
     );
     const leadsQuery = useLeads(apiFilters);
+    // La bandeja se refresca sola (LEADS_INBOX_POLL_MS): "Actualizando…" solo
+    // para el pedido manual, y un refresco fallido no tapa la lista ya cargada.
+    const [manualRefresh, setManualRefresh] = useState(false);
+    const refreshNow = () => {
+        setManualRefresh(true);
+        void Promise.resolve(leadsQuery.refetch()).finally(() => setManualRefresh(false));
+    };
+    const showError = leadsQuery.isError && !leadsQuery.data;
     const leads = leadsQuery.data?.results ?? [];
     const count = leadsQuery.data?.count ?? 0;
     const hasActiveFilters = search.trim() !== '' || Object.values(filters).some((value) => value !== '');
@@ -156,11 +164,11 @@ export function LeadsInboxClient({
                 </div>
                 <button
                     type="button"
-                    onClick={() => void leadsQuery.refetch()}
-                    disabled={leadsQuery.isFetching}
+                    onClick={refreshNow}
+                    disabled={manualRefresh || leadsQuery.isLoading}
                     className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:border-slate-300 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                    {leadsQuery.isFetching && !leadsQuery.isLoading ? 'Actualizando…' : 'Actualizar'}
+                    {manualRefresh ? 'Actualizando…' : 'Actualizar'}
                 </button>
             </header>
 
@@ -250,8 +258,8 @@ export function LeadsInboxClient({
                 <div className="mt-4">
                     {leadsQuery.isLoading ? (
                         <p role="status" className="px-3 py-6 text-center text-sm text-slate-500">Cargando leads…</p>
-                    ) : leadsQuery.isError ? (
-                        <LeadsError error={leadsQuery.error} onRetry={() => void leadsQuery.refetch()} />
+                    ) : showError ? (
+                        <LeadsError error={leadsQuery.error} onRetry={refreshNow} />
                     ) : leads.length === 0 ? (
                         <p className="px-3 py-6 text-center text-sm text-slate-500">
                             {hasActiveFilters
@@ -273,7 +281,7 @@ export function LeadsInboxClient({
                     )}
                 </div>
 
-                {!leadsQuery.isLoading && !leadsQuery.isError && count > LEADS_PAGE_SIZE ? (
+                {!leadsQuery.isLoading && !showError && count > LEADS_PAGE_SIZE ? (
                     <LeadsPagination
                         count={count}
                         offset={offset}

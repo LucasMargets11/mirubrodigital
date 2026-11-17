@@ -321,6 +321,30 @@ describe('estados', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Actualizar' }));
         expect(refetch).toHaveBeenCalled();
     });
+
+    it('refresco automático en curso: la lista y el botón no cambian (sin "Actualizando…")', () => {
+        mockLeads([lead()], { isFetching: true });
+        renderInbox();
+        expect(screen.getAllByTestId('lead-row')).toHaveLength(1);
+        expect(screen.getByRole('button', { name: 'Actualizar' })).toBeEnabled();
+    });
+
+    it('un refresco automático fallido no tapa la lista ya cargada', () => {
+        mockLeads([lead()], { isError: true, error: new ApiError('boom', 500) });
+        renderInbox();
+        expect(screen.getAllByTestId('lead-row')).toHaveLength(1);
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+
+    it('la fila nueva que trae el refresco se abre desde la bandeja (link al detalle)', () => {
+        mockLeads([lead()]);
+        const view = renderInbox();
+        mockLeads([lead({ id: 'lead-nuevo', needs_attention: true, needs_attention_at: '2026-10-05T15:00:00Z' }), lead()]);
+        view.rerender(<LeadsInboxClient currentUserId={7} businessTimeZone={TZ} />);
+        const rows = screen.getAllByTestId('lead-row');
+        expect(rows).toHaveLength(2);
+        expect(rows[0].querySelector('a[href="/app/turnos/leads/lead-nuevo"]')).not.toBeNull();
+    });
 });
 
 describe('filtros y búsqueda (server-side)', () => {
