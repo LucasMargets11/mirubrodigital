@@ -147,7 +147,14 @@ def _v2_grants_access(sub_v2: Any) -> bool:
         # the exact pre-01B behavior: trial_ends_at=None grants access
         # unconditionally (no fallback to current_period_end).
         if sub_v2.provider == SubscriptionV2.Provider.MANUAL and sub_v2.current_period_end is not None:
-            # End instant itself excluded (denied at/after it).
+            # Bonified window [current_period_start, current_period_end):
+            # a grant that has not started yet gives no access, and the end
+            # instant itself is excluded. Rows without a start (backfill)
+            # keep the end-only rule. Same window as
+            # billing.services.appointments_lifecycle.complimentary_grant_active.
+            start = sub_v2.current_period_start
+            if start is not None and now < start:
+                return False
             return sub_v2.current_period_end > now
         return True
     if s == SubscriptionV2.Status.PAST_DUE:

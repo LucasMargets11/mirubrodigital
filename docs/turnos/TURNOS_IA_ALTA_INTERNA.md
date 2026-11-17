@@ -185,11 +185,63 @@ Devuelve `usage_tier`, `period_start`, `period_end`, `used`, `included` y
 `remaining` del período en curso. Es solo lectura. Si el beneficio no está
 vigente, lanza `AIUsageUnavailable`.
 
+## Inicio del beneficio (2026-11-17, tercer commit)
+
+### Problema
+
+Con un alta Turnos IA que empieza mañana, un día antes del inicio:
+
+- `/me` devolvía `subscription.access_allowed=true` y `features.leads=true`.
+  El layout de `/app` dejaba entrar, y el menú mostraba Leads.
+- `GET /api/v1/leads/` respondía `200`.
+- En cambio, la autorización de IA y la creación de turnos ya lo rechazaban
+  (`complimentary_grant_active`).
+
+Causa: `billing.runtime._v2_grants_access` solo miraba el fin del beneficio
+(`current_period_end`), no el inicio. De esa función dependen `/me`,
+`HasEntitlement`, `has_entitlement` y el control de cupos.
+
+### Regla
+
+Ahora, para `provider=manual` + `trialing` sin `trial_ends_at`, la ventana es
+`[current_period_start, current_period_end)`, la misma que
+`complimentary_grant_active`.
+
+La regla es compartida por todos los servicios: Gestión, Menú QR, QR Reseñas
+y Turnos. Para todos ellos, un bonificado futuro ya no da acceso antes de su
+inicio. No cambia nada para:
+
+- filas manuales sin `current_period_start`, como las del backfill: siguen con
+  la regla de solo fin;
+- trials con `trial_ends_at`;
+- Mercado Pago (con o sin `trial_ends_at`);
+- filas `active`, `past_due` y canceladas.
+
+El cupo de usuarios usa la misma regla. Antes del inicio no se pueden crear
+usuarios que no sean owner, como recepción. La membresía owner del alta no
+consume cupo, así que el alta con fecha futura sigue funcionando. Durante esa
+espera, el responsable ve `/app/planes`, porque el layout redirige sin acceso.
+
+### Evidencia (`apps/billing/tests/test_complimentary_grant_start.py`)
+
+Alta Turnos IA por `grant_complimentary_access()`, inicio mañana, rol Manager:
+
+| Instante | runtime | `has_entitlement(leads)` | `/me` access_allowed | `GET /leads/` |
+|---|---|---|---|---|
+| inicio − 1 s (antes del fix) | true | true | true | 200 |
+| inicio − 1 s | false | false | false | 403 |
+| inicio | true | true | true | 200 |
+| fin − 1 s | true | true | true | 200 |
+| fin | false | false | false | 403 |
+
+Contratos compartidos verificados sin cambios: 01A, 01B (fin excluido,
+alcance por proveedor), `test_runtime_resolver`, cupos V2, alta Turnos IA y
+consumo IA bonificado (126 tests OK).
+
 ## Pendiente para la próxima entrega
 
 - (Resuelto en el segundo commit) Medición de uso de IA con alta bonificada.
-- Diferencia conocida: `billing.runtime` (menú y entitlements) todavía da
-  acceso a un bonificado **futuro**, porque no mira el inicio. El ciclo de vida
-  de Turnos, la IA y la creación de turnos sí lo excluyen.
+- (Resuelto en el tercer commit, ver "Inicio del beneficio") La diferencia de
+  `billing.runtime` con un bonificado futuro.
 - Alojamiento del bot, tokens permanentes, webhook de Meta, `provision_agent` y
   activación en producción.
