@@ -98,7 +98,8 @@ existe, así que las revisiones viejas conservan bytes y `payload_hash`.
     `AGENT_TAKEOVER_KEY_ID`, `AGENT_TAKEOVER_SECRET`.
 - **Bot `.env`:**
   - `NODE_ENV=development` (permite `http` hacia MiRubro), `PORT`,
-    `DATABASE_URL`;
+    `DATABASE_URL`, `BOT_ENABLED=true` (booleano obligatorio: sin él la
+    validación aborta el arranque);
   - `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_ACCESS_TOKEN`,
     `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_WABA_ID`, `WHATSAPP_APP_SECRET`,
     `WHATSAPP_REPLY_MODE=openai`;

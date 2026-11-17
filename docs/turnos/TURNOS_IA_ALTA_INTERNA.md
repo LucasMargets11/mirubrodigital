@@ -238,6 +238,75 @@ Contratos compartidos verificados sin cambios: 01A, 01B (fin excluido,
 alcance por proveedor), `test_runtime_resolver`, cupos V2, alta Turnos IA y
 consumo IA bonificado (126 tests OK).
 
+## Circuito local bot ↔ Mi Rubro (2026-11-17)
+
+Ensayo del recorrido de recepción con los dos servicios reales, fuera de
+producción. No se tocó el webhook de Meta ni se usó el número del cliente.
+Todas las personas, teléfonos (`+54 9 11 5550-73xx`) y wamids son ficticios
+y nuevos.
+
+### Entorno
+
+| Pieza | Real o simulado | Detalle |
+|---|---|---|
+| Mi Rubro API | real | `api-tia` (:8100), base `mirubro_turnos_ia`, negocio `clinica-piloto-ia` (alta del formulario), con `AGENT_TAKEOVER_*` hacia el bot |
+| Worker Celery | real | `api-tia-worker`, misma base: entrega tomas y mensajes humanos |
+| Panel | real | `web-tia` (:3100), cuenta de recepción (rol Manager) con JWT emitido localmente |
+| Bot | real | worktree `agenterecep-lead-handoff` (e8b70fb), `dist/main.js` en :3001, Postgres propio desechable (`bot-tia-pg`, :5434) |
+| Firmas, sync, `ai-usage/authorize`, toma, mensajes humanos | reales | credencial `pilot-ia-key-1`; para la toma, una credencial nueva solo de este ensayo |
+| Webhook entrante de Meta | **simulado** | `scripts/qa-wa-inbound.js` del bot: POST firmado al controlador real |
+| Graph API saliente | **simulado** | `scripts/qa-fake-externals.js` (preload `fetch`, mismo método que `HARNESS_FAKE_META`) |
+| Modelo | **simulado** | mismo preload. Respuesta determinista, **después** de la autorización de IA real |
+
+### Resultados
+
+Consumo medido con `get_appointments_ai_usage` antes y después de cada
+caso (base: `used 1/300`, de la prueba anterior).
+
+| Caso | Bot | Mi Rubro / panel | Consumo |
+|---|---|---|---|
+| A1 «Hola, quisiera un turno» (persona nueva) | sync `201 created` **antes** del modelo, autorización `allowed`, 1 respuesta | El lead aparece en la bandeja, sin atención pendiente | 1 → 2 (conversación nueva) |
+| A2 motivo + preferencia («limpieza», «el viernes a la tarde») | Autorización `reused`, despedida fija, `BOT PAUSED`, sync v3 `applied` | Aviso «Nueva consulta para recepción», creado 10:18:31, a menos de 1 s del batch. Lead: «Pendiente de recepción · bot pausado», atención pendiente, motivo, horario y los 4 mensajes. Solo ofrece «Tomar chat» | sin cambio (misma sesión de 24 h) |
+| Tomar chat → confirmar | Comando firmado `applied`, `state=paused` | Worker: `http=200 result=applied state=taken`. Panel: «Tomada por vos» y composer | — |
+| Respuesta desde el panel | `HUMAN MESSAGE … result=queued`, **1** envío a Graph | Worker: `http=201`. El mensaje aparece en el historial | — |
+| A3 el paciente vuelve a escribir | `BOT PAUSED batch left to the human`, sin modelo ni salida | El mensaje aparece en el mismo chat (polling del detalle) | sin cambio |
+| B «quiero hablar con recepción» en el primer mensaje | Derivación con motivo y horario faltantes. Mensaje fijo «Dejé registrado tu pedido de hablar con recepción…» | Aviso. Lead pendiente de recepción con «Pidió hablar con una persona» | 2 → 3 (nueva) |
+| C reinicio del bot (kill + arranque) y mensaje nuevo de B | Arranque: 0 pendientes. El mensaje queda `left to the human` con la pausa vigente | El mensaje se suma al lead de B | sin cambio |
+| D el mismo evento entrante 3 veces (durante el debounce y después) | 2 × `duplicate webhook ignored`. 1 modelo, 1 autorización, 1 respuesta | 1 lead, 1 aviso, 2 mensajes | 3 → 4 (una sola vez) |
+| D' reenvío de A3 al chat tomado | `duplicate webhook ignored` | Lucía sigue con 6 mensajes (3 del paciente, 2 del bot, 1 de recepción) | sin cambio |
+
+En todo el ensayo `Appointment` siguió en 0: el bot no creó turnos.
+
+### Qué vio recepción y cuándo
+
+- El aviso no aparece en la bandeja de Leads, sino en el panel
+  «Notificaciones» de **Turnos** (`/app/turnos/turnos`) y de **Clientes**, que
+  se refresca cada 60 s. «Ver consulta» abre el lead y lo marca como leído.
+- La bandeja de Leads **no se actualiza sola**: hay que recargar o usar
+  «Actualizar». El detalle del lead sí actualiza la conversación.
+- La primera vez que se usó «Ver consulta», el enlace quedó en Turnos mientras
+  `next dev` compilaba la ruta. Con la ruta compilada, navegó bien. No se
+  reprodujo: es propio del modo desarrollo.
+- Los mensajes del bot y de recepción figuran «Estado desconocido» porque el
+  Meta simulado no envía webhooks de estado (sent/delivered).
+
+### Para decidir la activación
+
+- Con `HANDOFF_NOTIFY_ENABLED` apagado (recepción usa Mi Rubro), el bot
+  escribe en su log, para cada derivación, el teléfono, el perfil y los
+  últimos mensajes (`[HANDOFF] Lead ready`). Está hecho a propósito: ese log
+  es la entrega. Hay que decidir antes de producción si se acepta o se
+  redacta.
+- La base de conocimiento del bot sigue fija en una sola clínica: el resumen
+  dice «Dental Posadas II».
+- Pendiente con un teléfono real:
+  - que Meta entregue las salidas, incluido el número argentino normalizado
+    (`549…` → `54…`);
+  - los estados sent/delivered/read en el historial;
+  - las ventanas de 24 h y los reintentos reales de Meta;
+  - la latencia real del modelo;
+  - los mensajes que llegan mientras el bot está caído (Meta los reintenta).
+
 ## Pendiente para la próxima entrega
 
 - (Resuelto en el segundo commit) Medición de uso de IA con alta bonificada.
