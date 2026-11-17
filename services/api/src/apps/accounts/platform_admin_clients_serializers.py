@@ -17,6 +17,11 @@ class AdminClientProvisioningInputSerializer(serializers.Serializer):
     complimentary_start = serializers.DateTimeField()
     complimentary_end = serializers.DateTimeField()
     grant_reason = serializers.CharField(allow_blank=True, trim_whitespace=False)
+    # Only tier-priced plans (Turnos IA) use it; the domain service rejects it
+    # for every other plan and requires it for those.
+    usage_tier = serializers.CharField(
+        required=False, allow_null=True, allow_blank=True, trim_whitespace=True,
+    )
 
     def to_internal_value(self, data):
         if isinstance(data, Mapping):
@@ -26,4 +31,7 @@ class AdminClientProvisioningInputSerializer(serializers.Serializer):
                     field: ['Campo no permitido.']
                     for field in unknown_fields
                 })
-        return super().to_internal_value(data)
+        value = super().to_internal_value(data)
+        if not value.get('usage_tier'):
+            value.pop('usage_tier', None)
+        return value

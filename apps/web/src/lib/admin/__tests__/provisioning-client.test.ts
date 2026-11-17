@@ -120,6 +120,21 @@ describe('lib/admin/client — provisioning API layer', () => {
       }
     });
 
+    it('adds usage_tier (Turnos IA) and nothing else when provided', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(jsonResponse(400, {}));
+      vi.stubGlobal('fetch', fetchMock);
+
+      const { provisionAdminClient } = await import('@/lib/admin/client');
+      await provisionAdminClient({
+        ...INPUT, service_type: 'appointments', plan_code: 'appointments_ai', usage_tier: 'ai_300',
+      });
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+      expect(body).toEqual({
+        ...INPUT, service_type: 'appointments', plan_code: 'appointments_ai', usage_tier: 'ai_300',
+      });
+    });
+
     it('maps 401 to session_expired', async () => {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(401, {})));
       const { provisionAdminClient } = await import('@/lib/admin/client');

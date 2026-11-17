@@ -235,6 +235,8 @@ export async function provisionAdminClient(
     complimentary_start: input.complimentary_start,
     complimentary_end: input.complimentary_end,
     grant_reason: input.grant_reason,
+    // Only tier-priced plans (Turnos IA) carry it; omitted otherwise.
+    ...(input.usage_tier ? { usage_tier: input.usage_tier } : {}),
   };
 
   let response: Response;

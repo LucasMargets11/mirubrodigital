@@ -74,7 +74,12 @@ class AppointmentsCatalogTests(TestCase):
         self.assertEqual(Module.objects.filter(pk=other_module.pk).values().get(), before['module'])
         self.assertEqual(Plan.objects.filter(code__in=['appointments', 'appointments_pro']).count(), 2)
         self.assertFalse(Plan.objects.filter(code__startswith='appointments', plan_status='active').exists())
-        self.assertFalse(Plan.objects.filter(code='appointments_ai').exists())
+        # Turnos IA exists once, inactive and without an invented price.
+        ia_plan = Plan.objects.get(code='appointments_ai')
+        self.assertEqual(ia_plan.plan_status, 'inactive')
+        self.assertEqual(ia_plan.price, 0)
+        self.assertEqual(ia_plan.features_json['pricing_mode'], 'usage_tier')
+        self.assertEqual(Plan.objects.filter(code__startswith='appointments').count(), 3)
         self.assertEqual(Bundle.objects.filter(code__in=[
             'appointments', 'appointments_pro', 'appointments_ai',
         ], is_active=False).count(), 3)
@@ -125,6 +130,8 @@ class AppointmentsCatalogTests(TestCase):
         existing.refresh_from_db()
         self.assertEqual(existing.plan_status, 'inactive')
         self.assertEqual(existing.price, 12345)
+        self.assertEqual(existing.name, 'Turnos IA Recepcionista')
+        self.assertEqual(Plan.objects.filter(code='appointments_ai').count(), 1)
 
     def test_public_quote_rejects_unpublished_bundles_and_modules(self):
         Bundle.objects.create(

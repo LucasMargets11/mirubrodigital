@@ -24,6 +24,7 @@ type FormState = {
   business_slug: string;
   service_type: string;
   plan_code: string;
+  usage_tier: string;
   country: string;
   currency: string;
   owner_email: string;
@@ -37,6 +38,7 @@ const INITIAL_FORM: FormState = {
   business_slug: '',
   service_type: '',
   plan_code: '',
+  usage_tier: '',
   country: 'AR',
   currency: 'ARS',
   owner_email: '',
@@ -54,6 +56,7 @@ const FIELD_ORDER: (keyof FormState)[] = [
   'owner_email',
   'service_type',
   'plan_code',
+  'usage_tier',
   'country',
   'currency',
   'complimentary_start',
@@ -61,7 +64,10 @@ const FIELD_ORDER: (keyof FormState)[] = [
   'grant_reason',
 ];
 
-function validate(form: FormState): Partial<Record<keyof FormState, string>> {
+function validate(
+  form: FormState,
+  selectedPlan: AdminProvisioningPlanOption | null,
+): Partial<Record<keyof FormState, string>> {
   const errors: Partial<Record<keyof FormState, string>> = {};
 
   if (!form.business_name.trim()) {
@@ -89,6 +95,9 @@ function validate(form: FormState): Partial<Record<keyof FormState, string>> {
   }
   if (!form.plan_code) {
     errors.plan_code = 'Seleccioná un plan.';
+  }
+  if (selectedPlan?.usage_tiers?.length && !form.usage_tier) {
+    errors.usage_tier = 'Seleccioná el nivel de uso.';
   }
 
   const country = form.country.trim();
@@ -167,13 +176,25 @@ export function NuevoClienteForm() {
 
   const selectedService = options?.services.find((svc) => svc.value === form.service_type) ?? null;
   const availablePlans: AdminProvisioningPlanOption[] = selectedService?.plans ?? [];
+  const selectedPlan = availablePlans.find((plan) => plan.code === form.plan_code) ?? null;
+  const usageTiers = selectedPlan?.usage_tiers ?? [];
 
   function handleServiceChange(value: string) {
     setForm((f) => {
       const svc = options?.services.find((s) => s.value === value);
       const plans = svc?.plans ?? [];
       const planStillValid = plans.some((p) => p.code === f.plan_code);
-      return { ...f, service_type: value, plan_code: planStillValid ? f.plan_code : '' };
+      return planStillValid
+        ? { ...f, service_type: value }
+        : { ...f, service_type: value, plan_code: '', usage_tier: '' };
+    });
+  }
+
+  function handlePlanChange(value: string) {
+    setForm((f) => {
+      const plan = availablePlans.find((p) => p.code === value);
+      const tierStillValid = (plan?.usage_tiers ?? []).some((t) => t.code === f.usage_tier);
+      return { ...f, plan_code: value, usage_tier: tierStillValid ? f.usage_tier : '' };
     });
   }
 
@@ -220,7 +241,7 @@ export function NuevoClienteForm() {
     e.preventDefault();
     if (submittingRef.current) return;
 
-    const validationErrors = validate(form);
+    const validationErrors = validate(form, selectedPlan);
     setErrors(validationErrors);
     if (Object.keys(validationErrors).length > 0) {
       focusFirstInvalid(validationErrors);
@@ -243,6 +264,7 @@ export function NuevoClienteForm() {
         complimentary_start: form.complimentary_start,
         complimentary_end: form.complimentary_end,
         grant_reason: form.grant_reason.trim(),
+        ...(usageTiers.length > 0 ? { usage_tier: form.usage_tier } : {}),
       });
 
       switch (response.status) {
@@ -512,7 +534,7 @@ export function NuevoClienteForm() {
                     fieldRefs.current.plan_code = el;
                   }}
                   value={form.plan_code}
-                  onChange={(e) => handleChange('plan_code', e.target.value)}
+                  onChange={(e) => handlePlanChange(e.target.value)}
                   disabled={!form.service_type || availablePlans.length === 0}
                   aria-invalid={Boolean(errors.plan_code)}
                   className={inputClass}
@@ -524,6 +546,34 @@ export function NuevoClienteForm() {
                 </select>
                 {errors.plan_code && <p className={errorClass}>{errors.plan_code}</p>}
               </div>
+
+              {usageTiers.length > 0 && (
+                <div className="sm:col-span-2">
+                  <label htmlFor="usage_tier" className={labelClass}>
+                    Nivel de uso
+                  </label>
+                  <select
+                    id="usage_tier"
+                    ref={(el) => {
+                      fieldRefs.current.usage_tier = el;
+                    }}
+                    value={form.usage_tier}
+                    onChange={(e) => handleChange('usage_tier', e.target.value)}
+                    aria-invalid={Boolean(errors.usage_tier)}
+                    aria-describedby="usage_tier-help"
+                    className={inputClass}
+                  >
+                    <option value="">Seleccioná un nivel de uso</option>
+                    {usageTiers.map((tier) => (
+                      <option key={tier.code} value={tier.code}>{tier.name}</option>
+                    ))}
+                  </select>
+                  <p id="usage_tier-help" className="mt-1 text-xs text-slate-500">
+                    Conversaciones de IA incluidas por mes. El alta es bonificada: no se cobra.
+                  </p>
+                  {errors.usage_tier && <p className={errorClass}>{errors.usage_tier}</p>}
+                </div>
+              )}
             </div>
           )}
         </div>

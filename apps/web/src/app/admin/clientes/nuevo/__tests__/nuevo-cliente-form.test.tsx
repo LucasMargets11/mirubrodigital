@@ -504,4 +504,84 @@ describe('NuevoClienteForm', () => {
     expect(cancelLink).toHaveAttribute('href', '/admin/clientes');
     expect(provisionMock).not.toHaveBeenCalled();
   });
+
+  describe('Turnos IA (usage tiers)', () => {
+    const TURNOS_OPTIONS = {
+      services: [
+        {
+          value: 'appointments',
+          label: 'Turnos',
+          plans: [
+            { code: 'appointments', name: 'Turnos' },
+            {
+              code: 'appointments_ai',
+              name: 'Turnos IA Recepcionista',
+              usage_tiers: [
+                { code: 'ai_300', name: 'IA 300' },
+                { code: 'ai_1500', name: 'IA 1.500' },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    async function fillTurnos(planCode: string) {
+      fireEvent.change(screen.getByLabelText('Nombre del negocio'), { target: { value: 'Clínica Piloto' } });
+      fireEvent.change(screen.getByLabelText('Slug'), { target: { value: 'clinica-piloto' } });
+      fireEvent.change(screen.getByLabelText('Email del owner'), { target: { value: 'owner@clinica.test' } });
+      fireEvent.change(screen.getByLabelText('Servicio'), { target: { value: 'appointments' } });
+      await waitFor(() => expect(screen.getByLabelText('Plan')).not.toBeDisabled());
+      fireEvent.change(screen.getByLabelText('Plan'), { target: { value: planCode } });
+      fireEvent.change(screen.getByLabelText('Inicio de la bonificación'), { target: { value: '2026-11-17' } });
+      fireEvent.change(screen.getByLabelText('Fin de la bonificación'), { target: { value: '2027-05-17' } });
+      fireEvent.change(screen.getByLabelText('Motivo de la bonificación'), { target: { value: 'Piloto Turnos IA' } });
+    }
+
+    it('shows the usage tier select only for a plan with tiers, and requires it', async () => {
+      getOptionsMock.mockResolvedValueOnce({ status: 'ok', data: TURNOS_OPTIONS });
+      await renderForm();
+      await screen.findByLabelText('Servicio');
+      await fillTurnos('appointments');
+      expect(screen.queryByLabelText('Nivel de uso')).not.toBeInTheDocument();
+
+      fireEvent.change(screen.getByLabelText('Plan'), { target: { value: 'appointments_ai' } });
+      const tierSelect = screen.getByLabelText('Nivel de uso');
+      expect(within(tierSelect).getByText('IA 300')).toBeInTheDocument();
+      expect(within(tierSelect).queryByText(/business|custom/i)).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: /crear cliente/i }));
+      expect(await screen.findByText('Seleccioná el nivel de uso.')).toBeInTheDocument();
+      expect(provisionMock).not.toHaveBeenCalled();
+    });
+
+    it('sends usage_tier with Turnos IA and omits it for Turnos', async () => {
+      getOptionsMock.mockResolvedValueOnce({ status: 'ok', data: TURNOS_OPTIONS });
+      provisionMock.mockResolvedValueOnce({ status: 'ok', data: SUCCESS_RESULT });
+      await renderForm();
+      await screen.findByLabelText('Servicio');
+      await fillTurnos('appointments_ai');
+      fireEvent.change(screen.getByLabelText('Nivel de uso'), { target: { value: 'ai_300' } });
+
+      fireEvent.click(screen.getByRole('button', { name: /crear cliente/i }));
+      await waitFor(() => expect(provisionMock).toHaveBeenCalledTimes(1));
+      expect(provisionMock.mock.calls[0][0]).toMatchObject({
+        service_type: 'appointments', plan_code: 'appointments_ai', usage_tier: 'ai_300',
+      });
+    });
+
+    it('clears the tier when switching to a plan without tiers', async () => {
+      getOptionsMock.mockResolvedValueOnce({ status: 'ok', data: TURNOS_OPTIONS });
+      provisionMock.mockResolvedValueOnce({ status: 'ok', data: SUCCESS_RESULT });
+      await renderForm();
+      await screen.findByLabelText('Servicio');
+      await fillTurnos('appointments_ai');
+      fireEvent.change(screen.getByLabelText('Nivel de uso'), { target: { value: 'ai_300' } });
+      fireEvent.change(screen.getByLabelText('Plan'), { target: { value: 'appointments' } });
+
+      fireEvent.click(screen.getByRole('button', { name: /crear cliente/i }));
+      await waitFor(() => expect(provisionMock).toHaveBeenCalledTimes(1));
+      expect(provisionMock.mock.calls[0][0]).not.toHaveProperty('usage_tier');
+    });
+  });
 });

@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
@@ -42,10 +44,36 @@ class Command(BaseCommand):
             bundle.modules.set(
                 [automations] if addon['code'] in offer.get('included_addons', []) else []
             )
-            # Plan.price is mandatory: a tier-priced IA plan cannot be represented
-            # here without inventing a fixed checkout amount.
+            # A tier-priced IA plan has no fixed amount: its prices live in the
+            # canonical usage tiers. The row exists only so platform admins can
+            # grant it as complimentary access (complimentary_access_service);
+            # it stays inactive, so no checkout (all of them require
+            # plan_status='active') can sell it. An existing row keeps its
+            # price; a new one is created with 0 instead of inventing one.
             if offer.get('pricing_mode') == 'usage_tier':
-                Plan.objects.filter(code=offer['code']).update(plan_status='inactive')
+                ia_defaults = {
+                    'name': offer['name'],
+                    'interval': 'monthly',
+                    'currency': 'ARS',
+                    'frequency': 1,
+                    'frequency_type': 'months',
+                    'plan_status': 'inactive',
+                    'features_json': {
+                        'vertical': 'appointments',
+                        'pricing_mode': 'usage_tier',
+                        'usage_tiers': list(offer['usage_tiers']),
+                        'professionals_included': offer['professionals_included'],
+                        'secondary_users_included': offer['secondary_users_included'],
+                    },
+                }
+                ia_plan, created = Plan.objects.get_or_create(
+                    code=offer['code'],
+                    defaults={**ia_defaults, 'price': Decimal('0')},
+                )
+                if not created:
+                    for field, value in ia_defaults.items():
+                        setattr(ia_plan, field, value)
+                    ia_plan.save(update_fields=list(ia_defaults))
                 continue
             Plan.objects.update_or_create(
                 code=offer['code'],

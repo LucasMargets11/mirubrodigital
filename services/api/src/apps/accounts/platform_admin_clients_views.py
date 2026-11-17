@@ -34,6 +34,7 @@ from apps.accounts.admin_client_provisioning_service import (
     InvalidComplimentaryGrantReasonError,
     InvalidComplimentaryPeriodError,
     InvalidComplimentaryServiceTypeError,
+    InvalidComplimentaryUsageTierError,
     InvalidOwnerEmailError,
     MultipleOwnerAccountsError,
     UnauthorizedProvisioningActorError,
@@ -146,6 +147,12 @@ PROVISIONING_ERROR_RESPONSES = {
         'invalid_complimentary_service_type',
         'El servicio solicitado no es válido.',
         'service_type',
+    ),
+    InvalidComplimentaryUsageTierError: (
+        status.HTTP_400_BAD_REQUEST,
+        'invalid_complimentary_usage_tier',
+        'El nivel de uso no es válido para el plan elegido.',
+        'usage_tier',
     ),
     ComplimentaryGrantFailedError: (
         status.HTTP_422_UNPROCESSABLE_ENTITY,

@@ -172,6 +172,13 @@ export type AdminClientKPIs = {
 export type AdminProvisioningPlanOption = {
   code: string;
   name: string;
+  /** Present only for tier-priced plans (Turnos IA): the tier is required. */
+  usage_tiers?: AdminProvisioningUsageTierOption[];
+};
+
+export type AdminProvisioningUsageTierOption = {
+  code: string;
+  name: string;
 };
 
 /** One service_type and its currently active/compatible plans. */
@@ -203,6 +210,8 @@ export type AdminClientProvisioningInput = {
   complimentary_start: string;
   complimentary_end: string;
   grant_reason: string;
+  /** Sent only when the selected plan offers usage tiers (Turnos IA). */
+  usage_tier?: string;
 };
 
 export type AdminProvisionedBusiness = {
@@ -263,6 +272,7 @@ export type AdminClientProvisioningErrorCode =
   | 'invalid_complimentary_period'
   | 'invalid_complimentary_grant_reason'
   | 'invalid_complimentary_service_type'
+  | 'invalid_complimentary_usage_tier'
   | 'complimentary_plan_not_available'
   | 'complimentary_plan_service_mismatch'
   | 'active_complimentary_subscription_conflict'

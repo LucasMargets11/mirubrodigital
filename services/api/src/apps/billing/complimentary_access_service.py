@@ -23,6 +23,7 @@ from django.db import transaction
 
 from .canonical_pricing import PRODUCTS as _CANONICAL_PRODUCTS
 from .canonical_pricing import get_plan as _get_canonical_plan
+from .canonical_pricing import get_usage_tier as _get_canonical_usage_tier
 from .models import Plan, SubscriptionV2
 
 logger = logging.getLogger(__name__)
@@ -67,6 +68,13 @@ class InvalidGrantReasonError(ComplimentaryAccessError):
 
 class InvalidServiceTypeError(ComplimentaryAccessError):
     """``service_type`` is not a member of ``SubscriptionV2.ServiceType.values``."""
+
+
+class InvalidUsageTierError(ComplimentaryAccessError):
+    """
+    ``usage_tier`` is missing for a tier-priced plan (Turnos IA), is not one of
+    its provisionable tiers, or was sent for a plan that has no usage tiers.
+    """
 
 
 # Derived (not hardcoded) from generated/pricing.json's canonical "products"
@@ -123,6 +131,49 @@ def _is_provisionable_plan(plan: Plan) -> bool:
     )
 
 
+def _provisionable_usage_tiers(plan_code: str) -> list[dict]:
+    """
+    Usage tiers a complimentary grant may assign to *plan_code*, from the
+    canonical catalog (generated/pricing.json). Empty for plans that are not
+    tier-priced. Only self-service tiers with a resolved conversation
+    allowance are offered: the ``custom`` tier has no allowance and AI usage
+    metering rejects it (ManualContractRequired), so it fails closed here.
+    """
+    canonical_plan = _get_canonical_plan(plan_code)
+    if canonical_plan is None or canonical_plan.get('pricing_mode') != 'usage_tier':
+        return []
+    tiers = []
+    for code in canonical_plan.get('usage_tiers', []):
+        tier = _get_canonical_usage_tier(code)
+        if (
+            tier is None
+            or tier.get('plan_code') != plan_code
+            or tier.get('purchase_mode') != 'self_service'
+            or type(tier.get('included_conversations')) is not int
+            or tier['included_conversations'] <= 0
+        ):
+            continue
+        tiers.append({'code': tier['code'], 'name': tier['name']})
+    return tiers
+
+
+def _validate_usage_tier(plan_code: str, usage_tier) -> str | None:
+    allowed = {tier['code'] for tier in _provisionable_usage_tiers(plan_code)}
+    canonical_plan = _get_canonical_plan(plan_code) or {}
+    if canonical_plan.get('pricing_mode') == 'usage_tier':
+        if usage_tier not in allowed:
+            raise InvalidUsageTierError(
+                f"El plan '{plan_code}' requiere elegir un nivel de uso válido "
+                f"({', '.join(sorted(allowed))})."
+            )
+        return usage_tier
+    if usage_tier not in (None, ''):
+        raise InvalidUsageTierError(
+            f"El plan '{plan_code}' no admite nivel de uso."
+        )
+    return None
+
+
 def list_provisioning_options() -> list[dict]:
     """
     Enumerate the (service_type, plan_code) combinations that
@@ -139,7 +190,9 @@ def list_provisioning_options() -> list[dict]:
     ``grant_complimentary_access()`` performs before checking compatibility.
 
     Returns a list of ``{'value', 'label', 'plans': [{'code', 'name'}, ...]}``
-    dicts, sorted deterministically by service_type then plan code.
+    dicts, sorted deterministically by service_type then plan code. A
+    tier-priced plan (Turnos IA) also carries ``usage_tiers: [{'code',
+    'name'}, ...]``; it is omitted when none of its tiers is provisionable.
     """
     services: dict[str, dict] = {}
     for plan in Plan.objects.order_by('code'):
@@ -163,7 +216,13 @@ def list_provisioning_options() -> list[dict]:
             'label': SubscriptionV2.ServiceType(service_type).label,
             'plans': [],
         })
-        bucket['plans'].append({'code': plan.code, 'name': plan.name})
+        option = {'code': plan.code, 'name': plan.name}
+        if canonical_plan.get('pricing_mode') == 'usage_tier':
+            tiers = _provisionable_usage_tiers(plan.code)
+            if not tiers:
+                continue
+            option['usage_tiers'] = tiers
+        bucket['plans'].append(option)
 
     return [services[key] for key in sorted(services)]
 
@@ -177,6 +236,7 @@ def grant_complimentary_access(
     ends_at: datetime,
     granted_by,
     reason: str,
+    usage_tier: str | None = None,
 ) -> SubscriptionV2:
     """
     Grant a complimentary (bonified) access period to *business*.
@@ -197,6 +257,8 @@ def grant_complimentary_access(
         ends_at:      End of the bonified period (current_period_end).
         granted_by:   The platform admin (User) granting the access.
         reason:       Non-empty internal reason for the grant.
+        usage_tier:   Required for a tier-priced plan (Turnos IA, e.g.
+                      'ai_300'); must be None/blank for every other plan.
 
     Returns:
         The newly created SubscriptionV2.
@@ -210,6 +272,8 @@ def grant_complimentary_access(
             subscription for the same service_type.
         InvalidGrantReasonError: reason is blank/whitespace-only.
         InvalidServiceTypeError: service_type is not a SubscriptionV2.ServiceType member.
+        InvalidUsageTierError: usage_tier missing/invalid for a tier-priced
+            plan, or present for a plan without tiers.
         ComplimentaryAccessError: any other validation failure (missing
             business or missing actor) — these represent a caller building
             the request incorrectly (an internal invariant violation for a
@@ -238,6 +302,9 @@ def grant_complimentary_access(
     # ── 3b. Validate plan_code's vertical matches the requested service ────
     _check_plan_service_compatibility(plan_code, service_type)
 
+    # ── 3c. Usage tier: required by tier-priced plans, rejected otherwise ──
+    usage_tier = _validate_usage_tier(plan_code, usage_tier)
+
     if business is None:
         raise ComplimentaryAccessError('Debe indicar un negocio válido.')
 
@@ -264,6 +331,7 @@ def grant_complimentary_access(
             business=business,
             service_type=service_type,
             plan_code=plan_code,
+            usage_tier=usage_tier,
             provider=SubscriptionV2.Provider.MANUAL,
             provider_sub_id=None,
             external_reference=f"SUB-{uuid.uuid4()}",
@@ -290,6 +358,7 @@ def grant_complimentary_access(
                 'subscription_id': str(subscription.id),
                 'business_id': business.pk,
                 'plan_code': plan_code,
+                'usage_tier': usage_tier,
                 'service_type': service_type,
                 'current_period_start': starts_at.isoformat(),
                 'current_period_end': ends_at.isoformat(),

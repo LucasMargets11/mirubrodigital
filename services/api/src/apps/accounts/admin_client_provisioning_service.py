@@ -33,6 +33,7 @@ from apps.billing.complimentary_access_service import (
     InvalidGrantReasonError,
     InvalidPeriodError,
     InvalidServiceTypeError,
+    InvalidUsageTierError,
     PlanNotAvailableError,
     PlanServiceMismatchError,
     grant_complimentary_access,
@@ -114,6 +115,10 @@ class InvalidComplimentaryGrantReasonError(AdminClientProvisioningError):
 
 class InvalidComplimentaryServiceTypeError(AdminClientProvisioningError):
     """service_type is not a valid SubscriptionV2.ServiceType member."""
+
+
+class InvalidComplimentaryUsageTierError(AdminClientProvisioningError):
+    """usage_tier missing/invalid for a tier-priced plan, or sent for one without tiers."""
 
 
 class ComplimentaryGrantFailedError(AdminClientProvisioningError):
@@ -322,6 +327,7 @@ def provision_admin_client(
     complimentary_end: datetime,
     granted_by,
     grant_reason: str,
+    usage_tier: str | None = None,
 ) -> AdminClientProvisioningResult:
     """
     Atomically provision a platform-admin-created client:
@@ -390,6 +396,7 @@ def provision_admin_client(
                 ends_at=complimentary_end,
                 granted_by=granted_by,
                 reason=grant_reason,
+                usage_tier=usage_tier,
             )
         except InvalidPeriodError as exc:
             raise InvalidComplimentaryPeriodError(str(exc)) from exc
@@ -397,6 +404,8 @@ def provision_admin_client(
             raise InvalidComplimentaryGrantReasonError(str(exc)) from exc
         except InvalidServiceTypeError as exc:
             raise InvalidComplimentaryServiceTypeError(str(exc)) from exc
+        except InvalidUsageTierError as exc:
+            raise InvalidComplimentaryUsageTierError(str(exc)) from exc
         except PlanNotAvailableError as exc:
             raise ComplimentaryPlanNotAvailableError(str(exc)) from exc
         except PlanServiceMismatchError as exc:
@@ -415,6 +424,7 @@ def provision_admin_client(
             'membership_id': membership.pk,
             'service_type': service_type,
             'plan_code': plan_code,
+            'usage_tier': subscription.usage_tier,
             'complimentary_start': complimentary_start.isoformat(),
             'complimentary_end': complimentary_end.isoformat(),
         }

@@ -34,6 +34,9 @@ Ajustes de este release sobre `e383ac5`:
 - Alta admin: los planes Turnos sembrados (inactivos, no a la venta) se pueden
   otorgar como acceso bonificado desde `/admin/clientes/nuevo`. El checkout
   público sigue cerrado (`appointments.is_active=false`).
+- Turnos IA (2026-11-17, posterior al tag): el seed también deja `appointments_ai`
+  inactivo y el alta pide el nivel de uso (`ai_300`…). Ver
+  `docs/turnos/TURNOS_IA_ALTA_INTERNA.md`.
 
 ## Migraciones (desde `master`)
 
@@ -154,7 +157,9 @@ $C run --rm --no-deps api postcheck
 ```
 
 En el navegador (usuario staff de plataforma): `/admin/clientes`,
-`/admin/clientes/nuevo` muestra "Turnos" con planes Turnos y Turnos Pro.
+`/admin/clientes/nuevo` muestra "Turnos" con planes Turnos, Turnos Pro y
+Turnos IA Recepcionista (este último pide "Nivel de uso"; ver
+`docs/turnos/TURNOS_IA_ALTA_INTERNA.md`).
 Con un negocio existente: login, `/app` del servicio que usa, POS/stock
 (un producto con stock muestra la misma cantidad que antes), ventas/pedidos,
 Menú QR público (`/r/<slug>/`), reseñas QR, facturación (estado de la
