@@ -1,9 +1,9 @@
-"""PROD-02E1 — Resolvedor único de la fuente IA.
+"""PROD-02E1 — Resolvedor único de la fuente IA (actualizado en PROD-02E2A).
 
 Fuentes: Recepcionista (`reception`/`reception`) y Turnos IA
 (`appointments`/`appointments_ai`). Una sola elegible → esa; ninguna →
-fail-closed; dos → `ambiguous_ai_source`. Recepcionista se reconoce como
-fuente, pero su consumo sigue bloqueado (cupo indefinido, nunca ilimitado).
+fail-closed; dos → `ambiguous_ai_source`. Desde PROD-02E2A Recepcionista
+consume sus cupos fijos sin excedentes; un cupo indefinido nunca es ilimitado.
 """
 from __future__ import annotations
 
@@ -78,13 +78,14 @@ class AISourceResolutionTests(_Fixtures, TestCase):
         self.assertTrue(result.eligible)
         self.assertTrue(result.policy_configured)
 
-    def test_reception_is_commercially_eligible_without_a_policy(self):
+    def test_reception_is_eligible_with_its_fixed_policy(self):
+        # PROD-02E2A: reception_300/1500/3000 carry an internal fixed allowance.
         biz = _business()
         sub = self.reception(biz)
         result = self.resolve(biz)
         self.assertEqual((result.source, result.subscription, result.reason), (RECEPTION_SOURCE, sub, None))
-        self.assertFalse(result.policy_configured)
-        self.assertEqual(result.policy_reason, USAGE_POLICY_UNDEFINED)
+        self.assertTrue(result.policy_configured)
+        self.assertIsNone(result.policy_reason)
         custom = _business()
         self.reception(custom, tier='reception_custom')
         self.assertEqual(self.resolve(custom).policy_reason, MANUAL_CONTRACT)
@@ -210,34 +211,48 @@ class AISourceResolutionTests(_Fixtures, TestCase):
 
 class UndefinedAllowanceTests(_Fixtures, TestCase):
 
-    def test_reception_limit_is_blocked(self):
-        biz = _business()
-        sub = self.reception(biz)
-        with self.assertRaises(AIUsageUnavailable) as ctx:
-            resolve_ai_usage_limit(sub)
-        self.assertEqual(ctx.exception.reason, USAGE_POLICY_UNDEFINED)
-        with self.assertRaises(AIUsageUnavailable) as ctx:
-            get_appointments_ai_usage(biz, at=self.at)
-        self.assertEqual(ctx.exception.reason, USAGE_POLICY_UNDEFINED)
-
-    def test_custom_tier_requires_manual_contract(self):
-        biz = _business()
-        sub = self.reception(biz, tier='reception_custom')
-        with self.assertRaises(ManualContractRequired):
-            resolve_ai_usage_limit(sub)
-
-    def test_even_a_defined_allowance_stays_blocked_until_02e2(self):
-        biz = _business()
-        sub = self.reception(biz)
+    def _with_tier(self, code, **changes):
         from apps.billing import canonical_pricing
 
         real = canonical_pricing.get_usage_tier
 
-        def with_allowance(code):
-            tier = real(code)
-            return {**tier, 'included_conversations': 300} if code == 'reception_300' else tier
+        def patched(tier_code):
+            tier = real(tier_code)
+            return {**tier, **changes} if tier_code == code else tier
 
-        with patch.object(canonical_pricing, 'get_usage_tier', side_effect=with_allowance):
+        return patch.object(canonical_pricing, 'get_usage_tier', side_effect=patched)
+
+    def test_fixed_allowances(self):
+        for tier, included in (('reception_300', 300), ('reception_1500', 1500), ('reception_3000', 3000)):
+            with self.subTest(tier=tier):
+                self.assertEqual(resolve_ai_usage_limit(self.reception(_business(), tier=tier)), included)
+
+    def test_undefined_allowance_is_never_unlimited(self):
+        sub = self.reception(_business())
+        for changes in ({'included_conversations': None}, {'included_conversations': 0}):
+            with self.subTest(changes=changes), self._with_tier('reception_300', **changes):
+                with self.assertRaises(AIUsageUnavailable) as ctx:
+                    resolve_ai_usage_limit(sub)
+                self.assertEqual(ctx.exception.reason, USAGE_POLICY_UNDEFINED)
+                self.assertFalse(self.resolve(sub.business).policy_configured)
+
+    def test_any_overage_policy_fails_closed(self):
+        sub = self.reception(_business())
+        for changes in ({'default_extra_spend_limit': 75000}, {'extra_conversation_price': 300},
+                        {'purchase_mode': 'self_service'}, {'default_extra_spend_limit': None}):
+            with self.subTest(changes=changes), self._with_tier('reception_300', **changes):
+                with self.assertRaises(AIUsageUnavailable) as ctx:
+                    resolve_ai_usage_limit(sub)
+                self.assertEqual(ctx.exception.reason, USAGE_POLICY_UNDEFINED)
+
+    def test_custom_tier_requires_manual_contract(self):
+        sub = self.reception(_business(), tier='reception_custom')
+        with self.assertRaises(ManualContractRequired):
+            resolve_ai_usage_limit(sub)
+
+    def test_kill_switch_blocks_reception(self):
+        sub = self.reception(_business())
+        with patch('apps.appointments.services.ai_usage.RECEPTION_AI_CONSUMPTION_ENABLED', False):
             with self.assertRaises(AIUsageUnavailable) as ctx:
                 resolve_ai_usage_limit(sub)
         self.assertEqual(ctx.exception.reason, USAGE_POLICY_UNDEFINED)
@@ -280,7 +295,7 @@ class AgentAuthorizationIntegrationTests(_Fixtures, TestCase):
         self.assertTrue(body['allowed'], body)
         self.assertEqual(AppointmentAIUsageSession.objects.filter(business=biz).count(), 1)
 
-    def test_reception_blocked_without_policy_and_records_nothing(self):
+    def test_reception_authorized_whatever_the_principal(self):
         for name, principal, extra in (
             ('reception only', 'reception', None),
             ('gestion + reception', 'gestion', lambda b: self.sub(b, 'gestion', 'pro')),
@@ -290,11 +305,21 @@ class AgentAuthorizationIntegrationTests(_Fixtures, TestCase):
                 biz = _business(service=principal)
                 if extra:
                     extra(biz)
-                self.reception(biz)
+                sub = self.reception(biz)
                 body = self.authorize(biz)
-                self.assertEqual((body['allowed'], body['reason']), (False, USAGE_POLICY_UNDEFINED))
-                self.assertFalse(AppointmentAIUsageSession.objects.filter(business=biz).exists())
-                self.assertFalse(AppointmentAIUsageAuthorization.objects.filter(business=biz).exists())
+                self.assertTrue(body['allowed'], body)
+                self.assertEqual(
+                    list(AppointmentAIUsageSession.objects.filter(business=biz).values_list('subscription_id', flat=True)),
+                    [sub.pk],
+                )
+
+    def test_reception_custom_blocked_and_records_nothing(self):
+        biz = _business()
+        self.reception(biz, tier='reception_custom')
+        body = self.authorize(biz)
+        self.assertEqual((body['allowed'], body['reason']), (False, MANUAL_CONTRACT))
+        self.assertFalse(AppointmentAIUsageSession.objects.filter(business=biz).exists())
+        self.assertFalse(AppointmentAIUsageAuthorization.objects.filter(business=biz).exists())
 
     def test_reception_plus_turnos_ia_never_double_counts(self):
         biz = _business(service='appointments')
