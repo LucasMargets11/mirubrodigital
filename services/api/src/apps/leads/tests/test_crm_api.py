@@ -180,7 +180,7 @@ class LeadEntitlementGateTests(LeadApiMixin, APITestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.data)
         self.assertEqual(response.data['code'], 'plan_entitlement_required')
         self.assertEqual(response.data['entitlement'], 'appointments.leads')
-        self.assertEqual(response.data['upgrade_hint'], 'Turnos Base')
+        self.assertEqual(response.data['upgrade_hint'], 'Turnos IA')
 
     def test_entitlement_and_permission_allow(self):
         _login(self.client, self.biz, 'manager')

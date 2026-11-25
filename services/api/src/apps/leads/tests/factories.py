@@ -6,6 +6,7 @@ import uuid
 from cryptography.fernet import Fernet
 from django.utils import timezone
 
+from apps.billing.models import SubscriptionV2
 from apps.business.models import Business
 from apps.leads.models import AgentChannel, AgentCredential, AgentInstance, Lead, LeadAgentState
 
@@ -17,6 +18,20 @@ def make_business(slug: str) -> Business:
     return Business.objects.create(
         name=f'Biz {slug}', slug=slug, default_service='appointments', status='active',
         timezone='America/Argentina/Buenos_Aires',
+    )
+
+
+def activate_turnos(business: Business) -> SubscriptionV2:
+    """Suscripción V2 manual activa de Turnos (como el piloto).
+
+    Crear un AppointmentProfessional activo exige cuota de Turnos
+    (services/professional_quota, fail-closed): sin esta suscripción el
+    Business no puede tener agenda.
+    """
+    return SubscriptionV2.objects.create(
+        business=business, service_type='appointments', plan_code='appointments_base',
+        provider=SubscriptionV2.Provider.MANUAL, external_reference=f'SUB-{uuid.uuid4()}',
+        status=SubscriptionV2.Status.ACTIVE,
     )
 
 

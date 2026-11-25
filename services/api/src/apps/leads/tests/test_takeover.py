@@ -267,7 +267,7 @@ class TakeoverApiTests(TakeoverMixin, APITestCase):
         detail = self.client.get(f'/api/v1/leads/{self.lead.pk}/').data['conversation_control']
         self.assertEqual(set(detail), {
             'state', 'command_version', 'last_action', 'taken_at', 'taken_by', 'released_at', 'last_error_code',
-            'available',
+            'available', 'handoff_pending', 'handoff_paused_at',
         })
         self.assertEqual(detail['state'], 'takeover_pending')
         self.assertIsNone(detail['taken_by'])  # taken_by solo con el ACK

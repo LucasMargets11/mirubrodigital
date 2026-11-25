@@ -36,7 +36,7 @@ from .agent_client import (
     sign_headers,
     signed_put,
 )
-from .factories import SECRET, TEST_KEY, make_business, make_channel, make_credential, make_instance
+from .factories import SECRET, TEST_KEY, activate_turnos, make_business, make_channel, make_credential, make_instance
 
 User = get_user_model()
 
@@ -484,6 +484,7 @@ class CrmIsolationTests(TurnosAgendaMixin, ReceiverTestBase):
         lead = self.state(v1).lead
         user = User.objects.create_user(username=f'u-{uuid.uuid4().hex[:6]}', password='x')
         customer = Customer.objects.create(business=self.business, name='Cliente', phone='1112345678')
+        activate_turnos(self.business)
         service, pro = self._agenda(self.business)
         appointment = self._appt(self.business, service, customer, timezone.now() + dt.timedelta(days=1), pro=pro)
         closed_at = timezone.now()
@@ -689,6 +690,7 @@ class ProposalReceiverTestBase(TurnosAgendaMixin, ReceiverTestBase):
 
     def setUp(self):
         super().setUp()
+        activate_turnos(self.business)
         self.service, self.professional = self._agenda(self.business)
         self.base_payload = self.payload()
         self.assertEqual(self.put(self.base_payload).status_code, 201)

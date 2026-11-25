@@ -11,7 +11,7 @@ from django.utils.dateparse import parse_datetime
 from apps.leads.models import AppointmentProposal, Lead, LeadAgentState
 
 from .agent_client import bump, lead_path, sign_headers
-from .factories import make_business, make_channel, make_credential, make_instance
+from .factories import activate_turnos, make_business, make_channel, make_credential, make_instance
 from .test_receiver_api import ProposalReceiverTestBase
 
 
@@ -139,6 +139,7 @@ class AppointmentContextTests(ProposalReceiverTestBase):
 
     def test_foreign_business_appointment_not_exposed(self):
         business = make_business('foreign-appointment')
+        activate_turnos(business)
         service, _ = self._agenda(business)
         appointment = self._appt(business, service, None, self.proposal.proposed_start_at)
         Lead.objects.filter(pk=self.lead.pk).update(appointment=appointment)

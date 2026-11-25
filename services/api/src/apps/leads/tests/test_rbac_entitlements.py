@@ -19,6 +19,8 @@ EXPECTED = {
     'admin': {'view_leads': True, 'manage_leads': True, 'manage_agent_channels': True},
     'manager': {'view_leads': True, 'manage_leads': True, 'manage_agent_channels': False},
     'viewer': {'view_leads': False, 'manage_leads': False, 'manage_agent_channels': False},
+    # Rol de Turnos (agenda propia, 7B): sin ningún acceso a Leads.
+    'professional': {'view_leads': False, 'manage_leads': False, 'manage_agent_channels': False},
 }
 
 
@@ -35,7 +37,12 @@ class LeadPermissionTests(SimpleTestCase):
                     self.assertIs(perms[perm], allowed)
 
     def test_no_new_role(self):
-        self.assertEqual(set(SERVICE_ROLE_PERMISSIONS['appointments']), {'owner', 'admin', 'manager', 'viewer'})
+        # Leads no agrega roles: son los de Turnos, todos cubiertos por EXPECTED.
+        self.assertEqual(
+            set(SERVICE_ROLE_PERMISSIONS['appointments']),
+            {'owner', 'admin', 'manager', 'viewer', 'professional'},
+        )
+        self.assertEqual(set(SERVICE_ROLE_PERMISSIONS['appointments']), set(EXPECTED))
 
     def test_other_services_do_not_grant_lead_permissions(self):
         for service, roles in SERVICE_ROLE_PERMISSIONS.items():

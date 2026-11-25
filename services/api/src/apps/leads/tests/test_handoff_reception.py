@@ -50,9 +50,9 @@ class HandoffPendingRuleTests(ReceiverTestBase):
         self.put(payload)
         return self.state(payload)
 
-    def _control(self, state, **fields):
+    def _control(self, lead_state, **fields):
         return ConversationControl.objects.create(
-            business=self.business, external_conversation_id=state.external_conversation_id, **fields,
+            business=self.business, external_conversation_id=lead_state.external_conversation_id, **fields,
         )
 
     def test_never_handed_off(self):
