@@ -9,6 +9,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.permissions import HasBusinessMembership, HasPermission, request_has_permission
+from .services.agenda_access import HasAgendaAccess
 from .models import (
   Appointment,
   AppointmentCategory,
@@ -117,7 +118,7 @@ def _parse_date_range(query_params):
 
 class AppointmentCategoryListCreateView(generics.ListCreateAPIView):
   serializer_class = AppointmentCategorySerializer
-  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission, HasAgendaAccess]
   permission_map = {
     'GET': 'view_appointments',
     'POST': 'manage_appointments',
@@ -148,7 +149,7 @@ class AppointmentCategoryListCreateView(generics.ListCreateAPIView):
 
 class AppointmentCategoryDetailView(generics.RetrieveUpdateDestroyAPIView):
   serializer_class = AppointmentCategorySerializer
-  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission, HasAgendaAccess]
   permission_map = {
     'GET': 'view_appointments',
     'PUT': 'manage_appointments',
@@ -170,7 +171,7 @@ class AppointmentCategoryDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 class AppointmentServiceListCreateView(generics.ListCreateAPIView):
   serializer_class = AppointmentServiceSerializer
-  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission, HasAgendaAccess]
   permission_map = {
     'GET': 'view_appointments',
     'POST': 'manage_appointments',
@@ -204,7 +205,7 @@ class AppointmentServiceListCreateView(generics.ListCreateAPIView):
 
 class AppointmentServiceDetailView(generics.RetrieveUpdateDestroyAPIView):
   serializer_class = AppointmentServiceSerializer
-  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission, HasAgendaAccess]
   permission_map = {
     'GET': 'view_appointments',
     'PUT': 'manage_appointments',
@@ -223,7 +224,7 @@ class AppointmentServiceDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 class AppointmentProfessionalListCreateView(generics.ListCreateAPIView):
   serializer_class = AppointmentProfessionalSerializer
-  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission, HasAgendaAccess]
   permission_map = {
     'GET': 'view_appointments',
     'POST': 'manage_appointments',
@@ -250,7 +251,7 @@ class AppointmentProfessionalListCreateView(generics.ListCreateAPIView):
 
 class AppointmentProfessionalDetailView(generics.RetrieveUpdateDestroyAPIView):
   serializer_class = AppointmentProfessionalSerializer
-  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission, HasAgendaAccess]
   permission_map = {
     'GET': 'view_appointments',
     'PUT': 'manage_appointments',
@@ -272,7 +273,7 @@ class AppointmentProfessionalDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 class AppointmentScheduleListCreateView(generics.ListCreateAPIView):
   serializer_class = AppointmentScheduleSerializer
-  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission, HasAgendaAccess]
   permission_map = {
     'GET': ('view_appointments', 'manage_own_schedule'),
     'POST': ('manage_appointments', 'manage_own_schedule'),
@@ -299,7 +300,7 @@ class AppointmentScheduleListCreateView(generics.ListCreateAPIView):
 
 class AppointmentScheduleDetailView(generics.RetrieveUpdateDestroyAPIView):
   serializer_class = AppointmentScheduleSerializer
-  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission, HasAgendaAccess]
   permission_map = {
     'GET': ('view_appointments', 'manage_own_schedule'),
     'PUT': ('manage_appointments', 'manage_own_schedule'),
@@ -317,7 +318,7 @@ class AppointmentScheduleDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 class AppointmentExceptionListCreateView(generics.ListCreateAPIView):
   serializer_class = AppointmentExceptionSerializer
-  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission, HasAgendaAccess]
   permission_map = {
     'GET': ('view_appointments', 'manage_own_schedule'),
     'POST': ('manage_appointments', 'manage_own_schedule'),
@@ -344,7 +345,7 @@ class AppointmentExceptionListCreateView(generics.ListCreateAPIView):
 
 class AppointmentExceptionDetailView(generics.RetrieveUpdateDestroyAPIView):
   serializer_class = AppointmentExceptionSerializer
-  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission, HasAgendaAccess]
   permission_map = {
     'GET': ('view_appointments', 'manage_own_schedule'),
     'PUT': ('manage_appointments', 'manage_own_schedule'),
@@ -362,7 +363,7 @@ class AppointmentExceptionDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 class AppointmentListCreateView(generics.ListCreateAPIView):
   serializer_class = AppointmentSerializer
-  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission, HasAgendaAccess]
   permission_map = {
     'GET': ('view_appointments', 'view_own_appointments'),
     'POST': ('manage_appointments', 'manage_own_appointments'),
@@ -405,7 +406,7 @@ class AppointmentListCreateView(generics.ListCreateAPIView):
 
 class AppointmentDetailView(generics.RetrieveUpdateDestroyAPIView):
   serializer_class = AppointmentSerializer
-  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission, HasAgendaAccess]
   permission_map = {
     'GET': ('view_appointments', 'view_own_appointments'),
     'PUT': ('manage_appointments', 'manage_own_appointments'),
@@ -433,7 +434,7 @@ class AppointmentAvailabilityView(APIView):
   Devuelve los slots teóricos (horarios/excepciones) descontando los
   `Appointment` ya ocupantes para ese negocio/profesional/fecha.
   """
-  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission]
+  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission, HasAgendaAccess]
   permission_map = {'GET': ('view_appointments', 'view_own_appointments')}
 
   def get(self, request, *args, **kwargs):
@@ -497,7 +498,7 @@ class _HasTurnosAccess(BasePermission):
 class AppointmentOnboardingStatusView(APIView):
   """Read-only summary of real first-run setup state for Turnos."""
 
-  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission, _HasTurnosAccess]
+  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission, HasAgendaAccess, _HasTurnosAccess]
   permission_map = {'GET': 'view_appointments'}
   http_method_names = ['get', 'head', 'options']
 
@@ -542,7 +543,7 @@ class ReminderAutomationSettingsView(APIView):
   `manage_reminder_automations` (solo owner/admin). Sin fila → defaults
   apagados; la fila se crea recién en el primer PATCH.
   """
-  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission, _HasTurnosAccess]
+  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission, HasAgendaAccess, _HasTurnosAccess]
   permission_map = {
     'GET': 'manage_settings',
     'PATCH': 'manage_reminder_automations',
@@ -574,7 +575,7 @@ class CustomerCommunicationSettingsView(APIView):
   escritura `manage_reminder_automations` (solo owner/admin). Sin fila →
   vacío (sin Reply-To); la fila se crea en el primer PATCH.
   """
-  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission, _HasTurnosAccess]
+  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission, HasAgendaAccess, _HasTurnosAccess]
   permission_map = {
     'GET': 'manage_settings',
     'PATCH': 'manage_reminder_automations',
@@ -607,7 +608,7 @@ class CommunicationAutomationSettingsView(APIView):
   `manage_reminder_automations` (solo owner/admin). Sin fila → apagado; la
   fila se crea en el primer PATCH.
   """
-  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission, _HasTurnosAccess]
+  permission_classes = [IsAuthenticated, HasBusinessMembership, HasPermission, HasAgendaAccess, _HasTurnosAccess]
   permission_map = {
     'GET': 'manage_settings',
     'PATCH': 'manage_reminder_automations',
