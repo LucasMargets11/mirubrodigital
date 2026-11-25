@@ -552,6 +552,17 @@ class LeadUpdateSerializer(serializers.Serializer):
 
     def validate(self, attrs):
         lead: Lead = self.instance
+        if 'appointment' in attrs:
+            target = attrs['appointment']
+            if (target.pk if target is not None else None) != lead.appointment_id:
+                # PROD-02D: vincular, cambiar o quitar el turno es una operación
+                # de agenda: exige Turnos operativo (no alcanza el rol/override).
+                from rest_framework.exceptions import PermissionDenied
+
+                from apps.appointments.services.agenda_access import AGENDA_UNAVAILABLE, has_agenda_access
+
+                if not has_agenda_access(lead.business):
+                    raise PermissionDenied(AGENDA_UNAVAILABLE)
         current = lead.status
         target = attrs.get('status', current)
         if target not in ALLOWED_TRANSITIONS[current]:

@@ -30,7 +30,8 @@ from apps.accounts.access import resolve_business_context, resolve_request_membe
 from apps.accounts.models import Membership
 from apps.accounts.permissions import HasBusinessMembership, HasEntitlement, HasPermission, request_has_permission
 from apps.appointments.serializers import AppointmentSerializer
-from apps.business.entitlements import APPOINTMENTS_LEADS_ENTITLEMENT
+from apps.appointments.services.agenda_access import AGENDA_UNAVAILABLE, has_agenda_access
+from apps.business.entitlements import APPOINTMENTS_LEADS_ENTITLEMENT, RECEPTION_LEADS_ENTITLEMENT
 
 from .crm_serializers import (
     AppointmentProposalCreateSerializer, LeadDetailSerializer, LeadListSerializer, LeadMessageSerializer,
@@ -65,7 +66,11 @@ class LeadPagination(LimitOffsetPagination):
 
 class _LeadPermissionsMixin:
     permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement, HasPermission]
-    required_entitlement = APPOINTMENTS_LEADS_ENTITLEMENT
+    # PROD-02D: Leads de Turnos (Turnos IA, Turnos Base V2/legacy) o de
+    # Recepcionista IA. HasEntitlement resuelve cada uno contra su propia
+    # suscripción (acceso efectivo + enforcement); el primero define el
+    # payload de denegación (hint `Turnos IA`, sin cambios de contrato).
+    required_entitlement = (APPOINTMENTS_LEADS_ENTITLEMENT, RECEPTION_LEADS_ENTITLEMENT)
     permission_map = {
         'GET': 'view_leads',
         'POST': 'manage_leads',
@@ -77,6 +82,12 @@ class _LeadPermissionsMixin:
         business = getattr(self.request, 'business')
         queryset = Lead.objects.select_for_update(of=('self',)) if for_update else Lead.objects
         return get_object_or_404(queryset, pk=self.kwargs['lead_id'], business=business)
+
+
+def _require_agenda(request) -> None:
+    """PROD-02D: turnos y propuestas desde un Lead exigen Turnos operativo."""
+    if not has_agenda_access(getattr(request, 'business', None)):
+        raise PermissionDenied(AGENDA_UNAVAILABLE)
 
 
 def _active_service(request) -> str:
@@ -354,6 +365,7 @@ class LeadCreateAppointmentView(LeadDetailView):
         super().check_permissions(request)
         if not request_has_permission(request, 'manage_appointments'):
             raise PermissionDenied(HasPermission.message)
+        _require_agenda(request)
 
     def post(self, request, *args, **kwargs):
         with transaction.atomic():
@@ -534,6 +546,7 @@ class _AppointmentProposalPermissionsMixin(_LeadPermissionsMixin):
         required = self.appointments_permission_map.get(request.method)
         if required and not request_has_permission(request, required):
             raise PermissionDenied(HasPermission.message)
+        _require_agenda(request)
 
 
 class LeadAppointmentProposalsView(_AppointmentProposalPermissionsMixin, generics.GenericAPIView):
