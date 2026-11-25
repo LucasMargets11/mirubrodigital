@@ -132,6 +132,8 @@ APPOINTMENTS_PERMISSIONS: Set[str] = {
   'view_leads',
   'manage_leads',
   'manage_agent_channels',
+  # PROD-02C: consumo de IA (Turnos IA); owner/admin.
+  'view_ai_usage',
   'view_own_appointments',
   'manage_own_appointments',
   'manage_own_schedule',
@@ -142,7 +144,23 @@ APPOINTMENTS_OWN_PERMISSIONS = {
   'view_own_appointments', 'manage_own_appointments', 'manage_own_schedule', 'view_own_customers',
 }
 
-ALL_PERMISSIONS: Set[str] = GESTION_PERMISSIONS.union(RESTAURANT_PERMISSIONS).union(MENU_QR_PERMISSIONS).union(QR_REVIEWS_PERMISSIONS).union(APPOINTMENTS_PERMISSIONS)
+# Recepcionista IA (PROD-02C). Universo cerrado del servicio `reception`: Leads,
+# canales del agente, consumo de IA, Clientes core, usuarios y configuración.
+# Nunca agenda ni profesionales. Un override fuera de este universo no tiene
+# efecto (ver SERVICE_PERMISSION_SCOPE).
+RECEPTION_PERMISSIONS: Set[str] = {
+  'view_leads',
+  'manage_leads',
+  'manage_agent_channels',
+  'view_ai_usage',
+  'view_customers',
+  'manage_customers',
+  'manage_customer_notes',
+  'manage_users',
+  'manage_settings',
+}
+
+ALL_PERMISSIONS: Set[str] = GESTION_PERMISSIONS.union(RESTAURANT_PERMISSIONS).union(MENU_QR_PERMISSIONS).union(QR_REVIEWS_PERMISSIONS).union(APPOINTMENTS_PERMISSIONS).union(RECEPTION_PERMISSIONS)
 
 SERVICE_ROLE_PERMISSIONS: Dict[str, Dict[str, Set[str]]] = {
   'gestion': {
@@ -300,13 +318,38 @@ SERVICE_ROLE_PERMISSIONS: Dict[str, Dict[str, Set[str]]] = {
   'appointments': {
     'owner': APPOINTMENTS_PERMISSIONS - APPOINTMENTS_OWN_PERMISSIONS,
     'admin': APPOINTMENTS_PERMISSIONS - APPOINTMENTS_OWN_PERMISSIONS,
-    'manager': APPOINTMENTS_PERMISSIONS - APPOINTMENTS_OWN_PERMISSIONS - {'manage_users', 'manage_reminder_automations', 'manage_agent_channels'},
+    'manager': APPOINTMENTS_PERMISSIONS - APPOINTMENTS_OWN_PERMISSIONS - {'manage_users', 'manage_reminder_automations', 'manage_agent_channels', 'view_ai_usage'},
     'viewer': {
       'view_appointments',
       'view_customers',
     },
     'professional': set(APPOINTMENTS_OWN_PERMISSIONS),
   },
+  # Recepcionista IA (PROD-02C). Mismo criterio que Leads en Turnos: manager
+  # opera Leads y Clientes y ve la configuración, sin usuarios, canales ni
+  # consumo; viewer solo lee Clientes. Sin rol `professional`.
+  'reception': {
+    'owner': set(RECEPTION_PERMISSIONS),
+    'admin': set(RECEPTION_PERMISSIONS),
+    'manager': {
+      'view_leads',
+      'manage_leads',
+      'view_customers',
+      'manage_customers',
+      'manage_customer_notes',
+      'manage_settings',
+    },
+    'viewer': {
+      'view_customers',
+    },
+  },
+}
+
+# Servicios con universo de permisos cerrado: sus overrides solo aplican dentro
+# de él, así un RolePermissionOverride(enabled=True) nunca agrega permisos de
+# otro producto (p. ej. agenda o Gestión) a través de `reception`.
+SERVICE_PERMISSION_SCOPE: Dict[str, Set[str]] = {
+  'reception': RECEPTION_PERMISSIONS,
 }
 
 
@@ -352,7 +395,10 @@ def permissions_for_service(service: str, role: str, business=None) -> Dict[str,
       service=service,
       role=normalized_role
     )
+    scope = SERVICE_PERMISSION_SCOPE.get(service)
     for override in overrides:
+      if scope is not None and override.permission not in scope:
+        continue
       baseline[override.permission] = override.enabled
   
   return baseline

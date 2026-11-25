@@ -40,6 +40,16 @@ class CapabilityRegistry:
             self._by_module[capability.module] = set()
         self._by_module[capability.module].add(capability.code)
     
+    def alias(self, code: str, service: str) -> None:
+        """List an already registered capability under another service.
+
+        The capability keeps its original owner (`Capability.service`); the
+        alias only makes it editable/visible in that service (role editor).
+        """
+        if code not in self._capabilities:
+            raise KeyError(f'Unknown capability {code}')
+        self._by_service.setdefault(service, set()).add(code)
+
     def get(self, code: str) -> Capability | None:
         """Get capability by code."""
         return self._capabilities.get(code)
@@ -692,8 +702,30 @@ def _register_appointments_capabilities():
     )
 
 
+# ============================================================================
+# RECEPCIONISTA IA SERVICE CAPABILITIES (PROD-02C)
+# ============================================================================
+
+def _register_reception_capabilities():
+    """Recepcionista IA reuses the existing keys (Leads, Clientes core, usuarios,
+    configuración) as aliases, plus `view_ai_usage`. Never agenda permissions."""
+    from apps.accounts.rbac import RECEPTION_PERMISSIONS
+
+    register_capability(
+        'view_ai_usage',
+        'Ver Consumo de IA',
+        'Consultar las conversaciones con IA usadas en el período (solo Owner/Admin)',
+        'Leads',
+        'reception'
+    )
+    _registry.alias('view_ai_usage', 'appointments')
+    for code in sorted(RECEPTION_PERMISSIONS - {'view_ai_usage'}):
+        _registry.alias(code, 'reception')
+
+
 # Initialize registry on module load
 _register_gestion_capabilities()
 _register_restaurant_capabilities()
 _register_menu_qr_capabilities()
 _register_appointments_capabilities()
+_register_reception_capabilities()

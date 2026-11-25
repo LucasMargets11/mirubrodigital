@@ -45,8 +45,9 @@ class LeadPermissionTests(SimpleTestCase):
         self.assertEqual(set(SERVICE_ROLE_PERMISSIONS['appointments']), set(EXPECTED))
 
     def test_other_services_do_not_grant_lead_permissions(self):
+        # Leads owners: Turnos and, since PROD-02C, Recepcionista IA (test_reception_rbac_02c).
         for service, roles in SERVICE_ROLE_PERMISSIONS.items():
-            if service == 'appointments':
+            if service in ('appointments', 'reception'):
                 continue
             for role in roles:
                 perms = permissions_for_service(service, role)
