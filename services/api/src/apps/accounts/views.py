@@ -23,7 +23,7 @@ from apps.accounts.access import (
 from apps.accounts import auth_rate_limiter
 from apps.accounts import security_events
 from apps.accounts.models import AccessAuditLog, AccountProfile
-from apps.accounts.rbac import permissions_for_service
+from apps.accounts.service_permissions import effective_permissions
 from apps.accounts.services import EmailService
 from apps.accounts.tasks import send_verification_email_task
 from apps.accounts.throttles import (
@@ -162,7 +162,9 @@ def _business_timezone_name(business) -> str:
 def _session_payload(user: User, membership: Membership, memberships: List[Membership]) -> Dict[str, object]:
 	context = build_business_context(membership.business)
 	service_catalog = serialize_catalog()
-	permissions = permissions_for_service(context['service'], membership.role, membership.business)
+	# PROD-02C: same effective map as request_has_permission (Leads/agenda by
+	# owner service, the rest by the active service).
+	permissions = effective_permissions(membership.business, membership.role, context['service'])
 	profile = getattr(user, 'account_profile', None)
 	return {
 		'user': {

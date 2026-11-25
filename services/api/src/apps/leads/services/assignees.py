@@ -5,15 +5,16 @@ La comparten `LeadUpdateSerializer.validate_assigned_to` (PATCH) y
 personas que el PATCH después acepta.
 
 Asignable = Membership ACTIVA directamente sobre el Business del Lead, usuario
-activo y rol con `view_leads` efectivo en el servicio activo (defaults del rol
-+ `RolePermissionOverride` del Business de esa membership). Los owner/admin
+activo y rol con `view_leads` efectivo (defaults del rol + `RolePermissionOverride`
+del Business de esa membership; PROD-02C: evaluado en el servicio dueño de Leads,
+Recepcionista o Turnos, aunque el servicio activo sea otro). Los owner/admin
 del HQ que operan una sucursal por herencia NO tienen membership en la
 sucursal, así que no son asignables allí.
 """
 from __future__ import annotations
 
 from apps.accounts.models import Membership
-from apps.accounts.rbac import permissions_for_service
+from apps.accounts.service_permissions import effective_permissions
 
 
 def active_memberships(business_id):
@@ -24,7 +25,10 @@ def active_memberships(business_id):
 
 
 def membership_can_view_leads(membership: Membership, service: str) -> bool:
-    return bool(permissions_for_service(service, membership.role, membership.business).get('view_leads', False))
+    """`service` = servicio activo del Business; Leads se resuelve en su servicio dueño."""
+    return bool(
+        effective_permissions(membership.business, membership.role, service).get('view_leads', False)
+    )
 
 
 def assignable_memberships(business_id, service: str) -> list[Membership]:

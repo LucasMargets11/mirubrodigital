@@ -245,7 +245,13 @@ def request_has_permission(request: Request, permission_code: str) -> bool:
         # Permisos efectivos: defaults del rol + RolePermissionOverride del
         # Business de la membership (misma clave con la que escribe el editor
         # de roles; en herencia HQ → sucursal es el HQ, no `request.business`).
-        permission_map = permissions_for_service(context['service'], membership.role, membership.business)
+        # PROD-02C: Leads y agenda se evalúan en el servicio dueño de la
+        # capacidad (service_permissions), el resto en el servicio activo.
+        from apps.accounts.service_permissions import effective_permissions
+
+        permission_map = effective_permissions(
+            membership.business, membership.role, context['service'], base=permissions_for_service,
+        )
         request._permission_cache = permission_map
     return bool(permission_map.get(permission_code, False))
 

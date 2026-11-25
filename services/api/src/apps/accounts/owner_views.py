@@ -26,6 +26,7 @@ from apps.accounts.models import Membership, AccessAuditLog, AccountProfile
 from apps.accounts.models import RolePermissionOverride
 from apps.accounts.permissions import HasBusinessMembership
 from apps.accounts.rbac import permissions_for_service, SERVICE_ROLE_PERMISSIONS
+from apps.accounts.service_permissions import effective_permissions
 from apps.accounts.rbac_registry import get_registry
 from apps.accounts.services import LastOwnerProtectionError, OwnerGuardService, InternalUserService
 from apps.accounts.owner_serializers import (
@@ -102,6 +103,35 @@ def _generate_temporary_password(length: int = 12) -> str:
     return ''.join(password)
 
 
+def _capabilities_for_services(registry, services):
+    """Registry capabilities of several services, first occurrence wins."""
+    seen, result = set(), []
+    for service in services:
+        for cap in registry.get_by_service(service):
+            if cap.code not in seen:
+                seen.add(cap.code)
+                result.append(cap)
+    return result
+
+
+def _editor_service(request: Request, context: dict):
+    """Service whose roles the editor reads/writes (PROD-02C).
+
+    Defaults to the active service. `?service=` may select another enabled
+    service with its own RBAC map (e.g. Recepcionista next to Gestión), so its
+    overrides are stored under that service and never under another one.
+    """
+    requested = (request.query_params.get('service') or '').strip()
+    if not requested:
+        return context['service'], None
+    if requested not in context['enabled_services'] or requested not in SERVICE_ROLE_PERMISSIONS:
+        return None, Response(
+            {'error': f'El servicio {requested} no está habilitado para este negocio'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return requested, None
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, HasBusinessMembership])
 def access_summary(request: Request) -> Response:
@@ -121,15 +151,16 @@ def access_summary(request: Request) -> Response:
     context = build_business_context(membership.business)
     service = context['service']
     
-    # Get permissions for user's role
-    permissions = permissions_for_service(service, membership.role, membership.business)
+    # PROD-02C: effective permissions (Leads/agenda by owner service) and the
+    # capabilities of every enabled service (active first, no duplicates).
+    permissions = effective_permissions(membership.business, membership.role, service)
     granted_perms = {code for code, granted in permissions.items() if granted}
     
     # Group by module with full capability details
     registry = get_registry()
     permissions_by_module = {}
     
-    for cap in registry.get_by_service(service):
+    for cap in _capabilities_for_services(registry, [service, *context['enabled_services']]):
         if cap.module not in permissions_by_module:
             permissions_by_module[cap.module] = []
         
@@ -181,7 +212,9 @@ def roles_list(request: Request) -> Response:
         )
     
     context = build_business_context(membership.business)
-    service = context['service']
+    service, service_error = _editor_service(request, context)
+    if service_error is not None:
+        return service_error
     
     # Get role definitions for this service
     service_roles = SERVICE_ROLE_PERMISSIONS.get(service, {})
@@ -228,7 +261,9 @@ def role_detail(request: Request, role: str) -> Response:
         )
     
     context = build_business_context(membership.business)
-    service = context['service']
+    service, service_error = _editor_service(request, context)
+    if service_error is not None:
+        return service_error
     
     # Validate role exists for this service
     service_roles = SERVICE_ROLE_PERMISSIONS.get(service, {})
@@ -352,7 +387,9 @@ def update_role_permissions(request: Request, role: str) -> Response:
         )
     
     context = build_business_context(membership.business)
-    service = context['service']
+    service, service_error = _editor_service(request, context)
+    if service_error is not None:
+        return service_error
     
     service_roles = SERVICE_ROLE_PERMISSIONS.get(service, {})
     if role not in service_roles:
