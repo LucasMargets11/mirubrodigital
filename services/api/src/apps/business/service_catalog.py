@@ -49,6 +49,15 @@ SERVICE_CATALOG: Iterable[ServiceDefinition] = (
     features=['appointments_core'],
     min_plan=BusinessPlan.APPOINTMENTS_BASE,
   ),
+  # PROD-02B: without this entry a Recepcionista-only Business would resolve
+  # no enabled service and fall back to 'gestion' as its active service.
+  ServiceDefinition(
+    slug='reception',
+    name='Recepcionista IA',
+    description='Atención por WhatsApp con IA, leads y derivación a tu equipo.',
+    features=['reception_core'],
+    min_plan='reception',
+  ),
 )
 
 

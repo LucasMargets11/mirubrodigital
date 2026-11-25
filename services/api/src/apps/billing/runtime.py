@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 # Ordered by specificity — longer / more-specific names first to prevent
 # 'menu_qr' from masking 'menu_qr_visual'.
 _KNOWN_TIERS = [
+    'reception',
     'appointments_base', 'appointments_pro', 'appointments_ai', 'appointments',
     'menu_qr_premium', 'menu_qr_visual', 'menu_qr_marca',
     'menu_qr_lite', 'menu_qr_pro', 'menu_qr',
@@ -43,6 +44,11 @@ _KNOWN_TIERS = [
 _APPOINTMENTS_PLAN_TIERS = frozenset({
     'appointments_base', 'appointments', 'appointments_pro', 'appointments_ai',
 })
+
+# PROD-02B: Recepcionista IA is an isolated product. Like Turnos it never
+# takes part in a cross-service fallback, in either direction.
+RECEPTION_SERVICE = 'reception'
+_RECEPTION_PLAN_TIERS = frozenset({'reception'})
 
 # Explicit overrides for bundle codes whose names do not embed a parseable
 # plan tier (e.g. 'restaurante_inteligente' encodes no known tier word).
@@ -116,6 +122,25 @@ def _extract_plan_tier(plan_code: str) -> str:
 def is_appointments_plan_code(plan_code: str) -> bool:
     """Return whether a raw or wrapped billing code identifies a Turnos plan."""
     return _extract_plan_tier(plan_code) in _APPOINTMENTS_PLAN_TIERS
+
+
+def is_reception_plan_code(plan_code: str) -> bool:
+    """Return whether a raw or wrapped billing code identifies Recepcionista IA."""
+    return _extract_plan_tier(plan_code) in _RECEPTION_PLAN_TIERS
+
+
+def _isolated_product(service_type: Optional[str], plan_code: str = '') -> Optional[str]:
+    """Isolated product a (service_type, plan_code) pair belongs to, if any.
+
+    Turnos and Recepcionista are separate products: either the service_type or
+    the plan code identifying one of them is enough to keep a subscription out
+    of every other product's resolution.
+    """
+    if service_type == 'appointments' or is_appointments_plan_code(plan_code):
+        return 'appointments'
+    if service_type == RECEPTION_SERVICE or is_reception_plan_code(plan_code):
+        return RECEPTION_SERVICE
+    return None
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -258,6 +283,10 @@ def resolve_subscription(
             # A generic code such as `pro` is not Turnos Pro and must never
             # grant Gestión entitlements through an appointments subscription.
             plan_tier = 'unknown_runtime_plan'
+        if (sub_v2.service_type == RECEPTION_SERVICE) != (plan_tier in _RECEPTION_PLAN_TIERS):
+            # A reception subscription with another plan, or a reception plan
+            # persisted under another service, grants nothing.
+            plan_tier = 'unknown_runtime_plan'
         resolved_service = (
             'appointments'
             if is_appointments_plan_code(sub_v2.plan_code)
@@ -274,6 +303,18 @@ def resolve_subscription(
                     entitlements = frozenset(get_appointments_subscription_entitlements(sub_v2))
                 except ValidationError as exc:
                     logger.error("Invalid Turnos configuration subscription_v2=%s: %s", sub_v2.pk, exc)
+                    grants = False
+                    entitlements = frozenset()
+            elif resolved_service == RECEPTION_SERVICE:
+                from django.core.exceptions import ValidationError
+                from apps.billing.reception_plans import get_reception_subscription_entitlements
+                try:
+                    entitlements = frozenset(get_reception_subscription_entitlements(sub_v2))
+                except ValidationError as exc:
+                    # Unknown plan or tier: fail closed, never a partial grant.
+                    logger.error(
+                        "Invalid Recepcionista configuration subscription_v2=%s: %s", sub_v2.pk, exc,
+                    )
                     grants = False
                     entitlements = frozenset()
             else:
@@ -320,8 +361,12 @@ def resolve_subscription(
         leg_service = 'appointments' if is_appointments_plan_code(leg_plan) else raw_leg_service
 
         # A Turnos legacy plan is never a Gestión fallback (and vice versa).
+        # Recepcionista has no legacy plans: a legacy subscription never
+        # resolves it, and a legacy row tagged 'reception' resolves nothing.
         service_matches = (
             (effective_svc == 'appointments') == (leg_service == 'appointments')
+            and effective_svc != RECEPTION_SERVICE
+            and leg_service != RECEPTION_SERVICE
         )
 
         if service_matches and leg_status == 'active':
@@ -407,17 +452,22 @@ def _find_best_v2(business, service_type: str) -> Optional[Any]:
     )
 
     # Service-type-specific lookup first, but reject plan/service mismatches
-    # when one side identifies Turnos.
+    # when one side identifies Turnos or Recepcionista.
     v2 = qs.filter(service_type=service_type).first()
     if v2 is not None and (
         (service_type == 'appointments' and v2.service_type == 'appointments')
+        or (service_type == RECEPTION_SERVICE and v2.service_type == RECEPTION_SERVICE)
         or (
-            service_type != 'appointments'
-            and v2.service_type != 'appointments'
-            and not is_appointments_plan_code(v2.plan_code)
+            service_type not in ('appointments', RECEPTION_SERVICE)
+            and _isolated_product(v2.service_type, v2.plan_code) is None
         )
     ):
         return v2
+
+    if service_type == RECEPTION_SERVICE:
+        # Recepcionista resolves only from its own subscription: no plan-code
+        # rescue and no cross-service fallback.
+        return None
 
     if service_type == 'appointments':
         # Plan code is an explicit product discriminator for older/malformed
@@ -427,11 +477,12 @@ def _find_best_v2(business, service_type: str) -> Optional[Any]:
             None,
         )
 
-    # Do not let an appointments subscription satisfy a different product.
+    # Historical fallback between the remaining services is kept for
+    # compatibility, but never through an isolated product (Turnos,
+    # Recepcionista): they neither cover nor are covered by another service.
     v2 = next(
         (candidate for candidate in qs
-         if candidate.service_type != 'appointments'
-         and not is_appointments_plan_code(candidate.plan_code)),
+         if _isolated_product(candidate.service_type, candidate.plan_code) is None),
         None,
     )
     if v2 is not None:
@@ -469,7 +520,12 @@ def _get_v2_entitlements(
     from apps.business.entitlements import get_plan_entitlements, ADDON_ENTITLEMENTS
     entitlements = get_plan_entitlements(plan_tier)
 
-    if business is None or service_type == 'appointments' or plan_tier in _APPOINTMENTS_PLAN_TIERS:
+    if (
+        business is None
+        or service_type in ('appointments', RECEPTION_SERVICE)
+        or plan_tier in _APPOINTMENTS_PLAN_TIERS
+        or plan_tier in _RECEPTION_PLAN_TIERS
+    ):
         return entitlements
 
     try:

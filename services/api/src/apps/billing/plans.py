@@ -32,12 +32,15 @@ def get_seat_limit(plan_tier: str | None) -> int:
     if not plan_tier:
         return DEFAULT_SEAT_LIMIT
     from apps.billing.appointments_plans import PLAN_CODES
+    from apps.billing.reception_plans import RECEPTION_PLAN
 
-    if plan_tier in PLAN_CODES:
+    if plan_tier in PLAN_CODES or plan_tier == RECEPTION_PLAN:
+        # Canonical Turnos and Recepcionista IA limits come from the catalog
+        # (validated >= 1 for Recepcionista: callers read 0 as "no limit").
         from apps.billing.canonical_pricing import get_plan
 
         plan = get_plan(plan_tier)
         if plan is None:
-            raise RuntimeError(f'Canonical Turnos plan missing from catalog: {plan_tier}')
+            raise RuntimeError(f'Canonical plan missing from catalog: {plan_tier}')
         return plan['secondary_users_included']
     return PLAN_SEAT_LIMITS.get(plan_tier, DEFAULT_SEAT_LIMIT)

@@ -18,6 +18,16 @@ POS_OFFLINE_CONTINGENCY_ENTITLEMENT = 'gestion.restaurant_pos_offline_contingenc
 # entitlement (canal activo + estado del Business).
 APPOINTMENTS_LEADS_ENTITLEMENT = 'appointments.leads'
 APPOINTMENTS_AUTOMATIONS_ENTITLEMENT = 'appointments.automations'
+# Recepcionista IA (PROD-02B): servicio propio `reception`, independiente de
+# Turnos. Sus entitlements se resuelven siempre desde su propia suscripción
+# (prefijo `reception.` → service_type `reception`).
+RECEPTION_LEADS_ENTITLEMENT = 'reception.leads'
+RECEPTION_AI_ENTITLEMENT = 'reception.ai'
+RECEPTION_CUSTOMERS_ENTITLEMENT = 'reception.customers'
+
+# Servicios cuyos entitlements se resuelven contra su propia suscripción aunque
+# el Business tenga otro servicio principal.
+SERVICE_SCOPED_ENTITLEMENT_PREFIXES = frozenset({'appointments', 'gestion', 'reception'})
 
 
 # Entitlements por plan — 4 planes oficiales + aliases legacy
@@ -156,6 +166,13 @@ PLAN_ENTITLEMENTS['appointments_ai'] = {
     APPOINTMENTS_AUTOMATIONS_ENTITLEMENT,
 }
 
+# Recepcionista IA (PROD-02B). Sin Gestión ni agenda: Leads, IA y Clientes core.
+PLAN_ENTITLEMENTS['reception'] = {
+    RECEPTION_LEADS_ENTITLEMENT,
+    RECEPTION_AI_ENTITLEMENT,
+    RECEPTION_CUSTOMERS_ENTITLEMENT,
+}
+
 # Clientes core (`customers.Customer`) es una entidad compartida: alcanza con
 # CUALQUIERA de estos entitlements (Gestión con módulo Clientes, o Turnos).
 # Las secciones comerciales (ventas, presupuestos) siguen exigiendo
@@ -193,6 +210,9 @@ ENTITLEMENT_UPGRADE_HINTS = {
     'qr_reviews.print_posters': 'Reseñas PRO',
     APPOINTMENTS_LEADS_ENTITLEMENT: 'Turnos IA',
     APPOINTMENTS_AUTOMATIONS_ENTITLEMENT: 'Automatizaciones o Turnos IA',
+    RECEPTION_LEADS_ENTITLEMENT: 'Recepcionista IA',
+    RECEPTION_AI_ENTITLEMENT: 'Recepcionista IA',
+    RECEPTION_CUSTOMERS_ENTITLEMENT: 'Recepcionista IA',
 }
 
 
@@ -261,7 +281,7 @@ def has_entitlement(business, entitlement_code: str) -> bool:
         from apps.billing.enforcement import get_enforcement_decision
 
         service_type = entitlement_code.partition('.')[0]
-        if service_type in {'appointments', 'gestion'}:
+        if service_type in SERVICE_SCOPED_ENTITLEMENT_PREFIXES:
             resolved = resolve_subscription(business, service_type=service_type)
         else:
             resolved = resolve_subscription(business)

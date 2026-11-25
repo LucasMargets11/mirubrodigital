@@ -488,6 +488,10 @@ class StartSubscriptionView(APIView):
             service = 'gestion'
         if service not in allowed_services:
             return Response({'error': 'Invalid service'}, status=400)
+        if service == 'reception':
+            # PROD-02B: Recepcionista IA has no public sale; a Business is never
+            # born as `reception` from the public signup.
+            return Response({'error': 'Product is not available for purchase'}, status=400)
 
         try:
             with transaction.atomic():

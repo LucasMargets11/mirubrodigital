@@ -44,6 +44,8 @@ FEATURE_KEYS: Iterable[str] = (
   'appointments_core',  # Core access flag for Turnos standalone product
   'appointments_automations',
   'leads',              # Bandeja de Leads (derivado de `appointments.leads`, ver ENTITLEMENT_FEATURE_FLAGS)
+  # Recepcionista IA — standalone product flag (PROD-02B)
+  'reception_core',
 )
 
 # Flags de UI que NO se declaran por plan: se derivan del entitlement del plan
@@ -186,6 +188,11 @@ PLAN_FEATURES: Dict[str, Iterable[str]] = {
     'appointments_core',
     'customers',
   ),
+  # ── Recepcionista IA standalone (PROD-02B) ──────────────────────────────
+  # Only the product flag: Leads/Clientes UI gating arrives with PROD-02C.
+  'reception': (
+    'reception_core',
+  ),
 }
 
 
@@ -269,6 +276,19 @@ def feature_flags_for_v2_subscription(sub_v2, business) -> Dict[str, bool]:
     and not is_appointments_plan_code(sub_v2.plan_code)
   ):
     return {key: key in BASE_ALWAYS_ON for key in FEATURE_KEYS}
+
+  from apps.billing.runtime import RECEPTION_SERVICE, is_reception_plan_code
+  if sub_v2.service_type == RECEPTION_SERVICE or is_reception_plan_code(sub_v2.plan_code):
+    # Never fall through to feature_flags_for_plan(): an unknown plan there
+    # normalizes to Gestión Starter.
+    from django.core.exceptions import ValidationError
+    from apps.billing.reception_plans import resolve_reception_subscription_config
+    try:
+      config = resolve_reception_subscription_config(sub_v2)
+    except ValidationError as exc:
+      _logger.error("Invalid Recepcionista configuration subscription_v2=%s: %s", sub_v2.pk, exc)
+      return {key: key in BASE_ALWAYS_ON for key in FEATURE_KEYS}
+    return feature_flags_for_plan(config.plan_code)
 
   plan_tier = _extract_plan_tier(sub_v2.plan_code)
   flags = feature_flags_for_plan(plan_tier)

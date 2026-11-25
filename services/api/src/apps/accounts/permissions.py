@@ -355,10 +355,12 @@ class HasEntitlement(BasePermission):
         # Multi-product businesses resolve Gestão and Turnos entitlements from
         # their own subscriptions. This also covers shared Customer entitlements
         # that intentionally accept either product.
+        from apps.business.entitlements import SERVICE_SCOPED_ENTITLEMENT_PREFIXES
+
         entitlement_services = {
             code.partition('.')[0]
             for code in accepted
-            if code.partition('.')[0] in {'appointments', 'gestion'}
+            if code.partition('.')[0] in SERVICE_SCOPED_ENTITLEMENT_PREFIXES
         }
         if entitlement_services:
             from apps.billing.enforcement import get_enforcement_decision
