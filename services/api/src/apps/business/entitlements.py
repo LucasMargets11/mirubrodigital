@@ -174,10 +174,11 @@ PLAN_ENTITLEMENTS['reception'] = {
 }
 
 # Clientes core (`customers.Customer`) es una entidad compartida: alcanza con
-# CUALQUIERA de estos entitlements (Gestión con módulo Clientes, o Turnos).
-# Las secciones comerciales (ventas, presupuestos) siguen exigiendo
-# `gestion.customers` + sus propios permisos.
-CUSTOMER_CORE_ENTITLEMENTS = ('gestion.customers', 'appointments.customers')
+# CUALQUIERA de estos entitlements (Gestión con módulo Clientes, Turnos o,
+# desde PROD-02D, Recepcionista IA). Las secciones comerciales (ventas,
+# presupuestos) siguen exigiendo `gestion.customers` y las de agenda Turnos
+# operativo + `view_appointments`: este entitlement no habilita ninguna de ellas.
+CUSTOMER_CORE_ENTITLEMENTS = ('gestion.customers', 'appointments.customers', RECEPTION_CUSTOMERS_ENTITLEMENT)
 
 
 # Entitlements agregados por add-ons
