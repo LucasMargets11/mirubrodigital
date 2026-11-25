@@ -46,6 +46,8 @@ FEATURE_KEYS: Iterable[str] = (
   'leads',              # Bandeja de Leads (derivado de `appointments.leads`, ver ENTITLEMENT_FEATURE_FLAGS)
   # Recepcionista IA — standalone product flag (PROD-02B)
   'reception_core',
+  # Leads capability + effective Turnos access (PROD-02C, computed in context)
+  'agenda_integration',
 )
 
 # Flags de UI que NO se declaran por plan: se derivan del entitlement del plan

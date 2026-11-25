@@ -52,8 +52,10 @@ def build_business_context(business) -> Dict[str, object]:
 
     # ── Service list ───────────────────────────────────────────────────────
     service_list: List[str] = enabled_services(plan, feature_flags)
+    appointments_access = bool(resolved.access_granted) if resolved.service_type == 'appointments' else False
     if resolved.service_type != 'appointments':
         appointments_resolved = resolve_subscription(business, service_type='appointments')
+        appointments_access = bool(appointments_resolved.access_granted)
         if appointments_resolved.access_granted:
             if appointments_resolved.subscription_v2 is not None:
                 appointments_flags = feature_flags_for_v2_subscription(
@@ -71,6 +73,33 @@ def build_business_context(business) -> Dict[str, object]:
                 )
                 if 'appointments' not in service_list:
                     service_list.append('appointments')
+
+    # ── Recepcionista IA (PROD-02C) ────────────────────────────────────────
+    # Resolved from its own subscription whatever the principal service.
+    # `leads`/`customers` accept either origin (reception.* or the existing
+    # Turnos entitlements); `agenda_integration` = Leads capability AND
+    # effective Turnos access. Session flags are UX only: the APIs keep their
+    # own guards.
+    from apps.business.entitlements import RECEPTION_CUSTOMERS_ENTITLEMENT, RECEPTION_LEADS_ENTITLEMENT
+
+    reception_resolved = (
+        resolved if resolved.service_type == 'reception'
+        else resolve_subscription(business, service_type='reception')
+    )
+    reception_entitlements = (
+        reception_resolved.entitlements if reception_resolved.access_granted else frozenset()
+    )
+    if reception_resolved.access_granted and resolved.service_type != 'reception':
+        feature_flags['reception_core'] = True
+        if 'reception' not in service_list:
+            service_list.append('reception')
+    feature_flags['leads'] = (
+        bool(feature_flags.get('leads')) or RECEPTION_LEADS_ENTITLEMENT in reception_entitlements
+    )
+    feature_flags['customers'] = (
+        bool(feature_flags.get('customers')) or RECEPTION_CUSTOMERS_ENTITLEMENT in reception_entitlements
+    )
+    feature_flags['agenda_integration'] = feature_flags['leads'] and appointments_access
 
     from apps.billing.services.appointments import can_use_appointments_automations
 

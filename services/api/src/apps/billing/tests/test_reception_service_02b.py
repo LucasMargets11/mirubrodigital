@@ -366,8 +366,11 @@ class ReceptionBusinessContextTests(TestCase):
         self.assertEqual(context['service'], 'reception')
         self.assertEqual(context['enabled_services'], ['reception'])
         self.assertTrue(context['features']['reception_core'])
-        for flag in ('products', 'inventory', 'sales', 'appointments_core', 'leads', 'customers'):
+        for flag in ('products', 'inventory', 'sales', 'appointments_core', 'agenda_integration'):
             self.assertFalse(context['features'][flag], flag)
+        # PROD-02C: its own Leads and Clientes core capabilities.
+        self.assertTrue(context['features']['leads'])
+        self.assertTrue(context['features']['customers'])
 
     def test_invalid_reception_subscription_enables_nothing(self):
         biz = _business()
