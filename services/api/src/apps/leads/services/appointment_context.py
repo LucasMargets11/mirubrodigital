@@ -9,11 +9,22 @@ from .receiver import resolve_channel
 
 
 def appointment_context(lead: Lead) -> dict:
-    proposal = current_proposal(lead)
+    """Contexto de agenda para el agente.
+
+    PROD-02D: `agenda_enabled` (aditivo) dice si el Business opera Turnos hoy
+    (`has_agenda_access`, fail-closed). Sin agenda no se expone ninguna
+    propuesta ni turno: el agente no debe ofrecer ni acreditar turnos.
+    """
+    from apps.appointments.services.agenda_access import has_agenda_access
+
     appointment = lead.appointment
     if appointment is not None and appointment.business_id != lead.business_id:
         raise errors.business_mismatch()
+    if not has_agenda_access(lead.business):
+        return {'agenda_enabled': False, 'proposal': None, 'appointment': None}
+    proposal = current_proposal(lead)
     return {
+        'agenda_enabled': True,
         'proposal': (
             ProposalContextSerializer(proposal).data
             if proposal is not None and proposal.status == AppointmentProposal.Status.QUEUED else None

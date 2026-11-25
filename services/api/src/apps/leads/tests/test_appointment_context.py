@@ -26,8 +26,10 @@ class AppointmentContextTests(ProposalReceiverTestBase):
     def assertContext(self, response):
         self.assertEqual(response.status_code, 200, response.content)
         body = response.json()
-        self.assertEqual(set(body), {'ok', 'external_lead_id', 'proposal', 'appointment'})
+        # PROD-02D: `agenda_enabled` aditivo; estos tests tienen Turnos operativo.
+        self.assertEqual(set(body), {'ok', 'external_lead_id', 'agenda_enabled', 'proposal', 'appointment'})
         self.assertIs(body['ok'], True)
+        self.assertIs(body['agenda_enabled'], True)
         self.assertEqual(body['external_lead_id'], self.base_payload['external_lead_id'])
         self.assertEqual(response['Cache-Control'], 'no-store')
         self.assertIn('X-Request-Id', response)

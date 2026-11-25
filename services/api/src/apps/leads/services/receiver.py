@@ -228,6 +228,17 @@ def _record_proposal_confirmation(lead: Lead, data: dict, now) -> None:
     if signal is None:
         return
 
+    from apps.appointments.services.agenda_access import has_agenda_access
+
+    if not has_agenda_access(lead.business):
+        # PROD-02D: sin Turnos operativo una confirmación del agente nunca
+        # toca la agenda; el resto del sync (mensajes, handoff) sigue igual.
+        logger.info(
+            'proposal_confirmation_ignored lead=%s proposal=%s reason=agenda_unavailable',
+            lead.pk, signal['proposal_id'],
+        )
+        return
+
     lead = Lead.objects.select_for_update().get(pk=lead.pk)
     proposal = (
         AppointmentProposal.objects.select_for_update(of=('self',))

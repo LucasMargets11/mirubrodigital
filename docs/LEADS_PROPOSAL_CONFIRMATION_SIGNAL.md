@@ -17,6 +17,7 @@ receiver. Los headers humanos/JWT/cookies no seleccionan el tenant.
 {
   "ok": true,
   "external_lead_id": "0c6a1f0e-8a7b-4f0e-9a51-3e2d9b1c7a44",
+  "agenda_enabled": true,
   "proposal": {
     "id": "7a359564-7ddb-479b-9301-05441f7bdb55",
     "status": "queued",
@@ -29,6 +30,13 @@ receiver. Los headers humanos/JWT/cookies no seleccionan el tenant.
 }
 ```
 
+- `agenda_enabled` (PROD-02D, aditivo): `true` solo si el negocio opera Turnos
+  hoy (suscripción Turnos con acceso efectivo, enforcement y lifecycle;
+  fail-closed ante error). Con `false`, `proposal` y `appointment` son siempre
+  `null` (Recepcionista IA sin agenda, o Turnos suspendido/cancelado/no
+  iniciado): el bot no debe ofrecer ni acreditar turnos. Un bot que ignore el
+  campo sigue viendo ambos bloques en `null`. MiRubro además ignora la señal
+  `proposal_confirmation` (`agenda_unavailable`) sin acceso a Turnos.
 - `proposal` solo expone `queued` vigente, con snapshots de nombres; aplica
   expiración lazy mediante `current_proposal`. `pending_delivery` se omite
   (`null`): todavía no fue aceptada por el agente. También son `null`
@@ -50,8 +58,8 @@ receiver. Los headers humanos/JWT/cookies no seleccionan el tenant.
   `409 business_mismatch`. UUID malformado: `404` del router.
   Otros errores conservan el envelope del receiver, HMAC, flag y throttle.
 
-La respuesta del `PUT lead.sync` también agrega los mismos bloques `proposal`
-y `appointment` para `created`, `applied`, `duplicate` y `stale`; reflejan el
+La respuesta del `PUT lead.sync` también agrega los mismos bloques `agenda_enabled`,
+`proposal` y `appointment` para `created`, `applied`, `duplicate` y `stale`; reflejan el
 estado actual de MiRubro, no el snapshot viejo del bot. El GET sigue siendo
 la fuente principal. El hash/idempotencia del sync cubre el **input**, no
 estos bloques de respuesta.
