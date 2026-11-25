@@ -17,6 +17,7 @@ class Business(models.Model):
     ('menu_qr_marca', 'Menú QR Marca'),
     ('qr_reviews', 'QR de Reseñas'),
     ('appointments', 'Turnos'),
+    ('reception', 'Recepcionista IA'),
   ]
 
   # ── Phase 2A: canonical service enum ─────────────────────────────────────
@@ -29,6 +30,7 @@ class Business(models.Model):
     MENU_QR_MARCA  = 'menu_qr_marca',  'Menú QR Marca'
     QR_REVIEWS   = 'qr_reviews',    'QR de Reseñas'
     APPOINTMENTS = 'appointments',  'Turnos'
+    RECEPTION    = 'reception',     'Recepcionista IA'
 
   # ── Status choices (Phase 2A extends legacy 3-value set) ─────────────────
   STATUS_CHOICES = [

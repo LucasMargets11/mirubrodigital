@@ -343,6 +343,7 @@ class SubscriptionV2(models.Model):
         MENU_QR_MARCA  = 'menu_qr_marca',  'Menú QR Marca'
         QR_REVIEWS    = 'qr_reviews',     'QR de Reseñas'
         APPOINTMENTS  = 'appointments',   'Turnos'
+        RECEPTION     = 'reception',      'Recepcionista IA'
 
     class Provider(models.TextChoices):
         MERCADOPAGO = 'mercadopago', 'Mercado Pago'
@@ -376,7 +377,11 @@ class SubscriptionV2(models.Model):
     usage_tier = models.CharField(
         max_length=16, null=True, blank=True,
         choices=[('ai_300', 'IA 300'), ('ai_1500', 'IA 1500'),
-                 ('ai_3000', 'IA 3000'), ('custom', 'Custom')],
+                 ('ai_3000', 'IA 3000'), ('custom', 'Custom'),
+                 ('reception_300', 'Recepcionista 300'),
+                 ('reception_1500', 'Recepcionista 1500'),
+                 ('reception_3000', 'Recepcionista 3000'),
+                 ('reception_custom', 'Recepcionista Custom')],
     )
     billing_cycle = models.CharField(
         max_length=16, blank=True, default='',

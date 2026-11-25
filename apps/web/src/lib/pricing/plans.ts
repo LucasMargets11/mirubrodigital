@@ -145,6 +145,22 @@ export const APPOINTMENTS_AI: PlanDef<null> = {
   usageTiers: ['ai_300', 'ai_1500', 'ai_3000', 'custom'],
 };
 
+/**
+ * PROD-02B: Recepcionista IA, independiente de Turnos. Tarifado por usage tier,
+ * sin precio fijo. `secondaryUsersIncluded` es PROVISIONAL (paridad con Turnos IA)
+ * hasta su aprobación comercial; no hay profesionales en este servicio.
+ */
+export const RECEPTION: PlanDef<null> = {
+  code: 'reception',
+  vertical: 'reception',
+  name: 'Recepcionista IA',
+  priceMonthly: null,
+  priceYearly: null,
+  pricingMode: 'usage_tier',
+  secondaryUsersIncluded: 5,
+  usageTiers: ['reception_300', 'reception_1500', 'reception_3000', 'reception_custom'],
+};
+
 export const ALL_PLANS: readonly CanonicalPlanDef[] = [
   GC_STARTER,
   GC_PRO,
@@ -160,4 +176,5 @@ export const ALL_PLANS: readonly CanonicalPlanDef[] = [
   APPOINTMENTS,
   APPOINTMENTS_PRO,
   APPOINTMENTS_AI,
+  RECEPTION,
 ];

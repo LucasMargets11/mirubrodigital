@@ -33,4 +33,14 @@ export const ALL_PRODUCTS: readonly ProductDef[] = [
     is_active: false,
     order: 4,
   },
+  {
+    // PROD-02B: servicio independiente de Turnos. Sin venta pública: solo alta
+    // interna (todavía no habilitada) hasta aprobar precios y cantidades.
+    code: 'reception',
+    vertical: 'reception',
+    name: 'Recepcionista IA',
+    description: 'Atención por WhatsApp con IA, leads y derivación a tu equipo.',
+    is_active: false,
+    order: 5,
+  },
 ];

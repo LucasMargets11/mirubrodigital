@@ -1,5 +1,5 @@
 {
-  "version": "2026-10-28",
+  "version": "2026-11-25",
   "unit": "ARS_pesos_integer",
   "products": [
     {
@@ -33,6 +33,14 @@
       "description": "Gestioná tu agenda y recibí reservas online.",
       "is_active": false,
       "order": 4
+    },
+    {
+      "code": "reception",
+      "vertical": "reception",
+      "name": "Recepcionista IA",
+      "description": "Atención por WhatsApp con IA, leads y derivación a tu equipo.",
+      "is_active": false,
+      "order": 5
     }
   ],
   "plans": [
@@ -165,6 +173,22 @@
         "ai_1500",
         "ai_3000",
         "custom"
+      ]
+    },
+    {
+      "code": "reception",
+      "vertical": "reception",
+      "name": "Recepcionista IA",
+      "price_monthly": null,
+      "price_yearly": null,
+      "is_custom": false,
+      "pricing_mode": "usage_tier",
+      "secondary_users_included": 5,
+      "usage_tiers": [
+        "reception_300",
+        "reception_1500",
+        "reception_3000",
+        "reception_custom"
       ]
     }
   ],
@@ -321,6 +345,54 @@
       "code": "custom",
       "plan_code": "appointments_ai",
       "name": "Business",
+      "purchase_mode": "contact_sales",
+      "billing_mode": "manual",
+      "monthly_price": null,
+      "annual_price": null,
+      "included_conversations": null,
+      "extra_conversation_price": null,
+      "default_extra_spend_limit": null
+    },
+    {
+      "code": "reception_300",
+      "plan_code": "reception",
+      "name": "Recepcionista 300",
+      "purchase_mode": "contact_sales",
+      "billing_mode": "manual",
+      "monthly_price": null,
+      "annual_price": null,
+      "included_conversations": null,
+      "extra_conversation_price": null,
+      "default_extra_spend_limit": null
+    },
+    {
+      "code": "reception_1500",
+      "plan_code": "reception",
+      "name": "Recepcionista 1.500",
+      "purchase_mode": "contact_sales",
+      "billing_mode": "manual",
+      "monthly_price": null,
+      "annual_price": null,
+      "included_conversations": null,
+      "extra_conversation_price": null,
+      "default_extra_spend_limit": null
+    },
+    {
+      "code": "reception_3000",
+      "plan_code": "reception",
+      "name": "Recepcionista 3.000",
+      "purchase_mode": "contact_sales",
+      "billing_mode": "manual",
+      "monthly_price": null,
+      "annual_price": null,
+      "included_conversations": null,
+      "extra_conversation_price": null,
+      "default_extra_spend_limit": null
+    },
+    {
+      "code": "reception_custom",
+      "plan_code": "reception",
+      "name": "Recepcionista Business",
       "purchase_mode": "contact_sales",
       "billing_mode": "manual",
       "monthly_price": null,

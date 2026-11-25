@@ -19,6 +19,11 @@ def validate_usage_tier(plan_code: str, usage_tier: str | None, *,
             return
         if usage_tier not in USAGE_TIERS:
             raise ValidationError({'usage_tier': 'Turnos IA requires an explicit valid usage tier.'})
+    elif plan_code == 'reception':
+        # PROD-02B: Recepcionista IA has its own tiers (never Turnos IA's).
+        from apps.billing.reception_plans import validate_reception_usage_tier
+
+        validate_reception_usage_tier(usage_tier)
     elif usage_tier is not None:
         raise ValidationError({'usage_tier': 'This plan does not support a usage tier.'})
 

@@ -124,6 +124,63 @@ def validate_appointments_catalog(data: dict) -> None:
         raise ValueError("Extra professional must be a nonnegative integer quantity, not a fixed addon")
 
 
+RECEPTION_USAGE_TIERS = ('reception_300', 'reception_1500', 'reception_3000', 'reception_custom')
+_TIER_AMOUNT_KEYS = (
+    'monthly_price', 'annual_price', 'included_conversations',
+    'extra_conversation_price', 'default_extra_spend_limit',
+)
+
+
+def validate_reception_catalog(data: dict) -> None:
+    """PROD-02B: Recepcionista IA, an unpublished service of its own.
+
+    While prices and included conversations are pending approval the catalog
+    must keep it unsellable: inactive product and contact_sales/manual tiers
+    without any amount. Relaxing this requires an explicit commercial decision.
+    """
+    indexes = {
+        section: {row['code']: row for row in data[section]}
+        for section in ('products', 'plans', 'addons', 'extras', 'usage_tiers')
+    }
+    product = indexes['products'].get('reception')
+    if product is None or product['vertical'] != 'reception':
+        raise ValueError("reception product missing or with an invalid vertical")
+    if product['is_active'] is not False:
+        raise ValueError("reception product must stay inactive (public sale disabled)")
+
+    reception_plans = [p for p in data['plans'] if p['vertical'] == 'reception']
+    if [p['code'] for p in reception_plans] != ['reception']:
+        raise ValueError("reception vertical must have exactly the 'reception' plan")
+    plan = reception_plans[0]
+    if (plan.get('pricing_mode') != 'usage_tier'
+            or plan['price_monthly'] is not None or plan['price_yearly'] is not None
+            or plan.get('is_custom') is not False):
+        raise ValueError("reception plan must be tier-priced without a fixed price")
+    secondary = plan.get('secondary_users_included')
+    # >= 1: seat checks read a limit of 0 as "unlimited".
+    if type(secondary) is not int or secondary < 1:
+        raise ValueError("reception.secondary_users_included must be an integer >= 1")
+    if any(key in plan for key in ('professionals_included', 'includes_plans', 'included_addons')):
+        raise ValueError("reception plan includes no professionals, plans or addons")
+    if plan.get('usage_tiers') != list(RECEPTION_USAGE_TIERS):
+        raise ValueError("reception plan requires its own canonical usage tiers")
+
+    for code in RECEPTION_USAGE_TIERS:
+        tier = indexes['usage_tiers'].get(code)
+        if tier is None or tier['plan_code'] != 'reception':
+            raise ValueError(f"{code}: missing or not a reception tier")
+        if (tier['purchase_mode'] != 'contact_sales' or tier.get('billing_mode') != 'manual'
+                or any(tier[key] is not None for key in _TIER_AMOUNT_KEYS)):
+            raise ValueError(f"{code}: must stay non-purchasable until prices are approved")
+    foreign = [t['code'] for t in data['usage_tiers']
+               if t['plan_code'] == 'reception' and t['code'] not in RECEPTION_USAGE_TIERS]
+    if foreign:
+        raise ValueError(f"unexpected reception tiers: {foreign}")
+    for section in ('addons', 'extras'):
+        if any(row['vertical'] == 'reception' for row in data[section]):
+            raise ValueError(f"reception has no {section} yet")
+
+
 # Subscription prices, not per-conversation overage.
 MIN_SANE_PRICE = 1000
 
@@ -135,6 +192,7 @@ def _load_pricing() -> dict:
         f"pricing.json unit must be 'ARS_pesos_integer', got '{data.get('unit')}'"
     )
     validate_appointments_catalog(data)
+    validate_reception_catalog(data)
     return data
 
 _DATA = _load_pricing()
@@ -191,6 +249,15 @@ def get_appointments_catalog() -> dict:
         'addons': [a for a in ADDONS if a['vertical'] == 'appointments'],
         'extras': [e for e in EXTRAS if e['vertical'] == 'appointments'],
         'usage_tiers': [t for t in USAGE_TIERS if t['plan_code'] == 'appointments_ai'],
+    }
+
+
+def get_reception_catalog() -> dict:
+    """Internal Recepcionista IA catalog (PROD-02B); never sold while the product is inactive."""
+    return {
+        'product': get_product('reception'),
+        'plans': [p for p in PLANS if p['vertical'] == 'reception'],
+        'usage_tiers': [t for t in USAGE_TIERS if t['plan_code'] == 'reception'],
     }
 
 

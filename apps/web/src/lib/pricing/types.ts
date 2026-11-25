@@ -7,7 +7,7 @@
  */
 
 /** Verticals within canonical pricing scope. */
-export type Vertical = 'commercial' | 'menu_qr' | 'qr_reviews' | 'appointments';
+export type Vertical = 'commercial' | 'menu_qr' | 'qr_reviews' | 'appointments' | 'reception';
 
 export type BillingCycle = 'monthly' | 'yearly';
 
@@ -42,7 +42,7 @@ export interface ProductDef {
 
 export type UsageTierDef = {
   code: string;
-  planCode: 'appointments_ai';
+  planCode: 'appointments_ai' | 'reception';
   name: string;
 } & (
   | {

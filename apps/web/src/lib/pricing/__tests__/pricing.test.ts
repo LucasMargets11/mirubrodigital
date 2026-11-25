@@ -8,8 +8,8 @@ import { formatPrice } from '../format';
 // ── Plan invariants ──────────────────────────────────────────
 
 describe('canonical plans', () => {
-  it('contains 11 existing plans and 3 Turnos plans', () => {
-    expect(ALL_PLANS).toHaveLength(14);
+  it('contains 11 existing plans, 3 Turnos plans and 1 Recepcionista IA plan', () => {
+    expect(ALL_PLANS).toHaveLength(15);
   });
 
   it('annual = monthly × 12 × 0.8 for non-custom plans', () => {

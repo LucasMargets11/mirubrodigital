@@ -98,11 +98,13 @@ describe('S2 Turnos catalog (unpublished)', () => {
 describe('shared pricing exporter regression', () => {
   it('preserves products and the existing offers in every other vertical', () => {
     const output = buildPricingCatalog();
+    // Turnos and Recepcionista IA (PROD-02B) are covered by their own tests.
+    const own = new Set(['appointments', 'reception']);
     const nonTurnos = {
-      products: output.products.filter((p) => p.vertical !== 'appointments'),
-      plans: output.plans.filter((p) => p.vertical !== 'appointments'),
-      addons: output.addons.filter((a) => a.vertical !== 'appointments'),
-      extras: output.extras.filter((e) => e.vertical !== 'appointments'),
+      products: output.products.filter((p) => !own.has(p.vertical)),
+      plans: output.plans.filter((p) => !own.has(p.vertical)),
+      addons: output.addons.filter((a) => !own.has(a.vertical)),
+      extras: output.extras.filter((e) => !own.has(e.vertical)),
     };
     expect(nonTurnos).toMatchSnapshot();
   });
