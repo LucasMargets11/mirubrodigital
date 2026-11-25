@@ -34,6 +34,11 @@ from apps.leads.models import LeadAgentState
 
 SESSION_DURATION = timedelta(hours=24)
 
+# PROD-02E1: Recepcionista IA is recognized as an AI source, but its
+# consumption stays blocked until PROD-02E2 defines tier allowances and
+# economics (and the billing pipeline covers it). Never unlimited.
+RECEPTION_AI_CONSUMPTION_ENABLED = False
+
 
 class AIUsageUnavailable(ValueError):
     """Unresolved or ineligible commercial/context data; never a plan fallback."""
@@ -53,7 +58,31 @@ def _utc(at: datetime) -> datetime:
     return at.astimezone(dt_timezone.utc)
 
 
+def _reception_ai_usage_limit(subscription: SubscriptionV2) -> int:
+    from apps.billing.reception_plans import resolve_reception_subscription_config
+
+    try:
+        config = resolve_reception_subscription_config(subscription)
+    except ValidationError as exc:
+        raise AIUsageUnavailable('Invalid Recepcionista configuration.', reason='invalid_tier') from exc
+    if config.usage_tier == 'reception_custom':
+        raise ManualContractRequired('custom usage requires manual commercial resolution.')
+    included = config.usage_tier_config.get('included_conversations')
+    if type(included) is not int or included <= 0:
+        # An undefined allowance is never "unlimited".
+        raise AIUsageUnavailable(
+            'The Recepcionista tier has no defined conversation allowance.', reason='usage_policy_undefined',
+        )
+    if not RECEPTION_AI_CONSUMPTION_ENABLED:
+        raise AIUsageUnavailable(
+            'Recepcionista AI consumption is not enabled yet.', reason='usage_policy_undefined',
+        )
+    return included
+
+
 def resolve_ai_usage_limit(subscription: SubscriptionV2) -> int:
+    if subscription.service_type == 'reception' and subscription.plan_code == 'reception':
+        return _reception_ai_usage_limit(subscription)
     if subscription.service_type != 'appointments' or subscription.plan_code != 'appointments_ai':
         raise AIUsageUnavailable('An effective canonical appointments_ai subscription is required.', reason='no_ai_entitlement')
     try:
@@ -109,6 +138,23 @@ def resolve_appointments_ai_usage_period(
 
 
 def _locked_subscription(business: Business, *, at: datetime) -> SubscriptionV2:
+    # PROD-02E1: one AI source per Business (billing.services.ai_source).
+    # Recepcionista + Turnos IA fails closed; an eligible Recepcionista is the
+    # source next to Turnos Base/Pro. Otherwise the original Turnos IA path
+    # below runs unchanged (same checks, locks and reasons).
+    from apps.billing.services.ai_source import (
+        AMBIGUOUS_AI_SOURCE, RECEPTION_SOURCE, resolve_ai_source,
+    )
+
+    source = resolve_ai_source(business, at=at)
+    if source.reason == AMBIGUOUS_AI_SOURCE:
+        raise AIUsageUnavailable('More than one eligible AI source.', reason=AMBIGUOUS_AI_SOURCE)
+    if source.source == RECEPTION_SOURCE:
+        subscription = SubscriptionV2.objects.select_for_update().get(pk=source.subscription.pk)
+        if subscription.business_id != business.pk:
+            raise AIUsageUnavailable('AI source of another business.', reason='no_ai_entitlement')
+        resolve_ai_usage_limit(subscription)
+        return subscription
     resolved = resolve_subscription(business, service_type='appointments')
     if resolved.subscription_v2 is None:
         raise AIUsageUnavailable('No effective appointments_ai subscription.', reason='no_ai_entitlement')
