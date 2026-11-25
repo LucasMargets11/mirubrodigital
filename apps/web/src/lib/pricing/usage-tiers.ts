@@ -46,44 +46,44 @@ export const ALL_USAGE_TIERS: readonly UsageTierDef[] = [
     extraConversationPrice: null,
     defaultExtraSpendLimit: null,
   },
-  // PROD-02B: tiers propios de Recepcionista IA. Precios y conversaciones
-  // incluidas PENDIENTES de aprobación: se representan como no comprables
-  // (contact_sales/manual, sin importes) hasta definirlos.
+  // Recepcionista IA. PROD-02E2A: cupos fijos internos (alta manual, nunca
+  // comprables), sin excedentes (sin precio de excedente, tope 0). Precios
+  // comerciales pendientes. `reception_custom` sigue sin cupo (PROD-02E2B).
   {
     code: 'reception_300',
     planCode: 'reception',
     name: 'Recepcionista 300',
-    purchaseMode: 'contact_sales',
+    purchaseMode: 'internal',
     billingMode: 'manual',
     monthlyPrice: null,
     annualPrice: null,
-    includedConversations: null,
+    includedConversations: 300,
     extraConversationPrice: null,
-    defaultExtraSpendLimit: null,
+    defaultExtraSpendLimit: 0,
   },
   {
     code: 'reception_1500',
     planCode: 'reception',
     name: 'Recepcionista 1.500',
-    purchaseMode: 'contact_sales',
+    purchaseMode: 'internal',
     billingMode: 'manual',
     monthlyPrice: null,
     annualPrice: null,
-    includedConversations: null,
+    includedConversations: 1500,
     extraConversationPrice: null,
-    defaultExtraSpendLimit: null,
+    defaultExtraSpendLimit: 0,
   },
   {
     code: 'reception_3000',
     planCode: 'reception',
     name: 'Recepcionista 3.000',
-    purchaseMode: 'contact_sales',
+    purchaseMode: 'internal',
     billingMode: 'manual',
     monthlyPrice: null,
     annualPrice: null,
-    includedConversations: null,
+    includedConversations: 3000,
     extraConversationPrice: null,
-    defaultExtraSpendLimit: null,
+    defaultExtraSpendLimit: 0,
   },
   {
     code: 'reception_custom',

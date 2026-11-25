@@ -4,7 +4,7 @@ import { buildPricingCatalog } from '../export-json';
 
 const TIERS = ['reception_300', 'reception_1500', 'reception_3000', 'reception_custom'];
 
-describe('PROD-02B Recepcionista IA catalog (unpublished, not purchasable)', () => {
+describe('Recepcionista IA catalog (unpublished, not purchasable; PROD-02B/02E2A)', () => {
   it('is an inactive product of its own vertical', () => {
     expect(getProduct('reception')).toMatchObject({ vertical: 'reception', is_active: false });
     expect(buildPricingCatalog().products.find((p) => p.code === 'reception')?.is_active).toBe(false);
@@ -24,19 +24,30 @@ describe('PROD-02B Recepcionista IA catalog (unpublished, not purchasable)', () 
     expect(plan.secondaryUsersIncluded).toBeGreaterThanOrEqual(1);
   });
 
-  it('every tier is its own and non-purchasable until prices are approved', () => {
+  it('fixed internal allowances without prices nor overage; custom stays empty', () => {
     const tiers = ALL_USAGE_TIERS.filter((t) => t.planCode === 'reception');
     expect(tiers.map((t) => t.code)).toEqual(TIERS);
+    const allowances: Record<string, number> = {
+      reception_300: 300,
+      reception_1500: 1500,
+      reception_3000: 3000,
+    };
     for (const tier of tiers) {
-      expect(tier).toMatchObject({
-        purchaseMode: 'contact_sales',
-        billingMode: 'manual',
-        monthlyPrice: null,
-        annualPrice: null,
-        includedConversations: null,
-        extraConversationPrice: null,
-        defaultExtraSpendLimit: null,
-      });
+      expect(tier).toMatchObject({ billingMode: 'manual', monthlyPrice: null, annualPrice: null });
+      expect(tier.extraConversationPrice).toBeNull();
+      if (tier.code in allowances) {
+        expect(tier).toMatchObject({
+          purchaseMode: 'internal',
+          includedConversations: allowances[tier.code],
+          defaultExtraSpendLimit: 0,
+        });
+      } else {
+        expect(tier).toMatchObject({
+          purchaseMode: 'contact_sales',
+          includedConversations: null,
+          defaultExtraSpendLimit: null,
+        });
+      }
     }
     const plan = getPlan('reception')!;
     for (const code of [...TIERS, undefined, 'ai_300']) {

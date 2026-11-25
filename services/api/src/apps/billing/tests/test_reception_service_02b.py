@@ -90,11 +90,20 @@ class ReceptionCatalogTests(SimpleTestCase):
         self.assertEqual(plan['usage_tiers'], TIERS)
         self.assertNotIn('professionals_included', plan)
         self.assertEqual([t['code'] for t in catalog['usage_tiers']], TIERS)
+        # PROD-02E2A: fixed internal allowances without prices nor overage; custom stays empty.
+        allowances = {'reception_300': 300, 'reception_1500': 1500, 'reception_3000': 3000}
         for tier in catalog['usage_tiers']:
-            self.assertEqual((tier['purchase_mode'], tier['billing_mode']), ('contact_sales', 'manual'))
-            for key in ('monthly_price', 'annual_price', 'included_conversations',
-                        'extra_conversation_price', 'default_extra_spend_limit'):
-                self.assertIsNone(tier[key], f'{tier["code"]}.{key}')
+            self.assertIsNone(tier['monthly_price'])
+            self.assertIsNone(tier['annual_price'])
+            self.assertIsNone(tier['extra_conversation_price'])
+            if tier['code'] in allowances:
+                self.assertEqual((tier['purchase_mode'], tier['billing_mode']), ('internal', 'manual'))
+                self.assertEqual(tier['included_conversations'], allowances[tier['code']])
+                self.assertEqual(tier['default_extra_spend_limit'], 0)
+            else:
+                self.assertEqual((tier['purchase_mode'], tier['billing_mode']), ('contact_sales', 'manual'))
+                self.assertIsNone(tier['included_conversations'])
+                self.assertIsNone(tier['default_extra_spend_limit'])
 
     def test_not_available_for_public_checkout_or_product_listing(self):
         self.assertFalse(canonical_pricing.is_plan_product_active('reception'))
@@ -134,7 +143,10 @@ class ReceptionCatalogTests(SimpleTestCase):
             'foreign tier list': lambda d: plan(d).update(usage_tiers=['ai_300']),
             'priced tier': lambda d: tier(d).update(monthly_price=150000),
             'self service tier': lambda d: tier(d).update(purchase_mode='self_service'),
-            'allowance without approval': lambda d: tier(d).update(included_conversations=300),
+            'allowance not matching its code': lambda d: tier(d).update(included_conversations=301),
+            'overage spend limit': lambda d: tier(d).update(default_extra_spend_limit=75000),
+            'overage price': lambda d: tier(d).update(extra_conversation_price=300),
+            'custom with allowance': lambda d: tier(d, 'reception_custom').update(included_conversations=100),
             'tier of another plan': lambda d: tier(d).update(plan_code='appointments_ai'),
             'missing tier': lambda d: d.update(usage_tiers=[t for t in d['usage_tiers'] if t['code'] != 'reception_1500']),
             'second plan': lambda d: d['plans'].append({**plan(d), 'code': 'reception_pro'}),

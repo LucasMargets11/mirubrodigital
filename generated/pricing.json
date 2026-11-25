@@ -357,37 +357,37 @@
       "code": "reception_300",
       "plan_code": "reception",
       "name": "Recepcionista 300",
-      "purchase_mode": "contact_sales",
+      "purchase_mode": "internal",
       "billing_mode": "manual",
       "monthly_price": null,
       "annual_price": null,
-      "included_conversations": null,
+      "included_conversations": 300,
       "extra_conversation_price": null,
-      "default_extra_spend_limit": null
+      "default_extra_spend_limit": 0
     },
     {
       "code": "reception_1500",
       "plan_code": "reception",
       "name": "Recepcionista 1.500",
-      "purchase_mode": "contact_sales",
+      "purchase_mode": "internal",
       "billing_mode": "manual",
       "monthly_price": null,
       "annual_price": null,
-      "included_conversations": null,
+      "included_conversations": 1500,
       "extra_conversation_price": null,
-      "default_extra_spend_limit": null
+      "default_extra_spend_limit": 0
     },
     {
       "code": "reception_3000",
       "plan_code": "reception",
       "name": "Recepcionista 3.000",
-      "purchase_mode": "contact_sales",
+      "purchase_mode": "internal",
       "billing_mode": "manual",
       "monthly_price": null,
       "annual_price": null,
-      "included_conversations": null,
+      "included_conversations": 3000,
       "extra_conversation_price": null,
-      "default_extra_spend_limit": null
+      "default_extra_spend_limit": 0
     },
     {
       "code": "reception_custom",

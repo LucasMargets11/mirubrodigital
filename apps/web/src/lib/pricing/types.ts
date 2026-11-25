@@ -62,6 +62,19 @@ export type UsageTierDef = {
       extraConversationPrice: null;
       defaultExtraSpendLimit: null;
     }
+  | {
+      /**
+       * PROD-02E2A: internal/manual offer (never purchasable) with a fixed
+       * included allowance and NO overage: no overage price, spend limit 0.
+       */
+      purchaseMode: 'internal';
+      billingMode: 'manual';
+      monthlyPrice: null;
+      annualPrice: null;
+      includedConversations: number;
+      extraConversationPrice: null;
+      defaultExtraSpendLimit: 0;
+    }
 );
 
 /** Canonical addon definition. */

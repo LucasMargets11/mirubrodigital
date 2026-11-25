@@ -125,6 +125,8 @@ def validate_appointments_catalog(data: dict) -> None:
 
 
 RECEPTION_USAGE_TIERS = ('reception_300', 'reception_1500', 'reception_3000', 'reception_custom')
+# PROD-02E2A: provisional fixed allowances (sessions per usage period).
+RECEPTION_FIXED_ALLOWANCES = {'reception_300': 300, 'reception_1500': 1500, 'reception_3000': 3000}
 _TIER_AMOUNT_KEYS = (
     'monthly_price', 'annual_price', 'included_conversations',
     'extra_conversation_price', 'default_extra_spend_limit',
@@ -135,8 +137,9 @@ def validate_reception_catalog(data: dict) -> None:
     """PROD-02B: Recepcionista IA, an unpublished service of its own.
 
     While prices and included conversations are pending approval the catalog
-    must keep it unsellable: inactive product and contact_sales/manual tiers
-    without any amount. Relaxing this requires an explicit commercial decision.
+    must keep it unsellable: inactive product, fixed internal/manual allowances
+    without prices nor overage (PROD-02E2A) and a contact_sales custom tier.
+    Relaxing this requires an explicit commercial decision.
     """
     indexes = {
         section: {row['code']: row for row in data[section]}
@@ -169,9 +172,21 @@ def validate_reception_catalog(data: dict) -> None:
         tier = indexes['usage_tiers'].get(code)
         if tier is None or tier['plan_code'] != 'reception':
             raise ValueError(f"{code}: missing or not a reception tier")
-        if (tier['purchase_mode'] != 'contact_sales' or tier.get('billing_mode') != 'manual'
+        if code in RECEPTION_FIXED_ALLOWANCES:
+            # PROD-02E2A: internal/manual fixed allowance, never purchasable and
+            # without overage (no overage price, spend limit 0).
+            if (tier['purchase_mode'] != 'internal' or tier.get('billing_mode') != 'manual'
+                    or tier['monthly_price'] is not None or tier['annual_price'] is not None
+                    or tier['extra_conversation_price'] is not None
+                    or tier['default_extra_spend_limit'] != 0
+                    or type(tier['default_extra_spend_limit']) is not int):
+                raise ValueError(f"{code}: must be internal/manual without prices nor overage")
+            if (type(tier['included_conversations']) is not int
+                    or tier['included_conversations'] != RECEPTION_FIXED_ALLOWANCES[code]):
+                raise ValueError(f"{code}: included conversations must be {RECEPTION_FIXED_ALLOWANCES[code]}")
+        elif (tier['purchase_mode'] != 'contact_sales' or tier.get('billing_mode') != 'manual'
                 or any(tier[key] is not None for key in _TIER_AMOUNT_KEYS)):
-            raise ValueError(f"{code}: must stay non-purchasable until prices are approved")
+            raise ValueError(f"{code}: must stay non-purchasable without allowance until approved")
     foreign = [t['code'] for t in data['usage_tiers']
                if t['plan_code'] == 'reception' and t['code'] not in RECEPTION_USAGE_TIERS]
     if foreign:

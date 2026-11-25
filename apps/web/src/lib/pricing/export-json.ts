@@ -64,7 +64,7 @@ export function buildPricingCatalog() {
       plan_code: t.planCode,
       name: t.name,
       purchase_mode: t.purchaseMode,
-      ...(t.purchaseMode === 'contact_sales' && { billing_mode: t.billingMode }),
+      ...(t.purchaseMode !== 'self_service' && { billing_mode: t.billingMode }),
       monthly_price: t.monthlyPrice,
       annual_price: t.annualPrice,
       included_conversations: t.includedConversations,
