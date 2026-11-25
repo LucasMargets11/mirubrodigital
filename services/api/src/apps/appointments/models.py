@@ -557,6 +557,11 @@ class AppointmentPayment(models.Model):
     return f'{EXTERNAL_REFERENCE_PREFIX}{payment_id.hex}'
 
 
+# Tiers with a fixed metered allowance: Turnos IA self-service and the
+# Recepcionista IA internal tiers (PROD-02E2A). `custom` tiers never meter.
+AI_USAGE_METERED_TIERS = ['ai_300', 'ai_1500', 'ai_3000', 'reception_300', 'reception_1500', 'reception_3000']
+
+
 class AppointmentAIUsageSession(models.Model):
   """Commercial AI sessions, independent of Lead episodes and message retention."""
 
@@ -596,7 +601,7 @@ class AppointmentAIUsageSession(models.Model):
         name='appt_ai_start_in_usage_period',
       ),
       models.CheckConstraint(
-        check=Q(usage_tier__in=['ai_300', 'ai_1500', 'ai_3000']),
+        check=Q(usage_tier__in=AI_USAGE_METERED_TIERS),
         name='appt_ai_session_resolved_tier',
       ),
       models.CheckConstraint(
@@ -666,7 +671,7 @@ class AppointmentAIUsageCharge(models.Model):
         name='appt_ai_charge_positive_period',
       ),
       models.CheckConstraint(
-        check=Q(usage_tier__in=['ai_300', 'ai_1500', 'ai_3000']) & Q(currency='ARS'),
+        check=Q(usage_tier__in=AI_USAGE_METERED_TIERS) & Q(currency='ARS'),
         name='appt_ai_charge_resolved_terms',
       ),
       models.CheckConstraint(
@@ -682,6 +687,11 @@ class AppointmentAIUsageCharge(models.Model):
           & Q(session_ordinal__gt=models.F('included_sessions_snapshot'))
         ),
         name='appt_ai_charge_classification',
+      ),
+      # PROD-02E2A: Recepcionista IA has no overage; enforced in the DB too.
+      models.CheckConstraint(
+        check=~Q(usage_tier__startswith='reception_') | Q(classification='included'),
+        name='appt_ai_charge_reception_included_only',
       ),
     ]
 

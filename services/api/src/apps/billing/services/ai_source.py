@@ -7,10 +7,10 @@ Possible sources (exact service/plan pairs, never a cross-service fallback):
 A candidate is *commercially eligible* only when all of these hold at `at`:
   - it belongs to the Business and is resolved by billing.runtime for its own
     service (so canceled / checkout_pending rows are never candidates);
-  - `access_granted` + an allowing enforcement decision (suspended, expired
-    past_due, not-yet-started or ended benefits are out);
-  - the Turnos/Recepcionista lifecycle allows it (active, in-window
-    complimentary grant, past_due inside grace; cancel-at-period-end boundary);
+  - the Turnos/Recepcionista lifecycle allows it at the interaction instant
+    (active, in-window complimentary grant, past_due inside grace,
+    cancel-at-period-end boundary) — the states billing enforcement allows,
+    so suspended, expired past_due, not-yet-started or ended benefits are out;
   - the Business itself may consume (active, or trialing only for an
     in-window complimentary grant), as the metering engine already required;
   - plan and tier are valid for that product.
@@ -125,16 +125,24 @@ def _tier_policy(source: str, subscription) -> tuple[bool, Optional[str]]:
     included = tier.get('included_conversations')
     if type(included) is not int or included <= 0:
         return False, USAGE_POLICY_UNDEFINED
-    if tier.get('purchase_mode') == 'self_service':
+    mode = tier.get('purchase_mode')
+    if mode == 'self_service':
         price = tier.get('extra_conversation_price')
         cap = tier.get('default_extra_spend_limit')
         if type(price) is not int or price <= 0 or type(cap) is not int or cap < 0:
             return False, USAGE_POLICY_UNDEFINED
+    elif mode == 'internal':
+        # PROD-02E2A: fixed allowance with overage disabled (no price, cap 0).
+        if (tier.get('billing_mode') != 'manual' or tier.get('extra_conversation_price') is not None
+                or type(tier.get('default_extra_spend_limit')) is not int
+                or tier.get('default_extra_spend_limit') != 0):
+            return False, USAGE_POLICY_UNDEFINED
+    else:
+        return False, USAGE_POLICY_UNDEFINED
     return True, None
 
 
 def _candidate(business, source: str, *, at: datetime) -> Optional[AISourceCandidate]:
-    from apps.billing.enforcement import get_enforcement_decision
     from apps.billing.runtime import resolve_subscription
 
     service_type, plan_code = AI_SOURCES[source]
@@ -151,8 +159,11 @@ def _candidate(business, source: str, *, at: datetime) -> Optional[AISourceCandi
     def ineligible(reason):
         return AISourceCandidate(source, subscription, False, reason, False, None)
 
-    if not resolved.access_granted or not get_enforcement_decision(resolved).access_allowed:
-        return ineligible('suspended')
+    # PROD-02E2A: evaluated at the interaction instant `at` with the product
+    # lifecycle (the same states billing enforcement allows: active,
+    # in-window complimentary grant, past_due in grace), exactly as the
+    # metering engine always did. runtime access_granted/enforcement use the
+    # wall clock and would diverge for historical occurrence times.
     if not _lifecycle_access(subscription, at=at):
         return ineligible('suspended')
     if subscription.cancel_at_period_end and subscription.current_period_end is None:

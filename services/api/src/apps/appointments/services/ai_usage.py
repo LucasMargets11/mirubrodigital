@@ -34,10 +34,44 @@ from apps.leads.models import LeadAgentState
 
 SESSION_DURATION = timedelta(hours=24)
 
-# PROD-02E1: Recepcionista IA is recognized as an AI source, but its
-# consumption stays blocked until PROD-02E2 defines tier allowances and
-# economics (and the billing pipeline covers it). Never unlimited.
-RECEPTION_AI_CONSUMPTION_ENABLED = False
+# PROD-02E2A: Recepcionista IA consumes its fixed included allowance only
+# (internal/manual tiers, overage disabled). Kill switch: setting it to False
+# blocks every Recepcionista session with `usage_policy_undefined`. Any
+# incomplete policy fails closed regardless; never unlimited.
+RECEPTION_AI_CONSUMPTION_ENABLED = True
+
+
+def _is_reception(subscription: SubscriptionV2) -> bool:
+    return subscription.service_type == 'reception' and subscription.plan_code == 'reception'
+
+
+def _reception_tier_policy(subscription: SubscriptionV2) -> dict:
+    """Validated Recepcionista policy: positive allowance, overage disabled."""
+    from apps.billing.reception_plans import resolve_reception_subscription_config
+
+    try:
+        config = resolve_reception_subscription_config(subscription)
+    except ValidationError as exc:
+        raise AIUsageUnavailable('Invalid Recepcionista configuration.', reason='invalid_tier') from exc
+    if config.usage_tier == 'reception_custom':
+        raise ManualContractRequired('custom usage requires manual commercial resolution.')
+    tier = config.usage_tier_config
+    included = tier.get('included_conversations')
+    if type(included) is not int or included <= 0:
+        # An undefined allowance is never "unlimited".
+        raise AIUsageUnavailable(
+            'The Recepcionista tier has no defined conversation allowance.', reason='usage_policy_undefined',
+        )
+    if (tier.get('purchase_mode') != 'internal' or tier.get('billing_mode') != 'manual'
+            or tier.get('extra_conversation_price') is not None
+            or type(tier.get('default_extra_spend_limit')) is not int
+            or tier.get('default_extra_spend_limit') != 0):
+        raise AIUsageUnavailable(
+            'The Recepcionista overage policy is not the disabled one.', reason='usage_policy_undefined',
+        )
+    if not RECEPTION_AI_CONSUMPTION_ENABLED:
+        raise AIUsageUnavailable('Recepcionista AI consumption is disabled.', reason='usage_policy_undefined')
+    return {'usage_tier': config.usage_tier, 'included': included}
 
 
 class AIUsageUnavailable(ValueError):
@@ -58,31 +92,9 @@ def _utc(at: datetime) -> datetime:
     return at.astimezone(dt_timezone.utc)
 
 
-def _reception_ai_usage_limit(subscription: SubscriptionV2) -> int:
-    from apps.billing.reception_plans import resolve_reception_subscription_config
-
-    try:
-        config = resolve_reception_subscription_config(subscription)
-    except ValidationError as exc:
-        raise AIUsageUnavailable('Invalid Recepcionista configuration.', reason='invalid_tier') from exc
-    if config.usage_tier == 'reception_custom':
-        raise ManualContractRequired('custom usage requires manual commercial resolution.')
-    included = config.usage_tier_config.get('included_conversations')
-    if type(included) is not int or included <= 0:
-        # An undefined allowance is never "unlimited".
-        raise AIUsageUnavailable(
-            'The Recepcionista tier has no defined conversation allowance.', reason='usage_policy_undefined',
-        )
-    if not RECEPTION_AI_CONSUMPTION_ENABLED:
-        raise AIUsageUnavailable(
-            'Recepcionista AI consumption is not enabled yet.', reason='usage_policy_undefined',
-        )
-    return included
-
-
 def resolve_ai_usage_limit(subscription: SubscriptionV2) -> int:
-    if subscription.service_type == 'reception' and subscription.plan_code == 'reception':
-        return _reception_ai_usage_limit(subscription)
+    if _is_reception(subscription):
+        return _reception_tier_policy(subscription)['included']
     if subscription.service_type != 'appointments' or subscription.plan_code != 'appointments_ai':
         raise AIUsageUnavailable('An effective canonical appointments_ai subscription is required.', reason='no_ai_entitlement')
     try:
@@ -149,13 +161,28 @@ def _locked_subscription(business: Business, *, at: datetime) -> SubscriptionV2:
     source = resolve_ai_source(business, at=at)
     if source.reason == AMBIGUOUS_AI_SOURCE:
         raise AIUsageUnavailable('More than one eligible AI source.', reason=AMBIGUOUS_AI_SOURCE)
+    if source.subscription is None:
+        # PROD-02E2A: the resolver's denial is final; the Turnos IA path below
+        # can never re-admit a Business it rejected (incl. resolver errors).
+        raise AIUsageUnavailable('No eligible AI source.', reason=source.reason or 'no_ai_entitlement')
     if source.source == RECEPTION_SOURCE:
+        from apps.billing.services.ai_source import _business_may_consume, _lifecycle_access
+
         subscription = SubscriptionV2.objects.select_for_update().get(pk=source.subscription.pk)
-        if subscription.business_id != business.pk:
-            raise AIUsageUnavailable('AI source of another business.', reason='no_ai_entitlement')
+        # Re-check under the lock, same order as the Turnos IA path.
+        if (
+            subscription.business_id != business.pk or not _is_reception(subscription)
+            or not _business_may_consume(business, subscription, at=at)
+            or not _lifecycle_access(subscription, at=at)
+        ):
+            raise AIUsageUnavailable('AI usage is not allowed by the current lifecycle.', reason='suspended')
+        if subscription.cancel_at_period_end and subscription.current_period_end is None:
+            raise AIUsageUnavailable('The cancellation boundary is unresolved.')
         resolve_ai_usage_limit(subscription)
         return subscription
     resolved = resolve_subscription(business, service_type='appointments')
+    if resolved.subscription_v2 is not None and resolved.subscription_v2.pk != source.subscription.pk:
+        raise AIUsageUnavailable('The AI source changed during resolution.', reason='no_ai_entitlement')
     if resolved.subscription_v2 is None:
         raise AIUsageUnavailable('No effective appointments_ai subscription.', reason='no_ai_entitlement')
     subscription = SubscriptionV2.objects.select_for_update().get(pk=resolved.subscription_v2.pk)
@@ -213,9 +240,14 @@ def get_or_create_ai_usage_session(
     if opening is not None:
         if opening.external_conversation_id != conversation_id or opening.started_at != at:
             raise AIUsageUnavailable('Interaction identity conflicts with the original session.', reason='interaction_conflict')
+        if opening.subscription_id != subscription.pk:
+            # PROD-02E2A: a session of a previous AI source never authorizes the current one.
+            raise AIUsageUnavailable('The session belongs to another AI source.', reason='interaction_conflict')
         return opening, False
     sessions = sessions.filter(external_conversation_id=conversation_id)
-    existing = sessions.filter(started_at__lte=at, expires_at__gt=at).first()
+    # Only a window of the CURRENT source is reused; after a source change the
+    # conversation opens a session attributed to the new subscription.
+    existing = sessions.filter(started_at__lte=at, expires_at__gt=at, subscription=subscription).first()
     if existing is not None:
         return existing, False
     if sessions.filter(started_at__gt=at, started_at__lt=at + SESSION_DURATION).exists():
@@ -234,6 +266,8 @@ def get_or_create_ai_usage_session(
         usage_tier=subscription.usage_tier,
     )
     included = policy['used_sessions'] < policy['included_sessions']
+    if not included and _is_reception(subscription):
+        raise AIUsageHardCapReached('Recepcionista has no overage.')
     price = 0 if included else policy['overage_unit_price']
     AppointmentAIUsageCharge.objects.create(
         session=session, business=business, subscription=subscription,
@@ -249,6 +283,12 @@ def get_or_create_ai_usage_session(
 @transaction.atomic
 def get_appointments_ai_usage(business: Business, *, at: datetime) -> dict:
     return _appointments_ai_usage(business, at=at)[0]
+
+
+@transaction.atomic
+def get_ai_usage_and_source(business: Business, *, at: datetime) -> tuple[dict, SubscriptionV2]:
+    """Usage plus the locked source subscription (PROD-02E2A session attribution)."""
+    return _appointments_ai_usage(business, at=at)
 
 
 def _appointments_ai_usage(business: Business, *, at: datetime) -> tuple[dict, SubscriptionV2]:
@@ -278,18 +318,24 @@ def resolve_ai_usage_policy(business: Business, *, at: datetime) -> dict:
     exceptions. Monetary values are integer ARS from the canonical catalog.
     """
     usage, subscription = _appointments_ai_usage(business, at=at)
-    tier = canonical_pricing.get_usage_tier(usage['usage_tier'])
-    if tier is None:
-        raise AIUsageUnavailable('An explicit resolved AI usage tier is required.')
-    price = tier.get('extra_conversation_price')
-    cap = tier.get('default_extra_spend_limit')
-    if type(price) is not int or price <= 0 or type(cap) is not int or cap < 0:
-        raise AIUsageUnavailable('The AI overage price or hard cap is unresolved.')
-    if is_complimentary_grant(subscription):
-        # A complimentary grant never charges: no overage, the tier is the cap.
-        cap = 0
+    if _is_reception(subscription):
+        # PROD-02E2A: overage disabled; the included allowance is the hard cap.
+        _reception_tier_policy(subscription)
+        price, cap = 0, 0
+        max_overage = 0
+    else:
+        tier = canonical_pricing.get_usage_tier(usage['usage_tier'])
+        if tier is None:
+            raise AIUsageUnavailable('An explicit resolved AI usage tier is required.')
+        price = tier.get('extra_conversation_price')
+        cap = tier.get('default_extra_spend_limit')
+        if type(price) is not int or price <= 0 or type(cap) is not int or cap < 0:
+            raise AIUsageUnavailable('The AI overage price or hard cap is unresolved.')
+        if is_complimentary_grant(subscription):
+            # A complimentary grant never charges: no overage, the tier is the cap.
+            cap = 0
+        max_overage = cap // price
     overage = max(0, usage['used'] - usage['included'])
-    max_overage = cap // price
     max_total = usage['included'] + max_overage
     allowed = usage['used'] < max_total
     return {

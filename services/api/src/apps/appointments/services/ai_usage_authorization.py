@@ -9,7 +9,8 @@ from django.utils import timezone
 
 from apps.appointments.models import AppointmentAIUsageAuthorization
 from apps.appointments.services.ai_usage import (
-    AIUsageHardCapReached, AIUsageUnavailable, get_appointments_ai_usage, get_or_create_ai_usage_session,
+    AIUsageHardCapReached, AIUsageUnavailable, get_ai_usage_and_source, get_appointments_ai_usage,
+    get_or_create_ai_usage_session,
 )
 from apps.billing.services.appointments_checkout import ManualContractRequired
 from apps.business.models import Business
@@ -41,7 +42,7 @@ def authorize_ai_interaction(*, agent_instance, conversation_id, interaction_id,
         raise AIUsageUnavailable('Inactive channel.', reason='unsafe_conversation_context')
     try:
         # Re-check CURRENT lifecycle/tier, never let a historical timestamp bypass suspension.
-        get_appointments_ai_usage(business, at=now)
+        _, current_source = get_ai_usage_and_source(business, at=now)
         receipt = AppointmentAIUsageAuthorization.objects.filter(
             business=business, interaction_id=interaction_id,
         ).select_related('session').first()
@@ -50,6 +51,9 @@ def authorize_ai_interaction(*, agent_instance, conversation_id, interaction_id,
             or receipt.session.external_conversation_id != conversation_id
         ):
             raise AIUsageUnavailable('Interaction identity conflict.', reason='interaction_conflict')
+        if receipt is not None and receipt.session.subscription_id != current_source.pk:
+            # PROD-02E2A: a receipt of a previous AI source never authorizes the current one.
+            raise AIUsageUnavailable('Interaction belongs to another AI source.', reason='interaction_conflict')
         if receipt is None:
             session, created = get_or_create_ai_usage_session(
                 business=business, conversation_id=conversation_id,
