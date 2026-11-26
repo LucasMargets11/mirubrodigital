@@ -40,6 +40,8 @@ from apps.accounts.admin_client_provisioning_service import (
     UnauthorizedProvisioningActorError,
     ExistingOwnerRequiresConfirmationError,
     ExistingOwnerConfirmationInvalidError,
+    ComplimentaryAIUsagePeriodOverlapError,
+    ComplimentaryIncompatibleAIServiceError,
     InvalidComplimentaryCustomAllowanceError,
     OwnerAccountConflictError,
     OwnerAccountNotEligibleError,
@@ -47,8 +49,14 @@ from apps.accounts.admin_client_provisioning_service import (
 )
 from apps.accounts.models import AccessAuditLog
 from apps.accounts.admin_internal_note import AdminInternalNote
+from apps.accounts.admin_client_service_addition import (
+    ClientNotFoundError,
+    ClientStatusNotEligibleError,
+    add_service_to_client,
+)
 from apps.accounts.platform_admin_clients_serializers import (
     AdminClientProvisioningInputSerializer,
+    AdminClientServiceAdditionInputSerializer,
 )
 from apps.accounts.platform_permissions import IsPlatformStaff, HasInternalRole
 from apps.accounts.platform_audit import log_platform_action
@@ -189,6 +197,19 @@ PROVISIONING_ERROR_RESPONSES = {
         'El cupo personalizado no es válido para el nivel de uso elegido.',
         'custom_included_sessions',
     ),
+    ComplimentaryIncompatibleAIServiceError: (
+        status.HTTP_409_CONFLICT,
+        'incompatible_ai_service',
+        'Recepcionista IA y Turnos IA no pueden estar activos en el mismo negocio.',
+        'service_type',
+    ),
+    ComplimentaryAIUsagePeriodOverlapError: (
+        status.HTTP_409_CONFLICT,
+        'ai_usage_period_overlap',
+        'El negocio tiene consumo de IA en un período vigente al inicio del beneficio; '
+        'elegí un inicio posterior al fin de ese período.',
+        'complimentary_start',
+    ),
     ComplimentaryGrantFailedError: (
         status.HTTP_422_UNPROCESSABLE_ENTITY,
         'complimentary_grant_failed',
@@ -196,6 +217,60 @@ PROVISIONING_ERROR_RESPONSES = {
         None,
     ),
 }
+
+
+# PROD-02F5: add-service shares the provisioning taxonomy plus two errors.
+SERVICE_ADDITION_ERROR_RESPONSES = {
+    **{
+        exc_class: spec for exc_class, spec in PROVISIONING_ERROR_RESPONSES.items()
+        if spec[3] not in ('owner_email', 'business_slug', 'business_name', 'country', 'currency')
+    },
+    ClientNotFoundError: (
+        status.HTTP_404_NOT_FOUND,
+        'client_not_found',
+        'Cliente no encontrado.',
+        None,
+    ),
+    ClientStatusNotEligibleError: (
+        status.HTTP_409_CONFLICT,
+        'client_status_not_eligible',
+        'El estado del negocio no permite agregar servicios.',
+        None,
+    ),
+}
+
+
+def _service_addition_error_response(exc) -> Response:
+    http_status, code, detail, field = SERVICE_ADDITION_ERROR_RESPONSES[type(exc)]
+    return Response({'code': code, 'detail': detail, 'field': field}, status=http_status)
+
+
+def _service_addition_success_response(result) -> dict:
+    business, subscription, policy = result.business, result.subscription, result.custom_policy
+    return {
+        'business': {
+            'id': business.id,
+            'status': business.status,
+            'service_type': business.service_type,
+            'default_service': business.default_service,
+        },
+        'subscription': {
+            'id': str(subscription.id),
+            'service_type': subscription.service_type,
+            'plan_code': subscription.plan_code,
+            'usage_tier': subscription.usage_tier,
+            'provider': subscription.provider,
+            'status': subscription.status,
+            'current_period_start': subscription.current_period_start.isoformat(),
+            'current_period_end': subscription.current_period_end.isoformat(),
+        },
+        'custom_policy': None if policy is None else {
+            'id': str(policy.id),
+            'included_sessions': policy.included_sessions,
+            'valid_from': policy.valid_from.isoformat(),
+            'valid_until': policy.valid_until.isoformat() if policy.valid_until else None,
+        },
+    }
 
 
 def _provisioning_error_response(exc) -> Response:
@@ -457,6 +532,34 @@ class AdminClientListView(APIView):
             _provisioning_success_response(result),
             status=status.HTTP_201_CREATED,
         )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# AdminClientServicesView (PROD-02F5)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class AdminClientServicesView(APIView):
+    """
+    POST /api/v1/platform-admin/clients/<business_id>/services/
+
+    Superadmin only (platform staff role — memberships are never an
+    authorization here). Adds one complimentary service to an existing HQ
+    Business; see accounts.admin_client_service_addition.
+    """
+    permission_classes = [IsAuthenticated, IsPlatformStaff, HasInternalRole]
+    allowed_internal_roles = ['superadmin']
+
+    def post(self, request: Request, business_id: int) -> Response:
+        serializer = AdminClientServiceAdditionInputSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            result = add_service_to_client(
+                business_id=business_id, granted_by=request.user, **serializer.validated_data,
+            )
+        except tuple(SERVICE_ADDITION_ERROR_RESPONSES) as exc:
+            return _service_addition_error_response(exc)
+        return Response(_service_addition_success_response(result), status=status.HTTP_201_CREATED)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

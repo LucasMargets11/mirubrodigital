@@ -88,3 +88,20 @@ class AdminClientProvisioningInputSerializer(serializers.Serializer):
             value['attach_existing_owner'] = True
             value['owner_confirmation_token'] = token
         return value
+
+
+class AdminClientServiceAdditionInputSerializer(AdminClientProvisioningInputSerializer):
+    """
+    PROD-02F5: POST clients/<id>/services/. Same shape rules as provisioning
+    for the commercial fields; Business identity, owner and confirmation
+    fields are removed, so sending them is rejected as an unknown field
+    (no owner/status/service changes through this payload).
+    """
+
+    business_name = None
+    business_slug = None
+    country = None
+    currency = None
+    owner_email = None
+    attach_existing_owner = None
+    owner_confirmation_token = None

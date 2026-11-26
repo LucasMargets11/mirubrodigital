@@ -33,7 +33,9 @@ from apps.accounts.models import AccountProfile, Membership
 from apps.accounts.platform_audit import record_platform_action
 from apps.billing.complimentary_access_service import (
     ActiveSubscriptionConflictError,
+    AIUsagePeriodOverlapError,
     ComplimentaryAccessError,
+    IncompatibleAIServiceError,
     InvalidCustomAllowanceError,
     InvalidGrantReasonError,
     InvalidPeriodError,
@@ -188,6 +190,14 @@ class InvalidComplimentaryUsageTierError(AdminClientProvisioningError):
 
 class InvalidComplimentaryCustomAllowanceError(AdminClientProvisioningError):
     """PROD-02F3: custom_included_sessions missing/invalid, misplaced, or no valid policy window."""
+
+
+class ComplimentaryIncompatibleAIServiceError(AdminClientProvisioningError):
+    """PROD-02F5: Recepcionista and Turnos IA cannot coexist (both directions)."""
+
+
+class ComplimentaryAIUsagePeriodOverlapError(AdminClientProvisioningError):
+    """PROD-02F5: AI usage already counted in a period still running at the grant start."""
 
 
 class ComplimentaryGrantFailedError(AdminClientProvisioningError):
@@ -509,6 +519,38 @@ def _resolve_owner(
     return user, True
 
 
+# ── grant_complimentary_access() with the provisioning error taxonomy ────
+
+_GRANT_ERROR_MAP = (
+    (InvalidPeriodError, InvalidComplimentaryPeriodError),
+    (InvalidGrantReasonError, InvalidComplimentaryGrantReasonError),
+    (InvalidServiceTypeError, InvalidComplimentaryServiceTypeError),
+    (InvalidUsageTierError, InvalidComplimentaryUsageTierError),
+    (InvalidCustomAllowanceError, InvalidComplimentaryCustomAllowanceError),
+    (PlanNotAvailableError, ComplimentaryPlanNotAvailableError),
+    (PlanServiceMismatchError, ComplimentaryPlanServiceMismatchError),
+    (ActiveSubscriptionConflictError, ActiveComplimentarySubscriptionConflictError),
+    (IncompatibleAIServiceError, ComplimentaryIncompatibleAIServiceError),
+    (AIUsagePeriodOverlapError, ComplimentaryAIUsagePeriodOverlapError),
+)
+
+
+def grant_with_domain_errors(**kwargs) -> SubscriptionV2:
+    """
+    Call ``grant_complimentary_access`` and translate its taxonomy 1:1 into
+    this module's errors (shared by client provisioning and PROD-02F5's
+    add-service). Only ComplimentaryAccessError is translated; technical
+    exceptions propagate unchanged.
+    """
+    try:
+        return grant_complimentary_access(**kwargs)
+    except ComplimentaryAccessError as exc:
+        for source, target in _GRANT_ERROR_MAP:
+            if isinstance(exc, source):
+                raise target(str(exc)) from exc
+        raise ComplimentaryGrantFailedError(str(exc)) from exc
+
+
 # ── Public entry point ────────────────────────────────────────────────────
 
 def provision_admin_client(
@@ -599,36 +641,18 @@ def provision_admin_client(
         # ── Complimentary access — canonical service owns plan/service
         #    validation, external_reference, Business.status advance to
         #    'trialing', and its own ADMIN_COMPLIMENTARY_ACCESS_GRANTED log ──
-        try:
-            subscription = grant_complimentary_access(
-                business=business,
-                plan_code=plan_code,
-                service_type=service_type,
-                starts_at=complimentary_start,
-                ends_at=complimentary_end,
-                granted_by=granted_by,
-                reason=grant_reason,
-                usage_tier=usage_tier,
-                custom_included_sessions=custom_included_sessions,
-            )
-        except InvalidPeriodError as exc:
-            raise InvalidComplimentaryPeriodError(str(exc)) from exc
-        except InvalidGrantReasonError as exc:
-            raise InvalidComplimentaryGrantReasonError(str(exc)) from exc
-        except InvalidServiceTypeError as exc:
-            raise InvalidComplimentaryServiceTypeError(str(exc)) from exc
-        except InvalidUsageTierError as exc:
-            raise InvalidComplimentaryUsageTierError(str(exc)) from exc
-        except InvalidCustomAllowanceError as exc:
-            raise InvalidComplimentaryCustomAllowanceError(str(exc)) from exc
-        except PlanNotAvailableError as exc:
-            raise ComplimentaryPlanNotAvailableError(str(exc)) from exc
-        except PlanServiceMismatchError as exc:
-            raise ComplimentaryPlanServiceMismatchError(str(exc)) from exc
-        except ActiveSubscriptionConflictError as exc:
-            raise ActiveComplimentarySubscriptionConflictError(str(exc)) from exc
-        except ComplimentaryAccessError as exc:
-            raise ComplimentaryGrantFailedError(str(exc)) from exc
+        subscription = grant_with_domain_errors(
+            business=business,
+            plan_code=plan_code,
+            service_type=service_type,
+            starts_at=complimentary_start,
+            ends_at=complimentary_end,
+            granted_by=granted_by,
+            reason=grant_reason,
+            usage_tier=usage_tier,
+            custom_included_sessions=custom_included_sessions,
+            audit_operation='client_provisioning',
+        )
 
         # ── Mandatory provisioning audit (same transaction, never best
         #    effort): no secrets, tokens or raw payloads are recorded ─────
