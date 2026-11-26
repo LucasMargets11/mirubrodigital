@@ -8,6 +8,7 @@ from apps.menu.views import MenuQRCodeView, PublicMenuBySlugView
 from apps.resto.views import RestaurantTablesMapStateView, RestaurantTablesSnapshotView
 from common.health import health_check
 from apps.appointments.ai_usage_views import AgentAIUsageAuthorizeView, AgentAIUsageHealthView
+from apps.billing.ai_usage_summary_views import AIUsageSummaryView
 
 urlpatterns = [
   path('django-admin/', admin.site.urls),
@@ -45,6 +46,8 @@ urlpatterns = [
   path('api/v1/leads/', include('apps.leads.urls')),
   path('api/v1/resto/', include('apps.resto.urls')),
   path('api/v1/billing/', include('apps.billing.urls')),
+  # PROD-02E3A: consumo comercial de IA del comercio (Recepcionista IA o Turnos IA), solo lectura.
+  path('api/v1/ai-usage/', AIUsageSummaryView.as_view(), name='ai-usage-summary'),
   path('api/v1/treasury/', include('apps.treasury.urls')),
   path('api/v1/tax-backup/', include('apps.tax_backup.urls')),
   path('api/v1/blog/', include('apps.blog.urls')),
