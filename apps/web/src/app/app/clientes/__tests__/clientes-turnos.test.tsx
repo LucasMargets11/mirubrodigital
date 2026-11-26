@@ -567,3 +567,46 @@ describe('CustomerFormModal responsive (CUSTOMER 03)', () => {
         expect(mutateAsync).toHaveBeenCalledWith(expect.objectContaining({ name: 'Nueva Clienta' }));
     });
 });
+
+// ── PROD-02G2: comercio solo Recepcionista IA (sin Turnos ni Gestión) ──────
+describe('Clientes en un comercio solo Recepcionista IA', () => {
+    const RECEPTION_PERMS = {
+        view_leads: true, manage_leads: true, view_ai_usage: true, view_customers: true,
+        manage_customers: true, manage_customer_notes: true, manage_users: true, manage_settings: true,
+    };
+
+    function receptionSession() {
+        return {
+            features: { reception_core: true, leads: true, customers: true, sales: false, quotes: false, orders: false, appointments_core: false },
+            permissions: RECEPTION_PERMS,
+            services: { enabled: ['reception'] },
+            current: { business: { id: 1, name: 'Clínica', status: 'trialing', timezone: 'America/Argentina/Buenos_Aires' }, role: 'owner', service: 'reception' },
+        } as any;
+    }
+
+    it('el listado carga con el plan de Recepcionista', async () => {
+        getSessionMock.mockResolvedValue(receptionSession());
+        hooks.useCustomers.mockReturnValue({
+            data: { count: 1, next: null, previous: null, results: [CUSTOMER] }, isLoading: false, isError: false,
+        });
+        render(await ClientesPage());
+        expect(screen.getByText('Ana Turnos')).toBeInTheDocument();
+        expect(screen.queryByText('Tu plan no incluye Clientes')).not.toBeInTheDocument();
+    });
+
+    it('la ficha no ofrece ventas, presupuestos, pedidos ni agenda', async () => {
+        getSessionMock.mockResolvedValue(receptionSession());
+        // Sin Turnos el backend no envía `appointments_summary`.
+        hooks.useCustomer.mockReturnValue({ data: { ...CUSTOMER }, isLoading: false });
+        render(await CustomerDetailPage({ params: Promise.resolve({ id: 'c-1' }) }));
+
+        expect(screen.getByRole('heading', { name: 'Ana Turnos' })).toBeInTheDocument();
+        expect(screen.queryByRole('region', { name: 'Resumen de Turnos' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('region', { name: 'Historial' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /Nuevo turno/ })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Ventas' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Presupuestos' })).not.toBeInTheDocument();
+        expect(document.querySelector('a[href*="/app/turnos"]')).toBeNull();
+        expect(document.querySelector('a[href*="/app/gestion"]')).toBeNull();
+    });
+});
