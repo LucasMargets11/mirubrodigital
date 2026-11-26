@@ -24,7 +24,7 @@ from django.db import transaction
 from .canonical_pricing import PRODUCTS as _CANONICAL_PRODUCTS
 from .canonical_pricing import get_plan as _get_canonical_plan
 from .canonical_pricing import get_usage_tier as _get_canonical_usage_tier
-from .models import Plan, SubscriptionV2
+from .models import RECEPTION_CUSTOM_MAX_INCLUDED_SESSIONS, Plan, SubscriptionV2
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +68,14 @@ class InvalidGrantReasonError(ComplimentaryAccessError):
 
 class InvalidServiceTypeError(ComplimentaryAccessError):
     """``service_type`` is not a member of ``SubscriptionV2.ServiceType.values``."""
+
+
+class InvalidCustomAllowanceError(ComplimentaryAccessError):
+    """
+    PROD-02F3: ``custom_included_sessions`` missing/invalid for
+    ``reception_custom``, sent for any other tier or product, or the bonified
+    window no longer allows a valid custom policy.
+    """
 
 
 class InvalidUsageTierError(ComplimentaryAccessError):
@@ -129,13 +137,17 @@ def _check_plan_service_compatibility(plan_code: str, service_type: str) -> None
 #       plan `reception` only, with exactly the fixed internal tiers below and
 #       only while the catalog keeps them internal/manual, with a positive
 #       allowance, overage disabled (no price, spend cap 0) and no public
-#       price. `reception_custom` is NOT provisionable yet (PROD-02F3).
+#       price. `reception_custom` (PROD-02F3) only while the catalog keeps it
+#       contact_sales/manual with NO global allowance, no price and no
+#       overage: its allowance is always an individual ReceptionAIUsagePolicy
+#       created in the same transaction (custom_included_sessions).
 INTERNAL_PROVISIONING_POLICY = {
     'appointments': {'plans': None, 'tier_rule': 'self_service'},
     'reception': {
         'plans': frozenset({'reception'}),
         'tier_rule': 'internal_fixed',
         'tiers': frozenset({'reception_300', 'reception_1500', 'reception_3000'}),
+        'custom_tiers': frozenset({'reception_custom'}),
     },
 }
 # Kept for readers of the old name: the verticals with internal eligibility.
@@ -174,6 +186,28 @@ def _is_internal_fixed_tier(tier: dict) -> bool:
     )
 
 
+def _is_custom_policy_tier(tier: dict) -> bool:
+    """Recepcionista Custom with exactly its catalog terms: allowance by policy only."""
+    return (
+        tier.get('purchase_mode') == 'contact_sales'
+        and tier.get('billing_mode') == 'manual'
+        and tier.get('included_conversations') is None
+        and tier.get('extra_conversation_price') is None
+        and tier.get('default_extra_spend_limit') in (None, 0)
+        and tier.get('monthly_price') is None
+        and tier.get('annual_price') is None
+    )
+
+
+def custom_policy_tiers(plan_code: str) -> frozenset:
+    """Tiers of *plan_code* whose allowance is an individual policy (PROD-02F3)."""
+    canonical_plan = _get_canonical_plan(plan_code)
+    policy = INTERNAL_PROVISIONING_POLICY.get((canonical_plan or {}).get('vertical'))
+    if policy is None or (policy['plans'] is not None and plan_code not in policy['plans']):
+        return frozenset()
+    return policy.get('custom_tiers', frozenset())
+
+
 def _provisionable_usage_tiers(plan_code: str) -> list[dict]:
     """
     Usage tiers a complimentary grant may assign to *plan_code*, from the
@@ -196,6 +230,15 @@ def _provisionable_usage_tiers(plan_code: str) -> list[dict]:
         if tier is None or tier.get('plan_code') != plan_code:
             continue
         if rule == 'internal_fixed':
+            if code in policy.get('custom_tiers', ()):
+                if not _is_custom_policy_tier(tier):
+                    continue
+                tiers.append({
+                    'code': tier['code'], 'name': tier['name'],
+                    # The form must ask for the individual allowance (PROD-02F3).
+                    'custom_allowance': {'min': 1, 'max': RECEPTION_CUSTOM_MAX_INCLUDED_SESSIONS},
+                })
+                continue
             if code not in policy['tiers'] or not _is_internal_fixed_tier(tier):
                 continue
         elif (
@@ -288,6 +331,7 @@ def grant_complimentary_access(
     granted_by,
     reason: str,
     usage_tier: str | None = None,
+    custom_included_sessions: int | None = None,
 ) -> SubscriptionV2:
     """
     Grant a complimentary (bonified) access period to *business*.
@@ -356,6 +400,26 @@ def grant_complimentary_access(
     # ── 3c. Usage tier: required by tier-priced plans, rejected otherwise ──
     usage_tier = _validate_usage_tier(plan_code, usage_tier)
 
+    # ── 3d. Custom allowance (PROD-02F3): only and always for a custom-policy
+    #        tier; strict int in [1, max]; never unlimited. One server instant.
+    custom_tier = usage_tier in custom_policy_tiers(plan_code)
+    if custom_tier:
+        value = custom_included_sessions
+        if type(value) is not int or not 1 <= value <= RECEPTION_CUSTOM_MAX_INCLUDED_SESSIONS:
+            raise InvalidCustomAllowanceError(
+                f'El cupo personalizado debe ser un entero entre 1 y {RECEPTION_CUSTOM_MAX_INCLUDED_SESSIONS}.'
+            )
+    elif custom_included_sessions is not None:
+        raise InvalidCustomAllowanceError('El cupo personalizado solo aplica a Recepcionista Custom.')
+    from django.utils import timezone as _tz
+
+    now = _tz.now()
+    policy_from = max(now, starts_at)
+    if custom_tier and policy_from >= ends_at:
+        raise InvalidCustomAllowanceError(
+            'La ventana bonificada ya no permite una política personalizada vigente.'
+        )
+
     if business is None:
         raise ComplimentaryAccessError('Debe indicar un negocio válido.')
 
@@ -394,6 +458,20 @@ def grant_complimentary_access(
             manual_grant_reason=reason,
         )
 
+        # ── 5b. Recepcionista Custom: its individual policy, same transaction ─
+        # Never retroactive (from max(now, start)) and inside the bonified
+        # window; any failure rolls back the subscription too.
+        if custom_tier:
+            from .services.reception_ai_policy import CustomPolicyError, create_reception_custom_policy
+
+            try:
+                create_reception_custom_policy(
+                    subscription=subscription, included_sessions=custom_included_sessions,
+                    actor=granted_by, reason=reason, valid_from=policy_from, valid_until=ends_at, now=now,
+                )
+            except CustomPolicyError as exc:
+                raise InvalidCustomAllowanceError(str(exc)) from exc
+
         # ── 6. Advance Business.status to 'trialing' (canonical mapping) ───
         _advance_business_to_trialing(business)
 
@@ -410,6 +488,7 @@ def grant_complimentary_access(
                 'business_id': business.pk,
                 'plan_code': plan_code,
                 'usage_tier': usage_tier,
+                'custom_included_sessions': custom_included_sessions if custom_tier else None,
                 'service_type': service_type,
                 'current_period_start': starts_at.isoformat(),
                 'current_period_end': ends_at.isoformat(),
