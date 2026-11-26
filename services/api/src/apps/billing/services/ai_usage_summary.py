@@ -120,13 +120,19 @@ def _empty(status: str, reason: str, now: datetime, subscription=None) -> dict:
 
 def get_ai_usage_summary(business) -> dict:
     """Read-only summary at the server's current instant (no caller-controlled time)."""
+    return summary_at(business, timezone.now())
+
+
+def summary_at(business, now: datetime) -> dict:
+    """Internal: the same summary at a server-chosen instant (PROD-02E3B reuses it so
+    the admin diagnosis is evaluated at the same instant). Never fed from a request.
+    """
     from apps.appointments.services.ai_usage import (
         AIUsageHardCapReached, AIUsageUnavailable, read_ai_usage_admission,
     )
     from apps.billing.services.ai_source import AMBIGUOUS_AI_SOURCE, resolve_ai_source
     from apps.billing.services.appointments_checkout import ManualContractRequired
 
-    now = timezone.now()
     resolution = resolve_ai_source(business, at=now)
     if resolution.reason == AMBIGUOUS_AI_SOURCE:
         return _empty(AMBIGUOUS, AMBIGUOUS_AI_SOURCE, now)
