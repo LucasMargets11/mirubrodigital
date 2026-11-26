@@ -135,6 +135,22 @@ describe('lib/admin/client — provisioning API layer', () => {
       });
     });
 
+    it('adds custom_included_sessions only for Recepcionista Custom (PROD-02F3)', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(jsonResponse(400, {}));
+      vi.stubGlobal('fetch', fetchMock);
+
+      const { provisionAdminClient } = await import('@/lib/admin/client');
+      const custom = {
+        ...INPUT, service_type: 'reception', plan_code: 'reception', usage_tier: 'reception_custom',
+        custom_included_sessions: 750,
+      };
+      await provisionAdminClient(custom);
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toEqual(custom);
+
+      await provisionAdminClient({ ...INPUT, service_type: 'reception', plan_code: 'reception', usage_tier: 'reception_300' });
+      expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).not.toHaveProperty('custom_included_sessions');
+    });
+
     it('maps 401 to session_expired', async () => {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(401, {})));
       const { provisionAdminClient } = await import('@/lib/admin/client');

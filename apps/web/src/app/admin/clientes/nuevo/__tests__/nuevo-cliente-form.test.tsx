@@ -570,7 +570,7 @@ describe('NuevoClienteForm', () => {
       });
     });
 
-    it('clears the tier when switching to a plan without tiers', async () => {
+    it('clears the tier when switching to a plan without tiers (Turnos)', async () => {
       getOptionsMock.mockResolvedValueOnce({ status: 'ok', data: TURNOS_OPTIONS });
       provisionMock.mockResolvedValueOnce({ status: 'ok', data: SUCCESS_RESULT });
       await renderForm();
@@ -582,6 +582,108 @@ describe('NuevoClienteForm', () => {
       fireEvent.click(screen.getByRole('button', { name: /crear cliente/i }));
       await waitFor(() => expect(provisionMock).toHaveBeenCalledTimes(1));
       expect(provisionMock.mock.calls[0][0]).not.toHaveProperty('usage_tier');
+    });
+  });
+
+  describe('Recepcionista Custom (PROD-02F3)', () => {
+    const RECEPTION_OPTIONS = {
+      services: [
+        {
+          value: 'reception',
+          label: 'Recepcionista IA',
+          plans: [
+            {
+              code: 'reception',
+              name: 'Recepcionista IA',
+              usage_tiers: [
+                { code: 'reception_300', name: 'Recepcionista 300' },
+                { code: 'reception_custom', name: 'Recepcionista Business', custom_allowance: { min: 1, max: 1000000 } },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const CUSTOM_LABEL = 'Cupo personalizado (conversaciones por mes)';
+
+    async function fillReception(tier: string) {
+      fireEvent.change(screen.getByLabelText('Nombre del negocio'), { target: { value: 'Clínica Custom' } });
+      fireEvent.change(screen.getByLabelText('Slug'), { target: { value: 'clinica-custom' } });
+      fireEvent.change(screen.getByLabelText('Email del owner'), { target: { value: 'owner@clinica.test' } });
+      fireEvent.change(screen.getByLabelText('Servicio'), { target: { value: 'reception' } });
+      await waitFor(() => expect(screen.getByLabelText('Plan')).not.toBeDisabled());
+      fireEvent.change(screen.getByLabelText('Plan'), { target: { value: 'reception' } });
+      fireEvent.change(screen.getByLabelText('Nivel de uso'), { target: { value: tier } });
+      fireEvent.change(screen.getByLabelText('Inicio de la bonificación'), { target: { value: '2026-11-26' } });
+      fireEvent.change(screen.getByLabelText('Fin de la bonificación'), { target: { value: '2027-05-26' } });
+      fireEvent.change(screen.getByLabelText('Motivo de la bonificación'), { target: { value: 'Acuerdo Custom' } });
+    }
+
+    it('shows the custom allowance only for the custom tier and sends it as a number', async () => {
+      getOptionsMock.mockResolvedValueOnce({ status: 'ok', data: RECEPTION_OPTIONS });
+      provisionMock.mockResolvedValueOnce({ status: 'ok', data: SUCCESS_RESULT });
+      await renderForm();
+      await screen.findByLabelText('Servicio');
+      await fillReception('reception_300');
+      expect(screen.queryByLabelText(CUSTOM_LABEL)).not.toBeInTheDocument();
+
+      fireEvent.change(screen.getByLabelText('Nivel de uso'), { target: { value: 'reception_custom' } });
+      fireEvent.change(screen.getByLabelText(CUSTOM_LABEL), { target: { value: '750' } });
+      fireEvent.click(screen.getByRole('button', { name: /crear cliente/i }));
+      await waitFor(() => expect(provisionMock).toHaveBeenCalledTimes(1));
+      expect(provisionMock.mock.calls[0][0]).toMatchObject({
+        service_type: 'reception', plan_code: 'reception', usage_tier: 'reception_custom',
+        custom_included_sessions: 750,
+      });
+    });
+
+    it('requires a valid integer allowance and never submits without it', async () => {
+      getOptionsMock.mockResolvedValueOnce({ status: 'ok', data: RECEPTION_OPTIONS });
+      await renderForm();
+      await screen.findByLabelText('Servicio');
+      await fillReception('reception_custom');
+      for (const value of ['', '0', '1.5', '1000001']) {
+        fireEvent.change(screen.getByLabelText(CUSTOM_LABEL), { target: { value } });
+        fireEvent.click(screen.getByRole('button', { name: /crear cliente/i }));
+        expect(await screen.findByText(/Ingresá un número entero entre 1 y/)).toBeInTheDocument();
+      }
+      expect(provisionMock).not.toHaveBeenCalled();
+    });
+
+    it('clears the allowance when the tier changes and omits it for fixed tiers', async () => {
+      getOptionsMock.mockResolvedValueOnce({ status: 'ok', data: RECEPTION_OPTIONS });
+      provisionMock.mockResolvedValueOnce({ status: 'ok', data: SUCCESS_RESULT });
+      await renderForm();
+      await screen.findByLabelText('Servicio');
+      await fillReception('reception_custom');
+      fireEvent.change(screen.getByLabelText(CUSTOM_LABEL), { target: { value: '750' } });
+      fireEvent.change(screen.getByLabelText('Nivel de uso'), { target: { value: 'reception_300' } });
+      fireEvent.change(screen.getByLabelText('Nivel de uso'), { target: { value: 'reception_custom' } });
+      expect((screen.getByLabelText(CUSTOM_LABEL) as HTMLInputElement).value).toBe('');
+
+      fireEvent.change(screen.getByLabelText('Nivel de uso'), { target: { value: 'reception_300' } });
+      fireEvent.click(screen.getByRole('button', { name: /crear cliente/i }));
+      await waitFor(() => expect(provisionMock).toHaveBeenCalledTimes(1));
+      expect(provisionMock.mock.calls[0][0]).not.toHaveProperty('custom_included_sessions');
+    });
+
+    it('shows a backend allowance error on the custom field', async () => {
+      getOptionsMock.mockResolvedValueOnce({ status: 'ok', data: RECEPTION_OPTIONS });
+      provisionMock.mockResolvedValueOnce({
+        status: 'domain_error',
+        httpStatus: 400,
+        error: {
+          code: 'invalid_custom_included_sessions',
+          detail: 'El cupo personalizado no es válido para el nivel de uso elegido.',
+          field: 'custom_included_sessions',
+        },
+      } as any);
+      await renderForm();
+      await screen.findByLabelText('Servicio');
+      await fillReception('reception_custom');
+      fireEvent.change(screen.getByLabelText(CUSTOM_LABEL), { target: { value: '750' } });
+      fireEvent.click(screen.getByRole('button', { name: /crear cliente/i }));
+      expect(await screen.findByText('El cupo personalizado no es válido para el nivel de uso elegido.')).toBeInTheDocument();
     });
   });
 });
