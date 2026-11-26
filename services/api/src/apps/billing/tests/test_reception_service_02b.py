@@ -26,7 +26,7 @@ from apps.accounts.models import Membership
 from apps.billing import canonical_pricing
 from apps.billing.appointments_plans import validate_usage_tier
 from apps.billing.complimentary_access_service import (
-    InvalidUsageTierError, PlanNotAvailableError, grant_complimentary_access, list_provisioning_options,
+    InvalidCustomAllowanceError, PlanNotAvailableError, grant_complimentary_access, list_provisioning_options,
 )
 from apps.billing.models import Plan, SubscriptionV2
 from apps.billing.plans import get_seat_limit
@@ -474,18 +474,18 @@ class ReceptionNotSellableTests(TestCase):
                 self.assertEqual(response.json()['error'], 'Product is not available for purchase')
         self.assertFalse(Business.objects.filter(default_service='reception').exists())
 
-    def test_admin_provisioning_only_fixed_tiers(self):
-        # PROD-02F2: internal (complimentary) provisioning admits the three fixed
-        # tiers; reception_custom stays out until PROD-02F3.
+    def test_admin_provisioning_fixed_tiers_and_custom_with_allowance(self):
+        # PROD-02F2/02F3: internal (complimentary) provisioning admits the three
+        # fixed tiers and Custom, which always needs its individual allowance.
         option = next(o for o in list_provisioning_options() if o['value'] == 'reception')
         self.assertEqual([t['code'] for t in option['plans'][0]['usage_tiers']],
-                         ['reception_300', 'reception_1500', 'reception_3000'])
+                         ['reception_300', 'reception_1500', 'reception_3000', 'reception_custom'])
         biz = _business(service='reception')
         start = timezone.now()
-        with self.assertRaises(InvalidUsageTierError):
+        with self.assertRaises(InvalidCustomAllowanceError):
             grant_complimentary_access(
                 business=biz, plan_code='reception', service_type='reception',
                 starts_at=start, ends_at=start + timedelta(days=30), granted_by=_superadmin(),
-                reason='Custom todavía no', usage_tier='reception_custom',
+                reason='Custom sin cupo', usage_tier='reception_custom',
             )
         self.assertFalse(SubscriptionV2.objects.filter(business=biz).exists())

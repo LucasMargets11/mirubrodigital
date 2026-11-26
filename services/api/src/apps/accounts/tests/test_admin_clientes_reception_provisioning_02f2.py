@@ -83,7 +83,8 @@ class ReceptionOptionsTests(_Base):
         services = {s['value']: s for s in response.data['services']}
         reception = services['reception']
         self.assertEqual([p['code'] for p in reception['plans']], ['reception'])
-        self.assertEqual([t['code'] for t in reception['plans'][0]['usage_tiers']], list(FIXED))
+        # PROD-02F3 adds reception_custom (with its own allowance input) after the fixed tiers
+        self.assertEqual([t['code'] for t in reception['plans'][0]['usage_tiers']], [*FIXED, 'reception_custom'])
         # Turnos IA keeps its own rule; internal availability ≠ public availability
         ai = next(p for p in services['appointments']['plans'] if p['code'] == 'appointments_ai')
         self.assertEqual([t['code'] for t in ai['usage_tiers']], ['ai_300', 'ai_1500', 'ai_3000'])
@@ -187,7 +188,8 @@ class ReceptionRejectionTests(_Base):
 
     def test_custom_and_invalid_tiers_and_plans_are_rejected(self):
         for overrides, code in (
-            ({'usage_tier': 'reception_custom'}, 'invalid_complimentary_usage_tier'),
+            # PROD-02F3: Custom without its individual allowance is rejected
+            ({'usage_tier': 'reception_custom'}, 'invalid_custom_included_sessions'),
             ({'usage_tier': 'ai_300'}, 'invalid_complimentary_usage_tier'),
             ({'usage_tier': 'reception_999'}, 'invalid_complimentary_usage_tier'),
             ({'usage_tier': ...}, 'invalid_complimentary_usage_tier'),
