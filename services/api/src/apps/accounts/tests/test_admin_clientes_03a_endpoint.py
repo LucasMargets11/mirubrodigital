@@ -14,6 +14,7 @@ from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+from apps.accounts.tests.owner_confirmation_helpers import post_confirming_owner
 from apps.accounts.admin_client_provisioning_service import (
     ActiveComplimentarySubscriptionConflictError,
     ComplimentaryGrantFailedError,
@@ -98,6 +99,12 @@ class AdminClientEndpointTestBase(TestCase):
         client.force_authenticate(user=user or self.superadmin)
         return client.post(URL, payload or self.payload(), format='json')
 
+    def post_confirmed(self, payload, *, user=None):
+        # PROD-02F4: the admin explicitly confirms the identified account.
+        client = APIClient()
+        client.force_authenticate(user=user or self.superadmin)
+        return post_confirming_owner(client, URL, payload)
+
 
 class AdminClientProvisioningIntegrationTests(AdminClientEndpointTestBase):
     def test_01_superadmin_creates_client_with_new_owner(self):
@@ -113,7 +120,7 @@ class AdminClientProvisioningIntegrationTests(AdminClientEndpointTestBase):
         email = 'owner.workspace@empresa.example'
         owner = _make_user(email=email)
 
-        response = self.post(self.payload(owner_email=email.upper()))
+        response = self.post_confirmed(self.payload(owner_email=email.upper()))
 
         self.assertEqual(response.status_code, 201)
         self.assertFalse(response.data['owner']['created'])

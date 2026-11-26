@@ -43,6 +43,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
 
+from apps.accounts.tests.owner_confirmation_helpers import call_confirming_owner
 from apps.accounts.admin_client_provisioning_service import (
     ActiveComplimentarySubscriptionConflictError,
     ComplimentaryGrantFailedError,
@@ -320,7 +321,7 @@ class ComplimentaryTaxonomyClosureTest(ProvisioningTestBase):
         slug = f'rollback-preexisting-taxonomy-{uuid.uuid4().hex[:8]}'
 
         with self.assertRaises(InvalidComplimentaryGrantReasonError):
-            self._provision(business_slug=slug, owner_email=email, grant_reason='  ')
+            call_confirming_owner(self._provision, business_slug=slug, owner_email=email, grant_reason='  ')
 
         existing.refresh_from_db()
         self.assertTrue(User.objects.filter(pk=existing.pk).exists())

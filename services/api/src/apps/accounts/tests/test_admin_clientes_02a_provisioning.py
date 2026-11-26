@@ -47,6 +47,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
 
+from apps.accounts.tests.owner_confirmation_helpers import call_confirming_owner
 from apps.accounts.admin_client_provisioning_service import (
     AdminClientProvisioningResult,
     ComplimentaryGrantFailedError,
@@ -131,6 +132,10 @@ class ProvisioningTestBase(TestCase):
     def _provision(self, **overrides) -> AdminClientProvisioningResult:
         return provision_admin_client(**self._kwargs(**overrides))
 
+    def _provision_confirmed(self, **overrides) -> AdminClientProvisioningResult:
+        # PROD-02F4: reusing an existing account needs the bound confirmation.
+        return call_confirming_owner(self._provision, **overrides)
+
 
 class ProvisioningSuccessTest(ProvisioningTestBase):
 
@@ -166,7 +171,7 @@ class ProvisioningSuccessTest(ProvisioningTestBase):
         existing = User.objects.create_user(
             email=email.lower(), username=email.lower(), password='OwnerPass123!',
         )
-        result = self._provision(
+        result = self._provision_confirmed(
             owner_email=email.upper(),
             business_slug=f'ci-biz-{uuid.uuid4().hex[:8]}',
         )
@@ -185,7 +190,7 @@ class ProvisioningSuccessTest(ProvisioningTestBase):
             email_verified=False, account_status=AccountProfile.AccountStatus.PENDING_EMAIL_VERIFICATION,
         )
 
-        self._provision(owner_email=email, business_slug=f'reuse-biz-{uuid.uuid4().hex[:8]}')
+        self._provision_confirmed(owner_email=email, business_slug=f'reuse-biz-{uuid.uuid4().hex[:8]}')
 
         existing.refresh_from_db()
         profile = AccountProfile.objects.get(user=existing)
@@ -201,7 +206,7 @@ class ProvisioningSuccessTest(ProvisioningTestBase):
         result1 = self._provision(
             owner_email=email, business_slug=f'biz-one-{uuid.uuid4().hex[:8]}',
         )
-        result2 = self._provision(
+        result2 = self._provision_confirmed(
             owner_email=email, business_slug=f'biz-two-{uuid.uuid4().hex[:8]}',
         )
         self.assertEqual(result1.owner_user.pk, result2.owner_user.pk)

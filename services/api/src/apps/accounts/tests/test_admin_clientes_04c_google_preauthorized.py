@@ -28,6 +28,7 @@ from django.utils import timezone
 from rest_framework import status as http_status
 from rest_framework.test import APIClient
 
+from apps.accounts.tests.owner_confirmation_helpers import post_confirming_owner
 from apps.accounts.google_oauth_service import GoogleTokenPayload, GoogleVerifyResult
 from apps.accounts.models import AccessAuditLog, AccountProfile, Membership
 from apps.billing.models import Plan, Subscription, SubscriptionV2
@@ -110,7 +111,7 @@ def _provision(superadmin, plan, starts_at, ends_at, **overrides):
     payload.update(overrides)
     client = APIClient()
     client.force_authenticate(user=superadmin)
-    response = client.post(PROVISION_URL, payload, format='json')
+    response = post_confirming_owner(client, PROVISION_URL, payload)  # PROD-02F4
     assert response.status_code == 201, response.data
     return response
 

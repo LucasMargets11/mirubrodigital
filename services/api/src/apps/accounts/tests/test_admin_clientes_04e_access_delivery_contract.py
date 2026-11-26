@@ -66,7 +66,7 @@ class AdminClientAccessDeliveryContractTests(AdminClientEndpointTestBase):
         persisted_email = f'Canonical.Owner-{uuid.uuid4().hex[:8]}@Empresa.Example'
         owner = _make_user(email=persisted_email)
 
-        response = self.post(self.payload(owner_email=owner.email.swapcase()))
+        response = self.post_confirmed(self.payload(owner_email=owner.email.swapcase()))
 
         self.assertEqual(response.status_code, 201)
         self.assertFalse(response.data['owner']['created'])

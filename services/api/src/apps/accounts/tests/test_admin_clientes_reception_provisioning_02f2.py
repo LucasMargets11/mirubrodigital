@@ -222,15 +222,16 @@ class ReceptionRejectionTests(_Base):
                          ('existing_owner_requires_confirmation', 'owner_email'))
         self.assertFalse(Business.objects.filter(default_service='reception').exists())
         self.assertEqual(Membership.objects.filter(user=existing).count(), 1)
-        # Other products keep their existing behaviour (reuse the account)
+        # PROD-02F4: every product now requires the same explicit confirmation
         response = self.provision(service_type='appointments', plan_code='appointments_ai', usage_tier='ai_300',
                                   owner_email='taken@example.test')
-        self.assertEqual(response.status_code, 201, response.data)
-        self.assertFalse(response.data['owner']['created'])
+        self.assertEqual(response.status_code, 409, response.data)
+        self.assertEqual(response.data['code'], 'existing_owner_requires_confirmation')
+        self.assertEqual(Membership.objects.filter(user=existing).count(), 1)
 
     def test_failure_rolls_back_everything(self):
         users_before = User.objects.count()
-        with patch('apps.accounts.admin_client_provisioning_service.log_platform_action',
+        with patch('apps.accounts.admin_client_provisioning_service.record_platform_action',
                    side_effect=RuntimeError('boom')):
             with self.assertRaises(RuntimeError):
                 provision_admin_client(**{**self.payload(), 'complimentary_start': self.starts_at,
