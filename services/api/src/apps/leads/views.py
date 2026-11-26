@@ -2,6 +2,7 @@
 
 `PUT /api/v1/integrations/agent/leads/<uuid:external_lead_id>/`
 `GET /api/v1/integrations/agent/leads/<uuid:external_lead_id>/appointment-context/`
+`GET /api/v1/integrations/agent/businesses/<id>/channels/<phone_number_id>/receptionist-config/` (PROD-03C)
 
 View fina: el flag de integración, la auth HMAC, el throttle y el formato de
 respuesta viven acá; la lógica de tenant/idempotencia en
@@ -26,6 +27,7 @@ from .authentication import AgentHmacAuthentication, AgentPrincipal, well_formed
 from .serializers import LeadSyncSerializer
 from .services.appointment_context import agent_appointment_context, appointment_context
 from .services.receiver import receive_lead_sync
+from .services.receptionist_config import agent_receptionist_config
 from .throttles import AgentLeadSyncThrottle
 
 logger = logging.getLogger('apps.leads.receiver')
@@ -172,6 +174,33 @@ class AgentAppointmentContextView(AgentIntegrationView):
             agent_instance=principal.agent_instance, external_lead_id=external_lead_id,
         )
         self._log_result('appointment_context', 200)
+        response = Response(body)
+        response['Cache-Control'] = 'no-store'
+        return response
+
+
+class AgentReceptionistConfigView(AgentIntegrationView):
+    """PROD-03C: configuración de Recepcionista IA del negocio de este canal.
+
+    Business y canal van en el path porque la firma HMAC cubre el path (no el
+    query string). El tenant sale del canal activo de la instancia
+    autenticada; `business_id` solo se contrasta (`business_mismatch`), igual
+    que en `lead.sync`. No necesita Lead ni conversación previa.
+    """
+
+    http_method_names = ['get']
+
+    def get(self, request, business_id, phone_number_id):
+        principal: AgentPrincipal = request.user
+        body = agent_receptionist_config(
+            principal.agent_instance, phone_number_id=phone_number_id, business_id=int(business_id),
+        )
+        self._log_result(
+            'receptionist_config', 200, extra={
+                'business_id': body['business']['id'], 'phone_number_id': phone_number_id,
+                'config_status': body['config']['status'], 'config_version': body['config']['version'],
+            },
+        )
         response = Response(body)
         response['Cache-Control'] = 'no-store'
         return response

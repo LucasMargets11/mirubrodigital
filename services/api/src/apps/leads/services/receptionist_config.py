@@ -3,7 +3,8 @@
 Un solo camino de lectura y escritura para todos los accesos:
 
 - El agente la ve solo a través de su canal activo
-  (`receptionist_config_for_agent`, misma regla que el receiver).
+  (`receptionist_config_for_agent` / `agent_receptionist_config`, misma regla
+  que el receiver; PROD-03C la expone por HMAC).
 - Platform Admin y el comercio (owner/admin) la crean y editan con
   `create_receptionist_config` / `update_receptionist_config`: mismas
   validaciones (las del modelo), mismo bloqueo, misma auditoría. Las vistas
@@ -19,9 +20,9 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 
 from apps.accounts.platform_audit import record_platform_action
-from apps.business.models import Business
+from apps.business.models import Business, BusinessBillingProfile, BusinessBranding
 
-from ..models import AgentInstance, ReceptionistConfig
+from ..models import AgentChannel, AgentInstance, ReceptionistConfig
 from .receiver import resolve_channel
 
 WRITABLE_FIELDS = frozenset((*ReceptionistConfig.CONTENT_FIELDS, 'status'))
@@ -46,6 +47,13 @@ class ReceptionistConfigError(Exception):
         return {'code': self.code, 'detail': self.detail, **self.extra}
 
 
+def _resolve_for_agent(
+    agent_instance: AgentInstance, *, phone_number_id: str, business_id: int,
+) -> tuple[AgentChannel, ReceptionistConfig | None]:
+    channel = resolve_channel(agent_instance, {'phone_number_id': phone_number_id, 'business_id': business_id})
+    return channel, ReceptionistConfig.objects.filter(business_id=channel.business_id).first()
+
+
 def receptionist_config_for_agent(
     agent_instance: AgentInstance, *, phone_number_id: str, business_id: int,
 ) -> ReceptionistConfig | None:
@@ -55,8 +63,77 @@ def receptionist_config_for_agent(
     son los del receiver: `channel_disabled`, `business_inactive`,
     `business_mismatch`.
     """
-    channel = resolve_channel(agent_instance, {'phone_number_id': phone_number_id, 'business_id': business_id})
-    return ReceptionistConfig.objects.filter(business_id=channel.business_id).first()
+    return _resolve_for_agent(agent_instance, phone_number_id=phone_number_id, business_id=business_id)[1]
+
+
+# PROD-03C: contrato de lectura del agente. Sube solo ante cambios
+# incompatibles de forma; los aditivos no lo mueven.
+AGENT_CONFIG_CONTRACT_VERSION = 1
+CONFIG_MISSING = 'missing'
+
+
+def _public_business(business: Business) -> dict:
+    """Datos comerciales públicos, leídos en vivo de Business y sus perfiles.
+
+    Nada fiscal ni de contacto interno: ni razón social, CUIT, IVA, IIBB,
+    domicilio fiscal, ni el email/teléfono de facturación. El WhatsApp sale de
+    `BusinessBranding.whatsapp_phone`, que ya es el contacto público opt-in.
+    """
+    billing = (
+        BusinessBillingProfile.objects.filter(business=business)
+        .values('commercial_address', 'website').first() or {}
+    )
+    whatsapp = (
+        BusinessBranding.objects.filter(business=business).values_list('whatsapp_phone', flat=True).first() or ''
+    )
+    return {
+        'id': business.pk,
+        'name': business.name,
+        'timezone': business.timezone,
+        'address': billing.get('commercial_address') or None,
+        'website': billing.get('website') or None,
+        'whatsapp_phone': whatsapp or None,
+    }
+
+
+def _config_block(config: ReceptionistConfig | None) -> dict:
+    """Estado, versión y contenido de UNA lectura de la fila (consistente).
+
+    `content` solo cuando está lista: un borrador no entrega texto usable.
+    `version` es la de ReceptionistConfig; cambios de Business o sus perfiles
+    no la mueven.
+    """
+    if config is None:
+        return {
+            'status': CONFIG_MISSING, 'version': None, 'updated_at': None, 'missing_for_ready': None,
+            'content': None,
+        }
+    ready = config.is_ready
+    return {
+        'status': ReceptionistConfig.Status.READY if ready else ReceptionistConfig.Status.DRAFT,
+        'version': config.version,
+        'updated_at': config.updated_at.isoformat(),
+        'missing_for_ready': config.missing_for_ready(),
+        'content': {field: getattr(config, field) for field in ReceptionistConfig.CONTENT_FIELDS} if ready else None,
+    }
+
+
+def agent_receptionist_config(
+    agent_instance: AgentInstance, *, phone_number_id: str, business_id: int,
+) -> dict:
+    """Payload del GET del agente. Solo lectura: no crea ni modifica nada.
+
+    `ready` es completitud de la configuración, nunca autorización: el uso de
+    IA se sigue autorizando por interacción (`ai-usage/authorize`).
+    """
+    channel, config = _resolve_for_agent(agent_instance, phone_number_id=phone_number_id, business_id=business_id)
+    return {
+        'ok': True,
+        'contract_version': AGENT_CONFIG_CONTRACT_VERSION,
+        'business': _public_business(channel.business),
+        'channel': {'provider': channel.provider, 'phone_number_id': channel.phone_number_id},
+        'config': _config_block(config),
+    }
 
 
 def serialize_receptionist_config(config: ReceptionistConfig | None) -> dict:
