@@ -1240,3 +1240,151 @@ class PromoCodeRedemption(models.Model):
             f"PromoRedemption · {self.promo_code.code} · "
             f"biz={self.business_id} · {self.status}"
         )
+
+
+# ── PROD-02E2B: Recepcionista Custom — per-subscription AI usage policy ────────
+#
+# `reception_custom` has no allowance in the catalog: its conversation
+# allowance comes from an individual policy bound to ONE SubscriptionV2
+# (service_type='reception', plan_code='reception', usage_tier='reception_custom').
+# Versioned rows: a change never edits `included_sessions`; it closes the
+# current version (`valid_until`) and opens a new one. Effective at instant t:
+# status='active' and valid_from <= t < valid_until (NULL = open-ended).
+# Exactly one version may be effective at t; zero or several fail closed.
+# The policy never grants access by itself: subscription lifecycle, Business
+# status, kill switch and AI source resolution keep applying (AND).
+# Writers: billing.services.reception_ai_policy only (subscription row lock).
+
+RECEPTION_CUSTOM_MAX_INCLUDED_SESSIONS = 1_000_000
+
+
+class ReceptionAIUsagePolicy(models.Model):
+
+    class Status(models.TextChoices):
+        ACTIVE = 'active', 'Activa'
+        REVOKED = 'revoked', 'Revocada'
+        SUPERSEDED = 'superseded', 'Reemplazada antes de entrar en vigencia'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    business = models.ForeignKey(
+        Business, on_delete=models.PROTECT, related_name='reception_ai_usage_policies',
+    )
+    subscription = models.ForeignKey(
+        SubscriptionV2, on_delete=models.PROTECT, related_name='reception_ai_usage_policies',
+    )
+    included_sessions = models.PositiveIntegerField()
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.ACTIVE)
+    valid_from = models.DateTimeField()
+    valid_until = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
+    )
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    revoked_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                check=Q(included_sessions__gt=0)
+                & Q(included_sessions__lte=RECEPTION_CUSTOM_MAX_INCLUDED_SESSIONS),
+                name='reception_ai_policy_positive_finite',
+            ),
+            models.CheckConstraint(
+                check=Q(valid_until__isnull=True) | Q(valid_until__gt=models.F('valid_from')),
+                name='reception_ai_policy_valid_window',
+            ),
+            models.CheckConstraint(
+                check=(Q(status='revoked') & Q(revoked_at__isnull=False))
+                | (~Q(status='revoked') & Q(revoked_at__isnull=True)),
+                name='reception_ai_policy_revocation_stamp',
+            ),
+            # At most one open-ended active version per subscription; the
+            # service (under the subscription lock) serializes the rest of the
+            # non-overlap rule and the resolver fails closed on any overlap.
+            models.UniqueConstraint(
+                fields=['subscription'],
+                condition=Q(status='active', valid_until__isnull=True),
+                name='uq_reception_ai_policy_open_version',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['subscription', 'status', 'valid_from'], name='reception_ai_policy_lookup'),
+        ]
+
+    def __str__(self) -> str:  # pragma: no cover
+        return f"ReceptionAIUsagePolicy · {self.subscription_id} · {self.included_sessions} · {self.status}"
+
+    def clean(self):
+        super().clean()
+        sub = self.subscription
+        # Binding is validated at creation; closing/revoking an existing version
+        # must stay possible even if the subscription tier changed since.
+        if self._state.adding and (sub.service_type != 'reception' or sub.plan_code != 'reception'
+                                   or sub.usage_tier != 'reception_custom'):
+            raise ValidationError({'subscription': 'Only a Recepcionista Custom subscription has a custom policy.'})
+        if self.business_id != sub.business_id:
+            raise ValidationError({'business': 'The policy business must be the subscription business.'})
+        included = self.included_sessions
+        if type(included) is not int or not 0 < included <= RECEPTION_CUSTOM_MAX_INCLUDED_SESSIONS:
+            raise ValidationError({'included_sessions': 'A positive, finite integer allowance is required.'})
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        if not self._state.adding:
+            persisted = type(self).objects.only(
+                'subscription_id', 'business_id', 'included_sessions', 'valid_from',
+            ).get(pk=self.pk)
+            if (persisted.subscription_id, persisted.business_id, persisted.included_sessions,
+                    persisted.valid_from) != (self.subscription_id, self.business_id,
+                                              self.included_sessions, self.valid_from):
+                raise ValidationError('A policy version is immutable; create a new version instead.')
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError('Policy versions are never deleted; revoke instead.')
+
+
+class ReceptionAIUsagePolicyChange(models.Model):
+    """Append-only audit of every policy mutation (same transaction as the change)."""
+
+    class Action(models.TextChoices):
+        CREATED = 'created', 'Creada'
+        INCREASED = 'increased', 'Cupo aumentado'
+        REDUCTION_SCHEDULED = 'reduction_scheduled', 'Reducción programada'
+        SCHEDULE_CANCELED = 'schedule_canceled', 'Cambio programado cancelado'
+        REVOKED = 'revoked', 'Revocada'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    business = models.ForeignKey(Business, on_delete=models.PROTECT, related_name='+')
+    subscription = models.ForeignKey(SubscriptionV2, on_delete=models.PROTECT, related_name='+')
+    policy = models.ForeignKey(ReceptionAIUsagePolicy, on_delete=models.PROTECT, related_name='changes')
+    action = models.CharField(max_length=20, choices=Action.choices)
+    previous_included_sessions = models.PositiveIntegerField(null=True, blank=True)
+    new_included_sessions = models.PositiveIntegerField(null=True, blank=True)
+    effective_at = models.DateTimeField()
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
+    )
+    reason = models.CharField(max_length=255)
+    details = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['subscription', 'created_at'], name='reception_ai_policy_chg_idx'),
+        ]
+        constraints = [
+            models.CheckConstraint(check=~Q(reason=''), name='reception_ai_policy_chg_reason'),
+        ]
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValidationError('Policy audit entries are append-only.')
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError('Policy audit entries are append-only.')
