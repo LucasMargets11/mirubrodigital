@@ -38,6 +38,7 @@ from apps.accounts.admin_client_provisioning_service import (
     InvalidOwnerEmailError,
     MultipleOwnerAccountsError,
     UnauthorizedProvisioningActorError,
+    ExistingOwnerRequiresConfirmationError,
     provision_admin_client,
 )
 from apps.accounts.models import AccessAuditLog
@@ -80,6 +81,12 @@ PROVISIONING_ERROR_RESPONSES = {
         status.HTTP_409_CONFLICT,
         'inactive_owner_account',
         'La cuenta existente del owner está inactiva.',
+        'owner_email',
+    ),
+    ExistingOwnerRequiresConfirmationError: (
+        status.HTTP_409_CONFLICT,
+        'existing_owner_requires_confirmation',
+        'Ya existe una cuenta con ese email; todavía no se puede asociar a Recepcionista IA.',
         'owner_email',
     ),
     InvalidBusinessSlugError: (

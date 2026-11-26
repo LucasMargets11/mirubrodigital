@@ -71,6 +71,19 @@ class InactiveOwnerAccountError(AdminClientProvisioningError):
     """The single existing user matching ``owner_email`` is inactive."""
 
 
+class ExistingOwnerRequiresConfirmationError(AdminClientProvisioningError):
+    """
+    PROD-02F2: a Recepcionista client may not silently reuse an EXISTING
+    account as owner. Until the explicit confirmation flow (PROD-02F4), only a
+    new, pre-authorized owner account is accepted for ``service_type=reception``.
+    """
+
+
+# Services whose provisioning never attaches an existing account as owner
+# without an explicit confirmation (PROD-02F2; confirmation flow in 02F4).
+SERVICES_REQUIRING_NEW_OWNER = frozenset({'reception'})
+
+
 class InvalidBusinessSlugError(AdminClientProvisioningError):
     """``business_slug`` fails canonical slug format validation."""
 
@@ -350,6 +363,11 @@ def provision_admin_client(
 
     with transaction.atomic():
         owner_user, owner_created = _resolve_owner(owner_email)
+        if service_type in SERVICES_REQUIRING_NEW_OWNER and not owner_created:
+            raise ExistingOwnerRequiresConfirmationError(
+                'Ya existe una cuenta con ese email. Para Recepcionista IA todavía no se '
+                'asocian cuentas existentes sin confirmación explícita.'
+            )
 
         # ── Root Business — explicit slug, never silently re-suffixed ─────
         # Business.save() only auto-generates a slug when none is given, so
