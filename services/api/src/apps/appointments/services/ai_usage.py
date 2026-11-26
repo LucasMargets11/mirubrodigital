@@ -175,6 +175,16 @@ def resolve_appointments_ai_usage_period(
 
 
 def _locked_subscription(business: Business, *, at: datetime) -> SubscriptionV2:
+    return _source_subscription(business, at=at, lock=True)
+
+
+def _source_subscription(business: Business, *, at: datetime, lock: bool) -> SubscriptionV2:
+    """The AI source subscription with every admission check of the engine.
+
+    lock=True (metering) takes SELECT FOR UPDATE; lock=False (PROD-02E3A read
+    API) evaluates the same rules without locks or writes.
+    """
+    rows = SubscriptionV2.objects.select_for_update() if lock else SubscriptionV2.objects
     # PROD-02E1: one AI source per Business (billing.services.ai_source).
     # Recepcionista + Turnos IA fails closed; an eligible Recepcionista is the
     # source next to Turnos Base/Pro. Otherwise the original Turnos IA path
@@ -193,7 +203,7 @@ def _locked_subscription(business: Business, *, at: datetime) -> SubscriptionV2:
     if source.source == RECEPTION_SOURCE:
         from apps.billing.services.ai_source import _business_may_consume, _lifecycle_access
 
-        subscription = SubscriptionV2.objects.select_for_update().get(pk=source.subscription.pk)
+        subscription = rows.get(pk=source.subscription.pk)
         # Re-check under the lock, same order as the Turnos IA path.
         if (
             subscription.business_id != business.pk or not _is_reception(subscription)
@@ -212,7 +222,7 @@ def _locked_subscription(business: Business, *, at: datetime) -> SubscriptionV2:
         raise AIUsageUnavailable('The AI source changed during resolution.', reason='no_ai_entitlement')
     if resolved.subscription_v2 is None:
         raise AIUsageUnavailable('No effective appointments_ai subscription.', reason='no_ai_entitlement')
-    subscription = SubscriptionV2.objects.select_for_update().get(pk=resolved.subscription_v2.pk)
+    subscription = rows.get(pk=resolved.subscription_v2.pk)
     # A complimentary grant leaves the Business in 'trialing' (01A); only an
     # in-window grant may use that status, never a Mercado Pago trial.
     business_ok = business.status == 'active' or (
@@ -318,10 +328,10 @@ def get_ai_usage_and_source(business: Business, *, at: datetime) -> tuple[dict, 
     return _appointments_ai_usage(business, at=at)
 
 
-def _appointments_ai_usage(business: Business, *, at: datetime) -> tuple[dict, SubscriptionV2]:
+def _appointments_ai_usage(business: Business, *, at: datetime, lock: bool = True) -> tuple[dict, SubscriptionV2]:
     at = _utc(at)
-    business = Business.objects.select_for_update().get(pk=business.pk)
-    subscription = _locked_subscription(business, at=at)
+    business = (Business.objects.select_for_update() if lock else Business.objects).get(pk=business.pk)
+    subscription = _source_subscription(business, at=at, lock=lock)
     period_start, period_end = resolve_appointments_ai_usage_period(subscription, at=at)
     included = resolve_ai_usage_limit(subscription, at=at)
     used = count_ai_sessions_for_usage_period(
@@ -344,7 +354,11 @@ def resolve_ai_usage_policy(business: Business, *, at: datetime) -> dict:
     Unresolved/manual contracts and lifecycle denials retain S8A's explicit
     exceptions. Monetary values are integer ARS from the canonical catalog.
     """
-    usage, subscription = _appointments_ai_usage(business, at=at)
+    return _admission_terms(*_appointments_ai_usage(business, at=at), at=at)
+
+
+def _admission_terms(usage: dict, subscription: SubscriptionV2, *, at: datetime) -> dict:
+    """Admission economics of a NEW session (shared by the engine and the read API)."""
     if _is_reception(subscription):
         # PROD-02E2A: overage disabled; the included allowance is the hard cap.
         _reception_tier_policy(subscription, at=at)
@@ -378,6 +392,16 @@ def resolve_ai_usage_policy(business: Business, *, at: datetime) -> dict:
         'can_start_new_session': allowed,
         'blocked_reason': None if allowed else 'hard_cap_reached',
     }
+
+
+def read_ai_usage_admission(business: Business, *, at: datetime) -> tuple[dict, dict, SubscriptionV2]:
+    """PROD-02E3A: (usage, admission, source) with the engine's exact rules, read-only.
+
+    No locks, no writes. Raises the same exceptions as the engine
+    (AIUsageUnavailable/AIUsageHardCapReached reasons, ManualContractRequired).
+    """
+    usage, subscription = _appointments_ai_usage(business, at=at, lock=False)
+    return usage, _admission_terms(usage, subscription, at=at), subscription
 
 
 def can_start_ai_usage_session(business: Business, *, at: datetime) -> bool:
