@@ -32,6 +32,8 @@ from .crypto import decrypt_agent_secret, encrypt_agent_secret
 EXTERNAL_ID_REGEX = r'^[a-z0-9-]{3,64}$'
 KEY_ID_REGEX = r'^[A-Za-z0-9_.-]{1,64}$'
 PHONE_NUMBER_ID_REGEX = r'^[0-9]{1,32}$'
+# PROD-04B: WhatsApp Business Account de Meta (dígitos). Vacío = canal legacy sin dato.
+WABA_ID_REGEX = r'^[0-9]{1,32}$'
 E164_REGEX = r'^\+[1-9][0-9]{1,14}$'
 PAYLOAD_HASH_REGEX = r'^[0-9a-f]{64}$'
 # Todo token Fernet empieza con el byte de versión 0x80 + timestamp de 64 bits
@@ -150,6 +152,19 @@ class AgentChannel(models.Model):
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     deactivated_at = models.DateTimeField(null=True, blank=True)
+    # PROD-04B: WABA del número y autorización de Meta con la que se opera.
+    # Ambos opcionales: los canales existentes quedan sin datos inventados.
+    # Se escriben solo por `services.whatsapp_authorizations`.
+    waba_id = models.CharField(
+        max_length=32, blank=True, default='',
+        validators=[RegexValidator(WABA_ID_REGEX, 'waba_id inválido: solo dígitos, 1 a 32.')],
+    )
+    whatsapp_authorization = models.ForeignKey(
+        'leads.WhatsAppAuthorization', related_name='channels', null=True, blank=True,
+        # RESTRICT: no se borra una autorización en uso, salvo en el mismo
+        # cascade que borra sus canales (p. ej. al borrar el Business dueño).
+        on_delete=models.RESTRICT,
+    )
 
     class Meta:
         ordering = ['-created_at']
@@ -167,11 +182,28 @@ class AgentChannel(models.Model):
             models.CheckConstraint(
                 check=Q(is_active=False) | Q(deactivated_at__isnull=True), name='agent_channel_active_not_deactivated',
             ),
+            models.CheckConstraint(
+                check=Q(waba_id='') | Q(waba_id__regex=WABA_ID_REGEX), name='agent_channel_waba_id_format',
+            ),
         ]
 
     def __str__(self) -> str:
         state = 'active' if self.is_active else 'inactive'
         return f'{self.provider}:{self.phone_number_id} → business {self.business_id} ({state})'
+
+    def save(self, *args, **kwargs):
+        # Invariante cross-table (PROD-04B): una autorización con dueño solo
+        # sirve a canales de ese Business. Las de plataforma (sin dueño) no
+        # tienen esta restricción, pero solo se asignan por administración
+        # interna. `update()`/`bulk_create` no pasan por acá: usar el servicio.
+        if self.whatsapp_authorization_id is not None:
+            owner = (
+                WhatsAppAuthorization.objects.filter(pk=self.whatsapp_authorization_id)
+                .values_list('owner_business_id', flat=True).first()
+            )
+            if owner is not None and owner != self.business_id:
+                raise ValidationError('La autorización de WhatsApp pertenece a otro negocio.')
+        super().save(*args, **kwargs)
 
 
 class Lead(models.Model):
@@ -1351,3 +1383,76 @@ class ReceptionistConfig(models.Model):
                 changed = any(stored[f] != getattr(self, f) for f in (*self.CONTENT_FIELDS, 'status'))
                 self.version = stored['version'] + (1 if changed else 0)
         return super().save(*args, **kwargs)
+
+
+# ── PROD-04B: autorizaciones de WhatsApp (Meta) por conexión ──────────────
+
+class WhatsAppAuthorization(models.Model):
+    """Token de acceso de Meta con el que el agente opera uno o más números.
+
+    Distinto de `AgentCredential` (HMAC agente ↔ MiRubro): otra contraparte,
+    otro ciclo de vida (lo emite y revoca Meta, puede vencer) y otro alcance.
+    Varios `AgentChannel` pueden compartir una misma fila, así que el secreto
+    nunca se duplica. Se administra solo por `services.whatsapp_authorizations`.
+
+    - `owner_business`: el negocio dueño (inmutable). `NULL` = autorización
+      de plataforma (system user de MiRubro): excepcional, solo administración
+      interna; puede cubrir números de varios negocios.
+    - Token cifrado con la clave del agente (`crypto.py`); se lee solo con
+      `get_token()`. Nunca en `__str__`, logs ni auditoría.
+    - `revoked` es local: no revoca el token ante Meta.
+    """
+
+    class Status(models.TextChoices):
+        ACTIVE = 'active', 'Activa'
+        REVOKED = 'revoked', 'Revocada (local)'
+        INVALID = 'invalid', 'Inválida (rechazada por Meta)'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner_business = models.ForeignKey(
+        'business.Business', related_name='whatsapp_authorizations', null=True, blank=True,
+        on_delete=models.CASCADE,
+    )
+    encrypted_access_token = models.TextField(editable=False)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.ACTIVE)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                check=Q(status__in=['active', 'revoked', 'invalid']), name='whatsapp_authorization_status_valid',
+            ),
+            models.CheckConstraint(
+                check=Q(encrypted_access_token__startswith=FERNET_TOKEN_PREFIX),
+                name='whatsapp_authorization_token_encrypted',
+            ),
+            models.CheckConstraint(
+                check=(Q(status='revoked') & Q(revoked_at__isnull=False)) | (~Q(status='revoked') & Q(revoked_at__isnull=True)),
+                name='whatsapp_authorization_revoked_at_coherent',
+            ),
+        ]
+
+    def set_token(self, plaintext: str) -> None:
+        self.encrypted_access_token = encrypt_agent_secret(plaintext)
+
+    def get_token(self) -> str:
+        return decrypt_agent_secret(self.encrypted_access_token)
+
+    @property
+    def is_platform(self) -> bool:
+        return self.owner_business_id is None
+
+    def __str__(self) -> str:
+        # Nunca el token (ni cifrado): __repr__ de Django usa __str__.
+        scope = 'platform' if self.is_platform else f'business {self.owner_business_id}'
+        return f'WhatsAppAuthorization {self.pk} ({scope}, {self.status})'
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding and self.pk is not None:
+            stored = type(self).objects.filter(pk=self.pk).values_list('owner_business_id', flat=True)
+            if stored.exists() and stored.first() != self.owner_business_id:
+                raise ValidationError('WhatsAppAuthorization.owner_business es inmutable.')
+        super().save(*args, **kwargs)

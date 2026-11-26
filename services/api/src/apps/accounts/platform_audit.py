@@ -70,6 +70,7 @@ def record_platform_action(
     entity_id: str = '',
     details: dict | None = None,
     target_user=None,
+    platform_scope: bool = False,
 ):
     """
     PROD-02F4: MANDATORY variant of ``log_platform_action``.
@@ -78,8 +79,12 @@ def record_platform_action(
     failure propagates so the caller's transaction (e.g. client provisioning)
     rolls back with it. Use it only inside ``transaction.atomic()`` when the
     operation must not exist without its audit row.
+
+    PROD-04B: ``platform_scope=True`` is the only way to record an action
+    without a business (a platform-wide resource such as a platform WhatsApp
+    authorization). It is explicit so a missing business is never silent.
     """
-    if business is None or actor is None:
+    if actor is None or (business is None and not platform_scope):
         raise ValueError(f'record_platform_action({action}) requires actor and business.')
     return AccessAuditLog.objects.create(
         action=action,

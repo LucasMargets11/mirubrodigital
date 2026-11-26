@@ -447,6 +447,11 @@ class AccessAuditLog(models.Model):
         # ── Recepcionista IA (PROD-03B): admin o comercio, ver details.source ──
         ('RECEPTIONIST_CONFIG_CREATED', 'Receptionist Config Created'),
         ('RECEPTIONIST_CONFIG_UPDATED', 'Receptionist Config Updated'),
+        # ── Autorizaciones WhatsApp (PROD-04B): solo metadatos, nunca el token ──
+        ('WHATSAPP_AUTHORIZATION_CREATED', 'WhatsApp Authorization Created'),
+        ('WHATSAPP_AUTHORIZATION_LINKED',  'WhatsApp Authorization Linked To Channel'),
+        ('WHATSAPP_AUTHORIZATION_ROTATED', 'WhatsApp Authorization Rotated'),
+        ('WHATSAPP_AUTHORIZATION_REVOKED', 'WhatsApp Authorization Revoked (local)'),
         ('ADMIN_SUBSCRIPTION_VIEWED',  'Admin Subscription Viewed'),
         ('ADMIN_SUBSCRIPTION_CANCELED', 'Admin Subscription Canceled'),
         ('ADMIN_COMPLIMENTARY_ACCESS_GRANTED', 'Admin Complimentary Access Granted'),
