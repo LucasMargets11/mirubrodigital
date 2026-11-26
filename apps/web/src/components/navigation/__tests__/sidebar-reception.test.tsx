@@ -52,6 +52,7 @@ describe('Sidebar Recepcionista IA', () => {
         render(<Sidebar {...baseProps} />);
         expect(screen.getAllByText('Recepcionista IA').length).toBeGreaterThan(0);
         expect(screen.getByRole('link', { name: 'Inicio' })).toHaveAttribute('href', '/app/recepcionista');
+        expect(screen.getByRole('link', { name: 'Leads' })).toHaveAttribute('href', '/app/recepcionista/leads');
         expect(screen.getByRole('link', { name: 'Consumo' })).toHaveAttribute('href', '/app/recepcionista/consumo');
         expect(screen.getByRole('link', { name: 'Clientes' })).toHaveAttribute('href', '/app/clientes');
         expect(screen.getByRole('link', { name: 'Usuarios y accesos' })).toHaveAttribute('href', '/app/settings/access');
@@ -71,8 +72,16 @@ describe('Sidebar Recepcionista IA', () => {
         for (const label of [/Profesionales/i, /Horarios/i, /^Turnos$/i, /Caja/i, /Ventas/i, /Stock/i, /Mi agente/i, /WhatsApp/i]) {
             expect(screen.queryByRole('link', { name: label })).not.toBeInTheDocument();
         }
-        // Leads llega con PROD-02G2: hoy no hay ruta propia bajo /app/recepcionista
-        expect(links.some((href) => href.includes('leads'))).toBe(false);
+        // PROD-02G2: Leads vive dentro de Recepcionista, nunca en Turnos
+        expect(links.filter((href) => href.includes('leads'))).toEqual(['/app/recepcionista/leads']);
+    });
+
+    it('Leads exige el flag leads y view_leads', () => {
+        const { unmount } = render(<Sidebar {...baseProps} features={{ ...baseProps.features, leads: false }} />);
+        expect(screen.queryByRole('link', { name: 'Leads' })).not.toBeInTheDocument();
+        unmount();
+        render(<Sidebar {...baseProps} permissions={{ ...OWNER_PERMISSIONS, view_leads: false }} />);
+        expect(screen.queryByRole('link', { name: 'Leads' })).not.toBeInTheDocument();
     });
 
     it('respeta plan y permisos: Clientes por flag, Consumo y accesos por permiso', () => {
@@ -86,6 +95,7 @@ describe('Sidebar Recepcionista IA', () => {
         );
         expect(screen.getByRole('link', { name: 'Inicio' })).toBeInTheDocument();
         expect(screen.queryByRole('link', { name: 'Clientes' })).not.toBeInTheDocument();
+        expect(screen.getByRole('link', { name: 'Leads' })).toBeInTheDocument();
         expect(screen.queryByRole('link', { name: 'Consumo' })).not.toBeInTheDocument();
         expect(screen.queryByRole('link', { name: 'Usuarios y accesos' })).not.toBeInTheDocument();
     });

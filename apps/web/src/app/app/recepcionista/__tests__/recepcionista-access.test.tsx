@@ -160,6 +160,7 @@ describe('Recepcionista IA — Inicio y Consumo', () => {
         getSessionMock.mockResolvedValue(receptionSession());
         render(await RecepcionistaPage());
         expect(screen.getByRole('heading', { name: 'Recepcionista IA' })).toBeInTheDocument();
+        expect(screen.getByRole('link', { name: 'Ver leads' })).toHaveAttribute('href', '/app/recepcionista/leads');
         expect(screen.getByRole('link', { name: 'Ver consumo' })).toHaveAttribute('href', '/app/recepcionista/consumo');
         expect(screen.getByRole('link', { name: 'Ver clientes' })).toHaveAttribute('href', '/app/clientes');
         expect(screen.getByTestId('ai-usage-compact')).toBeInTheDocument();
@@ -176,6 +177,7 @@ describe('Recepcionista IA — Inicio y Consumo', () => {
         }));
         render(await RecepcionistaPage());
         expect(screen.queryByRole('link', { name: 'Ver clientes' })).not.toBeInTheDocument();
+        expect(screen.getByRole('link', { name: 'Ver leads' })).toBeInTheDocument();
         expect(screen.queryByRole('link', { name: 'Ver consumo' })).not.toBeInTheDocument();
         expect(screen.queryByTestId('ai-usage-compact')).not.toBeInTheDocument();
     });
