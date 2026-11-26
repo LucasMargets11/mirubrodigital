@@ -235,8 +235,12 @@ export async function provisionAdminClient(
     complimentary_start: input.complimentary_start,
     complimentary_end: input.complimentary_end,
     grant_reason: input.grant_reason,
-    // Only tier-priced plans (Turnos IA) carry it; omitted otherwise.
+    // Only tier-priced plans (Turnos IA, Recepcionista) carry it; omitted otherwise.
     ...(input.usage_tier ? { usage_tier: input.usage_tier } : {}),
+    // Only Recepcionista Custom carries it (PROD-02F3); omitted otherwise.
+    ...(input.custom_included_sessions !== undefined
+      ? { custom_included_sessions: input.custom_included_sessions }
+      : {}),
   };
 
   let response: Response;

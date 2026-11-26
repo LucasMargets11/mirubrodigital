@@ -179,6 +179,12 @@ export type AdminProvisioningPlanOption = {
 export type AdminProvisioningUsageTierOption = {
   code: string;
   name: string;
+  /**
+   * Present only for a tier whose allowance is an individual policy
+   * (Recepcionista Custom, PROD-02F3): the form must ask for
+   * `custom_included_sessions` within [min, max].
+   */
+  custom_allowance?: { min: number; max: number };
 };
 
 /** One service_type and its currently active/compatible plans. */
@@ -210,8 +216,10 @@ export type AdminClientProvisioningInput = {
   complimentary_start: string;
   complimentary_end: string;
   grant_reason: string;
-  /** Sent only when the selected plan offers usage tiers (Turnos IA). */
+  /** Sent only when the selected plan offers usage tiers (Turnos IA, Recepcionista). */
   usage_tier?: string;
+  /** Sent only for a tier with `custom_allowance` (Recepcionista Custom). */
+  custom_included_sessions?: number;
 };
 
 export type AdminProvisionedBusiness = {
@@ -273,6 +281,8 @@ export type AdminClientProvisioningErrorCode =
   | 'invalid_complimentary_grant_reason'
   | 'invalid_complimentary_service_type'
   | 'invalid_complimentary_usage_tier'
+  | 'invalid_custom_included_sessions'
+  | 'existing_owner_requires_confirmation'
   | 'complimentary_plan_not_available'
   | 'complimentary_plan_service_mismatch'
   | 'active_complimentary_subscription_conflict'

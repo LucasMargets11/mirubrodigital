@@ -25,6 +25,7 @@ type FormState = {
   service_type: string;
   plan_code: string;
   usage_tier: string;
+  custom_included_sessions: string;
   country: string;
   currency: string;
   owner_email: string;
@@ -39,6 +40,7 @@ const INITIAL_FORM: FormState = {
   service_type: '',
   plan_code: '',
   usage_tier: '',
+  custom_included_sessions: '',
   country: 'AR',
   currency: 'ARS',
   owner_email: '',
@@ -57,6 +59,7 @@ const FIELD_ORDER: (keyof FormState)[] = [
   'service_type',
   'plan_code',
   'usage_tier',
+  'custom_included_sessions',
   'country',
   'currency',
   'complimentary_start',
@@ -98,6 +101,14 @@ function validate(
   }
   if (selectedPlan?.usage_tiers?.length && !form.usage_tier) {
     errors.usage_tier = 'Seleccioná el nivel de uso.';
+  }
+  const customAllowance = selectedPlan?.usage_tiers?.find((t) => t.code === form.usage_tier)?.custom_allowance;
+  if (customAllowance) {
+    const raw = form.custom_included_sessions.trim();
+    const value = Number(raw);
+    if (!/^\d+$/.test(raw) || !Number.isSafeInteger(value) || value < customAllowance.min || value > customAllowance.max) {
+      errors.custom_included_sessions = `Ingresá un número entero entre ${customAllowance.min} y ${customAllowance.max.toLocaleString('es-AR')}.`;
+    }
   }
 
   const country = form.country.trim();
@@ -178,6 +189,7 @@ export function NuevoClienteForm() {
   const availablePlans: AdminProvisioningPlanOption[] = selectedService?.plans ?? [];
   const selectedPlan = availablePlans.find((plan) => plan.code === form.plan_code) ?? null;
   const usageTiers = selectedPlan?.usage_tiers ?? [];
+  const customAllowance = usageTiers.find((t) => t.code === form.usage_tier)?.custom_allowance ?? null;
 
   function handleServiceChange(value: string) {
     setForm((f) => {
@@ -186,7 +198,7 @@ export function NuevoClienteForm() {
       const planStillValid = plans.some((p) => p.code === f.plan_code);
       return planStillValid
         ? { ...f, service_type: value }
-        : { ...f, service_type: value, plan_code: '', usage_tier: '' };
+        : { ...f, service_type: value, plan_code: '', usage_tier: '', custom_included_sessions: '' };
     });
   }
 
@@ -194,7 +206,9 @@ export function NuevoClienteForm() {
     setForm((f) => {
       const plan = availablePlans.find((p) => p.code === value);
       const tierStillValid = (plan?.usage_tiers ?? []).some((t) => t.code === f.usage_tier);
-      return { ...f, plan_code: value, usage_tier: tierStillValid ? f.usage_tier : '' };
+      return tierStillValid
+        ? { ...f, plan_code: value }
+        : { ...f, plan_code: value, usage_tier: '', custom_included_sessions: '' };
     });
   }
 
@@ -208,7 +222,10 @@ export function NuevoClienteForm() {
   }
 
   function handleChange<K extends keyof FormState>(key: K, value: string) {
-    setForm((f) => ({ ...f, [key]: value }));
+    // A different tier never keeps the previous custom allowance (PROD-02F3)
+    setForm((f) => (key === 'usage_tier' && value !== f.usage_tier
+      ? { ...f, usage_tier: value, custom_included_sessions: '' }
+      : { ...f, [key]: value }));
     if (key === 'complimentary_start' || key === 'complimentary_end') {
       setPreset('custom');
     }
@@ -265,6 +282,7 @@ export function NuevoClienteForm() {
         complimentary_end: form.complimentary_end,
         grant_reason: form.grant_reason.trim(),
         ...(usageTiers.length > 0 ? { usage_tier: form.usage_tier } : {}),
+        ...(customAllowance ? { custom_included_sessions: Number(form.custom_included_sessions.trim()) } : {}),
       });
 
       switch (response.status) {
@@ -572,6 +590,36 @@ export function NuevoClienteForm() {
                     Conversaciones de IA incluidas por mes. El alta es bonificada: no se cobra.
                   </p>
                   {errors.usage_tier && <p className={errorClass}>{errors.usage_tier}</p>}
+                </div>
+              )}
+
+              {customAllowance && (
+                <div className="sm:col-span-2">
+                  <label htmlFor="custom_included_sessions" className={labelClass}>
+                    Cupo personalizado (conversaciones por mes)
+                  </label>
+                  <input
+                    id="custom_included_sessions"
+                    ref={(el) => {
+                      fieldRefs.current.custom_included_sessions = el;
+                    }}
+                    type="number"
+                    inputMode="numeric"
+                    min={customAllowance.min}
+                    max={customAllowance.max}
+                    step={1}
+                    value={form.custom_included_sessions}
+                    onChange={(e) => handleChange('custom_included_sessions', e.target.value)}
+                    aria-invalid={Boolean(errors.custom_included_sessions)}
+                    aria-describedby="custom_included_sessions-help"
+                    className={inputClass}
+                  />
+                  <p id="custom_included_sessions-help" className="mt-1 text-xs text-slate-500">
+                    Cupo individual de este acuerdo. Sin excedentes: al agotarse, la IA se bloquea hasta el próximo período.
+                  </p>
+                  {errors.custom_included_sessions && (
+                    <p className={errorClass}>{errors.custom_included_sessions}</p>
+                  )}
                 </div>
               )}
             </div>
