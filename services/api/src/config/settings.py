@@ -431,6 +431,8 @@ AGENT_SECRET_ENCRYPTION_KEY = os.getenv('AGENT_SECRET_ENCRYPTION_KEY', '')
 # Default false: apagado responde 503. Encendido sin AGENT_SECRET_ENCRYPTION_KEY
 # válida → error de system check leads.E001/E002 (falla `check`/`migrate`).
 AGENT_INTEGRATION_ENABLED = os.getenv('AGENT_INTEGRATION_ENABLED', 'False').lower() == 'true'
+# PROD-02E4A: ingesta de telemetría operativa de IA del agente (apagada ⇒ 503 reintentable).
+AGENT_AI_TELEMETRY_ENABLED = os.getenv('AGENT_AI_TELEMETRY_ENABLED', 'False').lower() == 'true'
 AI_USAGE_METERING_ENABLED = os.getenv('AI_USAGE_METERING_ENABLED', 'false').lower() == 'true'
 
 # MIRUBRO TAKEOVER 05A: comandos humanos MiRubro → Agent (pausar/reanudar el bot
@@ -714,6 +716,7 @@ REST_FRAMEWORK['DEFAULT_THROTTLE_RATES'].update({
     'public_appointments_checkout': os.getenv('PUBLIC_APPOINTMENTS_CHECKOUT_THROTTLE_RATE', '10/minute'),
     # AGENT 02B: requests firmadas por AgentInstance (no por IP).
     'agent_leads_sync': os.getenv('AGENT_LEADS_SYNC_THROTTLE_RATE', '600/minute'),
+    'agent_ai_telemetry': os.getenv('AGENT_AI_TELEMETRY_THROTTLE_RATE', '1200/minute'),
 })
 
 # ── Owner/public login 3D rate limiting ──────────────────────────────────────
