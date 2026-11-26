@@ -686,4 +686,124 @@ describe('NuevoClienteForm', () => {
       expect(await screen.findByText('El cupo personalizado no es válido para el nivel de uso elegido.')).toBeInTheDocument();
     });
   });
+  describe('Existing owner confirmation (PROD-02F4)', () => {
+    const PROMPT = {
+      status: 'domain_error' as const,
+      httpStatus: 409,
+      error: {
+        code: 'existing_owner_requires_confirmation',
+        detail: 'Ya existe una cuenta con ese email.',
+        field: 'owner_email',
+        confirmation: { token: 'tok-1', owner_email: 'owner@empresa.com', expires_in_seconds: 900 },
+      },
+    };
+    const CONFIRM_LABEL = /asociar cuenta existente y crear cliente/i;
+
+    it('asks for an explicit confirmation instead of a field error and creates nothing by itself', async () => {
+      getOptionsMock.mockResolvedValueOnce({ status: 'ok', data: OPTIONS_FIXTURE });
+      provisionMock.mockResolvedValueOnce(PROMPT);
+      await renderForm();
+      await fillRequiredFields();
+      fireEvent.click(screen.getByRole('button', { name: /crear cliente/i }));
+
+      const panel = await screen.findByRole('group', { name: 'Ya existe una cuenta con este email' });
+      expect(within(panel).getByText('owner@empresa.com')).toBeInTheDocument();
+      expect(within(panel).getByText(/conserva su contraseña, su perfil y sus accesos actuales/i)).toBeInTheDocument();
+      expect(screen.queryByText('Ya existe una cuenta con ese email.')).not.toBeInTheDocument();
+      expect(provisionMock).toHaveBeenCalledTimes(1);
+      expect(provisionMock.mock.calls[0][0]).not.toHaveProperty('attach_existing_owner');
+      expect(provisionMock.mock.calls[0][0]).not.toHaveProperty('owner_confirmation_token');
+    });
+
+    it('resubmits the same data with attach_existing_owner and the bound token on confirm', async () => {
+      getOptionsMock.mockResolvedValueOnce({ status: 'ok', data: OPTIONS_FIXTURE });
+      provisionMock
+        .mockResolvedValueOnce(PROMPT)
+        .mockResolvedValueOnce({ status: 'ok', data: { ...SUCCESS_RESULT, owner: { id: 1, email: 'owner@empresa.com', created: false } } });
+      await renderForm();
+      await fillRequiredFields();
+      fireEvent.click(screen.getByRole('button', { name: /crear cliente/i }));
+      fireEvent.click(await screen.findByRole('button', { name: CONFIRM_LABEL }));
+
+      await waitFor(() => expect(provisionMock).toHaveBeenCalledTimes(2));
+      const [first, second] = provisionMock.mock.calls.map((call) => call[0]);
+      expect(second).toEqual({ ...first, attach_existing_owner: true, owner_confirmation_token: 'tok-1' });
+      expect(await screen.findByRole('heading', { name: 'Cliente creado correctamente' })).toBeInTheDocument();
+      expect(screen.getByText(/se asoció una cuenta existente/i)).toBeInTheDocument();
+    });
+
+    it('drops the confirmation as soon as the email changes', async () => {
+      getOptionsMock.mockResolvedValueOnce({ status: 'ok', data: OPTIONS_FIXTURE });
+      provisionMock.mockResolvedValueOnce(PROMPT).mockResolvedValueOnce({ status: 'ok', data: SUCCESS_RESULT });
+      await renderForm();
+      await fillRequiredFields();
+      fireEvent.click(screen.getByRole('button', { name: /crear cliente/i }));
+      await screen.findByRole('button', { name: CONFIRM_LABEL });
+
+      fireEvent.change(screen.getByLabelText('Email del owner'), { target: { value: 'otro@empresa.com' } });
+      expect(screen.queryByRole('button', { name: CONFIRM_LABEL })).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: /crear cliente/i }));
+      await waitFor(() => expect(provisionMock).toHaveBeenCalledTimes(2));
+      expect(provisionMock.mock.calls[1][0].owner_email).toBe('otro@empresa.com');
+      expect(provisionMock.mock.calls[1][0]).not.toHaveProperty('attach_existing_owner');
+      expect(provisionMock.mock.calls[1][0]).not.toHaveProperty('owner_confirmation_token');
+    });
+
+    it('"Usar otro email" dismisses the prompt and focuses the email field', async () => {
+      getOptionsMock.mockResolvedValueOnce({ status: 'ok', data: OPTIONS_FIXTURE });
+      provisionMock.mockResolvedValueOnce(PROMPT);
+      await renderForm();
+      await fillRequiredFields();
+      fireEvent.click(screen.getByRole('button', { name: /crear cliente/i }));
+      fireEvent.click(await screen.findByRole('button', { name: /usar otro email/i }));
+
+      expect(screen.queryByRole('button', { name: CONFIRM_LABEL })).not.toBeInTheDocument();
+      expect(screen.getByLabelText('Email del owner')).toHaveFocus();
+    });
+
+    it('asks again with the renewed token when the identified account changed', async () => {
+      getOptionsMock.mockResolvedValueOnce({ status: 'ok', data: OPTIONS_FIXTURE });
+      provisionMock
+        .mockResolvedValueOnce(PROMPT)
+        .mockResolvedValueOnce({
+          ...PROMPT,
+          error: {
+            ...PROMPT.error,
+            code: 'existing_owner_confirmation_invalid',
+            confirmation: { ...PROMPT.error.confirmation, token: 'tok-2' },
+          },
+        })
+        .mockResolvedValueOnce({ status: 'ok', data: SUCCESS_RESULT });
+      await renderForm();
+      await fillRequiredFields();
+      fireEvent.click(screen.getByRole('button', { name: /crear cliente/i }));
+      fireEvent.click(await screen.findByRole('button', { name: CONFIRM_LABEL }));
+
+      expect(await screen.findByText(/la cuenta identificada cambió/i)).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: CONFIRM_LABEL }));
+      await waitFor(() => expect(provisionMock).toHaveBeenCalledTimes(3));
+      expect(provisionMock.mock.calls[1][0].owner_confirmation_token).toBe('tok-1');
+      expect(provisionMock.mock.calls[2][0].owner_confirmation_token).toBe('tok-2');
+    });
+
+    it('shows a non-eligible account on the email field without offering a confirmation', async () => {
+      getOptionsMock.mockResolvedValueOnce({ status: 'ok', data: OPTIONS_FIXTURE });
+      provisionMock.mockResolvedValueOnce({
+        status: 'domain_error',
+        httpStatus: 409,
+        error: {
+          code: 'owner_account_not_eligible',
+          detail: 'La cuenta existente con ese email no puede ser propietaria de un cliente nuevo.',
+          field: 'owner_email',
+        },
+      });
+      await renderForm();
+      await fillRequiredFields();
+      fireEvent.click(screen.getByRole('button', { name: /crear cliente/i }));
+
+      expect(await screen.findByText(/no puede ser propietaria de un cliente nuevo/i)).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: CONFIRM_LABEL })).not.toBeInTheDocument();
+    });
+  });
 });

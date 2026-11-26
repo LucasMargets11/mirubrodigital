@@ -135,6 +135,37 @@ describe('lib/admin/client — provisioning API layer', () => {
       });
     });
 
+    it('sends attach_existing_owner + owner_confirmation_token together, or neither (PROD-02F4)', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(jsonResponse(400, {}));
+      vi.stubGlobal('fetch', fetchMock);
+      const { provisionAdminClient } = await import('@/lib/admin/client');
+
+      await provisionAdminClient({ ...INPUT, attach_existing_owner: true, owner_confirmation_token: 'tok-1' });
+      await provisionAdminClient({ ...INPUT, attach_existing_owner: true });
+      await provisionAdminClient({ ...INPUT, owner_confirmation_token: 'tok-1' });
+
+      const bodies = fetchMock.mock.calls.map((call) => JSON.parse(call[1].body as string));
+      expect(bodies[0]).toEqual({ ...INPUT, attach_existing_owner: true, owner_confirmation_token: 'tok-1' });
+      expect(bodies[1]).toEqual(INPUT);
+      expect(bodies[2]).toEqual(INPUT);
+    });
+
+    it('keeps the confirmation payload of an existing-owner 409 prompt', async () => {
+      const confirmation = { token: 'tok-1', owner_email: 'owner@empresa.com', expires_in_seconds: 900 };
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(409, {
+        code: 'existing_owner_requires_confirmation', detail: 'Ya existe una cuenta.', field: 'owner_email', confirmation,
+      })));
+      const { provisionAdminClient } = await import('@/lib/admin/client');
+      const result = await provisionAdminClient(INPUT);
+
+      expect(result.status).toBe('domain_error');
+      if (result.status === 'domain_error') {
+        expect(result.httpStatus).toBe(409);
+        expect(result.error.code).toBe('existing_owner_requires_confirmation');
+        expect(result.error.confirmation).toEqual(confirmation);
+      }
+    });
+
     it('adds custom_included_sessions only for Recepcionista Custom (PROD-02F3)', async () => {
       const fetchMock = vi.fn().mockResolvedValue(jsonResponse(400, {}));
       vi.stubGlobal('fetch', fetchMock);
