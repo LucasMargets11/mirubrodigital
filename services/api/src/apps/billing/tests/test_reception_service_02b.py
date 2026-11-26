@@ -26,7 +26,7 @@ from apps.accounts.models import Membership
 from apps.billing import canonical_pricing
 from apps.billing.appointments_plans import validate_usage_tier
 from apps.billing.complimentary_access_service import (
-    PlanNotAvailableError, grant_complimentary_access, list_provisioning_options,
+    InvalidUsageTierError, PlanNotAvailableError, grant_complimentary_access, list_provisioning_options,
 )
 from apps.billing.models import Plan, SubscriptionV2
 from apps.billing.plans import get_seat_limit
@@ -474,14 +474,18 @@ class ReceptionNotSellableTests(TestCase):
                 self.assertEqual(response.json()['error'], 'Product is not available for purchase')
         self.assertFalse(Business.objects.filter(default_service='reception').exists())
 
-    def test_admin_provisioning_not_enabled(self):
-        self.assertNotIn('reception', [option['value'] for option in list_provisioning_options()])
+    def test_admin_provisioning_only_fixed_tiers(self):
+        # PROD-02F2: internal (complimentary) provisioning admits the three fixed
+        # tiers; reception_custom stays out until PROD-02F3.
+        option = next(o for o in list_provisioning_options() if o['value'] == 'reception')
+        self.assertEqual([t['code'] for t in option['plans'][0]['usage_tiers']],
+                         ['reception_300', 'reception_1500', 'reception_3000'])
         biz = _business(service='reception')
         start = timezone.now()
-        with self.assertRaises(PlanNotAvailableError):
+        with self.assertRaises(InvalidUsageTierError):
             grant_complimentary_access(
                 business=biz, plan_code='reception', service_type='reception',
                 starts_at=start, ends_at=start + timedelta(days=30), granted_by=_superadmin(),
-                reason='No habilitado todavía', usage_tier='reception_300',
+                reason='Custom todavía no', usage_tier='reception_custom',
             )
         self.assertFalse(SubscriptionV2.objects.filter(business=biz).exists())
