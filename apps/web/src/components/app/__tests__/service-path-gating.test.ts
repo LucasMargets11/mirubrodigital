@@ -79,6 +79,23 @@ describe('qr_reviews (solo Reseñas)', () => {
     );
 });
 
+// PROD-02G1: Recepcionista IA independiente — nada de Turnos, Gestión, POS ni caja.
+describe('reception (solo Recepcionista IA)', () => {
+    it.each([...COMMON_ALLOWED, '/app/recepcionista', '/app/recepcionista/consumo', '/app/clientes', '/app/clientes/abc'])(
+        'permite %s',
+        (path) => expect(allowed('reception', path)).toBe(true),
+    );
+
+    it.each([
+        '/app/turnos', '/app/turnos/leads', '/app/turnos/profesionales', '/app/turnos/horarios',
+        '/app/gestion/dashboard', '/app/stock', '/app/sales', '/app/cash', '/app/products', '/app/orders',
+        '/app/operacion', '/app/carta', '/app/resenas', '/app/recepcionistas', '/app/owner',
+    ])(
+        'bloquea %s',
+        (path) => expect(allowed('reception', path)).toBe(false),
+    );
+});
+
 describe('productos completos (gestion/restaurante)', () => {
     it.each(['gestion', 'restaurante'])('%s no se restringe', (service) => {
         expect(allowed(service, '/app/gestion/dashboard')).toBe(true);
