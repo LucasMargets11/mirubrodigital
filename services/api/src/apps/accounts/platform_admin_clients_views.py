@@ -39,7 +39,10 @@ from apps.accounts.admin_client_provisioning_service import (
     MultipleOwnerAccountsError,
     UnauthorizedProvisioningActorError,
     ExistingOwnerRequiresConfirmationError,
+    ExistingOwnerConfirmationInvalidError,
     InvalidComplimentaryCustomAllowanceError,
+    OwnerAccountConflictError,
+    OwnerAccountNotEligibleError,
     provision_admin_client,
 )
 from apps.accounts.models import AccessAuditLog
@@ -87,7 +90,25 @@ PROVISIONING_ERROR_RESPONSES = {
     ExistingOwnerRequiresConfirmationError: (
         status.HTTP_409_CONFLICT,
         'existing_owner_requires_confirmation',
-        'Ya existe una cuenta con ese email; todavía no se puede asociar a Recepcionista IA.',
+        'Ya existe una cuenta con ese email. Confirmá que querés asociarla como propietaria del nuevo cliente.',
+        'owner_email',
+    ),
+    ExistingOwnerConfirmationInvalidError: (
+        status.HTTP_409_CONFLICT,
+        'existing_owner_confirmation_invalid',
+        'La confirmación ya no corresponde a la cuenta identificada. Volvé a confirmar.',
+        'owner_email',
+    ),
+    OwnerAccountNotEligibleError: (
+        status.HTTP_409_CONFLICT,
+        'owner_account_not_eligible',
+        'La cuenta existente con ese email no puede ser propietaria de un cliente nuevo.',
+        'owner_email',
+    ),
+    OwnerAccountConflictError: (
+        status.HTTP_409_CONFLICT,
+        'owner_account_conflict',
+        'Otra operación creó una cuenta con ese email al mismo tiempo. Reintentá el alta.',
         'owner_email',
     ),
     InvalidBusinessSlugError: (
@@ -179,10 +200,12 @@ PROVISIONING_ERROR_RESPONSES = {
 
 def _provisioning_error_response(exc) -> Response:
     http_status, code, detail, field = PROVISIONING_ERROR_RESPONSES[type(exc)]
-    return Response(
-        {'code': code, 'detail': detail, 'field': field},
-        status=http_status,
-    )
+    body = {'code': code, 'detail': detail, 'field': field}
+    # PROD-02F4: confirmation prompts carry only a bound opaque token and
+    # the email the admin typed — never other businesses, roles or profile.
+    if isinstance(exc, (ExistingOwnerRequiresConfirmationError, ExistingOwnerConfirmationInvalidError)):
+        body['confirmation'] = exc.confirmation_payload()
+    return Response(body, status=http_status)
 
 
 def _provisioning_success_response(result) -> dict:

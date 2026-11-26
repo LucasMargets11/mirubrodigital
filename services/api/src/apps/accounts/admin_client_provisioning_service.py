@@ -15,18 +15,22 @@ period, or generate ``external_reference`` — all of that is owned by
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING
 
 from django.contrib.auth import get_user_model
+from django.core import signing
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
+from django.db.models import Q
+from django.utils.crypto import constant_time_compare
 
 from apps.accounts.models import AccountProfile, Membership
-from apps.accounts.platform_audit import log_platform_action
+from apps.accounts.platform_audit import record_platform_action
 from apps.billing.complimentary_access_service import (
     ActiveSubscriptionConflictError,
     ComplimentaryAccessError,
@@ -72,17 +76,64 @@ class InactiveOwnerAccountError(AdminClientProvisioningError):
     """The single existing user matching ``owner_email`` is inactive."""
 
 
-class ExistingOwnerRequiresConfirmationError(AdminClientProvisioningError):
+class _OwnerConfirmationPrompt(AdminClientProvisioningError):
     """
-    PROD-02F2: a Recepcionista client may not silently reuse an EXISTING
-    account as owner. Until the explicit confirmation flow (PROD-02F4), only a
-    new, pre-authorized owner account is accepted for ``service_type=reception``.
+    Base for the two errors that ask the admin to (re)confirm reusing an
+    existing account. Carries a fresh confirmation token bound to the
+    identity resolved right now, plus only the email the admin typed — never
+    the account's other businesses, roles or profile data.
+    """
+
+    def __init__(self, message: str, *, confirmation_token: str, owner_email: str):
+        super().__init__(message)
+        self.confirmation_token = confirmation_token
+        self.owner_email = owner_email
+
+    def confirmation_payload(self) -> dict:
+        return {
+            'token': self.confirmation_token,
+            'owner_email': self.owner_email,
+            'expires_in_seconds': OWNER_CONFIRMATION_MAX_AGE_SECONDS,
+        }
+
+
+class ExistingOwnerRequiresConfirmationError(_OwnerConfirmationPrompt):
+    """
+    PROD-02F4 (all products): an existing, eligible account matches
+    ``owner_email`` and the request did not confirm attaching it
+    (``attach_existing_owner`` + ``owner_confirmation_token``).
     """
 
 
-# Services whose provisioning never attaches an existing account as owner
-# without an explicit confirmation (PROD-02F2; confirmation flow in 02F4).
-SERVICES_REQUIRING_NEW_OWNER = frozenset({'reception'})
+class ExistingOwnerConfirmationInvalidError(_OwnerConfirmationPrompt):
+    """
+    PROD-02F4: a confirmation was sent but it does not belong to the identity
+    resolved now (email changed, account replaced, other admin, expired or
+    tampered). Never reused: the admin must confirm the current identity.
+    """
+
+
+class OwnerAccountNotEligibleError(AdminClientProvisioningError):
+    """
+    PROD-02F4: the existing account can never become an owner through this
+    flow (superuser, Django staff, platform staff, no AccountProfile, or
+    credentials controllable by another business). ``reason`` is internal
+    only (logs); the API answers one generic code.
+    """
+
+    def __init__(self, message: str, *, reason: str):
+        super().__init__(message)
+        self.reason = reason
+
+
+class OwnerAccountConflictError(AdminClientProvisioningError):
+    """PROD-02F4: a concurrent write created an account for the same email."""
+
+
+# Confirmation tokens: signed, time-limited, and bound to the resolved
+# identity (user pk + normalized email + date_joined) AND the admin.
+OWNER_CONFIRMATION_MAX_AGE_SECONDS = 15 * 60
+_OWNER_CONFIRMATION_SALT = 'accounts.admin_client_provisioning.owner_confirmation.v1'
 
 
 class InvalidBusinessSlugError(AdminClientProvisioningError):
@@ -161,6 +212,7 @@ class AdminClientProvisioningResult:
     membership: Membership
     subscription: SubscriptionV2
     owner_created: bool
+    owner_reuse_confirmed: bool = False
 
 
 # ── Actor authorization ──────────────────────────────────────────────────
@@ -288,25 +340,136 @@ def _validate_business_slug(raw_slug: str) -> str:
 
 # ── Owner resolution ──────────────────────────────────────────────────────
 
-def _resolve_owner(owner_email: str) -> tuple['UserType', bool]:
-    """
-    Normalize + validate owner_email, then resolve to exactly one User:
-      - 0 matches  -> create a new, active, unusable-password, pre-authorized
-                      account (no email sent, no verification, no google_sub,
-                      no platform-staff grant).
-      - 1 match    -> reuse as-is (reject if inactive; never mutate it).
-      - 2+ matches -> domain error (never chosen arbitrarily).
-    """
+def _normalize_owner_email(owner_email: str) -> str:
     normalized_email = (owner_email or '').strip().lower()
-
     try:
         validate_email(normalized_email)
     except DjangoValidationError as exc:
         raise InvalidOwnerEmailError(
             f"El email de owner '{owner_email}' no es válido."
         ) from exc
+    return normalized_email
 
-    matches = list(User.objects.filter(email__iexact=normalized_email))
+
+def _lock_owner_email(normalized_email: str) -> None:
+    """
+    Serialize concurrent provisionings of the same owner email (transaction-
+    scoped PostgreSQL advisory lock): the second one waits and then resolves
+    the account the first one created, instead of creating a duplicate.
+    """
+    with connection.cursor() as cursor:
+        cursor.execute(
+            'SELECT pg_advisory_xact_lock(hashtext(%s))',
+            [f'admin_client_provisioning.owner:{normalized_email}'],
+        )
+
+
+def _identity_digest(user, normalized_email: str, actor) -> str:
+    joined = user.date_joined.isoformat() if user.date_joined else ''
+    raw = f'{user.pk}|{normalized_email}|{joined}|{actor.pk}'
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def _issue_owner_confirmation(user, normalized_email: str, actor) -> str:
+    """Opaque token: reveals nothing about the account (only a digest)."""
+    return signing.TimestampSigner(salt=_OWNER_CONFIRMATION_SALT).sign(
+        _identity_digest(user, normalized_email, actor),
+    )
+
+
+def _owner_confirmation_matches(token: str | None, user, normalized_email: str, actor) -> bool:
+    if not token:
+        return False
+    try:
+        digest = signing.TimestampSigner(salt=_OWNER_CONFIRMATION_SALT).unsign(
+            token, max_age=OWNER_CONFIRMATION_MAX_AGE_SECONDS,
+        )
+    except signing.BadSignature:  # includes SignatureExpired
+        return False
+    return constant_time_compare(digest, _identity_digest(user, normalized_email, actor))
+
+
+def _credentials_controlled_by_other_business(user) -> bool:
+    """
+    True when someone OTHER than ``user`` can take over its credentials:
+    owner endpoints let any owner of a business family reset the password of /
+    disable every account with a membership in that family, and operational
+    EmployeeProfiles are managed by their business. Making such an account the
+    owner of a new client would hand that client to a third party.
+    """
+    from apps.accounts.models import EmployeeProfile
+
+    if EmployeeProfile.objects.filter(linked_user=user).exists():
+        return True
+
+    family_ids: set[int] = set()
+    for business_id, parent_id in Membership.objects.filter(user=user).values_list(
+        'business_id', 'business__parent_id',
+    ):
+        hq_id = parent_id or business_id
+        family_ids.add(hq_id)
+    if not family_ids:
+        return False
+    family_q = Q(business_id__in=family_ids) | Q(business__parent_id__in=family_ids)
+    return Membership.objects.filter(family_q, role='owner').exclude(user=user).exists()
+
+
+def _check_existing_owner_eligibility(user, normalized_email: str) -> None:
+    """Re-read fresh inside the transaction (the row is already locked)."""
+    if not user.is_active:
+        raise InactiveOwnerAccountError(
+            f"El usuario existente con email '{normalized_email}' está inactivo. "
+            f"No se reactiva silenciosamente."
+        )
+    profile = AccountProfile.objects.filter(user_id=user.pk).first()
+    if profile is not None and profile.account_status == AccountProfile.AccountStatus.SUSPENDED:
+        raise InactiveOwnerAccountError(
+            f"La cuenta existente con email '{normalized_email}' está suspendida."
+        )
+
+    reason = None
+    if user.is_superuser or user.is_staff:
+        reason = 'superuser_or_staff'
+    elif profile is None:
+        reason = 'missing_profile'
+    elif profile.is_platform_staff or profile.internal_role:
+        reason = 'platform_staff'
+    elif _credentials_controlled_by_other_business(user):
+        reason = 'credentials_controlled_by_other_business'
+    if reason is not None:
+        logger.warning(
+            '[admin_client_provisioning] existing owner not eligible user=%s reason=%s',
+            user.pk, reason,
+        )
+        raise OwnerAccountNotEligibleError(
+            'La cuenta existente no puede ser propietaria de un cliente nuevo.', reason=reason,
+        )
+
+
+def _resolve_owner(
+    owner_email: str,
+    *,
+    actor,
+    attach_existing_owner: bool,
+    owner_confirmation_token: str | None,
+) -> tuple['UserType', bool]:
+    """
+    Resolve owner_email to exactly one User. MUST run inside the provisioning
+    transaction (advisory lock + row lock live until commit/rollback).
+
+      - 0 matches  -> create a new, active, unusable-password, pre-authorized
+                      account (no email sent, no google_sub, no staff grant).
+      - 1 match    -> eligible + explicitly confirmed for THIS identity and
+                      admin -> reused as-is (never mutated); otherwise a
+                      confirmation prompt with a fresh bound token.
+      - 2+ matches -> domain error (never chosen arbitrarily).
+    """
+    normalized_email = _normalize_owner_email(owner_email)
+    _lock_owner_email(normalized_email)
+
+    matches = list(
+        User.objects.select_for_update().filter(email__iexact=normalized_email).order_by('pk')
+    )
 
     if len(matches) > 1:
         raise MultipleOwnerAccountsError(
@@ -316,15 +479,31 @@ def _resolve_owner(owner_email: str) -> tuple['UserType', bool]:
 
     if len(matches) == 1:
         user = matches[0]
-        if not user.is_active:
-            raise InactiveOwnerAccountError(
-                f"El usuario existente con email '{normalized_email}' está inactivo. "
-                f"No se reactiva silenciosamente."
+        _check_existing_owner_eligibility(user, normalized_email)
+        if not attach_existing_owner:
+            raise ExistingOwnerRequiresConfirmationError(
+                'Ya existe una cuenta con ese email. Confirmá que querés asociarla como propietaria.',
+                confirmation_token=_issue_owner_confirmation(user, normalized_email, actor),
+                owner_email=normalized_email,
+            )
+        if not _owner_confirmation_matches(owner_confirmation_token, user, normalized_email, actor):
+            raise ExistingOwnerConfirmationInvalidError(
+                'La confirmación no corresponde a la cuenta identificada ahora. Volvé a confirmar.',
+                confirmation_token=_issue_owner_confirmation(user, normalized_email, actor),
+                owner_email=normalized_email,
             )
         return user, False
 
     # ── No existing account — create a pre-authorized owner account ───────
-    user = User.objects.create_user(username=normalized_email, email=normalized_email)
+    # A confirmation sent for an account that no longer exists is simply
+    # irrelevant: this is the regular new-owner path.
+    try:
+        with transaction.atomic():
+            user = User.objects.create_user(username=normalized_email, email=normalized_email)
+    except IntegrityError as exc:
+        raise OwnerAccountConflictError(
+            'Otra operación creó una cuenta con ese email al mismo tiempo. Reintentá el alta.'
+        ) from exc
     user.set_unusable_password()
     user.save(update_fields=['password'])
     return user, True
@@ -347,6 +526,8 @@ def provision_admin_client(
     grant_reason: str,
     usage_tier: str | None = None,
     custom_included_sessions: int | None = None,
+    attach_existing_owner: bool = False,
+    owner_confirmation_token: str | None = None,
 ) -> AdminClientProvisioningResult:
     """
     Atomically provision a platform-admin-created client:
@@ -357,6 +538,12 @@ def provision_admin_client(
     failure. On any failure the whole operation rolls back — including a
     newly-created owner user — except a pre-existing owner user, which is
     never created/deleted/modified by this service in the first place.
+
+    PROD-02F4: an existing account is attached only when it is eligible and
+    the call carries ``attach_existing_owner=True`` plus the confirmation
+    token issued for that exact identity and admin (see ``_resolve_owner``);
+    the mandatory ADMIN_CLIENT_CREATED / ADMIN_OWNER_PREAUTHORIZED audit rows
+    are written in the same transaction and any failure rolls everything back.
     """
     # _authorize_actor returns a freshly-reloaded User — use it (not the
     # original argument) as the canonical actor for the rest of this call.
@@ -368,12 +555,13 @@ def provision_admin_client(
     )
 
     with transaction.atomic():
-        owner_user, owner_created = _resolve_owner(owner_email)
-        if service_type in SERVICES_REQUIRING_NEW_OWNER and not owner_created:
-            raise ExistingOwnerRequiresConfirmationError(
-                'Ya existe una cuenta con ese email. Para Recepcionista IA todavía no se '
-                'asocian cuentas existentes sin confirmación explícita.'
-            )
+        owner_user, owner_created = _resolve_owner(
+            owner_email,
+            actor=granted_by,
+            attach_existing_owner=attach_existing_owner,
+            owner_confirmation_token=owner_confirmation_token,
+        )
+        owner_reuse_confirmed = not owner_created
 
         # ── Root Business — explicit slug, never silently re-suffixed ─────
         # Business.save() only auto-generates a slug when none is given, so
@@ -442,22 +630,36 @@ def provision_admin_client(
         except ComplimentaryAccessError as exc:
             raise ComplimentaryGrantFailedError(str(exc)) from exc
 
-        # ── Provisioning-specific audit trail (same transaction) ─────────
+        # ── Mandatory provisioning audit (same transaction, never best
+        #    effort): no secrets, tokens or raw payloads are recorded ─────
+        custom_policy_id = None
+        if custom_included_sessions is not None:
+            from apps.billing.models import ReceptionAIUsagePolicy
+
+            custom_policy_id = (
+                ReceptionAIUsagePolicy.objects.filter(subscription=subscription)
+                .order_by('created_at').values_list('pk', flat=True).first()
+            )
         shared_details = {
             'business_id': business.pk,
             'owner_user_id': owner_user.pk,
             'owner_email': owner_user.email,
             'owner_created': owner_created,
+            'owner_account': 'created' if owner_created else 'reused',
+            'owner_reuse_confirmed': owner_reuse_confirmed,
             'membership_id': membership.pk,
+            'subscription_id': str(subscription.pk),
             'service_type': service_type,
             'plan_code': plan_code,
             'usage_tier': subscription.usage_tier,
             'custom_included_sessions': custom_included_sessions,
+            'custom_policy_id': str(custom_policy_id) if custom_policy_id else None,
             'complimentary_start': complimentary_start.isoformat(),
             'complimentary_end': complimentary_end.isoformat(),
+            'grant_reason': (grant_reason or '').strip(),
         }
 
-        log_platform_action(
+        record_platform_action(
             action='ADMIN_CLIENT_CREATED',
             actor=granted_by,
             target_user=owner_user,
@@ -466,7 +668,7 @@ def provision_admin_client(
             entity_id=str(business.pk),
             details={**shared_details, 'business_slug': business.slug},
         )
-        log_platform_action(
+        record_platform_action(
             action='ADMIN_OWNER_PREAUTHORIZED',
             actor=granted_by,
             target_user=owner_user,
@@ -477,9 +679,9 @@ def provision_admin_client(
         )
 
     logger.info(
-        "[admin_client_provisioning] business=%s owner=%s (created=%s) "
+        "[admin_client_provisioning] business=%s owner=%s (created=%s, reuse_confirmed=%s) "
         "membership=%s subscription=%s admin=%s",
-        business.pk, owner_user.pk, owner_created, membership.pk,
+        business.pk, owner_user.pk, owner_created, owner_reuse_confirmed, membership.pk,
         subscription.pk, granted_by.pk,
     )
 
@@ -489,4 +691,5 @@ def provision_admin_client(
         membership=membership,
         subscription=subscription,
         owner_created=owner_created,
+        owner_reuse_confirmed=owner_reuse_confirmed,
     )

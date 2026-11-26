@@ -18,6 +18,20 @@ class StrictIntegerField(serializers.Field):
         return value
 
 
+class StrictBooleanField(serializers.Field):
+    """A JSON boolean only: rejects "true", 1 and every other truthy value."""
+
+    default_error_messages = {'invalid': 'Debe ser true o false.'}
+
+    def to_internal_value(self, data):
+        if type(data) is not bool:
+            self.fail('invalid')
+        return data
+
+    def to_representation(self, value):
+        return value
+
+
 class AdminClientProvisioningInputSerializer(serializers.Serializer):
     """Validate only the HTTP shape accepted by client provisioning."""
 
@@ -39,6 +53,13 @@ class AdminClientProvisioningInputSerializer(serializers.Serializer):
     # PROD-02F3: individual allowance, only (and always) for reception_custom.
     # Shape here; range/placement rules live in grant_complimentary_access.
     custom_included_sessions = StrictIntegerField(required=False, allow_null=True)
+    # PROD-02F4: explicit confirmation to attach an EXISTING account as owner.
+    # The token is the one returned by the 409 confirmation prompt; it is
+    # bound server-side to the resolved identity and the admin.
+    attach_existing_owner = StrictBooleanField(required=False)
+    owner_confirmation_token = serializers.CharField(
+        required=False, allow_blank=False, max_length=255, trim_whitespace=True,
+    )
 
     def to_internal_value(self, data):
         if isinstance(data, Mapping):
@@ -53,4 +74,17 @@ class AdminClientProvisioningInputSerializer(serializers.Serializer):
             value.pop('usage_tier', None)
         if value.get('custom_included_sessions') is None:
             value.pop('custom_included_sessions', None)
+        attach = value.pop('attach_existing_owner', False)
+        token = value.pop('owner_confirmation_token', None)
+        if attach and not token:
+            raise serializers.ValidationError({
+                'owner_confirmation_token': ['Requerido para asociar una cuenta existente.'],
+            })
+        if token and not attach:
+            raise serializers.ValidationError({
+                'attach_existing_owner': ['Debe ser true cuando se envía una confirmación.'],
+            })
+        if attach:
+            value['attach_existing_owner'] = True
+            value['owner_confirmation_token'] = token
         return value

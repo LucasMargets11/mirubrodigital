@@ -59,3 +59,35 @@ def log_platform_action(
     except Exception:
         logger.exception("Failed to log platform action: %s", action)
         return None
+
+
+def record_platform_action(
+    *,
+    action: str,
+    actor,
+    business,
+    entity_type: str = '',
+    entity_id: str = '',
+    details: dict | None = None,
+    target_user=None,
+):
+    """
+    PROD-02F4: MANDATORY variant of ``log_platform_action``.
+
+    Never swallows errors and never falls back to another business: any
+    failure propagates so the caller's transaction (e.g. client provisioning)
+    rolls back with it. Use it only inside ``transaction.atomic()`` when the
+    operation must not exist without its audit row.
+    """
+    if business is None or actor is None:
+        raise ValueError(f'record_platform_action({action}) requires actor and business.')
+    return AccessAuditLog.objects.create(
+        action=action,
+        actor=actor,
+        actor_type=AccessAuditLog.ActorType.USER,
+        target_user=target_user,
+        business=business,
+        details=details or {},
+        entity_type=entity_type,
+        entity_id=str(entity_id) if entity_id else '',
+    )
