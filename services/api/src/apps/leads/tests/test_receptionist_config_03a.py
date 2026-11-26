@@ -81,12 +81,17 @@ class CreationAndValidationTests(TestCase):
 class IncompleteConfigTests(TestCase):
     def test_each_required_piece_blocks_ready(self):
         for index, field in enumerate((
-            'assistant_name', 'business_category', 'business_description', 'welcome_message', 'business_hours',
+            'assistant_name', 'business_category', 'business_description', 'welcome_message',
         )):
             with self.subTest(field=field):
                 with self.assertRaises(ValidationError) as ctx:
                     make_config(make_business(f'recep-inc-{index}'), status='ready', **complete(**{field: ''}))
                 self.assertIn(field, str(ctx.exception))
+
+    def test_business_hours_are_optional_for_ready(self):
+        # PROD-03B: a demanda / sin horarios definidos no carga datos ficticios
+        config = make_config(make_business('recep-nohours'), status='ready', **complete(business_hours=''))
+        self.assertTrue(config.is_ready)
 
     def test_whitespace_only_counts_as_missing(self):
         with self.assertRaises(ValidationError):
@@ -100,14 +105,15 @@ class IncompleteConfigTests(TestCase):
     def test_incomplete_draft_is_allowed_but_not_ready(self):
         config = make_config(make_business('recep-draft'), assistant_name='Sofía')
         self.assertFalse(config.is_ready)
-        self.assertIn('business_hours', config.missing_for_ready())
+        self.assertIn('welcome_message', config.missing_for_ready())
+        self.assertNotIn('business_hours', config.missing_for_ready())
 
     def test_db_rejects_ready_without_minimum_even_via_update(self):
-        config = make_config(make_business('recep-upd'), **complete(business_hours=''))
+        config = make_config(make_business('recep-upd'), **complete(welcome_message=''))
         with self.assertRaises(IntegrityError), transaction.atomic():
             ReceptionistConfig.objects.filter(pk=config.pk).update(status='ready')
         with self.assertRaises(IntegrityError), transaction.atomic():
-            ReceptionistConfig.objects.filter(pk=config.pk).update(status='ready', business_hours='9 a 19', services=[])
+            ReceptionistConfig.objects.filter(pk=config.pk).update(status='ready', welcome_message='Hola', services=[])
 
     def test_emptying_a_ready_config_is_rejected(self):
         config = make_config(make_business('recep-empty'), status='ready', **complete())
@@ -264,17 +270,18 @@ class PreservationTests(TestCase):
         business = make_business('recep-new')
         self.assertFalse(ReceptionistConfig.objects.filter(business=business).exists())
 
-    def test_version_counts_content_changes_only(self):
+    def test_version_counts_content_and_status_changes_only(self):
         config = make_config(make_business('recep-ver'), **complete())
         config.save()
         self.assertEqual(config.version, 1)
+        # PROD-03B: el estado también versiona
         config.status = 'ready'
         config.save()
-        self.assertEqual(config.version, 1)
+        self.assertEqual(config.version, 2)
         config.faqs = [{'question': '¿Abren sábados?', 'answer': 'No.'}]
         config.save()
         config.refresh_from_db()
-        self.assertEqual((config.version, config.status), (2, 'ready'))
+        self.assertEqual((config.version, config.status), (3, 'ready'))
 
     def test_stale_instance_cannot_rewind_the_version(self):
         business = make_business('recep-stale')
@@ -289,11 +296,11 @@ class PreservationTests(TestCase):
 
     def test_failed_save_keeps_the_stored_config(self):
         config = make_config(make_business('recep-keep'), status='ready', **complete())
-        config.business_hours = ''
+        config.welcome_message = ''
         with self.assertRaises(ValidationError):
             config.save()
         stored = ReceptionistConfig.objects.get(pk=config.pk)
-        self.assertEqual((stored.business_hours, stored.version), ('Lunes a viernes de 9 a 19.', 1))
+        self.assertEqual((stored.welcome_message, stored.version), ('¡Hola! Soy Sofía, ¿en qué te ayudo?', 1))
 
 
 class NoSecretsNoCapabilitiesTests(TestCase):
