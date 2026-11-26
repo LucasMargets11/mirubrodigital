@@ -4,7 +4,7 @@ import { APPOINTMENT_STATUS_LABELS, type AppointmentStatus } from '@/features/ap
 import type { LeadActivity, LeadActivityRef } from '@/features/leads/types';
 import { dateTimeInTimeZone } from '@/lib/business-time';
 
-import { formatAppointmentWhen } from '../../../clientes/[id]/customer-upcoming-appointments';
+import { formatAppointmentWhen } from '@/app/app/clientes/[id]/customer-upcoming-appointments';
 
 function asRecord(ref: LeadActivityRef | null | undefined): Record<string, unknown> | null {
     return ref && typeof ref === 'object' ? (ref as Record<string, unknown>) : null;

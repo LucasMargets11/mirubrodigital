@@ -13,6 +13,9 @@ import type { ConversationCommandAction, ConversationControlState, LeadConversat
 import { dateTimeInTimeZone } from '@/lib/business-time';
 import { cn } from '@/lib/utils';
 
+import { useLeadsContext } from './leads-context';
+import { personalize } from './leads-routes';
+
 // `active` es el modo de funcionamiento (nadie tomó la conversación), no una
 // confirmación de que el bot esté respondiendo bien: eso no lo sabe este
 // estado (lo sabría, por ejemplo, el estado de entrega de sus mensajes)
@@ -112,6 +115,7 @@ export function LeadConversationControl({
     timeZone,
     whatsappAction,
 }: LeadConversationControlProps) {
+    const { product } = useLeadsContext();
     const takeover = useConversationCommand(leadId, 'takeover');
     const release = useConversationCommand(leadId, 'release');
     const [confirming, setConfirming] = useState<ConversationCommandAction | null>(null);
@@ -197,7 +201,7 @@ export function LeadConversationControl({
                 ) : null}
             </div>
 
-            {handoff ? <p className="text-xs text-amber-800">{HANDOFF_HINT}</p> : null}
+            {handoff ? <p className="text-xs text-amber-800">{personalize(HANDOFF_HINT, product)}</p> : null}
             {!handoff && state === 'active' && actionable && nextAction === 'takeover' ? (
                 <p className="text-xs text-slate-500">{TAKEOVER_HINT}</p>
             ) : null}
@@ -221,7 +225,7 @@ export function LeadConversationControl({
             {!control.available ? (
                 <p className="text-xs text-slate-500">
                     {state === 'active' && !handoff
-                        ? 'El bot está habilitado para este paciente (este estado no confirma que sus mensajes se estén entregando: revisá el historial de la conversación). Pausarlo o retomarlo manualmente desde acá no está disponible: el control manual no está habilitado para este canal.'
+                        ? personalize('El bot está habilitado para este paciente (este estado no confirma que sus mensajes se estén entregando: revisá el historial de la conversación). Pausarlo o retomarlo manualmente desde acá no está disponible: el control manual no está habilitado para este canal.', product)
                         : 'El control manual (pausar/retomar el bot) no está habilitado para este canal.'}
                 </p>
             ) : null}
@@ -269,6 +273,7 @@ function ConfirmCommandModal({
     onConfirm: () => void;
     onClose: () => void;
 }) {
+    const { product } = useLeadsContext();
     const footer = (
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end sm:gap-3">
             <button
@@ -293,7 +298,7 @@ function ConfirmCommandModal({
         <Modal open eyebrow={null} title={copy.title} onClose={onClose} footer={footer}>
             <div className="space-y-2 text-sm text-slate-600">
                 {copy.body.map((paragraph) => (
-                    <p key={paragraph}>{paragraph}</p>
+                    <p key={paragraph}>{personalize(paragraph, product)}</p>
                 ))}
             </div>
         </Modal>

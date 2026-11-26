@@ -132,8 +132,9 @@ import type { AppointmentProposal, LeadActivity, LeadConversationControl, LeadDe
 import { appointmentProposalPollInterval, currentAppointmentProposalKey, leadDetailKey } from '@/features/leads/hooks';
 
 import LeadDetailPage from '../[id]/page';
-import { describeLeadActivity } from '../[id]/lead-activity';
-import { LeadDetailClient } from '../[id]/lead-detail-client';
+import { describeLeadActivity } from '@/features/leads/ui/lead-activity';
+import { LeadDetailClient } from '@/features/leads/ui/lead-detail-client';
+import { LeadsContextProvider } from '@/features/leads/ui/leads-context';
 
 const getSessionMock = vi.mocked(getSession);
 const TZ = 'America/Argentina/Buenos_Aires';
@@ -2209,5 +2210,115 @@ describe('responder desde el chat (MIRUBRO HUMAN MESSAGES)', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Enviar' }));
 
         expect(await screen.findByRole('alert')).toHaveTextContent('El envío de mensajes no está habilitado en este momento.');
+    });
+});
+
+// ── PROD-02G2: el mismo detalle montado en Recepcionista IA ────────────────
+describe('Recepcionista IA (sin agenda)', () => {
+    const RECEPTION = { basePath: '/app/recepcionista/leads', agendaEnabled: false, product: 'reception' as const };
+
+    function renderReception(props: Partial<Parameters<typeof LeadDetailClient>[0]> = {}, agendaEnabled = false) {
+        return render(
+            <QueryClientProvider client={queryClient}>
+                <LeadsContextProvider value={{ ...RECEPTION, agendaEnabled }}>
+                    <LeadDetailClient
+                        leadId="lead-1"
+                        canManage
+                        canViewCustomers
+                        canViewAppointments
+                        canManageAppointments
+                        currentUserId={ME}
+                        businessTimeZone={TZ}
+                        {...props}
+                    />
+                </LeadsContextProvider>
+            </QueryClientProvider>,
+        );
+    }
+
+    function linkedLead() {
+        return leadDetail({ appointment: {
+            id: 'a1', start_at: '2026-10-26T18:30:00Z', end_at: '2026-10-26T19:00:00Z',
+            service_name: 'Corte', professional_name: 'Lu', status: 'confirmed',
+        } });
+    }
+
+    it('vuelve a la bandeja de Recepcionista y no muestra turno, propuestas ni acciones de agenda', async () => {
+        leadsApi.getLead.mockResolvedValue(linkedLead());
+        renderReception();
+        const back = await screen.findByRole('link', { name: '← Volver a la bandeja' });
+        expect(back).toHaveAttribute('href', '/app/recepcionista/leads');
+        expect(screen.queryByRole('region', { name: 'Turno' })).not.toBeInTheDocument();
+        expect(document.getElementById('turno')).toBeNull();
+        for (const name of ['Coordinar turno', 'Vincular turno existente', 'Vincular otro turno', 'Reprogramar turno', 'Confirmar turno']) {
+            expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
+        }
+        expect(screen.queryByText('Ver en agenda')).not.toBeInTheDocument();
+        expect(screen.queryByText('Lu')).not.toBeInTheDocument();
+        expect(leadsApi.getCurrentAppointmentProposal).not.toHaveBeenCalled();
+        expect(document.querySelector('a[href*="/app/turnos"]')).toBeNull();
+    });
+
+    it('conserva gestión, cliente, notas y actividad', async () => {
+        renderReception();
+        expect(await screen.findByText('Resumen del agente')).toBeInTheDocument();
+        expect(screen.getByText('Nombre confirmado por el cliente')).toBeInTheDocument();
+        expect(screen.queryByText(/paciente/i)).not.toBeInTheDocument();
+    });
+
+    it('takeover y release con el mismo control (copy de cliente)', async () => {
+        leadsApi.getLead.mockResolvedValue(leadDetail({ conversation_control: {
+            state: 'active', available: true, taken_by: null, taken_at: null, last_action: null,
+            last_error_code: null, command_version: 0, released_at: null,
+        } }));
+        leadsApi.takeoverLead.mockResolvedValue({ ok: true, state: 'takeover_pending', command_version: 1 });
+        renderReception();
+        const block = await screen.findByTestId('lead-conversation-control');
+        fireEvent.click(within(block).getByRole('button', { name: 'Tomar conversación' }));
+        const dialog = await screen.findByRole('dialog', { name: '¿Tomar esta conversación?' });
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Tomar conversación' }));
+        await waitFor(() => expect(leadsApi.takeoverLead).toHaveBeenCalledWith('lead-1'));
+    });
+
+    it('chat tomado: compositor de mensajes humanos, historial y estado de entrega', async () => {
+        leadsApi.getLead.mockResolvedValue(takenLead());
+        leadsApi.listLeadMessages.mockResolvedValue(messagesPage([
+            { id: 'm1', role: 'user', sender: 'patient', text: 'hola', sent_at: '2026-10-05T13:00:00Z', status: null, authored_by: null },
+            { id: 'm2', role: 'assistant', sender: 'staff', text: 'te ayudo', sent_at: '2026-10-05T13:01:00Z', status: 'delivered',
+                authored_by: { id: ME, display_name: 'Ana' } },
+        ]));
+        leadsApi.sendLeadMessage.mockResolvedValue({ ok: true });
+        renderReception();
+        const box = await screen.findByRole('textbox', { name: 'Mensaje para el cliente' });
+        expect(box).toHaveAttribute('placeholder', 'Escribí un mensaje para el cliente…');
+        const bubbles = await screen.findAllByTestId('lead-message-bubble');
+        expect(within(bubbles[0]).getByText(/Cliente/)).toBeInTheDocument();
+        expect(within(bubbles[1]).getByText('Entregado')).toBeInTheDocument();
+        const releaseButton = screen.getByRole('button', { name: 'Reactivar bot' });
+        expect(releaseButton).toBeInTheDocument();
+        fireEvent.click(releaseButton);
+        const dialog = await screen.findByRole('dialog', { name: '¿Reactivar las respuestas automáticas del bot?' });
+        expect(dialog).toHaveTextContent('a partir del próximo mensaje nuevo del cliente');
+    });
+
+    it('con agenda_integration (Recepcionista + Turnos) vuelve a mostrar la agenda', async () => {
+        leadsApi.getLead.mockResolvedValue(linkedLead());
+        renderReception({}, true);
+        expect(await screen.findByText('Ver en agenda')).toBeInTheDocument();
+        expect(screen.getByRole('link', { name: '← Volver a la bandeja' })).toHaveAttribute('href', '/app/recepcionista/leads');
+    });
+
+    it('error definitivo: vuelve a la bandeja de Recepcionista', async () => {
+        leadsApi.getLead.mockRejectedValue(new ApiError('Not found', 404, {}));
+        renderReception();
+        expect(await screen.findByRole('link', { name: 'Volver a la bandeja' })).toHaveAttribute('href', '/app/recepcionista/leads');
+    });
+
+    it('Turnos conserva su detalle con agenda y "paciente"', async () => {
+        leadsApi.getLead.mockResolvedValue(linkedLead());
+        renderClient();
+        expect(await screen.findByText('Ver en agenda')).toBeInTheDocument();
+        expect(screen.getByRole('link', { name: '← Volver a la bandeja' })).toHaveAttribute('href', '/app/turnos/leads');
+        expect(screen.getByText('Nombre confirmado por el paciente')).toBeInTheDocument();
     });
 });

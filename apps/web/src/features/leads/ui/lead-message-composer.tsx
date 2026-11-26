@@ -7,6 +7,9 @@ import { useSendLeadMessage } from '@/features/leads/hooks';
 import { LEAD_MESSAGE_TEXT_MAX_LENGTH } from '@/features/leads/types';
 import { cn } from '@/lib/utils';
 
+import { useLeadsContext } from './leads-context';
+import { contactNoun } from './leads-routes';
+
 type LeadMessageComposerProps = {
     leadId: string;
 };
@@ -33,6 +36,7 @@ export function LeadMessageComposer({ leadId }: LeadMessageComposerProps) {
     const [text, setText] = useState('');
     const [error, setError] = useState<string | null>(null);
     const mutation = useSendLeadMessage(leadId);
+    const noun = contactNoun(useLeadsContext().product).singular;
 
     const trimmedLength = text.trim().length;
     const tooLong = text.length > LEAD_MESSAGE_TEXT_MAX_LENGTH;
@@ -63,9 +67,9 @@ export function LeadMessageComposer({ leadId }: LeadMessageComposerProps) {
                     value={text}
                     onChange={(event) => setText(event.target.value)}
                     disabled={mutation.isPending}
-                    placeholder="Escribí un mensaje para el paciente…"
+                    placeholder={`Escribí un mensaje para el ${noun}…`}
                     rows={3}
-                    aria-label="Mensaje para el paciente"
+                    aria-label={`Mensaje para el ${noun}`}
                     className="w-full resize-none rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-slate-900 focus:outline-none disabled:cursor-not-allowed disabled:bg-slate-50"
                 />
                 <div className="flex items-center justify-between gap-2">

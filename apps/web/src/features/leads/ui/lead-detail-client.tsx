@@ -35,8 +35,8 @@ import { dateTimeInTimeZone, resolveBusinessTimeZone } from '@/lib/business-time
 import { cn } from '@/lib/utils';
 import { formatNumber } from '@/lib/format';
 
-import { agendaHref, formatAppointmentWhen } from '../../../clientes/[id]/customer-upcoming-appointments';
-import { AppointmentFormModal } from '../../turnos/appointment-form-modal';
+import { agendaHref, formatAppointmentWhen } from '@/app/app/clientes/[id]/customer-upcoming-appointments';
+import { AppointmentFormModal } from '@/app/app/turnos/turnos/appointment-form-modal';
 import { LeadActivityTimeline } from './lead-activity';
 import { LeadAppointmentPicker } from './lead-appointment-picker';
 import { LeadAssigneeSelect } from './lead-assignee-select';
@@ -44,8 +44,9 @@ import { LeadConversationControl } from './lead-conversation-control';
 import { LeadConversationHistory } from './lead-conversation-history';
 import { LeadMessageComposer } from './lead-message-composer';
 import { LeadNotes } from './lead-notes';
+import { useLeadsContext } from './leads-context';
+import { contactNoun } from './leads-routes';
 
-const INBOX_HREF = '/app/turnos/leads' as Route;
 const WHATSAPP_SOURCE: LeadDetail['source'] = 'whatsapp_agent';
 
 const STATUS_BADGE: Record<LeadStatus, string> = {
@@ -106,6 +107,9 @@ export function LeadDetailClient({
 }: LeadDetailClientProps) {
     const timeZone = resolveBusinessTimeZone(businessTimeZone);
     const leadQuery = useLead(leadId);
+    // PROD-02G2: sin agenda (Recepcionista sin Turnos) no hay turno vinculado,
+    // propuestas ni acciones de agenda; el resto del CRM es idéntico.
+    const { agendaEnabled } = useLeadsContext();
 
     if (leadQuery.isLoading) {
         return <p role="status" className="px-3 py-10 text-center text-sm text-slate-500">Cargando lead…</p>;
@@ -127,14 +131,16 @@ export function LeadDetailClient({
                 <aside className="space-y-4 lg:order-last">
                     <ManagementCard lead={lead} canManage={canManage} currentUserId={currentUserId} timeZone={timeZone} />
                     <CustomerCard lead={lead} canManage={canManage} canViewCustomers={canViewCustomers} />
-                    <AppointmentCard
-                        lead={lead}
-                        canManage={canManage}
-                        canManageAppointments={canManageAppointments}
-                        canViewCustomers={canViewCustomers}
-                        canViewAppointments={canViewAppointments}
-                        timeZone={timeZone}
-                    />
+                    {agendaEnabled ? (
+                        <AppointmentCard
+                            lead={lead}
+                            canManage={canManage}
+                            canManageAppointments={canManageAppointments}
+                            canViewCustomers={canViewCustomers}
+                            canViewAppointments={canViewAppointments}
+                            timeZone={timeZone}
+                        />
+                    ) : null}
                 </aside>
                 <div className="min-w-0 space-y-4">
                     <AgentCard lead={lead} timeZone={timeZone} />
@@ -155,6 +161,7 @@ export function LeadDetailClient({
 }
 
 function LeadLoadError({ error, onRetry }: { error: unknown; onRetry: () => void }) {
+    const inboxHref = useLeadsContext().basePath as Route;
     const status = error instanceof ApiError ? error.status : null;
     const code = error instanceof ApiError ? (error.payload as { code?: string } | undefined)?.code : undefined;
     const definitive = status === 404 || status === 403;
@@ -175,7 +182,7 @@ function LeadLoadError({ error, onRetry }: { error: unknown; onRetry: () => void
                         Reintentar
                     </button>
                 ) : null}
-                <Link href={INBOX_HREF} className={OUTLINE_BUTTON}>
+                <Link href={inboxHref} className={OUTLINE_BUTTON}>
                     Volver a la bandeja
                 </Link>
             </div>
@@ -234,6 +241,7 @@ function LeadHeader({
     currentUserId: number | null;
     timeZone: string;
 }) {
+    const { basePath, agendaEnabled } = useLeadsContext();
     const agent = lead.agent_state;
     const name = leadDetailDisplayName(lead);
     const phone = agent?.phone_e164 && agent.phone_e164 !== name ? agent.phone_e164 : null;
@@ -244,7 +252,7 @@ function LeadHeader({
 
     return (
         <header className="space-y-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-            <Link href={INBOX_HREF} className="text-xs font-semibold text-slate-500 hover:text-slate-900">
+            <Link href={basePath as Route} className="text-xs font-semibold text-slate-500 hover:text-slate-900">
                 ← Volver a la bandeja
             </Link>
             <div className="flex flex-wrap items-center gap-2">
@@ -288,10 +296,12 @@ function LeadHeader({
                 <HeaderFact label="Último mensaje" value={agent?.last_message_at ? dateTimeInTimeZone(agent.last_message_at, timeZone) : '—'} />
                 <HeaderFact label="Asignado" value={lead.assigned_to?.display_name ?? 'Sin asignar'} />
                 <HeaderFact label="Cliente" value={lead.customer?.display_name ?? 'Sin vincular'} />
-                <HeaderFact
-                    label="Turno"
-                    value={lead.appointment?.start_at ? formatAppointmentWhen(lead.appointment.start_at, timeZone) : 'Sin vincular'}
-                />
+                {agendaEnabled ? (
+                    <HeaderFact
+                        label="Turno"
+                        value={lead.appointment?.start_at ? formatAppointmentWhen(lead.appointment.start_at, timeZone) : 'Sin vincular'}
+                    />
+                ) : null}
             </dl>
         </header>
     );
@@ -949,6 +959,8 @@ function handoffReasonLabel(code: LeadHandoffReasonCode): string {
  * hashes ni datos del canal.
  */
 function AgentCard({ lead, timeZone }: { lead: LeadDetail; timeZone: string }) {
+    const { agendaEnabled, product } = useLeadsContext();
+    const noun = contactNoun(product);
     const agent = lead.agent_state;
     if (!agent) {
         return (
@@ -975,14 +987,14 @@ function AgentCard({ lead, timeZone }: { lead: LeadDetail; timeZone: string }) {
             <AgentFact label="Resumen" value={agent.summary} />
             <AgentFact label="Motivo de la consulta" value={agent.reason} />
             <AgentFact label="Horario preferido" value={agent.preferred_time} />
-            <AgentFact label="Nombre confirmado por el paciente" value={agent.patient_name} />
+            <AgentFact label={`Nombre confirmado por el ${noun.singular}`} value={agent.patient_name} />
             {agent.whatsapp_profile_name && agent.whatsapp_profile_name !== agent.patient_name ? (
                 <AgentFact label="Nombre de perfil de WhatsApp (sin confirmar)" value={agent.whatsapp_profile_name} />
             ) : null}
             {patientAskedHuman ? (
                 <div>
                     <p className="text-xs text-slate-500">
-                        El paciente pidió una persona
+                        El {noun.singular} pidió una persona
                         {agent.handoff_requested_at ? ` el ${dateTimeInTimeZone(agent.handoff_requested_at, timeZone)}` : ''}
                     </p>
                     <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm text-slate-800">
@@ -992,7 +1004,9 @@ function AgentCard({ lead, timeZone }: { lead: LeadDetail; timeZone: string }) {
             ) : null}
             {botDerivedCodes.length > 0 ? (
                 <div>
-                    <p className="text-xs text-slate-500">El bot derivó la consulta para coordinar un turno</p>
+                    <p className="text-xs text-slate-500">
+                        {agendaEnabled ? 'El bot derivó la consulta para coordinar un turno' : 'El bot derivó la consulta a una persona'}
+                    </p>
                     <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm text-slate-800">
                         {botDerivedCodes.map((code) => (
                             <li key={code}>{handoffReasonLabel(code)}</li>

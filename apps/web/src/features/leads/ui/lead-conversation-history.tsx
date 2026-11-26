@@ -12,6 +12,9 @@ import {
 import { dateInTimeZone, timeInTimeZone } from '@/lib/business-time';
 import { cn } from '@/lib/utils';
 
+import { useLeadsContext } from './leads-context';
+import { contactNoun } from './leads-routes';
+
 const STATUS_BADGE: Record<string, string> = {
     sent: 'bg-slate-100 text-slate-600',
     delivered: 'bg-slate-100 text-slate-600',
@@ -142,9 +145,10 @@ function MessageBubble({
     timeZone: string;
     patientPhone: string | null;
 }) {
+    const { product } = useLeadsContext();
     const fromPatient = message.role === 'user';
     const senderLabel = fromPatient
-        ? ['Paciente', patientPhone].filter(Boolean).join(' · ')
+        ? [contactNoun(product).capitalized, patientPhone].filter(Boolean).join(' · ')
         : message.sender === 'staff' && message.authored_by
             ? message.authored_by.display_name
             : LEAD_MESSAGE_SENDER_LABELS[message.sender];

@@ -9,7 +9,7 @@ import { useCustomerAppointments } from '@/features/customers/hooks';
 import { timeInTimeZone, todayInTimeZone } from '@/lib/business-time';
 import { cn } from '@/lib/utils';
 
-import { formatAppointmentWhen } from '../../../clientes/[id]/customer-upcoming-appointments';
+import { formatAppointmentWhen } from '@/app/app/clientes/[id]/customer-upcoming-appointments';
 
 const CUSTOMER_APPOINTMENTS_LIMIT = 10;
 

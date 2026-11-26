@@ -27,7 +27,8 @@ import type { LeadFilters, LeadListAppointment, LeadListItem } from '@/features/
 
 import LeadsPage from '../page';
 import LeadDetailPage from '../[id]/page';
-import { LEADS_PAGE_SIZE, LeadsInboxClient, resolveLeadCta, type LeadCtaContext } from '../leads-inbox-client';
+import { LEADS_PAGE_SIZE, LeadsInboxClient, resolveLeadCta, type LeadCtaContext } from '@/features/leads/ui/leads-inbox-client';
+import { LeadsContextProvider } from '@/features/leads/ui/leads-context';
 
 const getSessionMock = vi.mocked(getSession);
 const TZ = 'America/Argentina/Buenos_Aires';
@@ -644,5 +645,62 @@ describe('CTA principal', () => {
         getSessionMock.mockResolvedValue(session({}));
         const element = await LeadsPage();
         expect(element.props).toMatchObject({ canManage: false, canManageAppointments: false, canViewAppointments: false });
+    });
+});
+
+// ── PROD-02G2: la misma bandeja montada en Recepcionista IA ────────────────
+describe('Recepcionista IA (sin agenda)', () => {
+    const RECEPTION = { basePath: '/app/recepcionista/leads', agendaEnabled: false, product: 'reception' as const };
+
+    function renderReception(props: Partial<Parameters<typeof LeadsInboxClient>[0]> = {}) {
+        return render(
+            <LeadsContextProvider value={RECEPTION}>
+                <LeadsInboxClient currentUserId={7} businessTimeZone={TZ} {...props} />
+            </LeadsContextProvider>,
+        );
+    }
+
+    it('enlaza el detalle dentro de Recepcionista y navega al hacer clic en la fila', () => {
+        mockLeads([lead()]);
+        renderReception();
+        expect(screen.getByTestId('lead-name')).toHaveAttribute('href', '/app/recepcionista/leads/lead-1');
+        expect(screen.getByTestId('lead-cta')).toHaveAttribute('href', '/app/recepcionista/leads/lead-1');
+        fireEvent.click(screen.getByTestId('lead-row'));
+        expect(navigation.push).toHaveBeenCalledWith('/app/recepcionista/leads/lead-1');
+        expect(document.querySelector('a[href*="/app/turnos"]')).toBeNull();
+    });
+
+    it('no muestra turnos, filtro de turno ni CTAs de agenda aunque el lead tenga turno y haya permisos', () => {
+        mockLeads([lead({ appointment: appointment() })]);
+        renderReception({ canManage: true, canManageAppointments: true, canViewAppointments: true });
+        expect(screen.queryByTestId('lead-appointment-summary')).not.toBeInTheDocument();
+        expect(screen.getByTestId('lead-cta')).toHaveAttribute('data-cta', 'detail');
+        openMoreFilters();
+        expect(screen.queryByLabelText('Turno')).not.toBeInTheDocument();
+        expect(screen.queryByText('Sin turno vinculado')).not.toBeInTheDocument();
+        expect(screen.queryByText(/Turno confirmado/)).not.toBeInTheDocument();
+    });
+
+    it('usa "cliente" en vez de "paciente"', () => {
+        mockLeads([lead()]);
+        renderReception();
+        expect(screen.getByTestId('lead-last-patient-message')).toHaveTextContent('Sin mensajes del cliente disponibles');
+    });
+
+    it('resolveLeadCta: base de ruta y sin agenda', () => {
+        const base = { canManage: true, canManageAppointments: true, canViewAppointments: true, timeZone: TZ };
+        const withAppointment = lead({ appointment: appointment() });
+        expect(resolveLeadCta(withAppointment, base).kind).toBe('view_appointment');
+        expect(resolveLeadCta(withAppointment, { ...base, basePath: RECEPTION.basePath, agendaEnabled: false }))
+            .toEqual({ kind: 'detail', label: 'Ver detalle', href: '/app/recepcionista/leads/lead-1' });
+        expect(resolveLeadCta(lead(), { ...base, agendaEnabled: false }).kind).toBe('detail');
+    });
+
+    it('Turnos conserva su bandeja tal cual (sin provider)', () => {
+        mockLeads([lead({ appointment: appointment() })]);
+        renderInbox({ canViewAppointments: true });
+        expect(screen.getByTestId('lead-name')).toHaveAttribute('href', '/app/turnos/leads/lead-1');
+        expect(screen.getByTestId('lead-appointment-summary')).toBeInTheDocument();
+        expect(screen.getByTestId('lead-last-patient-message')).toHaveTextContent('Sin mensajes del paciente disponibles');
     });
 });

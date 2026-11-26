@@ -25,7 +25,10 @@ import { ApiError } from '@/lib/api/client';
 import { dateTimeInTimeZone, resolveBusinessTimeZone } from '@/lib/business-time';
 import { cn } from '@/lib/utils';
 
-import { agendaHref, formatAppointmentWhen } from '../../clientes/[id]/customer-upcoming-appointments';
+import { agendaHref, formatAppointmentWhen } from '@/app/app/clientes/[id]/customer-upcoming-appointments';
+
+import { useLeadsContext } from './leads-context';
+import { contactNoun, leadDetailHref, TURNOS_LEADS_BASE_PATH } from './leads-routes';
 
 export const LEADS_PAGE_SIZE = 25;
 const SEARCH_DEBOUNCE_MS = 300;
@@ -113,7 +116,10 @@ export function LeadsInboxClient({
     const [debouncedSearch, setDebouncedSearch] = useState('');
     const [offset, setOffset] = useState(0);
     const [showMoreFilters, setShowMoreFilters] = useState(false);
-    const ctaContext: LeadCtaContext = { canManage, canManageAppointments, canViewAppointments, timeZone };
+    const { basePath, agendaEnabled } = useLeadsContext();
+    const ctaContext: LeadCtaContext = {
+        canManage, canManageAppointments, canViewAppointments, timeZone, basePath, agendaEnabled,
+    };
 
     useEffect(() => {
         const timeout = setTimeout(() => {
@@ -188,12 +194,14 @@ export function LeadsInboxClient({
                         onChange={(value) => updateFilter('needsAttention', value as BoolFilter)}
                         options={[['true', 'Necesita revisión'], ['false', 'Sin revisión pendiente']]}
                     />
-                    <FilterSelect
-                        label="Turno"
-                        value={filters.appointment}
-                        onChange={(value) => updateFilter('appointment', value as FilterState['appointment'])}
-                        options={[['with', 'Con turno vinculado'], ['without', 'Sin turno vinculado']]}
-                    />
+                    {agendaEnabled ? (
+                        <FilterSelect
+                            label="Turno"
+                            value={filters.appointment}
+                            onChange={(value) => updateFilter('appointment', value as FilterState['appointment'])}
+                            options={[['with', 'Con turno vinculado'], ['without', 'Sin turno vinculado']]}
+                        />
+                    ) : null}
                     <FilterSelect
                         label="Asignación"
                         value={filters.assignedTo}
@@ -406,6 +414,10 @@ export type LeadCtaContext = {
     canManageAppointments: boolean;
     canViewAppointments: boolean;
     timeZone: string;
+    /** PROD-02G2: raíz de la bandeja (default Turnos). */
+    basePath?: string;
+    /** PROD-02G2: `false` sin agenda (Recepcionista sin Turnos): nunca CTAs de turno. */
+    agendaEnabled?: boolean;
 };
 
 /**
@@ -413,7 +425,8 @@ export type LeadCtaContext = {
  * atención, toma la conversación ni crea/modifica turnos.
  */
 export function resolveLeadCta(lead: LeadListItem, context: LeadCtaContext): LeadCta {
-    const detail = `/app/turnos/leads/${lead.id}`;
+    const detail = leadDetailHref(context.basePath ?? TURNOS_LEADS_BASE_PATH, lead.id);
+    const agendaEnabled = context.agendaEnabled ?? true;
     const state = conversationState(lead);
     if (lead.status === 'closed') return { kind: 'detail', label: 'Ver detalle', href: detail };
     if (state === 'error') return { kind: 'review_conversation', label: 'Revisar conversación', href: detail };
@@ -422,14 +435,14 @@ export function resolveLeadCta(lead: LeadListItem, context: LeadCtaContext): Lea
     }
     if (state === 'taken') return { kind: 'open_conversation', label: 'Abrir conversación', href: detail };
     if (lead.needs_attention) return { kind: 'attend', label: 'Atender', href: detail };
-    if (lead.appointment) {
+    if (agendaEnabled && lead.appointment) {
         return {
             kind: 'view_appointment',
             label: 'Ver turno',
             href: context.canViewAppointments ? agendaHref(lead.appointment, context.timeZone) : `${detail}#turno`,
         };
     }
-    if (context.canManage && context.canManageAppointments) {
+    if (agendaEnabled && context.canManage && context.canManageAppointments) {
         return { kind: 'manage_appointment', label: 'Gestionar turno', href: `${detail}#turno` };
     }
     return { kind: 'detail', label: 'Ver detalle', href: detail };
@@ -450,7 +463,8 @@ type LeadRowProps = {
 
 function LeadRow({ lead, timeZone, currentUserId, ctaContext }: LeadRowProps) {
     const router = useRouter();
-    const detailHref = `/app/turnos/leads/${lead.id}` as Route;
+    const { basePath, agendaEnabled, product } = useLeadsContext();
+    const detailHref = leadDetailHref(basePath, lead.id) as Route;
     const agent = lead.agent;
     const closed = lead.status === 'closed';
     const reason = agent?.reason || agent?.summary;
@@ -478,7 +492,7 @@ function LeadRow({ lead, timeZone, currentUserId, ctaContext }: LeadRowProps) {
             <div className="min-w-0 flex-1 space-y-1">
                 <div className="flex flex-wrap items-center gap-2">
                     <Link
-                        href={`/app/turnos/leads/${lead.id}` as Route}
+                        href={detailHref}
                         data-testid="lead-name"
                         onClick={(event) => event.stopPropagation()}
                         onKeyDown={(event) => {
@@ -529,7 +543,7 @@ function LeadRow({ lead, timeZone, currentUserId, ctaContext }: LeadRowProps) {
                 >
                     {lead.last_patient_message_text
                         ? `“${lead.last_patient_message_text}”`
-                        : 'Sin mensajes del paciente disponibles'}
+                        : `Sin mensajes del ${contactNoun(product).singular} disponibles`}
                     {lead.last_patient_message_text && lead.last_patient_message_at ? (
                         <span className="not-italic text-xs text-slate-400">
                             {' '}· {dateTimeInTimeZone(lead.last_patient_message_at, timeZone)}
@@ -555,6 +569,7 @@ function LeadRow({ lead, timeZone, currentUserId, ctaContext }: LeadRowProps) {
                 </p>
             </div>
             <div className="flex shrink-0 flex-col gap-2 text-xs text-slate-500 md:w-64 md:items-end md:text-right">
+                {agendaEnabled ? (
                 <div data-testid="lead-appointment-summary" className="space-y-0.5">
                     {appointment ? (
                         <>
@@ -571,6 +586,7 @@ function LeadRow({ lead, timeZone, currentUserId, ctaContext }: LeadRowProps) {
                         <p className="italic">Sin turno vinculado</p>
                     )}
                 </div>
+                ) : null}
                 <dl className="grid grid-cols-2 gap-x-4 gap-y-1 md:block">
                     {agent?.last_message_at ? (
                         <div>

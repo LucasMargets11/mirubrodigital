@@ -1,46 +1,6 @@
-import { redirect } from 'next/navigation';
+import { renderLeadsInboxPage } from '@/features/leads/ui/leads-pages';
 
-import { AccessMessage } from '@/components/app/access-message';
-import { resolveLeadsAccess } from '@/features/leads/access';
-import { getSession } from '@/lib/auth';
-
-import { LeadsInboxClient } from './leads-inbox-client';
-
+/** Bandeja de Leads de Turnos (LEADS 05A). Implementación única en `features/leads/ui` (PROD-02G2). */
 export default async function LeadsPage() {
-    const session = await getSession();
-
-    if (!session) {
-        redirect('/entrar');
-    }
-
-    const access = resolveLeadsAccess(session);
-
-    if (access === 'no_plan') {
-        return (
-            <AccessMessage
-                title="Tu plan no incluye Leads"
-                description="La bandeja de consultas del agente de WhatsApp está disponible en Turnos Base."
-            />
-        );
-    }
-
-    if (access === 'no_permission') {
-        return (
-            <AccessMessage
-                title="Sin acceso"
-                description="Tu rol no puede ver la bandeja de Leads."
-                hint="Solicitá permisos a un administrador"
-            />
-        );
-    }
-
-    return (
-        <LeadsInboxClient
-            currentUserId={session.user?.id ?? null}
-            businessTimeZone={session.current?.business?.timezone ?? null}
-            canManage={session.permissions?.manage_leads ?? false}
-            canManageAppointments={session.permissions?.manage_appointments ?? false}
-            canViewAppointments={session.permissions?.view_appointments ?? false}
-        />
-    );
+    return renderLeadsInboxPage('appointments');
 }
