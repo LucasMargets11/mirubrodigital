@@ -581,32 +581,18 @@ def _check_ai_source_rules(business, service_type: str, plan_code: str, starts_a
       to, canceled included) — a new subscription would re-anchor the period
       and restart the count. The counting engine itself is untouched.
     """
-    from apps.appointments.models import AppointmentAIUsageSession
-    from apps.billing.services.ai_source import AI_SOURCES
-
-    requested = (service_type, plan_code)
-    if requested not in AI_SOURCES.values():
-        return
-    others = [pair for pair in AI_SOURCES.values() if pair != requested]
-    other_q = None
-    from django.db.models import Q
-    for other_service, other_plan in others:
-        q = Q(service_type=other_service, plan_code=other_plan)
-        other_q = q if other_q is None else other_q | q
-    conflicting = (
-        SubscriptionV2.objects.select_for_update()
-        .filter(other_q, business=business)
-        .exclude(status=SubscriptionV2.Status.CANCELED)
-        .first()
+    # PROD-02F5.1: the single shared rule (billing.services.ai_commercial_rules),
+    # translated into this service's taxonomy.
+    from apps.billing.services.ai_commercial_rules import (
+        IncompatibleAISourceConflict,
+        find_ai_commercial_conflict,
     )
-    if conflicting is not None:
-        raise IncompatibleAIServiceError(
-            f"El negocio ya tiene '{conflicting.service_type}/{conflicting.plan_code}' "
-            f"(id={conflicting.pk}, status={conflicting.status}); Recepcionista IA y "
-            f"Turnos IA no pueden convivir."
-        )
-    if AppointmentAIUsageSession.objects.filter(business=business, usage_period_end__gt=starts_at).exists():
-        raise AIUsagePeriodOverlapError(
-            'El negocio ya tiene consumo de IA contado en un período que sigue vigente al '
-            'inicio del beneficio. El nuevo beneficio debe empezar cuando ese período termine.'
-        )
+
+    conflict = find_ai_commercial_conflict(
+        business_id=business.pk, service_type=service_type, plan_code=plan_code, starts_at=starts_at,
+    )
+    if conflict is None:
+        return
+    if isinstance(conflict, IncompatibleAISourceConflict):
+        raise IncompatibleAIServiceError(str(conflict))
+    raise AIUsagePeriodOverlapError(str(conflict))
