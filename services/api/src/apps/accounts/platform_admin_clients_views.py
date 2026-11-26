@@ -39,6 +39,7 @@ from apps.accounts.admin_client_provisioning_service import (
     MultipleOwnerAccountsError,
     UnauthorizedProvisioningActorError,
     ExistingOwnerRequiresConfirmationError,
+    InvalidComplimentaryCustomAllowanceError,
     provision_admin_client,
 )
 from apps.accounts.models import AccessAuditLog
@@ -160,6 +161,12 @@ PROVISIONING_ERROR_RESPONSES = {
         'invalid_complimentary_usage_tier',
         'El nivel de uso no es válido para el plan elegido.',
         'usage_tier',
+    ),
+    InvalidComplimentaryCustomAllowanceError: (
+        status.HTTP_400_BAD_REQUEST,
+        'invalid_custom_included_sessions',
+        'El cupo personalizado no es válido para el nivel de uso elegido.',
+        'custom_included_sessions',
     ),
     ComplimentaryGrantFailedError: (
         status.HTTP_422_UNPROCESSABLE_ENTITY,

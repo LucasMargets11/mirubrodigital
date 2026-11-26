@@ -30,6 +30,7 @@ from apps.accounts.platform_audit import log_platform_action
 from apps.billing.complimentary_access_service import (
     ActiveSubscriptionConflictError,
     ComplimentaryAccessError,
+    InvalidCustomAllowanceError,
     InvalidGrantReasonError,
     InvalidPeriodError,
     InvalidServiceTypeError,
@@ -132,6 +133,10 @@ class InvalidComplimentaryServiceTypeError(AdminClientProvisioningError):
 
 class InvalidComplimentaryUsageTierError(AdminClientProvisioningError):
     """usage_tier missing/invalid for a tier-priced plan, or sent for one without tiers."""
+
+
+class InvalidComplimentaryCustomAllowanceError(AdminClientProvisioningError):
+    """PROD-02F3: custom_included_sessions missing/invalid, misplaced, or no valid policy window."""
 
 
 class ComplimentaryGrantFailedError(AdminClientProvisioningError):
@@ -341,6 +346,7 @@ def provision_admin_client(
     granted_by,
     grant_reason: str,
     usage_tier: str | None = None,
+    custom_included_sessions: int | None = None,
 ) -> AdminClientProvisioningResult:
     """
     Atomically provision a platform-admin-created client:
@@ -415,6 +421,7 @@ def provision_admin_client(
                 granted_by=granted_by,
                 reason=grant_reason,
                 usage_tier=usage_tier,
+                custom_included_sessions=custom_included_sessions,
             )
         except InvalidPeriodError as exc:
             raise InvalidComplimentaryPeriodError(str(exc)) from exc
@@ -424,6 +431,8 @@ def provision_admin_client(
             raise InvalidComplimentaryServiceTypeError(str(exc)) from exc
         except InvalidUsageTierError as exc:
             raise InvalidComplimentaryUsageTierError(str(exc)) from exc
+        except InvalidCustomAllowanceError as exc:
+            raise InvalidComplimentaryCustomAllowanceError(str(exc)) from exc
         except PlanNotAvailableError as exc:
             raise ComplimentaryPlanNotAvailableError(str(exc)) from exc
         except PlanServiceMismatchError as exc:
@@ -443,6 +452,7 @@ def provision_admin_client(
             'service_type': service_type,
             'plan_code': plan_code,
             'usage_tier': subscription.usage_tier,
+            'custom_included_sessions': custom_included_sessions,
             'complimentary_start': complimentary_start.isoformat(),
             'complimentary_end': complimentary_end.isoformat(),
         }

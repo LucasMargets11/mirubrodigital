@@ -4,6 +4,20 @@ from collections.abc import Mapping
 from rest_framework import serializers
 
 
+class StrictIntegerField(serializers.Field):
+    """A JSON integer only: rejects booleans, floats (even 10.0) and strings."""
+
+    default_error_messages = {'invalid': 'Debe ser un número entero.'}
+
+    def to_internal_value(self, data):
+        if type(data) is not int:
+            self.fail('invalid')
+        return data
+
+    def to_representation(self, value):
+        return value
+
+
 class AdminClientProvisioningInputSerializer(serializers.Serializer):
     """Validate only the HTTP shape accepted by client provisioning."""
 
@@ -22,6 +36,9 @@ class AdminClientProvisioningInputSerializer(serializers.Serializer):
     usage_tier = serializers.CharField(
         required=False, allow_null=True, allow_blank=True, trim_whitespace=True,
     )
+    # PROD-02F3: individual allowance, only (and always) for reception_custom.
+    # Shape here; range/placement rules live in grant_complimentary_access.
+    custom_included_sessions = StrictIntegerField(required=False, allow_null=True)
 
     def to_internal_value(self, data):
         if isinstance(data, Mapping):
@@ -34,4 +51,6 @@ class AdminClientProvisioningInputSerializer(serializers.Serializer):
         value = super().to_internal_value(data)
         if not value.get('usage_tier'):
             value.pop('usage_tier', None)
+        if value.get('custom_included_sessions') is None:
+            value.pop('custom_included_sessions', None)
         return value
