@@ -73,6 +73,7 @@ from apps.blog.admin_views import (
     AdminBlogCategoryListCreateView,
     AdminBlogCategoryUpdateView,
 )
+from apps.leads.receptionist_config_views import AdminClientReceptionistConfigView
 
 urlpatterns = [
     # ── Auth (Phase 1.1 hardening) ───────────────────────────────────────
@@ -98,6 +99,10 @@ urlpatterns = [
     path('clients/<int:business_id>/ai-usage/history/', AdminClientAIUsageHistoryView.as_view(), name='platform-admin-client-ai-usage-history'),
     path('clients/<int:business_id>/ai-usage/policies/', AdminClientAIPoliciesView.as_view(), name='platform-admin-client-ai-usage-policies'),
     # PROD-02E4D: métricas operativas (OpenAI + costos estimados + WhatsApp), solo lectura.
+    path(
+        'clients/<int:business_id>/receptionist-config/', AdminClientReceptionistConfigView.as_view(),
+        name='platform-admin-client-receptionist-config',
+    ),
     path('clients/<int:business_id>/operational-metrics/', AdminClientOperationalMetricsView.as_view(), name='platform-admin-client-operational-metrics'),
     # ── Subscriptions (Phase 2) ──────────────────────────────────────────
     path('subscriptions/', AdminSubscriptionListView.as_view(), name='platform-admin-subscriptions'),
