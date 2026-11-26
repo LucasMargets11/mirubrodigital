@@ -80,7 +80,8 @@ def validate_range(start: datetime, end: datetime) -> tuple[datetime, datetime]:
     start, end = _aware(start, 'start'), _aware(end, 'end')
     if end <= start:
         raise WhatsAppMetricsRangeError('end must be after start.')
-    if end - start > timedelta(days=MAX_RANGE_DAYS):
+    # 1 h of slack: 92 local days can span 92 d + 1 h across a DST change
+    if end - start > timedelta(days=MAX_RANGE_DAYS, hours=1):
         raise WhatsAppMetricsRangeError(f'The range cannot exceed {MAX_RANGE_DAYS} days.')
     return start, end
 

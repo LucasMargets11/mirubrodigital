@@ -15,6 +15,7 @@ from .platform_auth_views import (
 )
 from .platform_admin_ai_usage_views import (
     AdminClientAIPoliciesView, AdminClientAIUsageHistoryView, AdminClientAIUsageView,
+    AdminClientOperationalMetricsView,
 )
 from .platform_admin_clients_views import (
     AdminClientListView,
@@ -94,6 +95,8 @@ urlpatterns = [
     path('clients/<int:business_id>/ai-usage/', AdminClientAIUsageView.as_view(), name='platform-admin-client-ai-usage'),
     path('clients/<int:business_id>/ai-usage/history/', AdminClientAIUsageHistoryView.as_view(), name='platform-admin-client-ai-usage-history'),
     path('clients/<int:business_id>/ai-usage/policies/', AdminClientAIPoliciesView.as_view(), name='platform-admin-client-ai-usage-policies'),
+    # PROD-02E4D: métricas operativas (OpenAI + costos estimados + WhatsApp), solo lectura.
+    path('clients/<int:business_id>/operational-metrics/', AdminClientOperationalMetricsView.as_view(), name='platform-admin-client-operational-metrics'),
     # ── Subscriptions (Phase 2) ──────────────────────────────────────────
     path('subscriptions/', AdminSubscriptionListView.as_view(), name='platform-admin-subscriptions'),
     path('subscriptions/kpis/', AdminSubscriptionKPIsView.as_view(), name='platform-admin-subscriptions-kpis'),

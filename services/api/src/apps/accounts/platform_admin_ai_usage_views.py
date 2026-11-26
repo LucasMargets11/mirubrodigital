@@ -64,3 +64,29 @@ class AdminClientAIPoliciesView(_AdminAIUsageView):
         limit = clamp(request.query_params.get('limit'), CHANGES_DEFAULT_LIMIT, CHANGES_MAX_LIMIT)
         offset = offset_of(request.query_params.get('offset'))
         return self.respond(business_id, lambda b: admin_reception_policies(b, limit=limit, offset=offset))
+
+
+class AdminClientOperationalMetricsView(_AdminAIUsageView):
+    """PROD-02E4D: GET .../clients/<id>/operational-metrics/?date_from=&date_to=
+
+    OpenAI activity + estimated costs, WhatsApp activity and commercial AI
+    sessions of the period, as independent blocks (see
+    apps.leads.services.operational_metrics). Same roles, HQ rule, server
+    time, no-store and zero writes as the AI usage views.
+    """
+
+    def get(self, request, business_id: int):
+        from apps.leads.services.operational_metrics import OperationalMetricsRangeError, operational_metrics
+
+        business = self.business(business_id)
+        if business is None:
+            response = Response({'detail': 'Cliente no encontrado.'}, status=404)
+        else:
+            try:
+                response = Response(operational_metrics(
+                    business, request.query_params.get('date_from'), request.query_params.get('date_to'),
+                ))
+            except OperationalMetricsRangeError as exc:
+                response = Response({'code': 'invalid_period', 'detail': str(exc)}, status=400)
+        response['Cache-Control'] = 'no-store'
+        return response
