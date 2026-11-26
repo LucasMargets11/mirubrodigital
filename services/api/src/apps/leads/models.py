@@ -18,9 +18,11 @@ pero `bulk_create`/`update()` no pasan por ahí.
 from __future__ import annotations
 
 import datetime as dt
+import re
 import uuid
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.core.validators import RegexValidator
 from django.db import models
 from django.db.models import F, Q
@@ -1152,4 +1154,196 @@ class AIProviderRate(models.Model):
             amounts = ('provider', 'model', 'input_per_million', 'cached_input_per_million', 'output_per_million', 'valid_from')
             if any(getattr(persisted, f) != getattr(self, f) for f in amounts):
                 raise ValidationError('Rate amounts are immutable; close this version and create a new one.')
+        return super().save(*args, **kwargs)
+
+
+# ── PROD-03A: configuración individual de Recepcionista IA ─────────────────
+
+# Patrones de secretos que nunca deben quedar en texto editable (API keys,
+# tokens de Meta, Fernet, claves privadas, headers Bearer). Barrera barata:
+# las credenciales viven en AgentCredential (cifradas), nunca acá.
+_SECRET_PATTERNS = tuple(
+    re.compile(pattern)
+    for pattern in (
+        r'\bsk-[A-Za-z0-9_-]{16,}',
+        r'\bEAA[A-Za-z0-9]{24,}',
+        r'\bgAAAAA[A-Za-z0-9_=-]{32,}',
+        r'-----BEGIN [A-Z ]*PRIVATE KEY-----',
+        r'\bBearer\s+[A-Za-z0-9._~+/=-]{16,}',
+        r'\bAKIA[0-9A-Z]{16}\b',
+    )
+)
+
+RECEPTIONIST_MAX_SERVICES = 30
+RECEPTIONIST_MAX_FAQS = 30
+# Por lista: claves admitidas con su largo máximo; la primera es obligatoria
+# y es la identidad del elemento (no se repite, sin distinguir mayúsculas).
+RECEPTIONIST_ITEM_LIMITS = {
+    'services': {'name': 120, 'description': 500},
+    'faqs': {'question': 300, 'answer': 1000},
+}
+# Mínimo para que el agente atienda sin inventar: identidad, rubro,
+# descripción, bienvenida, horarios y al menos un servicio.
+RECEPTIONIST_REQUIRED_FOR_READY = (
+    'assistant_name', 'business_category', 'business_description', 'welcome_message', 'business_hours',
+)
+
+
+def validate_receptionist_text(value: str) -> None:
+    if '\x00' in value:
+        raise ValidationError('El texto no puede contener caracteres nulos.')
+    if any(pattern.search(value) for pattern in _SECRET_PATTERNS):
+        raise ValidationError('El texto parece contener una credencial o secreto; no se guarda acá.')
+
+
+def _validate_items(value, *, field: str, max_items: int) -> None:
+    limits = RECEPTIONIST_ITEM_LIMITS[field]
+    identity_key = next(iter(limits))
+    if not isinstance(value, list):
+        raise ValidationError('Debe ser una lista.')
+    if len(value) > max_items:
+        raise ValidationError(f'Máximo {max_items} elementos.')
+    seen = set()
+    for item in value:
+        if not isinstance(item, dict) or not set(item) <= set(limits) or identity_key not in item:
+            raise ValidationError(f'Cada elemento admite solo {sorted(limits)} y requiere "{identity_key}".')
+        for key, max_length in limits.items():
+            text = item.get(key, '')
+            if not isinstance(text, str):
+                raise ValidationError(f'"{key}" debe ser texto.')
+            if len(text) > max_length:
+                raise ValidationError(f'"{key}" admite hasta {max_length} caracteres.')
+            validate_receptionist_text(text)
+        if field == 'faqs' and not item.get('answer', '').strip():
+            raise ValidationError('Cada pregunta frecuente requiere una respuesta.')
+        identity = item[identity_key].strip().casefold()
+        if not identity:
+            raise ValidationError(f'"{identity_key}" no puede estar vacío.')
+        if identity in seen:
+            raise ValidationError(f'"{item[identity_key].strip()}" está repetido.')
+        seen.add(identity)
+
+
+def validate_receptionist_services(value) -> None:
+    _validate_items(value, field='services', max_items=RECEPTIONIST_MAX_SERVICES)
+
+
+def validate_receptionist_faqs(value) -> None:
+    _validate_items(value, field='faqs', max_items=RECEPTIONIST_MAX_FAQS)
+
+
+class ReceptionistConfig(models.Model):
+    """Configuración individual de la Recepcionista IA de un Business.
+
+    Una por Business: es el agente lógico del negocio. El deployment que la
+    atiende NO se guarda acá; sale del `AgentChannel` activo del Business,
+    única fuente de la relación agente ↔ negocio (una `AgentInstance` puede
+    atender varios negocios). Ver `services/receptionist_config.py`.
+
+    Solo contenido editable del negocio. Fuera de este modelo, por diseño:
+    - Datos que ya existen del Business (nombre, dirección, teléfono, zona
+      horaria): se leen de `Business`/`BusinessBillingProfile`/`BusinessBranding`.
+    - Reglas obligatorias del sistema (seguridad, no diagnosticar, no
+      inventar disponibilidad): viven en el código del agente y prevalecen
+      sobre `custom_instructions`/`handoff_rules`.
+    - Capacidades (agenda, permisos, consumo IA): suscripciones/entitlements.
+    - Credenciales y conexiones: `AgentCredential`/`AgentChannel`.
+
+    `status=ready` exige la configuración mínima (constraint de DB + clean).
+    `version` sube con cada cambio de contenido; el estado no es contenido.
+    """
+
+    class Status(models.TextChoices):
+        DRAFT = 'draft', 'Borrador'
+        READY = 'ready', 'Lista para activar'
+
+    class Tone(models.TextChoices):
+        WARM = 'warm', 'Cercano'
+        PROFESSIONAL = 'professional', 'Profesional'
+        FORMAL = 'formal', 'Formal'
+
+    class Language(models.TextChoices):
+        ES_AR = 'es-AR', 'Español (Argentina)'
+        ES = 'es', 'Español neutro'
+
+    CONTENT_FIELDS = (
+        'assistant_name', 'business_category', 'business_description', 'custom_instructions', 'tone',
+        'language', 'welcome_message', 'operational_info', 'business_hours', 'services', 'reference_info',
+        'faqs', 'handoff_rules',
+    )
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    business = models.OneToOneField(
+        'business.Business', related_name='receptionist_config', on_delete=models.CASCADE,
+    )
+    assistant_name = models.CharField(max_length=80, blank=True, validators=[validate_receptionist_text])
+    business_category = models.CharField(max_length=80, blank=True, validators=[validate_receptionist_text])
+    business_description = models.CharField(max_length=1000, blank=True, validators=[validate_receptionist_text])
+    custom_instructions = models.CharField(max_length=4000, blank=True, validators=[validate_receptionist_text])
+    tone = models.CharField(max_length=16, choices=Tone.choices, default=Tone.WARM)
+    language = models.CharField(max_length=8, choices=Language.choices, default=Language.ES_AR)
+    welcome_message = models.CharField(max_length=500, blank=True, validators=[validate_receptionist_text])
+    operational_info = models.CharField(max_length=2000, blank=True, validators=[validate_receptionist_text])
+    business_hours = models.CharField(max_length=1000, blank=True, validators=[validate_receptionist_text])
+    services = models.JSONField(default=list, blank=True, validators=[validate_receptionist_services])
+    reference_info = models.CharField(max_length=4000, blank=True, validators=[validate_receptionist_text])
+    faqs = models.JSONField(default=list, blank=True, validators=[validate_receptionist_faqs])
+    handoff_rules = models.CharField(max_length=2000, blank=True, validators=[validate_receptionist_text])
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.DRAFT)
+    version = models.PositiveIntegerField(default=1, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(check=Q(status__in=['draft', 'ready']), name='receptionist_config_status_valid'),
+            models.CheckConstraint(
+                check=Q(tone__in=['warm', 'professional', 'formal']), name='receptionist_config_tone_valid',
+            ),
+            models.CheckConstraint(check=Q(language__in=['es-AR', 'es']), name='receptionist_config_language_valid'),
+            models.CheckConstraint(check=Q(version__gt=0), name='receptionist_config_version_positive'),
+            # ready ⇒ configuración mínima completa (cubre también update()).
+            models.CheckConstraint(
+                check=Q(status='draft') | (
+                    ~Q(assistant_name='') & ~Q(business_category='') & ~Q(business_description='')
+                    & ~Q(welcome_message='') & ~Q(business_hours='') & ~Q(services=[])
+                ),
+                name='receptionist_config_ready_complete',
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f'ReceptionistConfig business {self.business_id} v{self.version} ({self.status})'
+
+    def missing_for_ready(self) -> list[str]:
+        missing = [f for f in RECEPTIONIST_REQUIRED_FOR_READY if not getattr(self, f).strip()]
+        if not self.services:
+            missing.append('services')
+        return missing
+
+    @property
+    def is_ready(self) -> bool:
+        return self.status == self.Status.READY and not self.missing_for_ready()
+
+    def clean(self):
+        if self.status == self.Status.READY:
+            missing = self.missing_for_ready()
+            if missing:
+                raise ValidationError({'status': f'Configuración incompleta: falta {", ".join(missing)}.'})
+
+    def save(self, *args, **kwargs):
+        # Misma validación para todo camino que pase por save() (patrón de
+        # LeadAgentState); bulk_create/update() quedan cubiertos solo por las
+        # constraints de DB.
+        self.full_clean()
+        if not self._state.adding:
+            stored = (
+                type(self).objects.filter(pk=self.pk)
+                .values('business_id', 'version', *self.CONTENT_FIELDS).first()
+            )
+            if stored is not None:
+                if stored['business_id'] != self.business_id:
+                    raise ValidationError('ReceptionistConfig.business es inmutable.')
+                changed = any(stored[f] != getattr(self, f) for f in self.CONTENT_FIELDS)
+                self.version = stored['version'] + (1 if changed else 0)
         return super().save(*args, **kwargs)
