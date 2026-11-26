@@ -257,6 +257,8 @@ def reconcile_session(session_id: str) -> dict:
                 result['action_taken'].append(f'Activated subscription {sub_v2.pk}')
                 result['status'] = 'activated'
                 activated_any = True
+            else:
+                _note_ai_activation_block(result, sub_v2, invoice_event)
 
         elif sub_v2.is_active:
             result['action_taken'].append(f'Subscription {sub_v2.pk} already active — no-op')
@@ -506,6 +508,8 @@ def reconcile_subscription(provider_subscription_id: str) -> dict:
                 )
                 # Refresh local state.
                 sub.refresh_from_db()
+            else:
+                _note_ai_activation_block(result, sub, invoice)
 
     return result
 
@@ -673,6 +677,8 @@ def reconcile_invoice_event(provider_authorized_payment_id: str) -> dict:
             )
             if activated:
                 result['action_taken'].append(f"Activated subscription {sub.pk}")
+            else:
+                _note_ai_activation_block(result, sub, invoice_event)
 
     return result
 
@@ -680,6 +686,22 @@ def reconcile_invoice_event(provider_authorized_payment_id: str) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 # Private helpers
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _note_ai_activation_block(result: dict, subscription, invoice_event) -> None:
+    """PROD-02F5.1: surface a blocked AI activation in the reconcile result."""
+    from .subscription_activator import ai_activation_block
+
+    subscription.refresh_from_db()
+    if subscription.is_active:
+        return
+    block = ai_activation_block(subscription, invoice_event=invoice_event, lock=False)
+    if block is not None:
+        result['error'] = (
+            f"{block.code}: activation blocked subscription={subscription.pk} "
+            f"conflicting_subscription={block.conflicting_subscription_id} — manual review required"
+        )
+        logger.error("[reconcile] %s", result['error'])
+
 
 def _parse_dt(value):
     if not value:

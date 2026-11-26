@@ -99,6 +99,11 @@ def activate_subscription_from_invoice(
     )
 
     with transaction.atomic():
+        # PROD-02F5.1: lock order Business → SubscriptionV2, shared with every
+        # commercial write path (grants, checkout, lifecycle).
+        from apps.business.models import Business
+
+        Business.objects.select_for_update().get(pk=subscription.business_id)
         # Re-fetch with an exclusive row lock so concurrent webhook deliveries
         # for the same subscription are serialised here.  The pre-flight
         # checks above are an optimistic fast-path; this is the authoritative
@@ -127,6 +132,22 @@ def activate_subscription_from_invoice(
                 "[activator] Subscription %s terminal status=%s (locked re-check) — "
                 "refusing activation for invoice_event=%s.",
                 subscription.pk, subscription.status, invoice_event.pk,
+            )
+            return False
+
+        # PROD-02F5.1: never activate an AI source that breaks the commercial
+        # AI rule, whatever path brought the payment (webhook, reconciliation,
+        # Turnos finalization). Usage continuity only gates a FIRST
+        # activation; recoveries of the same subscription are not re-checked
+        # for usage. The payment records stay untouched for manual review.
+        block = ai_activation_block(subscription, invoice_event=invoice_event)
+        if block is not None:
+            logger.error(
+                "[activator] AI activation blocked code=%s subscription=%s business=%s "
+                "conflicting_subscription=%s invoice_event=%s provider_authorized_payment_id=%s",
+                block.code, subscription.pk, subscription.business_id,
+                block.conflicting_subscription_id, invoice_event.pk,
+                invoice_event.provider_authorized_payment_id,
             )
             return False
 
@@ -176,6 +197,22 @@ def activate_subscription_from_invoice(
         invoice_event.provider_authorized_payment_id,
     )
     return True
+
+
+def ai_activation_block(subscription: SubscriptionV2, *, invoice_event=None, lock: bool = True):
+    """The AI commercial conflict that blocks activating *subscription*, or None."""
+    from .services.ai_commercial_rules import find_ai_commercial_conflict
+
+    paid_at = getattr(invoice_event, 'paid_at', None) or timezone.now()
+    return find_ai_commercial_conflict(
+        business_id=subscription.business_id,
+        service_type=subscription.service_type,
+        plan_code=subscription.plan_code,
+        starts_at=paid_at,
+        exclude_subscription_id=subscription.pk,
+        check_usage=subscription.status == SubscriptionV2.Status.CHECKOUT_PENDING,
+        lock=lock,
+    )
 
 
 def record_failed_payment(

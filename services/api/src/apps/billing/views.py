@@ -1,3 +1,4 @@
+from apps.billing.services.ai_commercial_rules import AICommercialConflict
 from rest_framework import viewsets, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -960,6 +961,9 @@ class PublicAppointmentsCheckoutView(APIView):
         except ValidationError as exc:
             detail = exc.message_dict if hasattr(exc, 'message_dict') else exc.messages
             return Response({'detail': detail}, status=status.HTTP_400_BAD_REQUEST)
+        except AICommercialConflict as exc:
+            # PROD-02F5.1: Recepcionista ⟂ Turnos IA (or a running AI usage period).
+            return Response({'code': exc.code, 'detail': str(exc)}, status=status.HTTP_409_CONFLICT)
         except ValueError as exc:
             return Response({
                 'code': 'checkout_unavailable',
@@ -1049,6 +1053,9 @@ class AppointmentsCheckoutView(APIView):
         except ValidationError as exc:
             detail = exc.message_dict if hasattr(exc, 'message_dict') else exc.messages
             return Response({'detail': detail}, status=status.HTTP_400_BAD_REQUEST)
+        except AICommercialConflict as exc:
+            # PROD-02F5.1: Recepcionista ⟂ Turnos IA (or a running AI usage period).
+            return Response({'code': exc.code, 'detail': str(exc)}, status=status.HTTP_409_CONFLICT)
         except ValueError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_409_CONFLICT)
         return Response(result, status=status.HTTP_200_OK if result['reused'] else status.HTTP_201_CREATED)

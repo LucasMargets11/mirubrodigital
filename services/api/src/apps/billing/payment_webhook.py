@@ -441,6 +441,23 @@ def _apply_billing_payment_inner(*, pending_change, payment_data, payment_id,
                     'appointments_change_amount_mismatch',
                     'Approved payment does not match the stored Turnos proration.',
                 )
+        if is_appointments_change:
+            # PROD-02F5.1: a paid change into an incompatible AI source is held
+            # BEFORE Mercado Pago is repriced. The payment is recorded
+            # (PaymentAttempt + BillingEvent ERROR) and never refunded here.
+            from .services.appointments_lifecycle import _ai_change_conflict, block_change_for_ai_conflict
+
+            subscription = SubscriptionV2.objects.get(pk=pending_change.subscription_v2_id)
+            conflict = _ai_change_conflict(subscription, pending_change.target_plan_code, at=timezone.now())
+            if conflict is not None:
+                pending_change.save(update_fields=['mp_payment_id', 'updated_at'])
+                block_change_for_ai_conflict(pending_change, conflict)
+                _create_payment_attempt(subscription, billing_event, payment_data, payment_id)
+                _update_billing_event(
+                    billing_event, sub_v2=subscription, new_status=BillingEvent.ProcessingStatus.ERROR,
+                    error_message=f'{conflict.code}: paid Turnos change held for manual review',
+                )
+                return
         pending_change.status = 'processing'
         pending_change.save()
         try:

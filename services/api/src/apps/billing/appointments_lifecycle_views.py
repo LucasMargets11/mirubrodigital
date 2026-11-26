@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 
+from apps.billing.services.ai_commercial_rules import AICommercialConflict
 from django.conf import settings
 from rest_framework import serializers, status
 from rest_framework.permissions import IsAuthenticated
@@ -124,6 +125,9 @@ class AppointmentsLifecycleChangeView(APIView):
                 user=request.user,
                 target=serializer.validated_data,
             )
+        except AICommercialConflict as exc:
+            # PROD-02F5.1: a change into Turnos IA while Recepcionista is live.
+            return Response({'code': exc.code, 'detail': str(exc)}, status=status.HTTP_409_CONFLICT)
         except (AppointmentsLifecycleError, ValueError) as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 

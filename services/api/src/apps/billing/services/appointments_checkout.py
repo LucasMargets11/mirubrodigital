@@ -191,6 +191,14 @@ def create_appointments_checkout(
         if current:
             raise ValueError('An existing Turnos subscription must use the lifecycle change flow.')
 
+        # PROD-02F5.1: block an incompatible AI purchase BEFORE any provider call.
+        from apps.billing.services.ai_commercial_rules import assert_ai_source_allowed
+
+        assert_ai_source_allowed(
+            business_id=locked_business.pk, service_type='appointments',
+            plan_code=quote['plan_code'], starts_at=now,
+        )
+
         checkout = AppointmentsCheckout.objects.create(
             business=locked_business,
             user=user,
@@ -420,6 +428,20 @@ def apply_appointments_preapproval(*, preapproval_id: str, plan_id: str, preappr
                     'appointments_subscription_conflict',
                     'A non-canceled Turnos subscription already exists for this business.',
                 )
+            # PROD-02F5.1: never open an incompatible AI source. The checkout
+            # keeps the preapproval correlation and records the conflict
+            # (existing checkout-conflict mechanism); no provider action.
+            from apps.billing.services.ai_commercial_rules import find_ai_commercial_conflict
+
+            conflict = find_ai_commercial_conflict(
+                business_id=business.pk, service_type='appointments',
+                plan_code=checkout.plan_code, starts_at=timezone.now(),
+            )
+            if conflict is not None:
+                _record_appointments_checkout_conflict(
+                    checkout, [], '', failure_code=conflict.code, already_locked=True,
+                )
+                return True
             subscription = SubscriptionV2.objects.create(
                 business=business,
                 service_type=SubscriptionV2.ServiceType.APPOINTMENTS,
@@ -675,6 +697,24 @@ def finalize_appointments_authorized_payment(*, subscription, invoice_event, pay
             if active_checkout and active_checkout not in conflict_checkouts:
                 conflict_checkouts.append(active_checkout)
 
+        # PROD-02F5.1: an incompatible AI source is never activated, even when
+        # paid. The invoice event stays recorded (orphan, no subscription
+        # link); the checkout records the conflict for manual resolution.
+        if not (locked_subscription is not None and locked_subscription.is_active):
+            from apps.billing.services.ai_commercial_rules import find_ai_commercial_conflict
+
+            ai_conflict = find_ai_commercial_conflict(
+                business_id=checkout.business_id, service_type='appointments',
+                plan_code=checkout.plan_code, starts_at=invoice_event.paid_at or timezone.now(),
+                exclude_subscription_id=locked_subscription.pk if locked_subscription else None,
+            )
+            if ai_conflict is not None:
+                _record_appointments_checkout_conflict(
+                    checkout, [], invoice_event.provider_authorized_payment_id,
+                    failure_code=ai_conflict.code,
+                )
+                return False
+
         if conflict_checkouts or active_subscription is not None:
             _record_appointments_checkout_conflict(
                 checkout,
@@ -852,20 +892,27 @@ def finalize_appointments_authorized_payment(*, subscription, invoice_event, pay
     return activated
 
 
-def _record_appointments_checkout_conflict(checkout, competing_checkouts, payment_id: str) -> None:
+def _record_appointments_checkout_conflict(
+    checkout, competing_checkouts, payment_id: str, *,
+    failure_code: str = 'multiple_authorized_payments', already_locked: bool = False,
+) -> None:
     from apps.billing.models import AppointmentsCheckout
 
     for candidate in [checkout, *competing_checkouts]:
         if candidate.status != AppointmentsCheckout.Status.ACTIVE:
             candidate.status = AppointmentsCheckout.Status.FAILED
-        candidate.failure_code = 'multiple_authorized_payments'
-        candidate.save(update_fields=['status', 'failure_code', 'updated_at'])
+        candidate.failure_code = failure_code
+        fields = ['status', 'failure_code', 'updated_at']
+        if already_locked and candidate is checkout:
+            fields.append('provider_preapproval_id')
+        candidate.save(update_fields=fields)
     logger.error(
         'appointments_checkout_conflict checkout_id=%s competing_checkout_ids=%s '
-        'authorized_payment_id=%s',
+        'authorized_payment_id=%s failure_code=%s',
         checkout.pk,
         [item.pk for item in competing_checkouts],
         payment_id,
+        failure_code,
     )
 
 

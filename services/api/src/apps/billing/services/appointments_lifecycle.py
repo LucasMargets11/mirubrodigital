@@ -1,6 +1,7 @@
 """Commercial lifecycle for MiRubro Turnos SubscriptionV2 records."""
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -15,6 +16,37 @@ from apps.billing.appointments_plans import (
 )
 
 GRACE_PERIOD = timedelta(days=3)
+
+logger = logging.getLogger(__name__)
+
+
+def _ai_change_conflict(subscription, target_plan_code: str, *, at):
+    """PROD-02F5.1: the shared AI rule for a change INTO Turnos IA (None if no change of source)."""
+    from apps.billing.services.ai_commercial_rules import find_ai_commercial_conflict
+
+    if subscription.plan_code == target_plan_code:
+        return None
+    return find_ai_commercial_conflict(
+        business_id=subscription.business_id, service_type=subscription.service_type,
+        plan_code=target_plan_code, starts_at=at, exclude_subscription_id=subscription.pk,
+    )
+
+
+def block_change_for_ai_conflict(pending, conflict) -> None:
+    """Hold a change that would open an incompatible AI source (existing 'blocked' state)."""
+    pending.status = 'blocked'
+    pending.requires_resolution = True
+    pending.resolution_details = {
+        'code': conflict.code,
+        'conflicting_subscription_id': (
+            str(conflict.conflicting_subscription_id) if conflict.conflicting_subscription_id else None
+        ),
+    }
+    pending.save(update_fields=['status', 'requires_resolution', 'resolution_details', 'updated_at'])
+    logger.error(
+        'appointments_change_blocked code=%s pending_change=%s subscription=%s conflicting=%s',
+        conflict.code, pending.pk, pending.subscription_v2_id, conflict.conflicting_subscription_id,
+    )
 
 
 class AppointmentsLifecycleError(ValueError):
@@ -331,6 +363,9 @@ def request_appointments_change(*, business, user, target: dict, at=None):
 
     quote = quote_appointments_change(subscription=subscription, target=target, at=at)
     target_config = quote['target']
+    conflict = _ai_change_conflict(subscription, target_config['plan_code'], at=at)
+    if conflict is not None:
+        raise conflict
     if (
         target_config == quote['current_configuration']
     ):
@@ -411,6 +446,10 @@ def apply_appointments_change(pending, *, payment_id: str | None = None, at=None
         raise AppointmentsLifecycleError('Resolve the professional excess before applying this change.')
     if pending.subscription_v2_id is None:
         raise AppointmentsLifecycleError('A SubscriptionV2 owner is required.')
+    conflict = _ai_change_conflict(subscription, pending.target_plan_code, at=at)
+    if conflict is not None:
+        block_change_for_ai_conflict(pending, conflict)
+        return False
     old_tier = subscription.usage_tier
     subscription.plan_code = pending.target_plan_code
     subscription.usage_tier = pending.target_usage_tier
@@ -465,6 +504,10 @@ def prepare_appointments_provider_change(pending) -> bool:
         pk=initial.subscription_v2_id,
     )
     pending = PendingSubscriptionChange.objects.select_for_update().get(pk=pending.pk)
+    # PROD-02F5.1: never reprice Mercado Pago towards an incompatible AI source.
+    conflict = _ai_change_conflict(subscription, pending.target_plan_code, at=timezone.now())
+    if conflict is not None:
+        raise conflict
     if subscription.provider == SubscriptionV2.Provider.MANUAL:
         return False
     if subscription.provider != SubscriptionV2.Provider.MERCADOPAGO:

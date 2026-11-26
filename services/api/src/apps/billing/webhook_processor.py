@@ -603,6 +603,8 @@ def _handle_authorized_payment(authorized_payment_id: str, delivery: WebhookDeli
                     invoice_event=invoice_event,
                     subscription=subscription,
                 )
+                if not activated:
+                    _note_ai_activation_block(delivery, subscription, invoice_event)
                 if (
                     subscription.service_type == SubscriptionV2.ServiceType.APPOINTMENTS
                     and not activated
@@ -690,6 +692,26 @@ def _handle_authorized_payment(authorized_payment_id: str, delivery: WebhookDeli
 # ─────────────────────────────────────────────────────────────────────────────
 # Internal helpers
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _note_ai_activation_block(delivery, subscription, invoice_event) -> None:
+    """PROD-02F5.1: a blocked AI activation is never silent — the delivery
+    keeps a note (lifecycle preserves handler notes on PROCESSED) next to the
+    persisted invoice event; no payment is canceled or refunded."""
+    from .subscription_activator import ai_activation_block
+
+    subscription.refresh_from_db()
+    if subscription.is_active:
+        return
+    block = ai_activation_block(subscription, invoice_event=invoice_event, lock=False)
+    if block is None:
+        return
+    delivery.error_message = (
+        f"{block.code}: activation blocked subscription={subscription.pk} "
+        f"conflicting_subscription={block.conflicting_subscription_id} "
+        f"invoice_event={invoice_event.pk} — manual review required"
+    )
+    delivery.save(update_fields=['error_message'])
+
 
 def _upsert_subscription_v2(
     *,
