@@ -45,30 +45,55 @@ def _is_reception(subscription: SubscriptionV2) -> bool:
     return subscription.service_type == 'reception' and subscription.plan_code == 'reception'
 
 
-def _reception_tier_policy(subscription: SubscriptionV2) -> dict:
-    """Validated Recepcionista policy: positive allowance, overage disabled."""
+def _reception_tier_policy(subscription: SubscriptionV2, *, at: datetime | None = None) -> dict:
+    """Validated Recepcionista policy: positive allowance, overage disabled.
+
+    Fixed tiers take the allowance from the catalog; `reception_custom`
+    (PROD-02E2B) from the subscription's custom policy effective at `at`
+    (absent/future/expired/revoked -> manual_contract_required; inconsistent
+    -> usage_policy_undefined). Never unlimited, never overage.
+    """
     from apps.billing.reception_plans import resolve_reception_subscription_config
 
     try:
         config = resolve_reception_subscription_config(subscription)
     except ValidationError as exc:
         raise AIUsageUnavailable('Invalid Recepcionista configuration.', reason='invalid_tier') from exc
-    if config.usage_tier == 'reception_custom':
-        raise ManualContractRequired('custom usage requires manual commercial resolution.')
     tier = config.usage_tier_config
-    included = tier.get('included_conversations')
-    if type(included) is not int or included <= 0:
-        # An undefined allowance is never "unlimited".
-        raise AIUsageUnavailable(
-            'The Recepcionista tier has no defined conversation allowance.', reason='usage_policy_undefined',
+    if config.usage_tier == 'reception_custom':
+        from apps.billing.services.reception_ai_policy import (
+            InvalidCustomPolicy, NoEffectiveCustomPolicy, effective_reception_custom_policy,
         )
-    if (tier.get('purchase_mode') != 'internal' or tier.get('billing_mode') != 'manual'
-            or tier.get('extra_conversation_price') is not None
-            or type(tier.get('default_extra_spend_limit')) is not int
-            or tier.get('default_extra_spend_limit') != 0):
-        raise AIUsageUnavailable(
-            'The Recepcionista overage policy is not the disabled one.', reason='usage_policy_undefined',
-        )
+
+        # The catalog row must keep overage disabled; only the allowance is individual.
+        if (tier.get('billing_mode') != 'manual' or tier.get('extra_conversation_price') is not None
+                or tier.get('default_extra_spend_limit') not in (None, 0)):
+            raise AIUsageUnavailable(
+                'The Recepcionista Custom overage policy is not the disabled one.', reason='usage_policy_undefined',
+            )
+        try:
+            policy = effective_reception_custom_policy(subscription, at=_utc(at or timezone.now()))
+        except NoEffectiveCustomPolicy as exc:
+            raise ManualContractRequired('No effective Recepcionista Custom policy.') from exc
+        except InvalidCustomPolicy as exc:
+            raise AIUsageUnavailable(
+                'The Recepcionista Custom policy is inconsistent.', reason='usage_policy_undefined',
+            ) from exc
+        included = policy.included_sessions
+    else:
+        included = tier.get('included_conversations')
+        if type(included) is not int or included <= 0:
+            # An undefined allowance is never "unlimited".
+            raise AIUsageUnavailable(
+                'The Recepcionista tier has no defined conversation allowance.', reason='usage_policy_undefined',
+            )
+        if (tier.get('purchase_mode') != 'internal' or tier.get('billing_mode') != 'manual'
+                or tier.get('extra_conversation_price') is not None
+                or type(tier.get('default_extra_spend_limit')) is not int
+                or tier.get('default_extra_spend_limit') != 0):
+            raise AIUsageUnavailable(
+                'The Recepcionista overage policy is not the disabled one.', reason='usage_policy_undefined',
+            )
     if not RECEPTION_AI_CONSUMPTION_ENABLED:
         raise AIUsageUnavailable('Recepcionista AI consumption is disabled.', reason='usage_policy_undefined')
     return {'usage_tier': config.usage_tier, 'included': included}
@@ -92,9 +117,9 @@ def _utc(at: datetime) -> datetime:
     return at.astimezone(dt_timezone.utc)
 
 
-def resolve_ai_usage_limit(subscription: SubscriptionV2) -> int:
+def resolve_ai_usage_limit(subscription: SubscriptionV2, *, at: datetime | None = None) -> int:
     if _is_reception(subscription):
-        return _reception_tier_policy(subscription)['included']
+        return _reception_tier_policy(subscription, at=at)['included']
     if subscription.service_type != 'appointments' or subscription.plan_code != 'appointments_ai':
         raise AIUsageUnavailable('An effective canonical appointments_ai subscription is required.', reason='no_ai_entitlement')
     try:
@@ -178,7 +203,9 @@ def _locked_subscription(business: Business, *, at: datetime) -> SubscriptionV2:
             raise AIUsageUnavailable('AI usage is not allowed by the current lifecycle.', reason='suspended')
         if subscription.cancel_at_period_end and subscription.current_period_end is None:
             raise AIUsageUnavailable('The cancellation boundary is unresolved.')
-        resolve_ai_usage_limit(subscription)
+        # Re-read under the lock: a concurrent policy change/revocation is seen
+        # either fully before or fully after (PROD-02E2B).
+        resolve_ai_usage_limit(subscription, at=at)
         return subscription
     resolved = resolve_subscription(business, service_type='appointments')
     if resolved.subscription_v2 is not None and resolved.subscription_v2.pk != source.subscription.pk:
@@ -296,7 +323,7 @@ def _appointments_ai_usage(business: Business, *, at: datetime) -> tuple[dict, S
     business = Business.objects.select_for_update().get(pk=business.pk)
     subscription = _locked_subscription(business, at=at)
     period_start, period_end = resolve_appointments_ai_usage_period(subscription, at=at)
-    included = resolve_ai_usage_limit(subscription)
+    included = resolve_ai_usage_limit(subscription, at=at)
     used = count_ai_sessions_for_usage_period(
         business=business, period_start=period_start, period_end=period_end,
     )
@@ -320,7 +347,7 @@ def resolve_ai_usage_policy(business: Business, *, at: datetime) -> dict:
     usage, subscription = _appointments_ai_usage(business, at=at)
     if _is_reception(subscription):
         # PROD-02E2A: overage disabled; the included allowance is the hard cap.
-        _reception_tier_policy(subscription)
+        _reception_tier_policy(subscription, at=at)
         price, cap = 0, 0
         max_overage = 0
     else:

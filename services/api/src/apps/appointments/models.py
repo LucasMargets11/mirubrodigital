@@ -557,9 +557,13 @@ class AppointmentPayment(models.Model):
     return f'{EXTERNAL_REFERENCE_PREFIX}{payment_id.hex}'
 
 
-# Tiers with a fixed metered allowance: Turnos IA self-service and the
-# Recepcionista IA internal tiers (PROD-02E2A). `custom` tiers never meter.
-AI_USAGE_METERED_TIERS = ['ai_300', 'ai_1500', 'ai_3000', 'reception_300', 'reception_1500', 'reception_3000']
+# Tiers with a metered allowance: Turnos IA self-service, the Recepcionista
+# IA internal tiers (PROD-02E2A) and Recepcionista Custom, whose allowance is
+# its per-subscription policy (PROD-02E2B). Turnos IA `custom` never meters.
+# Every reception_* charge stays included-only (appt_ai_charge_reception_included_only).
+AI_USAGE_METERED_TIERS = [
+  'ai_300', 'ai_1500', 'ai_3000', 'reception_300', 'reception_1500', 'reception_3000', 'reception_custom',
+]
 
 
 class AppointmentAIUsageSession(models.Model):
