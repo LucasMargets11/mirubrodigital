@@ -964,3 +964,122 @@ class AppointmentProposal(models.Model):
 
     def __str__(self) -> str:
         return f'AppointmentProposal {self.pk} lead={self.lead_id} ({self.status})'
+
+
+# ── PROD-02E4A: telemetría operativa de IA ────────────────────────────────────
+#
+# Una fila por intento REAL contra el proveedor de IA, informado por el agente.
+# Es consumo operativo, separado del comercial (AppointmentAIUsageSession /
+# Charge / Authorization): nunca crea sesiones, cargos ni concede acceso.
+# El tenant sale del AgentChannel de la instancia autenticada que estaba
+# activo en `executed_at` (nunca de un business_id del agente).
+# NULL en una métrica = desconocida; 0 = realmente cero.
+# Sin prompts, respuestas, mensajes, nombres, teléfonos ni payloads.
+
+AI_TELEMETRY_PROVIDERS = ('openai',)
+AI_TELEMETRY_OPERATIONS = ('response', 'chat_completion', 'embedding', 'transcription', 'moderation')
+AI_TELEMETRY_ERROR_CODES = (
+    'timeout', 'rate_limited', 'provider_unavailable', 'invalid_request', 'authentication',
+    'content_filtered', 'context_length_exceeded', 'network', 'cancelled', 'unknown',
+)
+AI_TELEMETRY_MODEL_REGEX = r'^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$'
+AI_TELEMETRY_PROVIDER_REQUEST_ID_REGEX = r'^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'
+AI_TELEMETRY_MAX_TOKENS = 10_000_000
+AI_TELEMETRY_MAX_LATENCY_MS = 3_600_000
+
+
+class AgentAIExecution(models.Model):
+
+    class Status(models.TextChoices):
+        SUCCEEDED = 'succeeded', 'Exitosa'
+        FAILED = 'failed', 'Fallida'
+        UNKNOWN = 'unknown', 'Resultado desconocido'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # Identidad externa inmutable, única por instancia emisora.
+    event_id = models.UUIDField()
+    business = models.ForeignKey('business.Business', related_name='agent_ai_executions', on_delete=models.PROTECT)
+    agent_instance = models.ForeignKey(AgentInstance, related_name='ai_executions', on_delete=models.PROTECT)
+    channel = models.ForeignKey(AgentChannel, related_name='ai_executions', on_delete=models.PROTECT)
+    interaction_id = models.UUIDField(null=True, blank=True)
+    # Vínculo opcional con la autorización comercial de esa interacción (mismo Business).
+    authorization = models.ForeignKey(
+        'appointments.AppointmentAIUsageAuthorization', related_name='ai_executions',
+        on_delete=models.PROTECT, null=True, blank=True,
+    )
+    provider = models.CharField(max_length=32, choices=[(p, p) for p in AI_TELEMETRY_PROVIDERS])
+    model = models.CharField(max_length=64)
+    operation = models.CharField(max_length=32, choices=[(o, o) for o in AI_TELEMETRY_OPERATIONS])
+    status = models.CharField(max_length=16, choices=Status.choices)
+    error_code = models.CharField(
+        max_length=32, choices=[(c, c) for c in AI_TELEMETRY_ERROR_CODES], null=True, blank=True,
+    )
+    input_tokens = models.PositiveBigIntegerField(null=True, blank=True)
+    output_tokens = models.PositiveBigIntegerField(null=True, blank=True)
+    cached_input_tokens = models.PositiveBigIntegerField(null=True, blank=True)
+    provider_request_id = models.CharField(max_length=128, null=True, blank=True)
+    latency_ms = models.PositiveIntegerField(null=True, blank=True)
+    executed_at = models.DateTimeField()
+    received_at = models.DateTimeField(auto_now_add=True)
+    # sha256 del evento normalizado: un replay con otro contenido es conflicto.
+    payload_hash = models.CharField(max_length=64)
+    request_id = models.UUIDField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['agent_instance', 'event_id'], name='agent_ai_execution_event_unique'),
+            models.CheckConstraint(check=Q(provider__in=list(AI_TELEMETRY_PROVIDERS)), name='agent_ai_execution_provider_valid'),
+            models.CheckConstraint(check=Q(operation__in=list(AI_TELEMETRY_OPERATIONS)), name='agent_ai_execution_operation_valid'),
+            models.CheckConstraint(check=Q(model__regex=AI_TELEMETRY_MODEL_REGEX), name='agent_ai_execution_model_format'),
+            models.CheckConstraint(
+                check=Q(provider_request_id__isnull=True)
+                | Q(provider_request_id__regex=AI_TELEMETRY_PROVIDER_REQUEST_ID_REGEX),
+                name='agent_ai_execution_provider_request_id_format',
+            ),
+            models.CheckConstraint(
+                check=(Q(status='succeeded') & Q(error_code__isnull=True))
+                | (Q(status='failed') & Q(error_code__in=list(AI_TELEMETRY_ERROR_CODES)))
+                | (Q(status='unknown') & (Q(error_code__isnull=True) | Q(error_code__in=list(AI_TELEMETRY_ERROR_CODES)))),
+                name='agent_ai_execution_status_error_coherent',
+            ),
+            models.CheckConstraint(
+                check=(Q(input_tokens__isnull=True) | Q(input_tokens__lte=AI_TELEMETRY_MAX_TOKENS))
+                & (Q(output_tokens__isnull=True) | Q(output_tokens__lte=AI_TELEMETRY_MAX_TOKENS))
+                & (Q(latency_ms__isnull=True) | Q(latency_ms__lte=AI_TELEMETRY_MAX_LATENCY_MS)),
+                name='agent_ai_execution_metrics_bounded',
+            ),
+            models.CheckConstraint(
+                check=Q(cached_input_tokens__isnull=True)
+                | (Q(input_tokens__isnull=False) & Q(cached_input_tokens__lte=F('input_tokens'))),
+                name='agent_ai_execution_cached_within_input',
+            ),
+            models.CheckConstraint(
+                check=Q(authorization__isnull=True) | Q(interaction_id__isnull=False),
+                name='agent_ai_execution_authorization_needs_interaction',
+            ),
+            models.CheckConstraint(check=Q(payload_hash__regex=PAYLOAD_HASH_REGEX), name='agent_ai_execution_payload_hash_format'),
+        ]
+        indexes = [
+            models.Index(fields=['business', 'executed_at'], name='agent_ai_exec_business_idx'),
+            models.Index(fields=['business', 'interaction_id'], name='agent_ai_exec_interaction_idx'),
+            models.Index(fields=['agent_instance', 'executed_at'], name='agent_ai_exec_instance_idx'),
+        ]
+
+    def save(self, *args, **kwargs):
+        # Inmutable: el historial nunca se reescribe (ni por replay).
+        if not self._state.adding:
+            raise ValueError('AgentAIExecution is append-only.')
+        if self.channel.business_id != self.business_id or self.channel.agent_instance_id != self.agent_instance_id:
+            raise ValueError('Channel, instance and business must match.')
+        if self.authorization_id is not None and (
+            self.authorization.business_id != self.business_id
+            or self.authorization.interaction_id != self.interaction_id
+        ):
+            raise ValueError('The authorization must be the same Business and interaction.')
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError('AgentAIExecution is append-only.')
+
+    def __str__(self) -> str:
+        return f'AgentAIExecution {self.event_id} business={self.business_id} ({self.status})'
