@@ -78,6 +78,23 @@ class InvalidCustomAllowanceError(ComplimentaryAccessError):
     """
 
 
+class IncompatibleAIServiceError(ComplimentaryAccessError):
+    """
+    PROD-02F5: Recepcionista and Turnos IA are mutually exclusive AI sources
+    (billing.services.ai_source). Granting one while the Business has the
+    other non-canceled is rejected in both directions.
+    """
+
+
+class AIUsagePeriodOverlapError(ComplimentaryAccessError):
+    """
+    PROD-02F5: the Business already has AI usage counted in a usage period
+    that is still running at the new grant's start. The engine counts per
+    (Business, usage_period_start, usage_period_end), so a new AI
+    subscription anchored elsewhere would restart that count from zero.
+    """
+
+
 class InvalidUsageTierError(ComplimentaryAccessError):
     """
     ``usage_tier`` is missing for a tier-priced plan (Turnos IA), is not one of
@@ -332,6 +349,7 @@ def grant_complimentary_access(
     reason: str,
     usage_tier: str | None = None,
     custom_included_sessions: int | None = None,
+    audit_operation: str = 'complimentary_grant',
 ) -> SubscriptionV2:
     """
     Grant a complimentary (bonified) access period to *business*.
@@ -427,7 +445,14 @@ def grant_complimentary_access(
         raise ComplimentaryAccessError('Debe indicar el administrador que otorga el acceso.')
 
     with transaction.atomic():
-        # ── 4. Reject if the business already has a vigent, incompatible sub ──
+        # ── 4. Lock order Business → SubscriptionV2 (PROD-02F5): the Business
+        #       row serializes every grant of this Business, so the checks
+        #       below also hold when no subscription row exists to lock yet.
+        from apps.business.models import Business
+
+        locked_business = Business.objects.select_for_update().get(pk=business.pk)
+
+        # ── 4a. Reject if the business already has a vigent, incompatible sub ──
         existing = (
             SubscriptionV2.objects
             .select_for_update()
@@ -440,6 +465,9 @@ def grant_complimentary_access(
                 f"El negocio ya tiene una suscripción vigente para '{service_type}' "
                 f"(id={existing.pk}, status={existing.status}). No se reemplaza automáticamente."
             )
+
+        # ── 4b/4c. AI sources: mutual exclusion + usage-count continuity ────
+        _check_ai_source_rules(locked_business, service_type, plan_code, starts_at)
 
         # ── 5. Create the manual, bonified SubscriptionV2 ──────────────────
         subscription = SubscriptionV2.objects.create(
@@ -472,23 +500,38 @@ def grant_complimentary_access(
             except CustomPolicyError as exc:
                 raise InvalidCustomAllowanceError(str(exc)) from exc
 
-        # ── 6. Advance Business.status to 'trialing' (canonical mapping) ───
-        _advance_business_to_trialing(business)
+        # ── 6. Advance a never-activated Business to 'trialing' (canonical
+        #       mapping). Never touches an active/trialing/past_due/suspended/
+        #       canceled Business (PROD-02F5: a benefit never downgrades).
+        _advance_business_to_trialing(locked_business)
+        business.status = locked_business.status
 
-        # ── 7. Audit log — inside the same transaction (rolls back on error) ─
-        from apps.accounts.platform_audit import log_platform_action
-        log_platform_action(
+        # ── 7. MANDATORY audit, same transaction (PROD-02F5): any failure
+        #       rolls the whole grant back. No secrets or raw payloads.
+        custom_policy_id = None
+        if custom_tier:
+            from .models import ReceptionAIUsagePolicy
+
+            custom_policy_id = (
+                ReceptionAIUsagePolicy.objects.filter(subscription=subscription)
+                .order_by('created_at').values_list('pk', flat=True).first()
+            )
+        from apps.accounts.platform_audit import record_platform_action
+        record_platform_action(
             action='ADMIN_COMPLIMENTARY_ACCESS_GRANTED',
             actor=granted_by,
             entity_type='subscription_v2',
             entity_id=str(subscription.id),
-            business=business,
+            business=locked_business,
             details={
+                'operation': audit_operation,
                 'subscription_id': str(subscription.id),
                 'business_id': business.pk,
+                'business_status': locked_business.status,
                 'plan_code': plan_code,
                 'usage_tier': usage_tier,
                 'custom_included_sessions': custom_included_sessions if custom_tier else None,
+                'custom_policy_id': str(custom_policy_id) if custom_policy_id else None,
                 'service_type': service_type,
                 'current_period_start': starts_at.isoformat(),
                 'current_period_end': ends_at.isoformat(),
@@ -506,13 +549,64 @@ def grant_complimentary_access(
     return subscription
 
 
+# Business statuses a complimentary grant may advance to 'trialing': only a
+# Business that was never activated. Everything else is left untouched.
+_ADVANCEABLE_BUSINESS_STATUSES = frozenset({'onboarding', 'pending_activation'})
+
+
 def _advance_business_to_trialing(business) -> None:
     """
     Set Business.status='trialing', mirroring the canonical mapping used by
-    subscription_activator._activate_tenant() for SubscriptionV2.TRIALING.
-    No-op if the business is already 'trialing'.
+    subscription_activator._activate_tenant() for SubscriptionV2.TRIALING —
+    ONLY for a never-activated Business (onboarding / legacy
+    pending_activation). PROD-02F5: an 'active' Business is never downgraded
+    and a past_due/suspended/canceled one is never reactivated here.
     """
-    if business.status == 'trialing':
+    if business.status not in _ADVANCEABLE_BUSINESS_STATUSES:
         return
     business.status = 'trialing'
     business.save(update_fields=['status'])
+
+
+def _check_ai_source_rules(business, service_type: str, plan_code: str, starts_at: datetime) -> None:
+    """
+    PROD-02F5, under the Business lock. Only for an AI source grant
+    (Recepcionista or Turnos IA, see billing.services.ai_source.AI_SOURCES):
+
+    * Mutual exclusion, both directions: no other AI source may be
+      non-canceled on the Business (Recepcionista ⟂ Turnos IA). Turnos
+      Base/Pro, Gestión, etc. are not AI sources and stay compatible.
+    * Usage continuity: reject when AI usage is already counted in a usage
+      period still running at ``starts_at`` (whatever subscription it belongs
+      to, canceled included) — a new subscription would re-anchor the period
+      and restart the count. The counting engine itself is untouched.
+    """
+    from apps.appointments.models import AppointmentAIUsageSession
+    from apps.billing.services.ai_source import AI_SOURCES
+
+    requested = (service_type, plan_code)
+    if requested not in AI_SOURCES.values():
+        return
+    others = [pair for pair in AI_SOURCES.values() if pair != requested]
+    other_q = None
+    from django.db.models import Q
+    for other_service, other_plan in others:
+        q = Q(service_type=other_service, plan_code=other_plan)
+        other_q = q if other_q is None else other_q | q
+    conflicting = (
+        SubscriptionV2.objects.select_for_update()
+        .filter(other_q, business=business)
+        .exclude(status=SubscriptionV2.Status.CANCELED)
+        .first()
+    )
+    if conflicting is not None:
+        raise IncompatibleAIServiceError(
+            f"El negocio ya tiene '{conflicting.service_type}/{conflicting.plan_code}' "
+            f"(id={conflicting.pk}, status={conflicting.status}); Recepcionista IA y "
+            f"Turnos IA no pueden convivir."
+        )
+    if AppointmentAIUsageSession.objects.filter(business=business, usage_period_end__gt=starts_at).exists():
+        raise AIUsagePeriodOverlapError(
+            'El negocio ya tiene consumo de IA contado en un período que sigue vigente al '
+            'inicio del beneficio. El nuevo beneficio debe empezar cuando ese período termine.'
+        )
