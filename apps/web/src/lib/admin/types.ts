@@ -220,6 +220,12 @@ export type AdminClientProvisioningInput = {
   usage_tier?: string;
   /** Sent only for a tier with `custom_allowance` (Recepcionista Custom). */
   custom_included_sessions?: number;
+  /**
+   * PROD-02F4: sent only after the admin explicitly confirms reusing the
+   * existing account identified by a 409 prompt, together with its token.
+   */
+  attach_existing_owner?: true;
+  owner_confirmation_token?: string;
 };
 
 export type AdminProvisionedBusiness = {
@@ -283,17 +289,32 @@ export type AdminClientProvisioningErrorCode =
   | 'invalid_complimentary_usage_tier'
   | 'invalid_custom_included_sessions'
   | 'existing_owner_requires_confirmation'
+  | 'existing_owner_confirmation_invalid'
+  | 'owner_account_not_eligible'
+  | 'owner_account_conflict'
   | 'complimentary_plan_not_available'
   | 'complimentary_plan_service_mismatch'
   | 'active_complimentary_subscription_conflict'
   | 'complimentary_grant_failed'
   | 'unauthorized_provisioning_actor';
 
+/**
+ * PROD-02F4: carried only by the existing-owner confirmation prompts. The
+ * token is opaque and bound server-side to the identified account and the
+ * admin; nothing else about the account is disclosed.
+ */
+export type AdminOwnerConfirmation = {
+  token: string;
+  owner_email: string;
+  expires_in_seconds: number;
+};
+
 /** Domain error envelope: {code, detail, field}. field is null for general errors. */
 export type AdminClientProvisioningError = {
   code: AdminClientProvisioningErrorCode | string;
   detail: string;
   field: string | null;
+  confirmation?: AdminOwnerConfirmation;
 };
 
 export type AdminInternalNote = {

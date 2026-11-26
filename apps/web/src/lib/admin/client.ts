@@ -241,6 +241,10 @@ export async function provisionAdminClient(
     ...(input.custom_included_sessions !== undefined
       ? { custom_included_sessions: input.custom_included_sessions }
       : {}),
+    // Only an explicit reuse confirmation carries them (PROD-02F4); both or none.
+    ...(input.attach_existing_owner && input.owner_confirmation_token
+      ? { attach_existing_owner: true, owner_confirmation_token: input.owner_confirmation_token }
+      : {}),
   };
 
   let response: Response;

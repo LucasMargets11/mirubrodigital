@@ -50,6 +50,22 @@ const INITIAL_FORM: FormState = {
 };
 
 type OptionsState = 'loading' | 'ready' | 'error';
+
+/**
+ * PROD-02F4: a pending confirmation to reuse an existing account as owner.
+ * Bound to the exact (normalized) email it was issued for; `renewed` marks a
+ * prompt re-issued because the identified account changed.
+ */
+type OwnerConfirmation = { token: string; email: string; renewed: boolean };
+
+const OWNER_CONFIRMATION_CODES = new Set([
+  'existing_owner_requires_confirmation',
+  'existing_owner_confirmation_invalid',
+]);
+
+function normalizeEmail(value: string): string {
+  return value.trim().toLowerCase();
+}
 type PeriodPreset = '6m' | '1y' | 'custom';
 
 const FIELD_ORDER: (keyof FormState)[] = [
@@ -155,6 +171,8 @@ export function NuevoClienteForm() {
   const [submitting, setSubmitting] = useState(false);
   const [preset, setPreset] = useState<PeriodPreset>('custom');
   const [accessDenied, setAccessDenied] = useState(false);
+  const [ownerConfirmation, setOwnerConfirmation] = useState<OwnerConfirmation | null>(null);
+  const confirmButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const [optionsState, setOptionsState] = useState<OptionsState>('loading');
   const [options, setOptions] = useState<AdminClientProvisioningOptions | null>(null);
@@ -222,6 +240,10 @@ export function NuevoClienteForm() {
   }
 
   function handleChange<K extends keyof FormState>(key: K, value: string) {
+    // A confirmation is valid only for the email it was issued for (PROD-02F4)
+    if (key === 'owner_email') {
+      setOwnerConfirmation(null);
+    }
     // A different tier never keeps the previous custom allowance (PROD-02F3)
     setForm((f) => (key === 'usage_tier' && value !== f.usage_tier
       ? { ...f, usage_tier: value, custom_included_sessions: '' }
@@ -254,9 +276,20 @@ export function NuevoClienteForm() {
     }
   }
 
-  async function handleSubmit(e: React.FormEvent) {
+  function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    void submitProvisioning(null);
+  }
+
+  function handleUseAnotherEmail() {
+    setOwnerConfirmation(null);
+    fieldRefs.current.owner_email?.focus();
+  }
+
+  async function submitProvisioning(confirmation: OwnerConfirmation | null) {
     if (submittingRef.current) return;
+    // Never send a confirmation issued for a different email than the current one.
+    const confirmed = confirmation && confirmation.email === normalizeEmail(form.owner_email) ? confirmation : null;
 
     const validationErrors = validate(form, selectedPlan);
     setErrors(validationErrors);
@@ -283,10 +316,12 @@ export function NuevoClienteForm() {
         grant_reason: form.grant_reason.trim(),
         ...(usageTiers.length > 0 ? { usage_tier: form.usage_tier } : {}),
         ...(customAllowance ? { custom_included_sessions: Number(form.custom_included_sessions.trim()) } : {}),
+        ...(confirmed ? { attach_existing_owner: true as const, owner_confirmation_token: confirmed.token } : {}),
       });
 
       switch (response.status) {
         case 'ok': {
+          setOwnerConfirmation(null);
           setProvisionedClient(response.data);
           return;
         }
@@ -298,6 +333,17 @@ export function NuevoClienteForm() {
           return;
         case 'domain_error': {
           const { error } = response;
+          if (OWNER_CONFIRMATION_CODES.has(error.code) && error.confirmation) {
+            setErrors((prev) => ({ ...prev, owner_email: undefined }));
+            setOwnerConfirmation({
+              token: error.confirmation.token,
+              email: normalizeEmail(error.confirmation.owner_email),
+              renewed: error.code === 'existing_owner_confirmation_invalid',
+            });
+            setTimeout(() => confirmButtonRef.current?.focus(), 0);
+            return;
+          }
+          setOwnerConfirmation(null);
           if (error.field && (FIELD_ORDER as string[]).includes(error.field)) {
             setErrors((prev) => ({ ...prev, [error.field as keyof FormState]: error.detail }));
             fieldRefs.current[error.field as keyof FormState]?.focus();
@@ -376,6 +422,9 @@ export function NuevoClienteForm() {
           </dl>
 
           <div className="mt-6 space-y-2 text-sm text-slate-700">
+            {!provisionedClient.owner.created && (
+              <p>Se asoció una cuenta existente: conserva su contraseña, su perfil y sus accesos actuales.</p>
+            )}
             <p className="font-medium text-slate-900">
               El propietario debe ingresar con esta misma cuenta de Google
             </p>
@@ -495,6 +544,50 @@ export function NuevoClienteForm() {
               <p id="owner_email-error" className={errorClass}>{errors.owner_email}</p>
             )}
           </div>
+
+          {ownerConfirmation && (
+            <div
+              role="group"
+              aria-labelledby="owner-confirmation-title"
+              aria-describedby="owner-confirmation-body"
+              className="space-y-3 rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"
+            >
+              <p id="owner-confirmation-title" className="font-semibold">
+                Ya existe una cuenta con este email
+              </p>
+              <div id="owner-confirmation-body" className="space-y-2">
+                {ownerConfirmation.renewed && (
+                  <p>
+                    La cuenta identificada cambió desde la confirmación anterior. Revisá el email y volvé a confirmar.
+                  </p>
+                )}
+                <p>
+                  Si confirmás, la cuenta <span className="break-all font-medium">{ownerConfirmation.email}</span>{' '}
+                  será la propietaria del nuevo cliente. Conserva su contraseña, su perfil y sus accesos actuales:
+                  solo se le agrega este negocio.
+                </p>
+                <p>Confirmá únicamente si sabés que esa cuenta pertenece a este cliente.</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  ref={confirmButtonRef}
+                  onClick={() => void submitProvisioning(ownerConfirmation)}
+                  disabled={submitting}
+                  className="rounded-md bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-60"
+                >
+                  Asociar cuenta existente y crear cliente
+                </button>
+                <button
+                  type="button"
+                  onClick={handleUseAnotherEmail}
+                  className="rounded-md border border-amber-300 bg-white px-4 py-2 text-sm font-medium text-amber-900 hover:bg-amber-100"
+                >
+                  Usar otro email
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ── Servicio y plan ─────────────────────────────────────────── */}
