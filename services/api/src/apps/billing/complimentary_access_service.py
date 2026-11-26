@@ -113,21 +113,64 @@ def _check_plan_service_compatibility(plan_code: str, service_type: str) -> None
         )
 
 
-# Verticals whose catalog is not for sale yet but whose first clients are
-# provisioned by a platform admin. Their Plan rows are seeded with
-# plan_status='inactive' (seed_appointments_catalog) so that no public checkout
-# offers them; public checkout stays gated by is_plan_product_active(). A
-# complimentary grant never charges, so it may use those seeded rows.
-_INTERNAL_PROVISIONING_VERTICALS = frozenset({'appointments'})
+# ── Internal provisioning eligibility (PROD-02F2) ────────────────────────────
+#
+# Internal (platform-admin, complimentary) eligibility is an EXPLICIT policy,
+# independent of public availability: public checkout stays gated by
+# canonical_pricing.is_plan_product_active() and nothing here activates a
+# product or plan. Only these inactive catalog plans may be granted, each with
+# its own tier rule; every other inactive plan or internal tier stays out.
+#
+#   appointments (Turnos, seeded inactive by seed_appointments_catalog):
+#       any plan of the vertical; tier-priced appointments_ai only with its
+#       self-service tiers that have an allowance (ai_300/1500/3000). `custom`
+#       never (no allowance, ManualContractRequired).
+#   reception (Recepcionista IA, seeded inactive by seed_reception_catalog):
+#       plan `reception` only, with exactly the fixed internal tiers below and
+#       only while the catalog keeps them internal/manual, with a positive
+#       allowance, overage disabled (no price, spend cap 0) and no public
+#       price. `reception_custom` is NOT provisionable yet (PROD-02F3).
+INTERNAL_PROVISIONING_POLICY = {
+    'appointments': {'plans': None, 'tier_rule': 'self_service'},
+    'reception': {
+        'plans': frozenset({'reception'}),
+        'tier_rule': 'internal_fixed',
+        'tiers': frozenset({'reception_300', 'reception_1500', 'reception_3000'}),
+    },
+}
+# Kept for readers of the old name: the verticals with internal eligibility.
+_INTERNAL_PROVISIONING_VERTICALS = frozenset(INTERNAL_PROVISIONING_POLICY)
+
+
+def _internal_policy(plan_code: str):
+    canonical_plan = _get_canonical_plan(plan_code)
+    if canonical_plan is None:
+        return None, None
+    policy = INTERNAL_PROVISIONING_POLICY.get(canonical_plan.get('vertical'))
+    if policy is None or (policy['plans'] is not None and plan_code not in policy['plans']):
+        return canonical_plan, None
+    return canonical_plan, policy
 
 
 def _is_provisionable_plan(plan: Plan) -> bool:
     if plan.plan_status == 'active':
         return True
-    canonical_plan = _get_canonical_plan(plan.code)
+    _, policy = _internal_policy(plan.code)
+    return policy is not None
+
+
+def _is_internal_fixed_tier(tier: dict) -> bool:
+    """Recepcionista fixed tier with exactly the internal terms of the catalog."""
+    included = tier.get('included_conversations')
     return (
-        canonical_plan is not None
-        and canonical_plan.get('vertical') in _INTERNAL_PROVISIONING_VERTICALS
+        tier.get('purchase_mode') == 'internal'
+        and tier.get('billing_mode') == 'manual'
+        and type(included) is int and included > 0
+        and tier.get('extra_conversation_price') is None
+        and type(tier.get('default_extra_spend_limit')) is int
+        and tier.get('default_extra_spend_limit') == 0
+        and tier.get('monthly_price') is None
+        and tier.get('annual_price') is None
     )
 
 
@@ -135,20 +178,28 @@ def _provisionable_usage_tiers(plan_code: str) -> list[dict]:
     """
     Usage tiers a complimentary grant may assign to *plan_code*, from the
     canonical catalog (generated/pricing.json). Empty for plans that are not
-    tier-priced. Only self-service tiers with a resolved conversation
-    allowance are offered: the ``custom`` tier has no allowance and AI usage
-    metering rejects it (ManualContractRequired), so it fails closed here.
+    tier-priced. Turnos IA: self-service tiers with a resolved conversation
+    allowance (``custom`` fails closed). Recepcionista (PROD-02F2): only the
+    allowlisted fixed tiers whose catalog terms are internal/manual, positive
+    allowance, overage disabled and no public price.
     """
     canonical_plan = _get_canonical_plan(plan_code)
     if canonical_plan is None or canonical_plan.get('pricing_mode') != 'usage_tier':
         return []
+    policy = INTERNAL_PROVISIONING_POLICY.get(canonical_plan.get('vertical'))
+    if policy is not None and policy['plans'] is not None and plan_code not in policy['plans']:
+        return []
+    rule = policy['tier_rule'] if policy is not None else 'self_service'
     tiers = []
     for code in canonical_plan.get('usage_tiers', []):
         tier = _get_canonical_usage_tier(code)
-        if (
-            tier is None
-            or tier.get('plan_code') != plan_code
-            or tier.get('purchase_mode') != 'self_service'
+        if tier is None or tier.get('plan_code') != plan_code:
+            continue
+        if rule == 'internal_fixed':
+            if code not in policy['tiers'] or not _is_internal_fixed_tier(tier):
+                continue
+        elif (
+            tier.get('purchase_mode') != 'self_service'
             or type(tier.get('included_conversations')) is not int
             or tier['included_conversations'] <= 0
         ):
