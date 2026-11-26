@@ -13,6 +13,9 @@ from .platform_auth_views import (
     AdminMFADisableView,
     AdminLogoutView,
 )
+from .platform_admin_ai_usage_views import (
+    AdminClientAIPoliciesView, AdminClientAIUsageHistoryView, AdminClientAIUsageView,
+)
 from .platform_admin_clients_views import (
     AdminClientListView,
     AdminClientDetailView,
@@ -87,6 +90,10 @@ urlpatterns = [
     path('clients/provisioning-options/', AdminClientProvisioningOptionsView.as_view(), name='platform-admin-clients-provisioning-options'),
     path('clients/<int:business_id>/', AdminClientDetailView.as_view(), name='platform-admin-client-detail'),
     path('clients/<int:business_id>/qr-reviews-config/', AdminQRReviewsConfigView.as_view(), name='platform-admin-client-qr-reviews-config'),
+    # PROD-02E3B: consumo IA comercial del cliente (solo lectura).
+    path('clients/<int:business_id>/ai-usage/', AdminClientAIUsageView.as_view(), name='platform-admin-client-ai-usage'),
+    path('clients/<int:business_id>/ai-usage/history/', AdminClientAIUsageHistoryView.as_view(), name='platform-admin-client-ai-usage-history'),
+    path('clients/<int:business_id>/ai-usage/policies/', AdminClientAIPoliciesView.as_view(), name='platform-admin-client-ai-usage-policies'),
     # ── Subscriptions (Phase 2) ──────────────────────────────────────────
     path('subscriptions/', AdminSubscriptionListView.as_view(), name='platform-admin-subscriptions'),
     path('subscriptions/kpis/', AdminSubscriptionKPIsView.as_view(), name='platform-admin-subscriptions-kpis'),
