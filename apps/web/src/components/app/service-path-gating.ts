@@ -34,6 +34,11 @@ const QR_REVIEWS_ALLOWED_PATHS = [...COMMON_ALLOWED_PATHS, '/app/resenas'];
 // `/app/clientes`: Clientes core compartido con Gestión (Turnos CUSTOMER 02).
 const APPOINTMENTS_ALLOWED_PATHS = [...COMMON_ALLOWED_PATHS, '/app/turnos', '/app/clientes'];
 
+// PROD-02G1: Recepcionista IA independiente. Nada de Turnos (agenda,
+// profesionales), Gestión, POS ni caja; Clientes es el core compartido y la
+// página aplica su propio gating por flag `customers` + `view_customers`.
+const RECEPTION_ALLOWED_PATHS = [...COMMON_ALLOWED_PATHS, '/app/recepcionista', '/app/clientes'];
+
 export function pathMatches(pathname: string, allowed: string): boolean {
     if (pathname === allowed) {
         return true;
@@ -54,6 +59,9 @@ export function isPathRestrictedForService(service: string | null | undefined, p
     }
     if (service === 'appointments') {
         return !APPOINTMENTS_ALLOWED_PATHS.some((allowed) => pathMatches(pathname, allowed));
+    }
+    if (service === 'reception') {
+        return !RECEPTION_ALLOWED_PATHS.some((allowed) => pathMatches(pathname, allowed));
     }
     return false;
 }

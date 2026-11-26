@@ -244,6 +244,34 @@ const NAV_CONFIG: Record<string, NavGroup[]> = {
             ],
         },
     ],
+    // PROD-02G1: Recepcionista IA independiente. Solo rutas implementadas:
+    // Leads (PROD-02G2), Mi agente y WhatsApp se suman cuando existan bajo
+    // /app/recepcionista. Nada de agenda, profesionales, POS, caja, ventas o stock.
+    reception: [
+        {
+            title: 'Recepcionista IA',
+            items: [
+                { href: '/app/recepcionista', label: 'Inicio' },
+                // Consumo comercial de IA (GET /api/v1/ai-usage/, PROD-02E3A).
+                { href: '/app/recepcionista/consumo', label: 'Consumo', permissionKey: 'view_ai_usage' },
+                // Clientes core compartido: flag `customers` (reception.customers) + `view_customers`.
+                { href: '/app/clientes', label: 'Clientes', permissionKey: 'view_customers', featureKey: 'customers' },
+            ],
+        },
+        {
+            title: 'Configuración',
+            items: [
+                { href: '/app/settings/access', label: 'Usuarios y accesos', permissionKey: 'manage_users' },
+                { href: '/app/planes', label: 'Plan y facturación' },
+            ],
+        },
+        {
+            title: '',
+            items: [
+                { href: '/app/soporte', label: 'Soporte' },
+            ],
+        },
+    ],
 };
 
 type ScrollableNavProps = {

@@ -4,6 +4,8 @@ const SERVICE_ENTRY_ROUTES: Record<string, string> = {
     menu_qr: '/app/carta',
     qr_reviews: '/app/resenas',
     appointments: '/app/turnos',
+    // PROD-02G1: Recepcionista IA como producto independiente (no depende de Turnos).
+    reception: '/app/recepcionista',
 };
 
 export function getServiceEntryPath(slug: string): string | undefined {
@@ -26,6 +28,7 @@ const SERVICE_DISPLAY_NAMES: Record<string, string> = {
     menu_qr_marca: 'Menú QR Marca',
     qr_reviews: 'QR de Reseñas',
     appointments: 'Turnos',
+    reception: 'Recepcionista IA',
 };
 
 /** Plan code → user-facing plan name. */
@@ -56,6 +59,8 @@ const PLAN_DISPLAY_NAMES: Record<string, string> = {
     qr_reviews_pro: 'Reseñas Pro',
     // Turnos
     appointments_base: 'Turnos Base',
+    // Recepcionista IA (plan único; el cupo lo define el nivel de uso)
+    reception: 'Recepcionista IA',
 };
 
 /**
