@@ -1083,3 +1083,73 @@ class AgentAIExecution(models.Model):
 
     def __str__(self) -> str:
         return f'AgentAIExecution {self.event_id} business={self.business_id} ({self.status})'
+
+
+# ── PROD-02E4D: tarifas internas de proveedores de IA (costo ESTIMADO) ────────
+#
+# Versionadas por (provider, model) y vigencia [valid_from, valid_until).
+# Solo las `verified` se usan para estimar; ninguna viene sembrada (no hay
+# tarifas reales inventadas): sin una verificada vigente el costo es "no
+# disponible". Nunca se editan importes de una versión: se cierra y se crea
+# otra. Una vigencia superpuesta se rechaza al guardar y, si igual existiera
+# (bulk/update), la estimación falla cerrada (`ambiguous_rate`).
+
+class AIProviderRate(models.Model):
+
+    class Status(models.TextChoices):
+        DRAFT = 'draft', 'Borrador (no se usa)'
+        VERIFIED = 'verified', 'Verificada'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    provider = models.CharField(max_length=32, choices=[(p, p) for p in AI_TELEMETRY_PROVIDERS])
+    model = models.CharField(max_length=64)
+    # USD por millón de tokens
+    input_per_million = models.DecimalField(max_digits=14, decimal_places=6)
+    cached_input_per_million = models.DecimalField(max_digits=14, decimal_places=6)
+    output_per_million = models.DecimalField(max_digits=14, decimal_places=6)
+    currency = models.CharField(max_length=3, default='USD', editable=False)
+    valid_from = models.DateTimeField()
+    valid_until = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.DRAFT)
+    # De dónde sale el valor (URL/documento/fecha de consulta); obligatorio
+    source_reference = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(check=Q(provider__in=list(AI_TELEMETRY_PROVIDERS)), name='ai_provider_rate_provider_valid'),
+            models.CheckConstraint(check=Q(model__regex=AI_TELEMETRY_MODEL_REGEX), name='ai_provider_rate_model_format'),
+            models.CheckConstraint(check=Q(currency='USD'), name='ai_provider_rate_currency_usd'),
+            models.CheckConstraint(
+                check=Q(input_per_million__gte=0) & Q(cached_input_per_million__gte=0) & Q(output_per_million__gte=0),
+                name='ai_provider_rate_non_negative',
+            ),
+            models.CheckConstraint(
+                check=Q(valid_until__isnull=True) | Q(valid_until__gt=F('valid_from')),
+                name='ai_provider_rate_valid_window',
+            ),
+            models.CheckConstraint(check=~Q(source_reference=''), name='ai_provider_rate_source_required'),
+            models.UniqueConstraint(fields=['provider', 'model', 'valid_from'], name='ai_provider_rate_version_unique'),
+        ]
+        indexes = [models.Index(fields=['provider', 'model', 'valid_from'], name='ai_provider_rate_lookup')]
+
+    def __str__(self) -> str:
+        return f'AIProviderRate {self.provider}/{self.model} from {self.valid_from:%Y-%m-%d} ({self.status})'
+
+    def _overlapping(self):
+        others = type(self).objects.filter(provider=self.provider, model=self.model).exclude(pk=self.pk)
+        if self.valid_until is not None:
+            others = others.filter(valid_from__lt=self.valid_until)
+        return others.filter(Q(valid_until__isnull=True) | Q(valid_until__gt=self.valid_from))
+
+    def save(self, *args, **kwargs):
+        from django.core.exceptions import ValidationError
+
+        if self._overlapping().exists():
+            raise ValidationError('Overlapping validity for this provider and model.')
+        if not self._state.adding:
+            persisted = type(self).objects.get(pk=self.pk)
+            amounts = ('provider', 'model', 'input_per_million', 'cached_input_per_million', 'output_per_million', 'valid_from')
+            if any(getattr(persisted, f) != getattr(self, f) for f in amounts):
+                raise ValidationError('Rate amounts are immutable; close this version and create a new one.')
+        return super().save(*args, **kwargs)
