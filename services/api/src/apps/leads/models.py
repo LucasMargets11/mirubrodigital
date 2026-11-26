@@ -1183,9 +1183,11 @@ RECEPTIONIST_ITEM_LIMITS = {
     'faqs': {'question': 300, 'answer': 1000},
 }
 # Mínimo para que el agente atienda sin inventar: identidad, rubro,
-# descripción, bienvenida, horarios y al menos un servicio.
+# descripción, bienvenida y al menos un servicio. Los horarios NO son
+# obligatorios (PROD-03B): un negocio a demanda o sin horarios definidos no
+# debe cargar datos ficticios; sin horarios el agente no los informa.
 RECEPTIONIST_REQUIRED_FOR_READY = (
-    'assistant_name', 'business_category', 'business_description', 'welcome_message', 'business_hours',
+    'assistant_name', 'business_category', 'business_description', 'welcome_message',
 )
 
 
@@ -1250,7 +1252,8 @@ class ReceptionistConfig(models.Model):
     - Credenciales y conexiones: `AgentCredential`/`AgentChannel`.
 
     `status=ready` exige la configuración mínima (constraint de DB + clean).
-    `version` sube con cada cambio de contenido; el estado no es contenido.
+    `version` sube con cada cambio de contenido o de estado (PROD-03B) y no
+    se mueve en escrituras sin cambios.
     """
 
     class Status(models.TextChoices):
@@ -1266,6 +1269,7 @@ class ReceptionistConfig(models.Model):
         ES_AR = 'es-AR', 'Español (Argentina)'
         ES = 'es', 'Español neutro'
 
+    # Campos editables por las APIs; `status` cuenta para la versión.
     CONTENT_FIELDS = (
         'assistant_name', 'business_category', 'business_description', 'custom_instructions', 'tone',
         'language', 'welcome_message', 'operational_info', 'business_hours', 'services', 'reference_info',
@@ -1306,7 +1310,7 @@ class ReceptionistConfig(models.Model):
             models.CheckConstraint(
                 check=Q(status='draft') | (
                     ~Q(assistant_name='') & ~Q(business_category='') & ~Q(business_description='')
-                    & ~Q(welcome_message='') & ~Q(business_hours='') & ~Q(services=[])
+                    & ~Q(welcome_message='') & ~Q(services=[])
                 ),
                 name='receptionist_config_ready_complete',
             ),
@@ -1339,11 +1343,11 @@ class ReceptionistConfig(models.Model):
         if not self._state.adding:
             stored = (
                 type(self).objects.filter(pk=self.pk)
-                .values('business_id', 'version', *self.CONTENT_FIELDS).first()
+                .values('business_id', 'version', 'status', *self.CONTENT_FIELDS).first()
             )
             if stored is not None:
                 if stored['business_id'] != self.business_id:
                     raise ValidationError('ReceptionistConfig.business es inmutable.')
-                changed = any(stored[f] != getattr(self, f) for f in self.CONTENT_FIELDS)
+                changed = any(stored[f] != getattr(self, f) for f in (*self.CONTENT_FIELDS, 'status'))
                 self.version = stored['version'] + (1 if changed else 0)
         return super().save(*args, **kwargs)
