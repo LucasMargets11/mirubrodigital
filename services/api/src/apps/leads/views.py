@@ -3,6 +3,7 @@
 `PUT /api/v1/integrations/agent/leads/<uuid:external_lead_id>/`
 `GET /api/v1/integrations/agent/leads/<uuid:external_lead_id>/appointment-context/`
 `GET /api/v1/integrations/agent/businesses/<id>/channels/<phone_number_id>/receptionist-config/` (PROD-03C)
+`GET /api/v1/integrations/agent/channels/<phone_number_id>/whatsapp-credential/` (PROD-04C)
 
 View fina: el flag de integración, la auth HMAC, el throttle y el formato de
 respuesta viven acá; la lógica de tenant/idempotencia en
@@ -23,12 +24,15 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from . import errors
-from .authentication import AgentHmacAuthentication, AgentPrincipal, well_formed_request_id
+from .authentication import (
+    AgentHmacAuthentication, AgentPrincipal, FailClosedAgentHmacAuthentication, well_formed_request_id,
+)
 from .serializers import LeadSyncSerializer
 from .services.appointment_context import agent_appointment_context, appointment_context
 from .services.receiver import receive_lead_sync
 from .services.receptionist_config import agent_receptionist_config
-from .throttles import AgentLeadSyncThrottle
+from .services.whatsapp_authorizations import agent_whatsapp_credential
+from .throttles import AgentLeadSyncThrottle, FailClosedAgentThrottle
 
 logger = logging.getLogger('apps.leads.receiver')
 
@@ -204,3 +208,34 @@ class AgentReceptionistConfigView(AgentIntegrationView):
         response = Response(body)
         response['Cache-Control'] = 'no-store'
         return response
+
+
+class AgentWhatsAppCredentialView(AgentIntegrationView):
+    """PROD-04C: credencial WhatsApp vigente del canal (token de Meta).
+
+    El número va en el path firmado; el Business sale del canal activo de la
+    instancia autenticada, sin que el agente lo conozca de antemano. Nonce y
+    throttle fail-closed: sin Redis no se entrega ningún token. Nunca se
+    loguea el token (solo negocio, número y vencimiento).
+    """
+
+    authentication_classes = [FailClosedAgentHmacAuthentication]
+    throttle_classes = [FailClosedAgentThrottle]
+    http_method_names = ['get']
+
+    def finalize_response(self, request, response, *args, **kwargs):
+        response = super().finalize_response(request, response, *args, **kwargs)
+        # También en errores: ningún intermediario guarda respuestas de esta ruta.
+        response['Cache-Control'] = 'no-store'
+        return response
+
+    def get(self, request, phone_number_id):
+        principal: AgentPrincipal = request.user
+        body = agent_whatsapp_credential(principal.agent_instance, phone_number_id=phone_number_id)
+        self._log_result(
+            'whatsapp_credential', 200, extra={
+                'business_id': body['business_id'], 'phone_number_id': phone_number_id,
+                'expires_at': body['expires_at'],
+            },
+        )
+        return Response(body)

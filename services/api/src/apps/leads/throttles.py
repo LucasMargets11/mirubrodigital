@@ -44,3 +44,9 @@ class AgentLeadSyncThrottle(SimpleRateThrottle):
             if self.fail_closed:
                 raise errors.unavailable()
             return True
+
+
+class FailClosedAgentThrottle(AgentLeadSyncThrottle):
+    """Mismo scope y límite por instancia; sin cache ⇒ 503."""
+
+    fail_closed = True

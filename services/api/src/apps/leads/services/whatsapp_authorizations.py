@@ -20,7 +20,9 @@ Reglas:
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import re
+from dataclasses import dataclass
 
 from django.db import transaction
 from django.utils import timezone
@@ -28,7 +30,12 @@ from django.utils import timezone
 from apps.accounts.platform_audit import record_platform_action
 from apps.business.models import Business
 
-from ..models import WABA_ID_REGEX, AgentChannel, WhatsAppAuthorization
+from .. import errors
+from ..crypto import AgentSecretEncryptionError
+from ..models import WABA_ID_REGEX, AgentChannel, AgentInstance, WhatsAppAuthorization
+from .receiver import resolve_channel_by_phone
+
+logger = logging.getLogger('apps.leads.receiver')
 
 ADMIN_ROLES = frozenset({'superadmin', 'operations'})
 TOKEN_MIN_LENGTH = 20
@@ -205,12 +212,23 @@ def revoke_whatsapp_authorization(*, authorization_id, actor) -> WhatsAppAuthori
     return authorization
 
 
-def resolve_channel_access_token(channel_id) -> str:
-    """Token vigente de un canal (uso interno; PROD-04C lo expone por HMAC).
+@dataclass(frozen=True)
+class ChannelWhatsAppCredential:
+    channel: AgentChannel
+    access_token: str
+    expires_at: dt.datetime | None
 
-    Fail-closed: canal inactivo, sin autorización, revocada, inválida,
-    vencida o de otro negocio ⇒ error; nunca un token. Un fallo de descifrado
-    propaga `AgentSecretEncryptionError` (sin fallback a texto plano).
+    def __repr__(self) -> str:  # nunca el token
+        return f'<ChannelWhatsAppCredential channel={self.channel.pk}>'
+
+
+def resolve_channel_whatsapp_credential(channel_id) -> ChannelWhatsAppCredential:
+    """Credencial vigente de un canal: canal + token + vencimiento.
+
+    Fail-closed: canal inactivo, sin autorización o sin WABA, revocada,
+    inválida, vencida o de otro negocio ⇒ error; nunca un token. Un fallo de
+    descifrado propaga `AgentSecretEncryptionError` (sin fallback a texto
+    plano). Solo lectura: una sola consulta, sin locks ni escrituras.
     """
     channel = (
         AgentChannel.objects.select_related('whatsapp_authorization')
@@ -229,4 +247,56 @@ def resolve_channel_access_token(channel_id) -> str:
         raise _fail('whatsapp_authorization_invalid', 'Autorización rechazada por Meta.')
     if _is_expired(authorization, timezone.now()):
         raise _fail('whatsapp_authorization_expired', 'Autorización vencida.')
-    return authorization.get_token()
+    if not channel.waba_id:
+        raise _fail('whatsapp_waba_missing', 'El canal no tiene WABA asociada.')
+    return ChannelWhatsAppCredential(
+        channel=channel, access_token=authorization.get_token(), expires_at=authorization.expires_at,
+    )
+
+
+def resolve_channel_access_token(channel_id) -> str:
+    """Token vigente de un canal (uso interno). Ver `resolve_channel_whatsapp_credential`."""
+    return resolve_channel_whatsapp_credential(channel_id).access_token
+
+
+# PROD-04C: contrato de entrega al agente. Sube solo ante cambios
+# incompatibles de forma; los aditivos no lo mueven.
+AGENT_WHATSAPP_CREDENTIAL_CONTRACT_VERSION = 1
+
+
+def agent_whatsapp_credential(agent_instance: AgentInstance, *, phone_number_id: str) -> dict:
+    """Payload del GET HMAC del agente. Solo lectura: no crea ni modifica nada.
+
+    El Business sale del canal activo de la instancia autenticada
+    (`resolve_channel_by_phone`). Entregar la credencial no autoriza IA ni el
+    envío de mensajes, ni prueba permisos reales ante Meta: es solo el token
+    que Mi Rubro tiene guardado para este canal.
+    """
+    channel = resolve_channel_by_phone(agent_instance, phone_number_id)
+    try:
+        credential = resolve_channel_whatsapp_credential(channel.pk)
+    except WhatsAppAuthorizationError as exc:
+        if exc.code == 'channel_not_active':
+            raise errors.channel_disabled()
+        raise errors.AgentApiError(403, exc.code, 'Credencial de WhatsApp no disponible para este canal.')
+    except AgentSecretEncryptionError:
+        # Sin el mensaje de la excepción ni valores: solo el canal.
+        logger.error('agent_whatsapp_credential_undecryptable channel_id=%s', channel.pk)
+        raise errors.unavailable()
+    resolved = credential.channel
+    # Contraste entre las dos lecturas: el canal no cambió de instancia,
+    # negocio ni número en el medio (reasignación concurrente).
+    if (
+        resolved.agent_instance_id != agent_instance.id or resolved.business_id != channel.business_id
+        or resolved.phone_number_id != channel.phone_number_id
+    ):
+        raise errors.channel_disabled()
+    return {
+        'ok': True,
+        'contract_version': AGENT_WHATSAPP_CREDENTIAL_CONTRACT_VERSION,
+        'business_id': channel.business_id,
+        'phone_number_id': resolved.phone_number_id,
+        'waba_id': resolved.waba_id,
+        'access_token': credential.access_token,
+        'expires_at': credential.expires_at.isoformat() if credential.expires_at else None,
+    }

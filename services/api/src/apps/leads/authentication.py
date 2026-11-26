@@ -169,3 +169,9 @@ class AgentHmacAuthentication(BaseAuthentication):
             raise _fail('replayed_request_id', key_id, request_id)
 
         return AgentPrincipal(credential=credential, agent_instance=instance, request_id=request_id), credential
+
+
+class FailClosedAgentHmacAuthentication(AgentHmacAuthentication):
+    """Replay protection estricta: sin cache de nonces ⇒ 503, nunca se acepta."""
+
+    nonce_fail_closed = True

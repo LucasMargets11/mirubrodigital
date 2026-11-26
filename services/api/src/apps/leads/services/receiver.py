@@ -67,13 +67,17 @@ class ReceiverResult:
         return 201 if self.result == RESULT_CREATED else 200
 
 
-def resolve_channel(agent_instance: AgentInstance, data: dict) -> AgentChannel:
-    """Tenant derivado del canal activo, nunca de headers/cookies/membership."""
+def resolve_channel_by_phone(agent_instance: AgentInstance, phone_number_id: str) -> AgentChannel:
+    """Canal activo de esta instancia para el número; su Business es el tenant.
+
+    Para llamadores que todavía no conocen el negocio (PROD-04C). Mismos
+    errores que `resolve_channel`: `channel_disabled`, `business_inactive`.
+    """
     channel = (
         AgentChannel.objects.select_related('business')
         .filter(
             provider=AgentChannel.Provider.WHATSAPP_CLOUD,
-            phone_number_id=data['phone_number_id'],
+            phone_number_id=phone_number_id,
             is_active=True,
         )
         .first()
@@ -82,6 +86,12 @@ def resolve_channel(agent_instance: AgentInstance, data: dict) -> AgentChannel:
         raise errors.channel_disabled()
     if channel.business.status not in ALLOWED_BUSINESS_STATUSES:
         raise errors.business_inactive()
+    return channel
+
+
+def resolve_channel(agent_instance: AgentInstance, data: dict) -> AgentChannel:
+    """Tenant derivado del canal activo, nunca de headers/cookies/membership."""
+    channel = resolve_channel_by_phone(agent_instance, data['phone_number_id'])
     if data['business_id'] != channel.business_id:
         raise errors.business_mismatch()
     return channel

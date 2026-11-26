@@ -5,7 +5,9 @@ Separadas de la API humana del CRM (/api/v1/leads/, `urls.py`).
 from django.urls import path, re_path
 
 from .ai_telemetry_views import AgentAIExecutionView
-from .views import AgentAppointmentContextView, AgentLeadSyncView, AgentReceptionistConfigView
+from .views import (
+    AgentAppointmentContextView, AgentLeadSyncView, AgentReceptionistConfigView, AgentWhatsAppCredentialView,
+)
 
 urlpatterns = [
     # PROD-02E4A: telemetría operativa de IA (no autoriza ejecuciones).
@@ -19,5 +21,10 @@ urlpatterns = [
     re_path(
         r'^businesses/(?P<business_id>[0-9]{1,18})/channels/(?P<phone_number_id>[0-9]{1,32})/receptionist-config/$',
         AgentReceptionistConfigView.as_view(), name='agent-receptionist-config',
+    ),
+    # PROD-04C: credencial WhatsApp del canal (HMAC, nonce fail-closed, no-store).
+    re_path(
+        r'^channels/(?P<phone_number_id>[0-9]{1,32})/whatsapp-credential/$',
+        AgentWhatsAppCredentialView.as_view(), name='agent-whatsapp-credential',
     ),
 ]
