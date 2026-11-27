@@ -69,7 +69,7 @@ describe('Sidebar Recepcionista IA', () => {
         ]) {
             expect(links.some((href) => href === foreign || href.startsWith(`${foreign}/`))).toBe(false);
         }
-        for (const label of [/Profesionales/i, /Horarios/i, /^Turnos$/i, /Caja/i, /Ventas/i, /Stock/i, /Mi agente/i, /WhatsApp/i]) {
+        for (const label of [/Profesionales/i, /Horarios/i, /^Turnos$/i, /Caja/i, /Ventas/i, /Stock/i, /WhatsApp/i]) {
             expect(screen.queryByRole('link', { name: label })).not.toBeInTheDocument();
         }
         // PROD-02G2: Leads vive dentro de Recepcionista, nunca en Turnos
@@ -98,5 +98,13 @@ describe('Sidebar Recepcionista IA', () => {
         expect(screen.getByRole('link', { name: 'Leads' })).toBeInTheDocument();
         expect(screen.queryByRole('link', { name: 'Consumo' })).not.toBeInTheDocument();
         expect(screen.queryByRole('link', { name: 'Usuarios y accesos' })).not.toBeInTheDocument();
+    });
+
+    it('PROD-08B: «Mi agente» exige manage_agent_channels', () => {
+        const { unmount } = render(<Sidebar {...baseProps} permissions={{ ...OWNER_PERMISSIONS, manage_agent_channels: true }} />);
+        expect(screen.getByRole('link', { name: 'Mi agente' })).toHaveAttribute('href', '/app/recepcionista/configuracion');
+        unmount();
+        render(<Sidebar {...baseProps} role="manager" permissions={{ view_leads: true, view_customers: true }} />);
+        expect(screen.queryByRole('link', { name: 'Mi agente' })).not.toBeInTheDocument();
     });
 });

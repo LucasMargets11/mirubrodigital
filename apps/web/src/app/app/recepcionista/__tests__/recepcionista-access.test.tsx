@@ -36,6 +36,13 @@ vi.mock('@/app/providers', () => ({ Providers: ({ children }: { children: ReactN
 vi.mock('@/components/app/app-shell', () => ({
     AppShell: ({ children }: { children: ReactNode }) => <div data-testid="app-shell">{children}</div>,
 }));
+vi.mock('@/features/reception/receptionist-config-form', () => ({
+    ReceptionistConfigForm: ({ target, businessName, canEdit }: { target: { kind: string; businessId: number }; businessName: string; canEdit: boolean }) => (
+        <div data-testid="receptionist-config-form" data-target={`${target.kind}:${target.businessId}`} data-can-edit={String(canEdit)}>
+            {businessName}
+        </div>
+    ),
+}));
 vi.mock('@/features/reception/ai-usage-summary-panel', () => ({
     AIUsageSummaryPanel: ({ variant }: { variant: string }) => <div data-testid={`ai-usage-${variant}`} />,
 }));
@@ -49,6 +56,7 @@ import AppIndexPage from '../../page';
 import RecepcionistaLayout from '../layout';
 import RecepcionistaPage from '../page';
 import RecepcionistaConsumoPage from '../consumo/page';
+import RecepcionistaConfiguracionPage from '../configuracion/page';
 
 const getSessionMock = vi.mocked(getSession);
 
@@ -193,5 +201,44 @@ describe('Recepcionista IA — Inicio y Consumo', () => {
         getSessionMock.mockResolvedValue(receptionSession());
         render(await RecepcionistaConsumoPage());
         expect(screen.getByTestId('ai-usage-full')).toBeInTheDocument();
+    });
+});
+
+describe('Recepcionista IA — Mi agente (PROD-08B)', () => {
+    it('Inicio ofrece «Mi agente» solo con manage_agent_channels', async () => {
+        getSessionMock.mockResolvedValue(receptionSession({
+            permissions: { ...RECEPTION_PERMISSIONS, manage_agent_channels: true },
+        }));
+        const { unmount } = render(await RecepcionistaPage());
+        expect(screen.getByRole('link', { name: 'Mi agente' })).toHaveAttribute('href', '/app/recepcionista/configuracion');
+        unmount();
+
+        getSessionMock.mockResolvedValue(receptionSession());
+        render(await RecepcionistaPage());
+        expect(screen.queryByRole('link', { name: 'Mi agente' })).not.toBeInTheDocument();
+    });
+
+    it('la configuración exige manage_agent_channels', async () => {
+        getSessionMock.mockResolvedValue(receptionSession({ permissions: { view_leads: true, manage_settings: true } }));
+        render(await RecepcionistaConfiguracionPage());
+        expect(screen.getByText('Tu rol no puede administrar la configuración del agente.')).toBeInTheDocument();
+        expect(screen.queryByTestId('receptionist-config-form')).not.toBeInTheDocument();
+    });
+
+    it('monta el formulario sobre el negocio activo de la sesión', async () => {
+        getSessionMock.mockResolvedValue(receptionSession({
+            permissions: { ...RECEPTION_PERMISSIONS, manage_agent_channels: true },
+        }));
+        render(await RecepcionistaConfiguracionPage());
+        expect(screen.getByRole('heading', { name: 'Mi agente' })).toBeInTheDocument();
+        const form = screen.getByTestId('receptionist-config-form');
+        expect(form).toHaveAttribute('data-target', 'business:7');
+        expect(form).toHaveAttribute('data-can-edit', 'true');
+        expect(form).toHaveTextContent('Clínica Sol');
+    });
+
+    it('sin sesión vuelve al login', async () => {
+        getSessionMock.mockResolvedValue(null as never);
+        expect(await redirectOf(() => RecepcionistaConfiguracionPage())).toBe('/entrar');
     });
 });
