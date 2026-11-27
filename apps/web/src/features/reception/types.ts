@@ -173,3 +173,50 @@ export const RECEPTIONIST_LIST_LIMITS = {
     services: { maxItems: 30, name: 120, description: 500 },
     faqs: { maxItems: 30, question: 300, answer: 1000 },
 } as const;
+
+/**
+ * PROD-08E2 — `GET /api/v1/platform-admin/clients/{id}/whatsapp-connections/`
+ * (PROD-08E1). Estado LOCAL de Mi Rubro: nunca conectividad real con Meta.
+ * `local_status` es la fuente de verdad; un valor no listado es desconocido.
+ */
+export type WhatsAppLocalStatus =
+    | 'credential_ready'
+    | 'channel_not_active'
+    | 'whatsapp_authorization_missing'
+    | 'whatsapp_authorization_owner_mismatch'
+    | 'whatsapp_authorization_revoked'
+    | 'whatsapp_authorization_invalid'
+    | 'whatsapp_authorization_expired'
+    | 'whatsapp_waba_missing'
+    | 'agent_instance_disabled';
+
+export type AdminWhatsAppChannel = {
+    id: string;
+    provider: string;
+    phone_number_id: string;
+    waba_id: string | null;
+    is_active: boolean;
+    created_at: string | null;
+    deactivated_at: string | null;
+    agent_instance: { external_id: string; name: string; is_enabled: boolean; disabled_at: string | null };
+    authorization: {
+        id: string;
+        kind: 'business' | 'platform' | string;
+        owned_by_this_business: boolean | null;
+        status: string;
+        expired: boolean;
+        expires_at: string | null;
+        revoked_at: string | null;
+        created_at: string | null;
+        updated_at: string | null;
+    } | null;
+    local_status: WhatsAppLocalStatus | string;
+};
+
+export type AdminWhatsAppConnections = {
+    contract_version: number;
+    business_id: number;
+    evaluated_at: string;
+    channels: AdminWhatsAppChannel[];
+    external_verification: { performed: boolean; meta_connectivity: string; detail: string };
+};

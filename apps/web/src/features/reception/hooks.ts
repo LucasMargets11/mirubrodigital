@@ -1,6 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 
-import { getAIUsageSummary, getAdminAIUsage, getAdminOperationalMetrics, type MetricsRange } from './api';
+import {
+    getAIUsageSummary, getAdminAIUsage, getAdminOperationalMetrics, getAdminWhatsAppConnections, type MetricsRange,
+} from './api';
 
 export const aiUsageSummaryKey = ['reception', 'ai-usage-summary'];
 
@@ -32,6 +34,15 @@ export function useAdminOperationalMetrics(businessId: number, range: MetricsRan
         queryKey: ['platform-admin', 'operational-metrics', businessId, range.date_from ?? null, range.date_to ?? null],
         queryFn: () => getAdminOperationalMetrics(businessId, range),
         enabled,
+        ...ADMIN_READ,
+    });
+}
+
+/** PROD-08E2 — Sin polling: se actualiza solo a pedido (`refetch`). */
+export function useAdminWhatsAppConnections(businessId: number) {
+    return useQuery({
+        queryKey: ['platform-admin', 'whatsapp-connections', businessId],
+        queryFn: () => getAdminWhatsAppConnections(businessId),
         ...ADMIN_READ,
     });
 }

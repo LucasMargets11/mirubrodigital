@@ -18,6 +18,8 @@ vi.mock('next/link', () => ({
     ),
 }));
 vi.mock('@/components/admin/qr-reviews-card', () => ({ QRResenasCard: () => null }));
+// PROD-08E2: conexiones WhatsApp tienen su propio suite.
+vi.mock('@/components/admin/admin-whatsapp-connections-section', () => ({ AdminWhatsAppConnectionsSection: () => null }));
 
 import { ClienteDetailContent } from '@/app/admin/clientes/[clienteId]/cliente-detail-content';
 import type { AdminAIUsageOverview, AIUsageSummary, OperationalMetrics } from '@/features/reception/types';

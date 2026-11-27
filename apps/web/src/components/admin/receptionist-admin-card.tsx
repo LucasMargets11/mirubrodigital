@@ -5,6 +5,7 @@ import { useMemo } from 'react';
 import { Providers } from '@/app/providers';
 import { AdminAIUsageSection } from '@/components/admin/admin-ai-usage-section';
 import { AdminOperationalMetricsSection } from '@/components/admin/admin-operational-metrics-section';
+import { AdminWhatsAppConnectionsSection } from '@/components/admin/admin-whatsapp-connections-section';
 import { SectionCard } from '@/components/admin/section-card';
 import {
     ReceptionistConfigForm,
@@ -19,9 +20,10 @@ type Props = {
 };
 
 /**
- * PROD-08C/08D — Recepcionista IA en el detalle del cliente (Platform Admin):
- * configuración del agente, consumo comercial y métricas operativas, bajo un
- * único `Providers` (`/admin` no tiene QueryClient propio).
+ * PROD-08C/08D/08E2 — Recepcionista IA en el detalle del cliente (Platform
+ * Admin): configuración del agente, conexiones WhatsApp, consumo comercial y
+ * métricas operativas, bajo un único `Providers` (`/admin` no tiene
+ * QueryClient propio).
  *
  * El Business sale solo del id de la ruta, nunca de `bid`. El bloque entero se
  * oculta solo ante el 404 de dominio `client_not_found` del endpoint de
@@ -52,6 +54,7 @@ function ReceptionistAdminSections({ businessId, businessName }: Props) {
             >
                 <ReceptionistConfigForm target={target} businessName={`${businessName} (ID ${businessId})`} canEdit />
             </SectionCard>
+            <AdminWhatsAppConnectionsSection businessId={businessId} />
             <AdminAIUsageSection businessId={businessId} />
             <AdminOperationalMetricsSection businessId={businessId} />
         </>

@@ -1,6 +1,6 @@
 import { apiGet } from '@/lib/api/client';
 
-import type { AIUsageSummary, AdminAIUsageOverview, OperationalMetrics } from './types';
+import type { AIUsageSummary, AdminAIUsageOverview, AdminWhatsAppConnections, OperationalMetrics } from './types';
 
 /** Consumo comercial de IA del negocio activo (403 `ai_service_not_contracted` sin fuente IA). */
 export function getAIUsageSummary() {
@@ -22,4 +22,9 @@ export function getAdminOperationalMetrics(businessId: number, range: MetricsRan
     return apiGet<OperationalMetrics>(
         `/api/v1/platform-admin/clients/${businessId}/operational-metrics/${qs ? `?${qs}` : ''}`,
     );
+}
+
+/** PROD-08E2 — Estado local de canales y autorizaciones WhatsApp (solo lectura). */
+export function getAdminWhatsAppConnections(businessId: number) {
+    return apiGet<AdminWhatsAppConnections>(`/api/v1/platform-admin/clients/${businessId}/whatsapp-connections/`);
 }
