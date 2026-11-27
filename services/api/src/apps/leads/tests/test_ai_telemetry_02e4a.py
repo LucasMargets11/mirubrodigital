@@ -24,7 +24,9 @@ from apps.billing.tests.test_reception_ai_consumption_02e2a import _Base
 from apps.billing.tests.test_reception_service_02b import _business
 from apps.leads.models import AgentAIExecution, AgentChannel, AgentCredential, Lead
 from apps.leads.tests.agent_client import encode, sign_headers
-from apps.leads.tests.factories import SECRET, TEST_KEY, make_channel, make_credential, make_instance, make_state
+from apps.leads.tests.factories import (
+    SECRET, TEST_KEY, enable_reception_attention, make_channel, make_credential, make_instance, make_state,
+)
 
 PATH = '/api/v1/integrations/agent/ai-executions/'
 SETTINGS = dict(
@@ -121,6 +123,7 @@ class RecordingTests(_TelemetryBase, TestCase):
 
     def test_several_attempts_of_one_interaction_with_commercial_link(self):
         self.reception(self.biz)
+        enable_reception_attention(self.biz)  # PROD-09C1
         conversation = 'wac1_' + uuid.uuid4().hex
         lead = Lead.objects.create(business=self.biz, source='whatsapp_agent')
         make_state(lead, self.channel, external_conversation_id=conversation)

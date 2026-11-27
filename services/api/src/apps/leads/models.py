@@ -1284,8 +1284,13 @@ class ReceptionistConfig(models.Model):
     - Credenciales y conexiones: `AgentCredential`/`AgentChannel`.
 
     `status=ready` exige la configuración mínima (constraint de DB + clean).
-    `version` sube con cada cambio de contenido o de estado (PROD-03B) y no
-    se mueve en escrituras sin cambios.
+    `version` sube con cada cambio de contenido, de estado o de habilitación
+    (PROD-03B/09C1) y no se mueve en escrituras sin cambios.
+
+    `automatic_attention_enabled` (PROD-09C1): control operativo por comercio,
+    independiente del contenido y de `status`. Solo puede estar en `True` con
+    la configuración lista; nunca se enciende solo (ni al completar, ni al
+    contratar, ni al vincular WhatsApp). Lo escribe solo Platform Admin.
     """
 
     class Status(models.TextChoices):
@@ -1307,6 +1312,8 @@ class ReceptionistConfig(models.Model):
         'language', 'welcome_message', 'operational_info', 'business_hours', 'services', 'reference_info',
         'faqs', 'handoff_rules',
     )
+    # Campos cuyo cambio sube `version` (PROD-03B; habilitación desde PROD-09C1).
+    VERSIONED_FIELDS = (*CONTENT_FIELDS, 'status', 'automatic_attention_enabled')
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     business = models.OneToOneField(
@@ -1326,6 +1333,7 @@ class ReceptionistConfig(models.Model):
     faqs = models.JSONField(default=list, blank=True, validators=[validate_receptionist_faqs])
     handoff_rules = models.CharField(max_length=2000, blank=True, validators=[validate_receptionist_text])
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.DRAFT)
+    automatic_attention_enabled = models.BooleanField(default=False)
     version = models.PositiveIntegerField(default=1, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -1345,6 +1353,11 @@ class ReceptionistConfig(models.Model):
                     & ~Q(welcome_message='') & ~Q(services=[])
                 ),
                 name='receptionist_config_ready_complete',
+            ),
+            # PROD-09C1: habilitada ⇒ lista (y por la constraint anterior, completa).
+            models.CheckConstraint(
+                check=Q(automatic_attention_enabled=False) | Q(status='ready'),
+                name='receptionist_config_attention_requires_ready',
             ),
         ]
 
@@ -1366,6 +1379,10 @@ class ReceptionistConfig(models.Model):
             missing = self.missing_for_ready()
             if missing:
                 raise ValidationError({'status': f'Configuración incompleta: falta {", ".join(missing)}.'})
+        if self.automatic_attention_enabled and not self.is_ready:
+            raise ValidationError({
+                'automatic_attention_enabled': 'Solo se puede habilitar con la configuración lista.',
+            })
 
     def save(self, *args, **kwargs):
         # Misma validación para todo camino que pase por save() (patrón de
@@ -1375,12 +1392,12 @@ class ReceptionistConfig(models.Model):
         if not self._state.adding:
             stored = (
                 type(self).objects.filter(pk=self.pk)
-                .values('business_id', 'version', 'status', *self.CONTENT_FIELDS).first()
+                .values('business_id', 'version', *self.VERSIONED_FIELDS).first()
             )
             if stored is not None:
                 if stored['business_id'] != self.business_id:
                     raise ValidationError('ReceptionistConfig.business es inmutable.')
-                changed = any(stored[f] != getattr(self, f) for f in (*self.CONTENT_FIELDS, 'status'))
+                changed = any(stored[f] != getattr(self, f) for f in self.VERSIONED_FIELDS)
                 self.version = stored['version'] + (1 if changed else 0)
         return super().save(*args, **kwargs)
 

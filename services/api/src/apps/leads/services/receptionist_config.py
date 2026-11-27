@@ -26,6 +26,9 @@ from ..models import AgentChannel, AgentInstance, ReceptionistConfig
 from .receiver import resolve_channel
 
 WRITABLE_FIELDS = frozenset((*ReceptionistConfig.CONTENT_FIELDS, 'status'))
+# PROD-09C1: solo Platform Admin, solo en edición (crear nunca habilita).
+ATTENTION_FIELD = 'automatic_attention_enabled'
+ADMIN_ONLY_FIELDS = frozenset((ATTENTION_FIELD,))
 # Del modelo pero nunca escribibles: identidad, relación y metadatos.
 PROTECTED_FIELDS = frozenset(('id', 'business', 'business_id', 'version', 'created_at', 'updated_at'))
 EXPECTED_VERSION = 'expected_version'
@@ -106,7 +109,7 @@ def _config_block(config: ReceptionistConfig | None) -> dict:
     if config is None:
         return {
             'status': CONFIG_MISSING, 'version': None, 'updated_at': None, 'missing_for_ready': None,
-            'content': None,
+            'content': None, ATTENTION_FIELD: False,
         }
     ready = config.is_ready
     return {
@@ -115,6 +118,8 @@ def _config_block(config: ReceptionistConfig | None) -> dict:
         'updated_at': config.updated_at.isoformat(),
         'missing_for_ready': config.missing_for_ready(),
         'content': {field: getattr(config, field) for field in ReceptionistConfig.CONTENT_FIELDS} if ready else None,
+        # PROD-09C1 (aditivo): habilitación operativa, independiente de `status`.
+        ATTENTION_FIELD: bool(config.automatic_attention_enabled),
     }
 
 
@@ -145,6 +150,7 @@ def serialize_receptionist_config(config: ReceptionistConfig | None) -> dict:
             'id': str(config.id),
             **{field: getattr(config, field) for field in ReceptionistConfig.CONTENT_FIELDS},
             'status': config.status,
+            ATTENTION_FIELD: config.automatic_attention_enabled,
             'version': config.version,
             'missing_for_ready': config.missing_for_ready(),
             'created_at': config.created_at.isoformat(),
@@ -153,14 +159,16 @@ def serialize_receptionist_config(config: ReceptionistConfig | None) -> dict:
     }
 
 
-def _parse(data, *, require_version: bool) -> tuple[dict, int | None]:
+def _parse(data, *, require_version: bool, admin_fields: bool = False) -> tuple[dict, int | None]:
     if not isinstance(data, dict):
         raise ReceptionistConfigError(400, 'invalid_request', 'Se esperaba un objeto JSON.')
     keys = set(data)
-    protected = sorted(keys & PROTECTED_FIELDS)
+    protected = sorted(keys & (PROTECTED_FIELDS | (frozenset() if admin_fields else ADMIN_ONLY_FIELDS)))
     if protected:
         raise ReceptionistConfigError(400, 'protected_fields', 'Campos no editables.', fields=protected)
-    allowed = WRITABLE_FIELDS | ({EXPECTED_VERSION} if require_version else set())
+    allowed = WRITABLE_FIELDS | ({EXPECTED_VERSION} if require_version else set()) | (
+        ADMIN_ONLY_FIELDS if admin_fields else frozenset()
+    )
     unknown = sorted(keys - allowed)
     if unknown:
         raise ReceptionistConfigError(
@@ -173,15 +181,21 @@ def _parse(data, *, require_version: bool) -> tuple[dict, int | None]:
             raise ReceptionistConfigError(
                 400, 'expected_version_required', 'Enviá expected_version (entero) con la versión leída.',
             )
-    changes = {key: value for key, value in data.items() if key in WRITABLE_FIELDS}
-    # Tipos JSON estrictos: el modelo convertiría 123 en "123".
-    wrong = sorted(
-        key for key, value in changes.items()
-        if not isinstance(value, list if key in _LIST_FIELDS else str)
-    )
+    changes = {key: value for key, value in data.items() if key in allowed and key != EXPECTED_VERSION}
+
+    # Tipos JSON estrictos: el modelo convertiría 123 en "123" (o 1 en True).
+    def wrong_type(key, value) -> bool:
+        if key in ADMIN_ONLY_FIELDS:
+            return type(value) is not bool
+        return not isinstance(value, list if key in _LIST_FIELDS else str)
+
+    wrong = sorted(key for key, value in changes.items() if wrong_type(key, value))
     if wrong:
         raise ReceptionistConfigError(400, 'validation_error', 'Tipo de dato inválido.', fields={
-            key: ['Debe ser una lista.' if key in _LIST_FIELDS else 'Debe ser texto.'] for key in wrong
+            key: [
+                'Debe ser true o false.' if key in ADMIN_ONLY_FIELDS
+                else 'Debe ser una lista.' if key in _LIST_FIELDS else 'Debe ser texto.'
+            ] for key in wrong
         })
     return changes, expected
 
@@ -199,7 +213,10 @@ def _audit(action: str, *, config: ReceptionistConfig, actor, source: str, **det
     record_platform_action(
         action=action, actor=actor, business=config.business,
         entity_type='receptionist_config', entity_id=str(config.id),
-        details={'source': source, 'version': config.version, 'status': config.status, **details},
+        details={
+            'source': source, 'version': config.version, 'status': config.status,
+            ATTENTION_FIELD: config.automatic_attention_enabled, **details,
+        },
     )
 
 
@@ -228,8 +245,13 @@ def create_receptionist_config(business: Business, data, *, actor, source: str) 
 
 
 def update_receptionist_config(business: Business, data, *, actor, source: str) -> ReceptionistConfig:
-    """Edición parcial con `expected_version`; 409 si la versión es obsoleta."""
-    changes, expected = _parse(data, require_version=True)
+    """Edición parcial con `expected_version`; 409 si la versión es obsoleta.
+
+    PROD-09C1: `automatic_attention_enabled` solo desde Platform Admin. Volver
+    a borrador con la atención habilitada la pausa en la misma escritura;
+    volver a «lista» nunca la reactiva.
+    """
+    changes, expected = _parse(data, require_version=True, admin_fields=source == SOURCE_PLATFORM_ADMIN)
     with transaction.atomic():
         config = ReceptionistConfig.objects.select_for_update().filter(business_id=business.pk).first()
         if config is None:
@@ -244,9 +266,22 @@ def update_receptionist_config(business: Business, data, *, actor, source: str) 
         previous_version = config.version
         for field in changed:
             setattr(config, field, changes[field])
+        attention = None
+        if ATTENTION_FIELD in changed:
+            attention = 'enabled' if config.automatic_attention_enabled else 'paused'
+        elif (
+            ATTENTION_FIELD not in changes and config.automatic_attention_enabled
+            and config.status != ReceptionistConfig.Status.READY
+        ):
+            # Borrador con la atención encendida: se pausa en la misma escritura.
+            # Si el PATCH pide `true` explícito junto con borrador, lo rechaza clean().
+            config.automatic_attention_enabled = False
+            changed = sorted((*changed, ATTENTION_FIELD))
+            attention = 'paused_by_draft'
         _save(config)
+        extra = {'automatic_attention': attention} if attention else {}
         _audit(
             'RECEPTIONIST_CONFIG_UPDATED', config=config, actor=actor, source=source,
-            changed_fields=changed, previous_version=previous_version,
+            changed_fields=changed, previous_version=previous_version, **extra,
         )
     return config

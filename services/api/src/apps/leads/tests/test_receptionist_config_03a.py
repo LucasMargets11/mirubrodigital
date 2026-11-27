@@ -310,6 +310,8 @@ class NoSecretsNoCapabilitiesTests(TestCase):
             'token', 'secret', 'key', 'password', 'credential', 'phone_number', 'channel', 'agent',
             'agenda', 'permission', 'entitlement', 'usage', 'quota', 'plan', 'subscription', 'enabled',
         )
+        # PROD-09C1: única excepción, el control operativo (no es capacidad ni credencial).
+        names.discard('automatic_attention_enabled')
         self.assertEqual([n for n in names if any(word in n for word in forbidden)], [])
         related = [f for f in ReceptionistConfig._meta.get_fields() if f.is_relation]
         self.assertEqual([f.related_model for f in related], [Business])

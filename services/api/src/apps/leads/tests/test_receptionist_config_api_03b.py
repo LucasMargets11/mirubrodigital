@@ -337,7 +337,7 @@ class AuditTests(_Base):
         self.assertEqual(updated.action, 'RECEPTIONIST_CONFIG_UPDATED')
         self.assertEqual(updated.details, {
             'source': 'platform_admin', 'version': 2, 'status': 'ready', 'changed_fields': ['faqs', 'status'],
-            'previous_version': 1,
+            'previous_version': 1, 'automatic_attention_enabled': False,
         })
         dump = str([log.details for log in self.logs()])
         for private in (secret_text, 'RESPUESTA-PRIVADA', 'Sofía', '¿Abren?'):

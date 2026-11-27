@@ -46,6 +46,21 @@ def make_credential(instance: AgentInstance, key_id: str = 'k1', secret: str = S
     return credential
 
 
+def enable_reception_attention(business: Business):
+    """PROD-09C1: configuración lista con atención automática habilitada.
+
+    La autorización IA de Recepcionista la exige; los suites de consumo la
+    crean para seguir probando lo mismo que antes. Idempotente por Business.
+    """
+    from apps.leads.models import ReceptionistConfig
+    from apps.leads.tests.test_receptionist_config_03a import complete
+
+    config, _ = ReceptionistConfig.objects.get_or_create(
+        business=business, defaults={**complete(), 'status': 'ready', 'automatic_attention_enabled': True},
+    )
+    return config
+
+
 def make_channel(instance: AgentInstance, business: Business, phone_number_id: str = '1234567890', **kwargs) -> AgentChannel:
     return AgentChannel.objects.create(
         agent_instance=instance, business=business, phone_number_id=phone_number_id, **kwargs,

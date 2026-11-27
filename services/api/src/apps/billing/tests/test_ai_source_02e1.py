@@ -28,7 +28,9 @@ from apps.billing.services.appointments_checkout import ManualContractRequired
 from apps.billing.tests.test_reception_service_02b import _business, _superadmin
 from apps.leads.models import Lead
 from apps.leads.tests.agent_client import encode, sign_headers
-from apps.leads.tests.factories import SECRET, TEST_KEY, make_channel, make_credential, make_instance, make_state
+from apps.leads.tests.factories import (
+    SECRET, TEST_KEY, enable_reception_attention, make_channel, make_credential, make_instance, make_state,
+)
 
 PATH = '/api/internal/appointments/ai-usage/authorize/'
 
@@ -273,6 +275,7 @@ class AgentAuthorizationIntegrationTests(_Fixtures, TestCase):
         channel = make_channel(instance, biz, phone_number_id=str(uuid.uuid4().int)[:20])
         lead = Lead.objects.create(business=biz, source='whatsapp_agent')
         make_state(lead, channel, external_conversation_id=conversation)
+        enable_reception_attention(biz)  # PROD-09C1
         return conversation, make_credential(instance, key_id=uuid.uuid4().hex)
 
     def authorize(self, biz):

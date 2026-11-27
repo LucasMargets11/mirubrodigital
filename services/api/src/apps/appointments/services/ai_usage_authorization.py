@@ -9,12 +9,12 @@ from django.utils import timezone
 
 from apps.appointments.models import AppointmentAIUsageAuthorization
 from apps.appointments.services.ai_usage import (
-    AIUsageHardCapReached, AIUsageUnavailable, get_ai_usage_and_source, get_appointments_ai_usage,
+    AIUsageHardCapReached, AIUsageUnavailable, _is_reception, get_ai_usage_and_source, get_appointments_ai_usage,
     get_or_create_ai_usage_session,
 )
 from apps.billing.services.appointments_checkout import ManualContractRequired
 from apps.business.models import Business
-from apps.leads.models import AgentChannel, LeadAgentState
+from apps.leads.models import AgentChannel, LeadAgentState, ReceptionistConfig
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +43,14 @@ def authorize_ai_interaction(*, agent_instance, conversation_id, interaction_id,
     try:
         # Re-check CURRENT lifecycle/tier, never let a historical timestamp bypass suspension.
         _, current_source = get_ai_usage_and_source(business, at=now)
+        # PROD-09C1: Recepcionista con la atención automática pausada no admite
+        # interacciones nuevas ni replays: antes de leer recibos o abrir sesión.
+        # FOR UPDATE espera una pausa en curso (lock: Business → config).
+        if _is_reception(current_source) and not (
+            ReceptionistConfig.objects.select_for_update().filter(business=business)
+            .values_list('automatic_attention_enabled', flat=True).first()
+        ):
+            raise AIUsageUnavailable('Automatic attention is paused.', reason='automatic_attention_disabled')
         receipt = AppointmentAIUsageAuthorization.objects.filter(
             business=business, interaction_id=interaction_id,
         ).select_related('session').first()

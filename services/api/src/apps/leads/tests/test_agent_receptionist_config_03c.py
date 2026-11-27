@@ -18,7 +18,7 @@ from .test_receptionist_config_03a import complete
 
 TOP_KEYS = {'ok', 'contract_version', 'business', 'channel', 'config'}
 BUSINESS_KEYS = {'id', 'name', 'timezone', 'address', 'website', 'whatsapp_phone'}
-CONFIG_KEYS = {'status', 'version', 'updated_at', 'missing_for_ready', 'content'}
+CONFIG_KEYS = {'status', 'version', 'updated_at', 'missing_for_ready', 'content', 'automatic_attention_enabled'}
 
 
 def config_path(business_id, phone_number_id) -> str:
@@ -81,6 +81,7 @@ class ContractTests(_Base):
         body = self.ok(self.get())
         self.assertEqual(body['config'], {
             'status': 'missing', 'version': None, 'updated_at': None, 'missing_for_ready': None, 'content': None,
+            'automatic_attention_enabled': False,
         })
 
     def test_draft_never_delivers_content(self):
