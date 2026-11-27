@@ -74,6 +74,7 @@ from apps.blog.admin_views import (
     AdminBlogCategoryUpdateView,
 )
 from apps.leads.receptionist_config_views import AdminClientReceptionistConfigView
+from apps.leads.whatsapp_connection_views import AdminClientWhatsAppConnectionsView
 
 urlpatterns = [
     # ── Auth (Phase 1.1 hardening) ───────────────────────────────────────
@@ -104,6 +105,10 @@ urlpatterns = [
         name='platform-admin-client-receptionist-config',
     ),
     path('clients/<int:business_id>/operational-metrics/', AdminClientOperationalMetricsView.as_view(), name='platform-admin-client-operational-metrics'),
+    path(
+        'clients/<int:business_id>/whatsapp-connections/', AdminClientWhatsAppConnectionsView.as_view(),
+        name='platform-admin-client-whatsapp-connections',
+    ),
     # ── Subscriptions (Phase 2) ──────────────────────────────────────────
     path('subscriptions/', AdminSubscriptionListView.as_view(), name='platform-admin-subscriptions'),
     path('subscriptions/kpis/', AdminSubscriptionKPIsView.as_view(), name='platform-admin-subscriptions-kpis'),

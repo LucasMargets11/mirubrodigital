@@ -222,6 +222,42 @@ class ChannelWhatsAppCredential:
         return f'<ChannelWhatsAppCredential channel={self.channel.pk}>'
 
 
+_CREDENTIAL_PROBLEMS = {
+    'channel_not_active': 'Canal inexistente o inactivo.',
+    'whatsapp_authorization_missing': 'El canal no tiene autorización de WhatsApp.',
+    'whatsapp_authorization_owner_mismatch': 'La autorización pertenece a otro negocio.',
+    'whatsapp_authorization_revoked': 'Autorización revocada.',
+    'whatsapp_authorization_invalid': 'Autorización rechazada por Meta.',
+    'whatsapp_authorization_expired': 'Autorización vencida.',
+    'whatsapp_waba_missing': 'El canal no tiene WABA asociada.',
+}
+
+
+def channel_credential_problem(channel: AgentChannel | None, now: dt.datetime) -> str | None:
+    """Primera regla local que impide entregar la credencial de un canal, o `None`.
+
+    Pura: usa solo metadatos ya cargados (`channel.whatsapp_authorization`),
+    nunca descifra ni consulta a Meta. Es la regla única de
+    `resolve_channel_whatsapp_credential` y del estado de Platform Admin.
+    """
+    if channel is None or not channel.is_active:
+        return 'channel_not_active'
+    authorization = channel.whatsapp_authorization
+    if authorization is None:
+        return 'whatsapp_authorization_missing'
+    if not authorization.is_platform and authorization.owner_business_id != channel.business_id:
+        return 'whatsapp_authorization_owner_mismatch'
+    if authorization.status == WhatsAppAuthorization.Status.REVOKED:
+        return 'whatsapp_authorization_revoked'
+    if authorization.status == WhatsAppAuthorization.Status.INVALID:
+        return 'whatsapp_authorization_invalid'
+    if _is_expired(authorization, now):
+        return 'whatsapp_authorization_expired'
+    if not channel.waba_id:
+        return 'whatsapp_waba_missing'
+    return None
+
+
 def resolve_channel_whatsapp_credential(channel_id) -> ChannelWhatsAppCredential:
     """Credencial vigente de un canal: canal + token + vencimiento.
 
@@ -234,21 +270,10 @@ def resolve_channel_whatsapp_credential(channel_id) -> ChannelWhatsAppCredential
         AgentChannel.objects.select_related('whatsapp_authorization')
         .filter(pk=channel_id).first()
     )
-    if channel is None or not channel.is_active:
-        raise _fail('channel_not_active', 'Canal inexistente o inactivo.')
+    problem = channel_credential_problem(channel, timezone.now())
+    if problem is not None:
+        raise _fail(problem, _CREDENTIAL_PROBLEMS[problem])
     authorization = channel.whatsapp_authorization
-    if authorization is None:
-        raise _fail('whatsapp_authorization_missing', 'El canal no tiene autorización de WhatsApp.')
-    if not authorization.is_platform and authorization.owner_business_id != channel.business_id:
-        raise _fail('whatsapp_authorization_owner_mismatch', 'La autorización pertenece a otro negocio.')
-    if authorization.status == WhatsAppAuthorization.Status.REVOKED:
-        raise _fail('whatsapp_authorization_revoked', 'Autorización revocada.')
-    if authorization.status == WhatsAppAuthorization.Status.INVALID:
-        raise _fail('whatsapp_authorization_invalid', 'Autorización rechazada por Meta.')
-    if _is_expired(authorization, timezone.now()):
-        raise _fail('whatsapp_authorization_expired', 'Autorización vencida.')
-    if not channel.waba_id:
-        raise _fail('whatsapp_waba_missing', 'El canal no tiene WABA asociada.')
     return ChannelWhatsAppCredential(
         channel=channel, access_token=authorization.get_token(), expires_at=authorization.expires_at,
     )
@@ -299,4 +324,89 @@ def agent_whatsapp_credential(agent_instance: AgentInstance, *, phone_number_id:
         'waba_id': resolved.waba_id,
         'access_token': credential.access_token,
         'expires_at': credential.expires_at.isoformat() if credential.expires_at else None,
+    }
+
+
+# ── PROD-08E1: estado local de conexiones para Platform Admin ────────────────
+
+ADMIN_WHATSAPP_CONNECTIONS_CONTRACT_VERSION = 1
+
+
+def _iso(value: dt.datetime | None) -> str | None:
+    return value.isoformat() if value else None
+
+
+def _authorization_block(channel: AgentChannel, now: dt.datetime) -> dict | None:
+    """Metadatos de la autorización del canal. Nunca el token (ni cifrado).
+
+    Una autorización de plataforma puede cubrir canales de otros negocios: no
+    se informa cuáles ni cuántos. Si el dueño es otro negocio, tampoco se
+    informa su id.
+    """
+    authorization = channel.whatsapp_authorization
+    if authorization is None:
+        return None
+    return {
+        'id': str(authorization.pk),
+        'kind': 'platform' if authorization.is_platform else 'business',
+        'owned_by_this_business': (
+            None if authorization.is_platform else authorization.owner_business_id == channel.business_id
+        ),
+        'status': authorization.status,
+        'expired': _is_expired(authorization, now),
+        'expires_at': _iso(authorization.expires_at),
+        'revoked_at': _iso(authorization.revoked_at),
+        'created_at': _iso(authorization.created_at),
+        'updated_at': _iso(authorization.updated_at),
+    }
+
+
+def admin_whatsapp_connections(business: Business) -> dict:
+    """Canales WhatsApp del Business y su estado LOCAL. Solo lectura.
+
+    Sin escrituras, locks, descifrado ni llamadas a Meta: `local_status`
+    describe lo que Mi Rubro tiene registrado (la misma regla con la que
+    entrega la credencial al agente), nunca conectividad real, permisos en
+    Meta, agente online ni capacidad de envío.
+    """
+    now = timezone.now()
+    channels = (
+        AgentChannel.objects.filter(business=business)
+        .select_related('agent_instance', 'whatsapp_authorization')
+        .order_by('-is_active', '-created_at', 'id')
+    )
+    rows = []
+    for channel in channels:
+        instance = channel.agent_instance
+        problem = channel_credential_problem(channel, now)
+        if problem is None and not instance.is_enabled:
+            problem = 'agent_instance_disabled'
+        rows.append({
+            'id': str(channel.pk),
+            'provider': channel.provider,
+            'phone_number_id': channel.phone_number_id,
+            'waba_id': channel.waba_id or None,
+            'is_active': channel.is_active,
+            'created_at': _iso(channel.created_at),
+            'deactivated_at': _iso(channel.deactivated_at),
+            'agent_instance': {
+                'external_id': instance.external_id,
+                'name': instance.name,
+                'is_enabled': instance.is_enabled,
+                'disabled_at': _iso(instance.disabled_at),
+            },
+            'authorization': _authorization_block(channel, now),
+            # `credential_ready`: Mi Rubro entregaría al agente la credencial guardada.
+            'local_status': problem or 'credential_ready',
+        })
+    return {
+        'contract_version': ADMIN_WHATSAPP_CONNECTIONS_CONTRACT_VERSION,
+        'business_id': business.pk,
+        'evaluated_at': now.isoformat(),
+        'channels': rows,
+        'external_verification': {
+            'performed': False,
+            'meta_connectivity': 'unknown',
+            'detail': 'Estado local de Mi Rubro; no se consultó a Meta ni al agente.',
+        },
     }

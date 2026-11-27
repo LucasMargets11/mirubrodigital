@@ -74,6 +74,23 @@ class ExplicitBusinessMatch(BasePermission):
         return True
 
 
+def admin_reception_business(business_id: int) -> Business | None:
+    """Cliente HQ con Recepcionista IA no cancelada (principal o adicional).
+
+    Resolución de Platform Admin: solo el id de la ruta, nunca `bid` ni
+    `X-Business-Id`. Compartida por la configuración (PROD-03B) y las
+    conexiones WhatsApp (PROD-08E1).
+    """
+    business = Business.objects.filter(pk=business_id, parent__isnull=True).first()
+    if business is None:
+        return None
+    has_reception = (
+        SubscriptionV2.objects.filter(business=business, service_type='reception')
+        .exclude(status=SubscriptionV2.Status.CANCELED).exists()
+    )
+    return business if has_reception else None
+
+
 class _ReceptionistConfigMixin:
     http_method_names = ['get', 'post', 'patch', 'head', 'options']
     source = ''
@@ -141,11 +158,4 @@ class AdminClientReceptionistConfigView(_ReceptionistConfigMixin, APIView):
     source = SOURCE_PLATFORM_ADMIN
 
     def target_business(self, request, business_id: int, **kwargs):
-        business = Business.objects.filter(pk=business_id, parent__isnull=True).first()
-        if business is None:
-            return None
-        has_reception = (
-            SubscriptionV2.objects.filter(business=business, service_type='reception')
-            .exclude(status=SubscriptionV2.Status.CANCELED).exists()
-        )
-        return business if has_reception else None
+        return admin_reception_business(business_id)
