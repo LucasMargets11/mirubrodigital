@@ -6,6 +6,7 @@ import { Providers } from '@/app/providers';
 import { AdminAIUsageSection } from '@/components/admin/admin-ai-usage-section';
 import { AdminOperationalMetricsSection } from '@/components/admin/admin-operational-metrics-section';
 import { AdminWhatsAppConnectionsSection } from '@/components/admin/admin-whatsapp-connections-section';
+import { ReceptionistReadinessSection } from '@/components/admin/receptionist-readiness-section';
 import { SectionCard } from '@/components/admin/section-card';
 import {
     ReceptionistConfigForm,
@@ -13,17 +14,20 @@ import {
     useReceptionistConfig,
 } from '@/features/reception/receptionist-config-form';
 import type { ReceptionistConfigTarget } from '@/features/reception/receptionist-config-api';
+import type { AdminMember } from '@/lib/admin/types';
 
 type Props = {
     businessId: number;
     businessName: string;
+    /** Owner del detalle del cliente (membership activa), para la preparación. */
+    owner: AdminMember | null;
 };
 
 /**
- * PROD-08C/08D/08E2 — Recepcionista IA en el detalle del cliente (Platform
- * Admin): configuración del agente, conexiones WhatsApp, consumo comercial y
- * métricas operativas, bajo un único `Providers` (`/admin` no tiene
- * QueryClient propio).
+ * PROD-08C/08D/08E2/09B — Recepcionista IA en el detalle del cliente
+ * (Platform Admin): preparación, configuración del agente, conexiones
+ * WhatsApp, consumo comercial y métricas operativas, bajo un único
+ * `Providers` (`/admin` no tiene QueryClient propio).
  *
  * El Business sale solo del id de la ruta, nunca de `bid`. El bloque entero se
  * oculta solo ante el 404 de dominio `client_not_found` del endpoint de
@@ -38,7 +42,7 @@ export function ReceptionistAdminCard(props: Props) {
     );
 }
 
-function ReceptionistAdminSections({ businessId, businessName }: Props) {
+function ReceptionistAdminSections({ businessId, businessName, owner }: Props) {
     const target = useMemo<ReceptionistConfigTarget>(() => ({ kind: 'platform_admin', businessId }), [businessId]);
     const { query } = useReceptionistConfig(target);
 
@@ -48,6 +52,7 @@ function ReceptionistAdminSections({ businessId, businessName }: Props) {
 
     return (
         <>
+            <ReceptionistReadinessSection businessId={businessId} owner={owner} config={query} />
             <SectionCard
                 title="Recepcionista IA"
                 description="Configuración del agente de este cliente. «Configuración lista» no significa agente conectado."

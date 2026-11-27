@@ -232,7 +232,7 @@ export function ClienteDetailContent({ client }: Props) {
           )}
 
           {/* Recepcionista IA — principal o adicional; se oculta solo ante 404 client_not_found */}
-          <ReceptionistAdminCard key={client.id} businessId={client.id} businessName={client.name} />
+          <ReceptionistAdminCard key={client.id} businessId={client.id} businessName={client.name} owner={client.owner} />
         </div>
 
         {/* Right column: sidebar */}

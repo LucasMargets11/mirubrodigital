@@ -20,6 +20,8 @@ vi.mock('next/link', () => ({
     ),
 }));
 vi.mock('@/components/admin/qr-reviews-card', () => ({ QRResenasCard: () => null }));
+// PROD-09B: la preparación tiene su propio suite (receptionist-readiness).
+vi.mock('@/components/admin/receptionist-readiness-section', () => ({ ReceptionistReadinessSection: () => null }));
 // Cuenta montajes reales del Provider (un QueryClient por montaje).
 vi.mock('@/app/providers', async (importOriginal) => {
     const real = await importOriginal<typeof import('@/app/providers')>();

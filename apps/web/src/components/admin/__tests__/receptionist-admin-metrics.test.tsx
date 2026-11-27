@@ -18,6 +18,8 @@ vi.mock('next/link', () => ({
     ),
 }));
 vi.mock('@/components/admin/qr-reviews-card', () => ({ QRResenasCard: () => null }));
+// PROD-09B: la preparación tiene su propio suite (receptionist-readiness).
+vi.mock('@/components/admin/receptionist-readiness-section', () => ({ ReceptionistReadinessSection: () => null }));
 // PROD-08E2: conexiones WhatsApp tienen su propio suite.
 vi.mock('@/components/admin/admin-whatsapp-connections-section', () => ({ AdminWhatsAppConnectionsSection: () => null }));
 
