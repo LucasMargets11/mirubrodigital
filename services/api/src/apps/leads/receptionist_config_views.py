@@ -15,10 +15,12 @@ activación del bot.
 """
 from __future__ import annotations
 
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.accounts.access import resolve_request_membership
+from apps.accounts.models import Membership
 from apps.accounts.permissions import HasBusinessMembership, HasEntitlement, HasPermission
 from apps.accounts.platform_permissions import HasInternalRole, IsPlatformStaff
 from apps.billing.models import SubscriptionV2
@@ -30,6 +32,46 @@ from .services.receptionist_config import (
     SOURCE_BUSINESS, SOURCE_PLATFORM_ADMIN, ReceptionistConfigError, create_receptionist_config,
     serialize_receptionist_config, update_receptionist_config,
 )
+
+
+BUSINESS_HEADER = 'HTTP_X_BUSINESS_ID'
+
+
+class ExplicitBusinessMatch(BasePermission):
+    """PROD-08C.1 — `X-Business-Id` explícito sin fallback.
+
+    `resolve_request_membership` (global, sin cambios) prioriza el header y,
+    si no lo resuelve, cae en otra membership del usuario (o en la cookie
+    `bid`). Para la configuración del agente eso podría escribir en otro
+    negocio, así que con el header presente se exige que el negocio resuelto
+    sea exactamente el pedido y que la membership que lo autoriza esté
+    activa. Sin header, el contrato previo no cambia. Va antes de
+    `HasBusinessMembership`: se rechaza antes de cualquier lectura o
+    escritura y la resolución queda cacheada en el request.
+    """
+
+    INVALID = {'code': 'business_header_invalid', 'detail': 'X-Business-Id inválido.'}
+    DENIED = {'code': 'business_access_denied', 'detail': 'No tenés acceso al negocio solicitado.'}
+
+    def has_permission(self, request, view) -> bool:
+        raw = request.META.get(BUSINESS_HEADER)
+        if raw is None:
+            return True
+        value = raw
+        if not value.isascii() or not value.isdigit() or int(value) < 1:
+            self.message = self.INVALID
+            return False
+        membership = resolve_request_membership(request)
+        business = getattr(request, 'business', None)
+        if (
+            membership is None
+            or business is None
+            or business.pk != int(value)
+            or membership.status != Membership.Status.ACTIVE
+        ):
+            self.message = self.DENIED
+            return False
+        return True
 
 
 class _ReceptionistConfigMixin:
@@ -79,9 +121,10 @@ class _ReceptionistConfigMixin:
 
 class ReceptionistConfigView(_ReceptionistConfigMixin, APIView):
     """Comercio: Recepcionista IA vigente (`reception.ai`) + `manage_agent_channels`
-    (owner/admin del servicio `reception`; manager y viewer no)."""
+    (owner/admin del servicio `reception`; manager y viewer no). Con
+    `X-Business-Id`, solo ese negocio y con membership activa (PROD-08C.1)."""
 
-    permission_classes = [IsAuthenticated, HasBusinessMembership, HasEntitlement, HasPermission]
+    permission_classes = [IsAuthenticated, ExplicitBusinessMatch, HasBusinessMembership, HasEntitlement, HasPermission]
     required_entitlement = RECEPTION_AI_ENTITLEMENT
     required_permission = 'manage_agent_channels'
     source = SOURCE_BUSINESS
