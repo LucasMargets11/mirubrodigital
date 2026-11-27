@@ -19,15 +19,20 @@ async function parseResponse(response: Response) {
     return undefined;
 }
 
+/** Opciones por llamada; hoy solo headers extra (p. ej. `X-Business-Id`). */
+export type ApiRequestOptions = { headers?: Record<string, string> };
+
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-    const bodyIsFormData = typeof FormData !== 'undefined' && init?.body instanceof FormData;
+    const { headers: extraHeaders, ...rest } = init ?? {};
+    const bodyIsFormData = typeof FormData !== 'undefined' && rest.body instanceof FormData;
     const response = await fetch(`${API_URL}${path}`, {
         credentials: 'include',
+        ...rest,
+        // Los headers extra se suman al Content-Type, nunca lo reemplazan.
         headers: {
             ...(bodyIsFormData ? {} : { 'Content-Type': 'application/json' }),
-            ...(init?.headers ?? {}),
+            ...((extraHeaders as Record<string, string> | undefined) ?? {}),
         },
-        ...init,
     });
 
     if (!response.ok) {
@@ -43,8 +48,8 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
     return (await response.json()) as T;
 }
 
-export function apiGet<T>(path: string): Promise<T> {
-    return apiFetch<T>(path, { method: 'GET' });
+export function apiGet<T>(path: string, options?: ApiRequestOptions): Promise<T> {
+    return apiFetch<T>(path, { method: 'GET', headers: options?.headers });
 }
 
 export async function apiGetBlob(path: string): Promise<Blob> {
@@ -72,17 +77,19 @@ function resolveBody(body?: unknown): BodyInit | undefined {
     return JSON.stringify(body);
 }
 
-export function apiPost<T>(path: string, body?: unknown): Promise<T> {
+export function apiPost<T>(path: string, body?: unknown, options?: ApiRequestOptions): Promise<T> {
     return apiFetch<T>(path, {
         method: 'POST',
         body: resolveBody(body),
+        headers: options?.headers,
     });
 }
 
-export function apiPatch<T>(path: string, body?: unknown): Promise<T> {
+export function apiPatch<T>(path: string, body?: unknown, options?: ApiRequestOptions): Promise<T> {
     return apiFetch<T>(path, {
         method: 'PATCH',
         body: resolveBody(body),
+        headers: options?.headers,
     });
 }
 

@@ -26,12 +26,24 @@ function pathFor(target: ReceptionistConfigTarget): string {
         : '/api/v1/receptionist-config/';
 }
 
+/**
+ * PROD-08C — El comercio resuelve el negocio por `X-Business-Id` y, sin él,
+ * por la cookie `bid`, que `switch-business` reescribe para todas las
+ * pestañas. Fijar el header con el negocio que muestra la pantalla evita que
+ * una pestaña vieja escriba sobre el negocio elegido en otra. Platform Admin
+ * no lo usa: su Business sale solo del id de la ruta.
+ */
+function optionsFor(target: ReceptionistConfigTarget) {
+    return target.kind === 'business' ? { headers: { 'X-Business-Id': String(target.businessId) } } : undefined;
+}
+
 export function receptionistConfigAdapter(target: ReceptionistConfigTarget): ReceptionistConfigAdapter {
     const path = pathFor(target);
+    const options = optionsFor(target);
     return {
         key: ['reception', 'receptionist-config', target.kind, target.businessId],
-        get: () => apiGet<ReceptionistConfigResponse>(path),
-        create: () => apiPost<ReceptionistConfigResponse>(path, {}),
-        patch: (body) => apiPatch<ReceptionistConfigResponse>(path, body),
+        get: () => apiGet<ReceptionistConfigResponse>(path, options),
+        create: () => apiPost<ReceptionistConfigResponse>(path, {}, options),
+        patch: (body) => apiPatch<ReceptionistConfigResponse>(path, body, options),
     };
 }

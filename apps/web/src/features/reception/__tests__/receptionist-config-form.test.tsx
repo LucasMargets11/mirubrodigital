@@ -24,6 +24,9 @@ const postMock = vi.mocked(apiPost);
 const patchMock = vi.mocked(apiPatch);
 
 const MERCHANT_PATH = '/api/v1/receptionist-config/';
+const ADMIN_PATH = '/api/v1/platform-admin/clients/7/receptionist-config/';
+// PROD-08C: el comercio fija el negocio de la pantalla; nunca depende de `bid`.
+const pinned = (businessId = 1) => ({ headers: { 'X-Business-Id': String(businessId) } });
 
 function config(overrides: Partial<ReceptionistConfig> = {}): ReceptionistConfig {
     return {
@@ -107,13 +110,11 @@ describe('adaptadores', () => {
         await merchant.create();
         await admin.patch({ assistant_name: 'X', expected_version: 2 });
 
-        expect(getMock).toHaveBeenNthCalledWith(1, MERCHANT_PATH);
-        expect(getMock).toHaveBeenNthCalledWith(2, '/api/v1/platform-admin/clients/7/receptionist-config/');
-        expect(postMock).toHaveBeenCalledWith(MERCHANT_PATH, {});
-        expect(patchMock).toHaveBeenCalledWith('/api/v1/platform-admin/clients/7/receptionist-config/', {
-            assistant_name: 'X',
-            expected_version: 2,
-        });
+        expect(getMock).toHaveBeenNthCalledWith(1, MERCHANT_PATH, pinned(1));
+        // Platform Admin: solo el id de la ruta, sin header de negocio.
+        expect(getMock).toHaveBeenNthCalledWith(2, ADMIN_PATH, undefined);
+        expect(postMock).toHaveBeenCalledWith(MERCHANT_PATH, {}, pinned(1));
+        expect(patchMock).toHaveBeenCalledWith(ADMIN_PATH, { assistant_name: 'X', expected_version: 2 }, undefined);
         expect(merchant.key).not.toEqual(receptionistConfigAdapter({ kind: 'business', businessId: 2 }).key);
         expect(merchant.key).not.toEqual(receptionistConfigAdapter({ kind: 'platform_admin', businessId: 1 }).key);
     });
@@ -146,7 +147,7 @@ describe('ReceptionistConfigForm', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Crear borrador' }));
         expect(await screen.findByText('Borrador')).toBeInTheDocument();
         expect(postMock).toHaveBeenCalledTimes(1);
-        expect(postMock).toHaveBeenCalledWith(MERCHANT_PATH, {});
+        expect(postMock).toHaveBeenCalledWith(MERCHANT_PATH, {}, pinned(1));
         expect(screen.getByText(/Para marcarla como lista falta: Nombre del asistente/)).toBeInTheDocument();
     });
 
@@ -174,7 +175,7 @@ describe('ReceptionistConfigForm', () => {
 
         fireEvent.click(screen.getByRole('button', { name: 'Guardar cambios' }));
         expect(await screen.findByText('Cambios guardados.')).toBeInTheDocument();
-        expect(patchMock).toHaveBeenCalledWith(MERCHANT_PATH, { assistant_name: 'Luna', expected_version: 3 });
+        expect(patchMock).toHaveBeenCalledWith(MERCHANT_PATH, { assistant_name: 'Luna', expected_version: 3 }, pinned(1));
         expect(screen.queryByText('Cambios sin guardar')).not.toBeInTheDocument();
     });
 
@@ -211,7 +212,7 @@ describe('ReceptionistConfigForm', () => {
             services: [{ name: 'Ortodoncia', description: '' }],
             faqs: [{ question: '¿Atienden obras sociales?', answer: 'Sí, OSDE.' }],
             expected_version: 3,
-        });
+        }, pinned(1));
     });
 
     it('no permite superar el máximo de servicios', async () => {
@@ -293,7 +294,7 @@ describe('ReceptionistConfigForm', () => {
 
         fireEvent.click(await screen.findByRole('button', { name: 'Marcar como lista' }));
         expect(await screen.findByText('Configuración lista')).toBeInTheDocument();
-        expect(patchMock).toHaveBeenCalledWith(MERCHANT_PATH, { status: 'ready', expected_version: 3 });
+        expect(patchMock).toHaveBeenCalledWith(MERCHANT_PATH, { status: 'ready', expected_version: 3 }, pinned(1));
     });
 
     it('con cambios sin guardar no permite cambiar el estado', async () => {
@@ -319,7 +320,7 @@ describe('ReceptionistConfigForm', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Volver a borrador' }));
         fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Volver a borrador' }));
         expect(await screen.findByText('Borrador')).toBeInTheDocument();
-        expect(patchMock).toHaveBeenCalledWith(MERCHANT_PATH, { status: 'draft', expected_version: 3 });
+        expect(patchMock).toHaveBeenCalledWith(MERCHANT_PATH, { status: 'draft', expected_version: 3 }, pinned(1));
     });
 
     it('sin permiso de edición queda en solo lectura', async () => {
@@ -388,6 +389,6 @@ describe('ReceptionistConfigForm', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Guardar cambios' }));
         await waitFor(() => expect(patchMock).toHaveBeenCalledTimes(1));
         // Versión y campos del negocio nuevo; nada del cambio hecho en el anterior.
-        expect(patchMock).toHaveBeenCalledWith(MERCHANT_PATH, { business_category: 'Spa', expected_version: 1 });
+        expect(patchMock).toHaveBeenCalledWith(MERCHANT_PATH, { business_category: 'Spa', expected_version: 1 }, pinned(2));
     });
 });
