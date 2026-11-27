@@ -14,7 +14,10 @@ const TIER_LABELS: Record<string, string> = {
     reception_custom: 'Recepcionista personalizado',
 };
 
-const STATUS_MESSAGES: Record<Exclude<AIUsageSummary['status'], 'available'>, { title: string; description: string }> = {
+type Message = { title: string; description: string };
+type Audience = 'business' | 'platform_admin';
+
+const STATUS_MESSAGES: Record<Exclude<AIUsageSummary['status'], 'available'>, Message> = {
     exhausted: {
         title: 'Cupo del período agotado',
         description: 'El agente no inicia conversaciones nuevas hasta que empiece el próximo período.',
@@ -35,15 +38,39 @@ const STATUS_MESSAGES: Record<Exclude<AIUsageSummary['status'], 'available'>, { 
         title: 'Consumo no disponible',
         description: 'La medición del consumo no está disponible en este momento.',
     },
+    not_contracted: {
+        title: 'Sin servicio de IA contratado',
+        description: 'Tu negocio no tiene Recepcionista IA vigente.',
+    },
 };
 
-function tierLabel(summary: AIUsageSummary): string | null {
-    const tier = summary.source?.usage_tier;
+/** PROD-08D — Platform Admin: mismos estados, textos sobre el cliente (no «tu plan»). */
+const ADMIN_DESCRIPTIONS: Partial<Record<keyof typeof STATUS_MESSAGES, string>> = {
+    suspended: 'El servicio está suspendido o fuera de su período bonificado.',
+    policy_not_configured: 'El acuerdo del cliente no tiene un cupo vigente.',
+    ambiguous_source: 'El cliente tiene más de un servicio de IA asociado.',
+    not_contracted: 'El cliente no tiene un servicio de IA contratado.',
+};
+
+function statusMessage(status: keyof typeof STATUS_MESSAGES, audience: Audience): Message {
+    const base = STATUS_MESSAGES[status] ?? STATUS_MESSAGES.unavailable;
+    const description = audience === 'platform_admin' ? ADMIN_DESCRIPTIONS[status] : undefined;
+    return description ? { ...base, description } : base;
+}
+
+export function aiUsageTierLabel(tier: string | null | undefined): string | null {
     if (!tier) return null;
     return TIER_LABELS[tier] ?? null;
 }
 
-function errorMessage(error: unknown): { title: string; description: string } {
+function tierLabel(summary: AIUsageSummary): string | null {
+    return aiUsageTierLabel(summary.source?.usage_tier);
+}
+
+function errorMessage(error: unknown, audience: Audience): Message {
+    if (error instanceof ApiError && error.status === 403 && audience === 'platform_admin') {
+        return { title: 'Sin acceso', description: 'Tu rol de Platform Admin no puede ver el consumo de IA.' };
+    }
     if (error instanceof ApiError && error.status === 403) {
         const code = (error.payload as { code?: string } | undefined)?.code;
         if (code === 'ai_service_not_contracted') {
@@ -68,7 +95,25 @@ type Props = {
  */
 export function AIUsageSummaryPanel({ variant = 'full' }: Props) {
     const query = useAIUsageSummary();
+    return <AIUsageSummaryView state={query} variant={variant} />;
+}
 
+export type AIUsageSummaryState = {
+    isLoading: boolean;
+    isError: boolean;
+    data?: AIUsageSummary | null;
+    error: unknown;
+};
+
+/**
+ * PROD-08D — La misma presentación alimentada por quien llama: Platform Admin
+ * le pasa el `summary` de su endpoint y nunca consulta el del comercio.
+ */
+export function AIUsageSummaryView({
+    state: query,
+    variant = 'full',
+    audience = 'business',
+}: Props & { state: AIUsageSummaryState; audience?: Audience }) {
     if (query.isLoading) {
         return (
             <section aria-busy="true" className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -78,7 +123,7 @@ export function AIUsageSummaryPanel({ variant = 'full' }: Props) {
     }
 
     if (query.isError || !query.data) {
-        const message = errorMessage(query.error);
+        const message = errorMessage(query.error, audience);
         return (
             <section role="status" className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                 <h2 className="text-sm font-semibold text-slate-800">{message.title}</h2>
@@ -91,7 +136,7 @@ export function AIUsageSummaryPanel({ variant = 'full' }: Props) {
     const tier = tierLabel(summary);
 
     if (summary.status !== 'available' && summary.status !== 'exhausted') {
-        const message = STATUS_MESSAGES[summary.status] ?? STATUS_MESSAGES.unavailable;
+        const message = statusMessage(summary.status, audience);
         return (
             <section role="status" className="rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
                 <h2 className="text-sm font-semibold text-amber-900">{message.title}</h2>
@@ -101,10 +146,11 @@ export function AIUsageSummaryPanel({ variant = 'full' }: Props) {
         );
     }
 
+    // Sin `sessions` (p. ej. tope alcanzado sin lectura) no hay números: nunca 0.
     const sessions = summary.sessions;
-    const used = sessions?.used ?? 0;
-    const included = sessions?.included ?? 0;
-    const percent = included > 0 ? Math.min(100, Math.round((used / included) * 100)) : 0;
+    const percent = sessions && sessions.included > 0
+        ? Math.min(100, Math.round((sessions.used / sessions.included) * 100))
+        : 0;
 
     return (
         <section aria-labelledby="ai-usage-title" className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -112,29 +158,36 @@ export function AIUsageSummaryPanel({ variant = 'full' }: Props) {
                 <h2 id="ai-usage-title" className="text-sm font-semibold text-slate-800">Conversaciones del período</h2>
                 {tier ? <span className="text-xs text-slate-500">{tier}</span> : null}
             </header>
-            <p className="text-2xl font-semibold text-slate-900">
-                {formatNumber(used)} <span className="text-base font-normal text-slate-500">de {formatNumber(included)}</span>
-            </p>
-            <div
-                role="progressbar"
-                aria-label="Conversaciones usadas"
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={percent}
-                className="h-2 w-full overflow-hidden rounded-full bg-slate-100"
-            >
+            {sessions ? (
+                <p className="text-2xl font-semibold text-slate-900">
+                    {formatNumber(sessions.used)}{' '}
+                    <span className="text-base font-normal text-slate-500">de {formatNumber(sessions.included)}</span>
+                </p>
+            ) : (
+                <p className="text-sm text-slate-500">Sin datos de sesiones del período.</p>
+            )}
+            {sessions ? (
                 <div
-                    className={summary.status === 'exhausted' ? 'h-full bg-amber-500' : 'h-full bg-emerald-500'}
-                    style={{ width: `${percent}%` }}
-                />
-            </div>
+                    role="progressbar"
+                    aria-label="Conversaciones usadas"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={percent}
+                    className="h-2 w-full overflow-hidden rounded-full bg-slate-100"
+                >
+                    <div
+                        className={summary.status === 'exhausted' ? 'h-full bg-amber-500' : 'h-full bg-emerald-500'}
+                        style={{ width: `${percent}%` }}
+                    />
+                </div>
+            ) : null}
             {summary.status === 'exhausted' ? (
                 <p className="text-sm text-amber-800">{STATUS_MESSAGES.exhausted.description}</p>
-            ) : (
+            ) : sessions ? (
                 <p className="text-sm text-slate-500">
-                    Quedan {formatNumber(sessions?.available_included ?? 0)} conversaciones incluidas.
+                    Quedan {formatNumber(sessions.available_included)} conversaciones incluidas.
                 </p>
-            )}
+            ) : null}
             {variant === 'full' && summary.period ? (
                 <dl className="grid gap-2 text-sm sm:grid-cols-2">
                     <div>

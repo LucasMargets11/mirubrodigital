@@ -3,6 +3,8 @@
 import { useMemo } from 'react';
 
 import { Providers } from '@/app/providers';
+import { AdminAIUsageSection } from '@/components/admin/admin-ai-usage-section';
+import { AdminOperationalMetricsSection } from '@/components/admin/admin-operational-metrics-section';
 import { SectionCard } from '@/components/admin/section-card';
 import {
     ReceptionistConfigForm,
@@ -17,37 +19,41 @@ type Props = {
 };
 
 /**
- * PROD-08C — Recepcionista IA en el detalle del cliente (Platform Admin).
- * Monta el formulario compartido de PROD-08B con el adaptador
- * `platform_admin`: el Business sale solo del id de la ruta, nunca de `bid`.
+ * PROD-08C/08D — Recepcionista IA en el detalle del cliente (Platform Admin):
+ * configuración del agente, consumo comercial y métricas operativas, bajo un
+ * único `Providers` (`/admin` no tiene QueryClient propio).
  *
- * Se oculta solo ante el 404 de dominio `client_not_found` (cliente sin
- * Recepcionista aplicable, sea servicio principal o adicional). Permisos
- * (403), red y otros errores se muestran dentro de la sección.
- * `/admin` no tiene QueryClient propio: se reutiliza `Providers`.
+ * El Business sale solo del id de la ruta, nunca de `bid`. El bloque entero se
+ * oculta solo ante el 404 de dominio `client_not_found` del endpoint de
+ * configuración (cliente sin Recepcionista aplicable, sea servicio principal o
+ * adicional). Cada sección tiene sus propios estados de carga y error.
  */
-export function ReceptionistConfigCard(props: Props) {
+export function ReceptionistAdminCard(props: Props) {
     return (
         <Providers>
-            <ReceptionistConfigSection {...props} />
+            <ReceptionistAdminSections {...props} />
         </Providers>
     );
 }
 
-function ReceptionistConfigSection({ businessId, businessName }: Props) {
+function ReceptionistAdminSections({ businessId, businessName }: Props) {
     const target = useMemo<ReceptionistConfigTarget>(() => ({ kind: 'platform_admin', businessId }), [businessId]);
     const { query } = useReceptionistConfig(target);
 
-    // Hasta saber si el cliente tiene Recepcionista no se muestra la sección.
+    // Hasta saber si el cliente tiene Recepcionista no se muestra el bloque.
     if (query.isLoading) return null;
     if (query.isError && isClientWithoutReception(query.error)) return null;
 
     return (
-        <SectionCard
-            title="Recepcionista IA"
-            description="Configuración del agente de este cliente. «Configuración lista» no significa agente conectado."
-        >
-            <ReceptionistConfigForm target={target} businessName={`${businessName} (ID ${businessId})`} canEdit />
-        </SectionCard>
+        <>
+            <SectionCard
+                title="Recepcionista IA"
+                description="Configuración del agente de este cliente. «Configuración lista» no significa agente conectado."
+            >
+                <ReceptionistConfigForm target={target} businessName={`${businessName} (ID ${businessId})`} canEdit />
+            </SectionCard>
+            <AdminAIUsageSection businessId={businessId} />
+            <AdminOperationalMetricsSection businessId={businessId} />
+        </>
     );
 }

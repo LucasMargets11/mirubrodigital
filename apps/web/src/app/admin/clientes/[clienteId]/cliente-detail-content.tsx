@@ -19,7 +19,7 @@ import {
 import { SectionCard } from '@/components/admin/section-card';
 import { StatusBadge } from '@/components/admin/status-badge';
 import { QRResenasCard } from '@/components/admin/qr-reviews-card';
-import { ReceptionistConfigCard } from '@/components/admin/receptionist-config-card';
+import { ReceptionistAdminCard } from '@/components/admin/receptionist-admin-card';
 import { apiPost } from '@/lib/api/client';
 import type { AdminInternalNote } from '@/lib/admin/types';
 import {
@@ -232,7 +232,7 @@ export function ClienteDetailContent({ client }: Props) {
           )}
 
           {/* Recepcionista IA — principal o adicional; se oculta solo ante 404 client_not_found */}
-          <ReceptionistConfigCard key={client.id} businessId={client.id} businessName={client.name} />
+          <ReceptionistAdminCard key={client.id} businessId={client.id} businessName={client.name} />
         </div>
 
         {/* Right column: sidebar */}

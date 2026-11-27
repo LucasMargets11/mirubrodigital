@@ -9,7 +9,9 @@ export type AIUsageStatus =
     | 'policy_not_configured'
     | 'suspended'
     | 'ambiguous_source'
-    | 'unavailable';
+    | 'unavailable'
+    /** Solo Platform Admin: el comercio recibe 403 `ai_service_not_contracted`. */
+    | 'not_contracted';
 
 export type AIUsageSource = {
     product: 'reception' | 'appointments_ai';
@@ -40,6 +42,73 @@ export type AIUsageSummary = {
         currency: string;
     } | null;
     scheduled_change: { included_sessions: number; effective_at: string } | null;
+};
+
+/**
+ * PROD-08D — `GET /api/v1/platform-admin/clients/{id}/ai-usage/` (PROD-02E3B).
+ * `summary` es el mismo contrato del comercio; `null` si no pudo resolverse.
+ */
+export type AdminAIUsageOverview = {
+    business_id: number;
+    evaluated_at: string;
+    summary: AIUsageSummary | null;
+    source_subscription: {
+        id: string;
+        product: string;
+        service_type: string;
+        plan_code: string;
+        usage_tier: string | null;
+        status: string;
+        provider: string;
+        billing_cycle: string | null;
+        complimentary: boolean;
+        current_period_start: string | null;
+        current_period_end: string | null;
+        grace_until: string | null;
+        cancel_at_period_end: boolean;
+        canceled_at: string | null;
+    } | null;
+    diagnosis: { code: string; subscription_id: string | null; candidates: unknown[] };
+    scope: string;
+};
+
+/** Conteo que el backend informa como `null` cuando no hay datos (nunca 0). */
+type Count = number | null;
+type TokenBlock = { total: number | null; reported: number; unknown: number };
+
+/**
+ * PROD-08D — `GET /api/v1/platform-admin/clients/{id}/operational-metrics/`
+ * (PROD-02E4C/02E4D). Bloques independientes, nunca sumables entre sí.
+ */
+export type OperationalMetrics = {
+    contract_version: number;
+    business_id: number;
+    period: { timezone: string; date_from: string; date_to: string; days: number };
+    openai_activity: {
+        executions: number;
+        by_status: Record<string, number>;
+        tokens: { input: TokenBlock; output: TokenBlock; cached_input: TokenBlock };
+        latency_ms: { reported: number; average: number | null; p95: number | null; p95_min_samples: number };
+    };
+    openai_costs: {
+        currency: string;
+        kind: 'estimated';
+        estimated_total: string;
+        complete: boolean;
+        costed_executions: number;
+        uncosted_executions: number;
+        uncosted_reasons: Record<string, number>;
+    };
+    whatsapp: {
+        available: boolean;
+        totals: { messages: Count; inbound: Count; outbound: Count; ai_generated: null; automated_non_ai: null };
+        by_sender: { patient: Count; bot: Count; staff: Count };
+        outbound_status: { sent: Count; delivered: Count; read: Count; failed: Count; unknown: Count };
+        conversations: { with_activity: Count; leads_with_activity: Count };
+        handoffs: { requested: Count; bot_paused_for_reception: Count; takeovers_applied: Count; releases_applied: Count };
+        staff_messages: { requested: number; queued_in_agent: number; pending: number; failed: number };
+        coverage: { has_agent_channel: boolean; sync_observed: boolean; leads_at_message_cap: number };
+    };
 };
 
 /**

@@ -173,6 +173,18 @@ Las 2 fallas de la regresión son las preexistentes de
 
 ## 7. HEAD
 
-Commits sobre `faa6f91`: secciones y capa de datos, tests y este reporte,
-empujados a `origin/feat/recepcionista` sin force push. No se avanzó a
-PROD-08E.
+Commits sobre `faa6f91`, empujados a `origin/feat/recepcionista` sin force
+push, en este orden:
+
+1. `6463604`: tests.
+2. `84bbe59`: este reporte.
+3. El commit siguiente: secciones y capa de datos.
+
+Por un error de staging, los tests y el reporte se empujaron antes que el código
+de la funcionalidad. `6463604` además incluyó el renombre de
+`receptionist-config-card.tsx` a `receptionist-admin-card.tsx` sin el cambio de
+import. Por eso `6463604` y `84bbe59` no compilan por sí solos. Sin force push
+no se reescribió la historia: el árbol queda correcto desde el commit de la
+funcionalidad, que es el `HEAD` final y el único que hay que usar.
+
+No se avanzó a PROD-08E.
