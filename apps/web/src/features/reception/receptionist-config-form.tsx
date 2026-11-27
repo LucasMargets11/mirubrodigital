@@ -124,9 +124,23 @@ export function fieldErrorsFrom(error: unknown): FieldErrors {
     return result;
 }
 
-function writeErrorMessage(error: unknown): string {
+// Textos que dependen de quién edita: el comercio o Platform Admin.
+const COPY = {
+    business: {
+        forbiddenRead: 'Tu rol o tu plan de Recepcionista IA no permiten administrar el agente.',
+        forbiddenWrite: 'Tu rol o tu plan no permiten editar la configuración del agente.',
+        empty: 'Tu agente todavía no tiene configuración',
+    },
+    platform_admin: {
+        forbiddenRead: 'Tu rol de Platform Admin no permite ver ni editar la configuración de Recepcionista IA.',
+        forbiddenWrite: 'Tu rol de Platform Admin no permite editar la configuración de Recepcionista IA.',
+        empty: 'Este cliente todavía no tiene configuración',
+    },
+} as const;
+
+function writeErrorMessage(error: unknown, kind: ReceptionistConfigTarget['kind']): string {
     if (error instanceof ApiError && error.status === 403) {
-        return 'Tu rol o tu plan no permiten editar la configuración del agente.';
+        return COPY[kind].forbiddenWrite;
     }
     const detail = payloadOf(error)?.detail;
     return typeof detail === 'string' && detail ? detail : 'No pudimos guardar la configuración. Intentá nuevamente.';
@@ -177,6 +191,39 @@ function inputClass(error?: string) {
     return `${INPUT} ${error ? 'border-rose-300' : 'border-slate-200'}`;
 }
 
+// ── Lectura compartida ─────────────────────────────────────────────────────
+
+/**
+ * Query de la configuración para un target. El formulario y quien lo monta
+ * (p. ej. la tarjeta de Platform Admin, que se oculta ante 404
+ * `client_not_found`) comparten la misma key: una sola lectura.
+ */
+export function useReceptionistConfig(target: ReceptionistConfigTarget) {
+    const { kind, businessId } = target;
+    const adapter = useMemo(
+        () => receptionistConfigAdapter({ kind, businessId } as ReceptionistConfigTarget),
+        [kind, businessId],
+    );
+    const query = useQuery({
+        queryKey: adapter.key,
+        queryFn: adapter.get,
+        // Sin reintentos (403/404 son estados reales) ni recargas al volver a la
+        // pestaña: el servidor solo se relee de forma explícita. Sin
+        // `retryOnMount`: un segundo observador (el formulario dentro de la
+        // tarjeta admin) no debe volver a pedir un error ya resuelto.
+        retry: false,
+        retryOnMount: false,
+        refetchOnWindowFocus: false,
+        staleTime: Infinity,
+    });
+    return { adapter, query };
+}
+
+/** 404 de dominio de Platform Admin: el cliente no tiene Recepcionista IA aplicable. */
+export function isClientWithoutReception(error: unknown): boolean {
+    return error instanceof ApiError && error.status === 404 && errorCode(error) === 'client_not_found';
+}
+
 // ── Formulario ─────────────────────────────────────────────────────────────
 
 type Props = {
@@ -199,17 +246,9 @@ type Pending = 'create' | 'save' | 'status' | null;
 type Notice = { tone: 'success' | 'error'; text: string } | null;
 
 function ReceptionistConfigFormInner({ target, businessName, canEdit }: Props) {
-    const adapter = useMemo(() => receptionistConfigAdapter(target), [target]);
+    const { adapter, query } = useReceptionistConfig(target);
     const queryClient = useQueryClient();
-    const query = useQuery({
-        queryKey: adapter.key,
-        queryFn: adapter.get,
-        // Sin reintentos (403/404 son estados reales) ni recargas al volver a la
-        // pestaña: el servidor solo se relee de forma explícita.
-        retry: false,
-        refetchOnWindowFocus: false,
-        staleTime: Infinity,
-    });
+    const copy = COPY[target.kind];
 
     const [edits, setEdits] = useState<Partial<ReceptionistConfigContent>>({});
     const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
@@ -262,7 +301,7 @@ function ReceptionistConfigFormInner({ target, businessName, canEdit }: Props) {
             await query.refetch();
             return;
         }
-        setNotice({ tone: 'error', text: writeErrorMessage(error) });
+        setNotice({ tone: 'error', text: writeErrorMessage(error, target.kind) });
     };
 
     const handleCreate = async () => {
@@ -275,7 +314,7 @@ function ReceptionistConfigFormInner({ target, businessName, canEdit }: Props) {
                 setNotice({ tone: 'error', text: 'El negocio ya tenía una configuración. Cargamos la actual.' });
                 await query.refetch();
             } else {
-                setNotice({ tone: 'error', text: writeErrorMessage(error) });
+                setNotice({ tone: 'error', text: writeErrorMessage(error, target.kind) });
             }
         } finally {
             setPending(null);
@@ -349,9 +388,7 @@ function ReceptionistConfigFormInner({ target, businessName, canEdit }: Props) {
                     {forbidden ? 'Sin acceso a la configuración del agente' : 'No pudimos cargar la configuración'}
                 </h2>
                 <p className="text-sm text-slate-500">
-                    {forbidden
-                        ? 'Tu rol o tu plan de Recepcionista IA no permiten administrar el agente.'
-                        : 'Intentá nuevamente en unos minutos.'}
+                    {forbidden ? copy.forbiddenRead : 'Intentá nuevamente en unos minutos.'}
                 </p>
                 {!forbidden ? (
                     <button type="button" className={SECONDARY} onClick={() => query.refetch()}>
@@ -366,7 +403,7 @@ function ReceptionistConfigFormInner({ target, businessName, canEdit }: Props) {
         return (
             <section className={CARD}>
                 {businessLine}
-                <h2 className="text-sm font-semibold text-slate-800">Tu agente todavía no tiene configuración</h2>
+                <h2 className="text-sm font-semibold text-slate-800">{copy.empty}</h2>
                 <p className="text-sm text-slate-500">
                     Se crea vacía, como borrador. El agente no la usa hasta que la completes y la marques como lista.
                 </p>
