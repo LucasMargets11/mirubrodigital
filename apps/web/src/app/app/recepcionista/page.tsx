@@ -17,6 +17,7 @@ export default async function RecepcionistaPage() {
     const canViewUsage = session.permissions?.view_ai_usage === true;
     const canViewLeads = session.features?.leads === true && session.permissions?.view_leads === true;
     const canViewCustomers = session.features?.customers === true && session.permissions?.view_customers === true;
+    const canManageAgent = session.permissions?.manage_agent_channels === true;
 
     return (
         <section className="space-y-4">
@@ -27,7 +28,7 @@ export default async function RecepcionistaPage() {
                 </p>
             </header>
 
-            {(canViewLeads || canViewUsage || canViewCustomers) && (
+            {(canViewLeads || canViewUsage || canViewCustomers || canManageAgent) && (
                 <nav aria-label="Accesos de Recepcionista IA" className="flex flex-wrap gap-2">
                     {canViewLeads && (
                         <Link
@@ -35,6 +36,11 @@ export default async function RecepcionistaPage() {
                             className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800"
                         >
                             Ver leads
+                        </Link>
+                    )}
+                    {canManageAgent && (
+                        <Link href="/app/recepcionista/configuracion" className={SECONDARY_LINK}>
+                            Mi agente
                         </Link>
                     )}
                     {canViewUsage && (

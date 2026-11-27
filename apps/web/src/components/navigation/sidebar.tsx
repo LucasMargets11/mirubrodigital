@@ -245,13 +245,15 @@ const NAV_CONFIG: Record<string, NavGroup[]> = {
         },
     ],
     // PROD-02G1/02G2: Recepcionista IA independiente. Solo rutas implementadas;
-    // Mi agente y WhatsApp se suman cuando existan bajo /app/recepcionista.
+    // WhatsApp se suma cuando exista bajo /app/recepcionista.
     // Nada de agenda, profesionales, POS, caja, ventas o stock.
     reception: [
         {
             title: 'Recepcionista IA',
             items: [
                 { href: '/app/recepcionista', label: 'Inicio' },
+                // PROD-08B: configuración del agente (owner/admin en reception).
+                { href: '/app/recepcionista/configuracion', label: 'Mi agente', permissionKey: 'manage_agent_channels' },
                 // PROD-02G2: flag `leads` (reception.leads o Turnos) + `view_leads`.
                 { href: '/app/recepcionista/leads', label: 'Leads', permissionKey: 'view_leads', featureKey: 'leads' },
                 // Consumo comercial de IA (GET /api/v1/ai-usage/, PROD-02E3A).

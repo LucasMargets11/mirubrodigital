@@ -41,3 +41,66 @@ export type AIUsageSummary = {
     } | null;
     scheduled_change: { included_sessions: number; effective_at: string } | null;
 };
+
+/**
+ * PROD-08B — Contrato de `ReceptionistConfig` (PROD-03A/03B). Los 13 campos
+ * de contenido + `status`; `version` es la del bloqueo optimista. `ready`
+ * significa configuración completa, nunca agente conectado.
+ */
+export type ReceptionistConfigStatus = 'draft' | 'ready';
+export type ReceptionistTone = 'warm' | 'professional' | 'formal';
+export type ReceptionistLanguage = 'es-AR' | 'es';
+export type ReceptionistService = { name: string; description?: string };
+export type ReceptionistFaq = { question: string; answer: string };
+
+export type ReceptionistConfigContent = {
+    assistant_name: string;
+    business_category: string;
+    business_description: string;
+    custom_instructions: string;
+    tone: ReceptionistTone;
+    language: ReceptionistLanguage;
+    welcome_message: string;
+    operational_info: string;
+    business_hours: string;
+    services: ReceptionistService[];
+    reference_info: string;
+    faqs: ReceptionistFaq[];
+    handoff_rules: string;
+};
+
+export type ReceptionistConfigField = keyof ReceptionistConfigContent;
+
+export type ReceptionistConfig = ReceptionistConfigContent & {
+    id: string;
+    status: ReceptionistConfigStatus;
+    version: number;
+    missing_for_ready: string[];
+    created_at: string;
+    updated_at: string;
+};
+
+export type ReceptionistConfigResponse = { config: ReceptionistConfig | null };
+
+export type ReceptionistConfigPatch = Partial<ReceptionistConfigContent> & {
+    status?: ReceptionistConfigStatus;
+    expected_version: number;
+};
+
+/** Límites del modelo (`apps/leads/models.py`); el backend vuelve a validarlos. */
+export const RECEPTIONIST_TEXT_LIMITS = {
+    assistant_name: 80,
+    business_category: 80,
+    business_description: 1000,
+    custom_instructions: 4000,
+    welcome_message: 500,
+    operational_info: 2000,
+    business_hours: 1000,
+    reference_info: 4000,
+    handoff_rules: 2000,
+} as const;
+
+export const RECEPTIONIST_LIST_LIMITS = {
+    services: { maxItems: 30, name: 120, description: 500 },
+    faqs: { maxItems: 30, question: 300, answer: 1000 },
+} as const;
