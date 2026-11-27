@@ -19,6 +19,9 @@ vi.mock('next/link', () => ({
 }));
 // Tarjeta ajena al slice: no debe llamar a la API en estos tests.
 vi.mock('@/components/admin/qr-reviews-card', () => ({ QRResenasCard: () => null }));
+// PROD-08D: consumo y métricas tienen su propio suite (receptionist-admin-metrics).
+vi.mock('@/components/admin/admin-ai-usage-section', () => ({ AdminAIUsageSection: () => null }));
+vi.mock('@/components/admin/admin-operational-metrics-section', () => ({ AdminOperationalMetricsSection: () => null }));
 
 import { ClienteDetailContent } from '@/app/admin/clientes/[clienteId]/cliente-detail-content';
 import type { ReceptionistConfig } from '@/features/reception/types';

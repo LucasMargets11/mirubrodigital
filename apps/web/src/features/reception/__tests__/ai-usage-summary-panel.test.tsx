@@ -50,6 +50,16 @@ describe('AIUsageSummaryPanel', () => {
         expect(screen.getByText(/no inicia conversaciones nuevas hasta que empiece el próximo período/)).toBeInTheDocument();
     });
 
+    it('cupo agotado sin datos de sesiones: no muestra ceros (PROD-08D)', () => {
+        withQuery({ data: summary({ status: 'exhausted', can_start_new_session: false, reason: 'hard_cap_reached',
+            period: null, sessions: null, hard_cap: null, overage: null }) });
+        render(<AIUsageSummaryPanel variant="full" />);
+        expect(screen.getByText('Sin datos de sesiones del período.')).toBeInTheDocument();
+        expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+        expect(screen.queryByText(/de 0/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/Quedan/)).not.toBeInTheDocument();
+    });
+
     it('Custom con cambio programado', () => {
         withQuery({ data: summary({
             source: { product: 'reception', service_type: 'reception', plan_code: 'reception', usage_tier: 'reception_custom', policy_kind: 'custom' },
