@@ -45,9 +45,11 @@ type Props = {
   client: AdminClientDetail;
   /** PROD-09D2: sesión superadmin (resuelta en el servidor). */
   canExtendValidity?: boolean;
+  /** PROD-09E: sesión superadmin (resuelta en el servidor). */
+  canAddReception?: boolean;
 };
 
-export function ClienteDetailContent({ client, canExtendValidity = false }: Props) {
+export function ClienteDetailContent({ client, canExtendValidity = false, canAddReception = false }: Props) {
   const [noteBody, setNoteBody] = useState('');
   const [noteSubmitting, setNoteSubmitting] = useState(false);
   const [notes, setNotes] = useState(client.notes);
@@ -240,6 +242,8 @@ export function ClienteDetailContent({ client, canExtendValidity = false }: Prop
             businessName={client.name}
             owner={client.owner}
             canExtendValidity={canExtendValidity}
+            canAddReception={canAddReception}
+            clientStatus={client.status}
           />
         </div>
 

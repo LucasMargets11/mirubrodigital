@@ -3,6 +3,7 @@
 import { useMemo } from 'react';
 
 import { Providers } from '@/app/providers';
+import { AddReceptionServiceSection } from '@/components/admin/add-reception-service';
 import { AdminAIUsageSection } from '@/components/admin/admin-ai-usage-section';
 import { AdminOperationalMetricsSection } from '@/components/admin/admin-operational-metrics-section';
 import { AdminWhatsAppConnectionsSection } from '@/components/admin/admin-whatsapp-connections-section';
@@ -23,6 +24,10 @@ type Props = {
     owner: AdminMember | null;
     /** PROD-09D2: superadmin puede extender la vigencia bonificada (el backend decide). */
     canExtendValidity?: boolean;
+    /** PROD-09E: superadmin puede agregar Recepcionista a un cliente sin ella. */
+    canAddReception?: boolean;
+    /** Estado global del cliente (detalle), para no ofrecer el alta a uno no elegible. */
+    clientStatus?: string;
 };
 
 /**
@@ -44,13 +49,25 @@ export function ReceptionistAdminCard(props: Props) {
     );
 }
 
-function ReceptionistAdminSections({ businessId, businessName, owner, canExtendValidity = false }: Props) {
+function ReceptionistAdminSections({
+    businessId, businessName, owner, canExtendValidity = false, canAddReception = false, clientStatus = '',
+}: Props) {
     const target = useMemo<ReceptionistConfigTarget>(() => ({ kind: 'platform_admin', businessId }), [businessId]);
     const { adapter, query } = useReceptionistConfig(target);
 
     // Hasta saber si el cliente tiene Recepcionista no se muestra el bloque.
     if (query.isLoading) return null;
-    if (query.isError && isClientWithoutReception(query.error)) return null;
+    // Sin Recepcionista no cancelada (principal o adicional): solo la incorporación
+    // (PROD-09E, superadmin). Tras el alta la query se invalida y aparece el bloque.
+    if (query.isError && isClientWithoutReception(query.error)) {
+        return canAddReception ? (
+            <AddReceptionServiceSection
+                businessId={businessId}
+                businessName={`${businessName} (ID ${businessId})`}
+                clientStatus={clientStatus}
+            />
+        ) : null;
+    }
 
     return (
         <>

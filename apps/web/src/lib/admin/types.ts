@@ -310,6 +310,37 @@ export type AdminOwnerConfirmation = {
 };
 
 /** Domain error envelope: {code, detail, field}. field is null for general errors. */
+/**
+ * PROD-09E — POST /api/v1/platform-admin/clients/{id}/services/ body
+ * (PROD-02F5). Only the commercial grant fields; dates "YYYY-MM-DD" as in
+ * the alta. No business identity, owner, country or currency.
+ */
+export type AdminClientServiceAdditionInput = {
+  service_type: string;
+  plan_code: string;
+  complimentary_start: string;
+  complimentary_end: string;
+  grant_reason: string;
+  usage_tier?: string;
+  custom_included_sessions?: number;
+};
+
+/** 201 of add-service (PROD-02F5). */
+export type AdminClientServiceAdditionResult = {
+  business: { id: number; status: string; service_type: string; default_service: string };
+  subscription: {
+    id: string;
+    service_type: string;
+    plan_code: string;
+    usage_tier: string | null;
+    provider: string;
+    status: string;
+    current_period_start: string;
+    current_period_end: string;
+  };
+  custom_policy: { id: string; included_sessions: number; valid_from: string; valid_until: string | null } | null;
+};
+
 export type AdminClientProvisioningError = {
   code: AdminClientProvisioningErrorCode | string;
   detail: string;

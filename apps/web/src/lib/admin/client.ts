@@ -6,6 +6,8 @@ import type {
   AdminClientProvisioningInput,
   AdminClientProvisioningResult,
   AdminClientProvisioningError,
+  AdminClientServiceAdditionInput,
+  AdminClientServiceAdditionResult,
 } from './types';
 
 const API_URL = getClientApiBaseUrl();
@@ -199,8 +201,8 @@ export async function getAdminClientProvisioningOptions(): Promise<AdminClientPr
   }
 }
 
-export type AdminClientProvisioningResponse =
-  | { status: 'ok'; data: AdminClientProvisioningResult }
+type ProvisioningResponse<T> =
+  | { status: 'ok'; data: T }
   | { status: 'session_expired' }
   | { status: 'forbidden' }
   | {
@@ -214,6 +216,9 @@ export type AdminClientProvisioningResponse =
       fieldErrors: Record<string, string>;
     }
   | { status: 'server_error'; httpStatus: number };
+
+export type AdminClientProvisioningResponse = ProvisioningResponse<AdminClientProvisioningResult>;
+export type AdminClientServiceAdditionResponse = ProvisioningResponse<AdminClientServiceAdditionResult>;
 
 /**
  * POST /api/v1/platform-admin/clients/ — sends exactly the ten allowed
@@ -247,9 +252,20 @@ export async function provisionAdminClient(
       : {}),
   };
 
+  // Includes the 04E access-delivery fields. In particular, login_url is
+  // consumed verbatim by the confirmation UI and is never rebuilt here.
+  return postProvisioning<AdminClientProvisioningResult>('/api/v1/platform-admin/clients/', payload);
+}
+
+/**
+ * Shared by client provisioning and PROD-02F5 add-service: same envelopes
+ * (201, 401, 403, domain `{code, detail, field}`, DRF `{field: [msgs]}`).
+ * A network failure is `server_error` with `httpStatus: 0`.
+ */
+async function postProvisioning<T>(path: string, payload: unknown): Promise<ProvisioningResponse<T>> {
   let response: Response;
   try {
-    response = await fetch(`${API_URL}/api/v1/platform-admin/clients/`, {
+    response = await fetch(`${API_URL}${path}`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
@@ -260,9 +276,7 @@ export async function provisionAdminClient(
   }
 
   if (response.status === 201) {
-    // Includes the 04E access-delivery fields. In particular, login_url is
-    // consumed verbatim by the confirmation UI and is never rebuilt here.
-    const data = (await response.json()) as AdminClientProvisioningResult;
+    const data = (await response.json()) as T;
     return { status: 'ok', data };
   }
 
@@ -297,4 +311,31 @@ export async function provisionAdminClient(
   }
 
   return { status: 'server_error', httpStatus: response.status };
+}
+
+/**
+ * PROD-09E — POST /api/v1/platform-admin/clients/{business_id}/services/
+ * (PROD-02F5, superadmin). Sends exactly the add-service fields: the client's
+ * identity, owner and commercial data are never sent (the serializer rejects
+ * them). Same tier rules as the alta.
+ */
+export async function addServiceToAdminClient(
+  businessId: number,
+  input: AdminClientServiceAdditionInput,
+): Promise<AdminClientServiceAdditionResponse> {
+  const payload: AdminClientServiceAdditionInput = {
+    service_type: input.service_type,
+    plan_code: input.plan_code,
+    complimentary_start: input.complimentary_start,
+    complimentary_end: input.complimentary_end,
+    grant_reason: input.grant_reason,
+    ...(input.usage_tier ? { usage_tier: input.usage_tier } : {}),
+    ...(input.custom_included_sessions !== undefined
+      ? { custom_included_sessions: input.custom_included_sessions }
+      : {}),
+  };
+  return postProvisioning<AdminClientServiceAdditionResult>(
+    `/api/v1/platform-admin/clients/${businessId}/services/`,
+    payload,
+  );
 }

@@ -27,7 +27,11 @@ export default async function AdminClienteDetailPage({ params }: Props) {
         title={client.name}
         description={`ID: ${client.id} · ${client.service_type || '—'} · ${client.country}`}
       />
-      <ClienteDetailContent client={client} canExtendValidity={session?.internal_role === 'superadmin'} />
+      <ClienteDetailContent
+        client={client}
+        canExtendValidity={session?.internal_role === 'superadmin'}
+        canAddReception={session?.internal_role === 'superadmin'}
+      />
     </div>
   );
 }
