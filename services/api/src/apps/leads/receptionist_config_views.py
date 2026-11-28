@@ -23,13 +23,13 @@ from apps.accounts.access import resolve_request_membership
 from apps.accounts.models import Membership
 from apps.accounts.permissions import HasBusinessMembership, HasEntitlement, HasPermission
 from apps.accounts.platform_permissions import HasInternalRole, IsPlatformStaff
-from apps.billing.models import SubscriptionV2
 from apps.business.entitlements import RECEPTION_AI_ENTITLEMENT
 from apps.business.models import Business
 
 from .models import ReceptionistConfig
 from .services.receptionist_config import (
-    SOURCE_BUSINESS, SOURCE_PLATFORM_ADMIN, ReceptionistConfigError, create_receptionist_config,
+    SOURCE_BUSINESS, SOURCE_PLATFORM_ADMIN, ReceptionistConfigError, admin_reception_business,
+    create_receptionist_config,
     serialize_receptionist_config, update_receptionist_config,
 )
 
@@ -72,23 +72,6 @@ class ExplicitBusinessMatch(BasePermission):
             self.message = self.DENIED
             return False
         return True
-
-
-def admin_reception_business(business_id: int) -> Business | None:
-    """Cliente HQ con Recepcionista IA no cancelada (principal o adicional).
-
-    Resolución de Platform Admin: solo el id de la ruta, nunca `bid` ni
-    `X-Business-Id`. Compartida por la configuración (PROD-03B) y las
-    conexiones WhatsApp (PROD-08E1).
-    """
-    business = Business.objects.filter(pk=business_id, parent__isnull=True).first()
-    if business is None:
-        return None
-    has_reception = (
-        SubscriptionV2.objects.filter(business=business, service_type='reception')
-        .exclude(status=SubscriptionV2.Status.CANCELED).exists()
-    )
-    return business if has_reception else None
 
 
 class _ReceptionistConfigMixin:

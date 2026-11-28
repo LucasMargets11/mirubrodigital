@@ -322,3 +322,22 @@ def pause_attention_for_canceled_subscription(subscription, *, actor) -> bool:
             },
         )
     return True
+
+
+def admin_reception_business(business_id: int) -> Business | None:
+    """Cliente HQ con Recepcionista IA no cancelada (principal o adicional).
+
+    Resolución de Platform Admin: solo el id de la ruta, nunca `bid` ni
+    `X-Business-Id`. Compartida por la configuración (PROD-03B) y las
+    conexiones WhatsApp (PROD-08E1 y la vinculación PROD-10B2).
+    """
+    from apps.billing.models import SubscriptionV2
+
+    business = Business.objects.filter(pk=business_id, parent__isnull=True).first()
+    if business is None:
+        return None
+    has_reception = (
+        SubscriptionV2.objects.filter(business=business, service_type='reception')
+        .exclude(status=SubscriptionV2.Status.CANCELED).exists()
+    )
+    return business if has_reception else None

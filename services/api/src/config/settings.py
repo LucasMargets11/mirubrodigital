@@ -465,6 +465,11 @@ WHATSAPP_APP_SECRET = os.getenv('WHATSAPP_APP_SECRET', '')
 # https://developers.facebook.com/docs/graph-api/changelog/versions/
 WHATSAPP_GRAPH_VERSION = os.getenv('WHATSAPP_GRAPH_VERSION', 'v23.0').strip()
 WHATSAPP_GRAPH_TIMEOUT_SECONDS = 10
+# PROD-10B2 — `external_id` de la AgentInstance compartida (la única del
+# despliegue) donde la vinculación crea los canales. Sin valor, o si no
+# existe o está deshabilitada, la vinculación falla cerrada: nunca se elige
+# una instancia arbitraria ni se crea una por comercio.
+WHATSAPP_LINK_AGENT_INSTANCE_ID = os.getenv('WHATSAPP_LINK_AGENT_INSTANCE_ID', '').strip()
 
 # Public frontend URL (used in QR menu URLs and back_urls for MP checkout)
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:3000')

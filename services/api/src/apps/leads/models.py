@@ -165,6 +165,12 @@ class AgentChannel(models.Model):
         # cascade que borra sus canales (p. ej. al borrar el Business dueño).
         on_delete=models.RESTRICT,
     )
+    # PROD-10B2: evidencia de la última verificación en Meta (solo metadatos
+    # no secretos, nunca respuestas crudas ni tokens). Ligada a la
+    # autorización, su versión, la WABA y el número verificados: se lee solo
+    # con `whatsapp_link.channel_meta_verification`, que la descarta si
+    # cambió cualquiera de ellos. Histórica: no garantiza conectividad actual.
+    meta_verification = models.JSONField(null=True, blank=True, editable=False)
 
     class Meta:
         ordering = ['-created_at']
