@@ -20,6 +20,12 @@ credencial) se rechaza y queda para los servicios específicos. No suscribe
 webhooks, no registra números y no toca la atención automática ni la
 configuración del agente.
 
+PROD-10C1 agrega dos reglas comunes a ambos orígenes: el número debe operar
+con Cloud API (`platform_type`), y para sumar un número operativo (canal
+nuevo o primera credencial) la atención automática del comercio debe estar
+pausada (se revalida con lock Business → config). Una repetición equivalente
+solo refresca la evidencia y no la exige.
+
 La verificación prueba que el token es de nuestra app y cubre la WABA y el
 número; NO prueba la propiedad legal de esos recursos por parte del comercio.
 """
@@ -40,6 +46,7 @@ from apps.business.models import Business
 from ..crypto import AgentSecretEncryptionError
 from ..models import AgentChannel, AgentInstance, ReceptionistConfig, WhatsAppAuthorization
 from . import whatsapp_authorizations as wa
+from .whatsapp_authorizations import EVIDENCE_VERSION, channel_meta_verification  # noqa: F401 (contrato 10B2)
 from .meta_graph import WhatsAppResourceVerification, verify_whatsapp_resources
 from .receptionist_config import admin_reception_business
 
@@ -49,7 +56,10 @@ SOURCE_ASSISTED = 'assisted'
 SOURCE_EMBEDDED_SIGNUP = 'embedded_signup'
 LINK_SOURCES = frozenset({SOURCE_ASSISTED, SOURCE_EMBEDDED_SIGNUP})
 REASON_MAX_LENGTH = 255
-EVIDENCE_VERSION = 1
+
+# PROD-10C1: el agente opera solo números de Cloud API. Ausente, desconocido
+# u otro valor (ON_PREMISE, NOT_APPLICABLE…) se rechaza antes de escribir.
+REQUIRED_PLATFORM_TYPE = 'CLOUD_API'
 
 OUTCOME_LINKED = 'linked'
 OUTCOME_ALREADY_LINKED = 'already_linked'
@@ -180,36 +190,6 @@ def _evidence(verification: WhatsAppResourceVerification, *, phone_number_id: st
     }
 
 
-def channel_meta_verification(channel: AgentChannel | None, now: dt.datetime | None = None) -> dict | None:
-    """Evidencia vigente del canal, o `None` si ya no corresponde.
-
-    Pura (sin consultas extra si `whatsapp_authorization` viene cargada). Se
-    descarta si el canal no entregaría hoy su credencial
-    (`channel_credential_problem`), o si cambió la autorización, su versión
-    (rotación, revocación o invalidación tocan `updated_at`), la WABA o el
-    número. Aun vigente es histórica: `verified_at` dice cuándo se observó,
-    no que la conexión funcione ahora.
-    """
-    if channel is None or not channel.meta_verification:
-        return None
-    if wa.channel_credential_problem(channel, now or timezone.now()) is not None:
-        return None
-    evidence, authorization = channel.meta_verification, channel.whatsapp_authorization
-    try:
-        bound_updated_at = dt.datetime.fromisoformat(evidence.get('authorization_updated_at') or '')
-    except (TypeError, ValueError):
-        return None
-    if (
-        evidence.get('version') != EVIDENCE_VERSION
-        or evidence.get('authorization_id') != str(authorization.pk)
-        or bound_updated_at != authorization.updated_at
-        or evidence.get('waba_id') != channel.waba_id
-        or evidence.get('phone_number_id') != channel.phone_number_id
-    ):
-        return None
-    return evidence
-
-
 # ── Operación ────────────────────────────────────────────────────────────────
 
 def _same_token(authorization: WhatsAppAuthorization, token: str) -> bool:
@@ -232,11 +212,37 @@ def _locked_existing(phone_number_id: str) -> AgentChannel | None:
     return locked
 
 
-def _attention_enabled(business: Business) -> bool:
-    return bool(
-        ReceptionistConfig.objects.filter(business=business)
-        .values_list('automatic_attention_enabled', flat=True).first()
-    )
+def _attention_enabled(business: Business, *, lock: bool = False) -> bool:
+    qs = ReceptionistConfig.objects.filter(business=business)
+    if lock:
+        qs = qs.select_for_update()
+    return bool(qs.values_list('automatic_attention_enabled', flat=True).first())
+
+
+_PAUSE_REQUIRED = (
+    'automatic_attention_must_be_paused',
+    'Pausá la atención automática del comercio antes de vincular un número nuevo.',
+)
+
+
+def _makes_operational(channel: AgentChannel | None) -> bool:
+    """Alta de canal o primera credencial de uno existente: queda atendible."""
+    return channel is None or channel.whatsapp_authorization_id is None
+
+
+def _require_paused_attention(business: Business, channel: AgentChannel | None) -> None:
+    """PROD-10C1: no se suma un número operativo con la atención automática encendida.
+
+    Nunca la pausa: lo decide el operador con el control existente (09C3). Una
+    repetición equivalente sobre un canal ya operativo no la exige.
+    """
+    if _makes_operational(channel) and _attention_enabled(business):
+        raise _fail(*_PAUSE_REQUIRED)
+
+
+def _require_cloud_api(verification: WhatsAppResourceVerification) -> None:
+    if verification.phone_number.platform_type != REQUIRED_PLATFORM_TYPE:
+        raise _fail('phone_platform_not_supported', 'El número no opera con WhatsApp Cloud API.')
 
 
 def link_whatsapp_channel(
@@ -257,23 +263,30 @@ def link_whatsapp_channel(
     wa._validate_token(token)
     business = _eligible_business(business)
     instance = _shared_instance()
-    # Falla rápido, antes de llamar a Meta (se revalida bajo lock).
-    _check_existing(
-        _active_channel(phone_number_id) if isinstance(phone_number_id, str) else None,
-        business=business, instance=instance, waba_id=waba_id, now=timezone.now(),
-    )
+    # Falla rápido, antes de llamar a Meta (todo se revalida bajo lock).
+    existing = _active_channel(phone_number_id) if isinstance(phone_number_id, str) else None
+    _check_existing(existing, business=business, instance=instance, waba_id=waba_id, now=timezone.now())
+    _require_paused_attention(business, existing)
 
     verification = verify_whatsapp_resources(
         token=token, waba_id=waba_id, phone_number_id=phone_number_id, session=session,
     )
+    _require_cloud_api(verification)
     waba_id = verification.waba_id
     phone_number_id = verification.phone_number.phone_number_id
     expires_at = _effective_expiry(verification)
 
     try:
         with transaction.atomic():
-            Business.objects.select_for_update().filter(pk=business.pk).first()
+            # NO KEY UPDATE: serializa vinculaciones (y espera a quien tenga el
+            # Business FOR UPDATE) sin bloquear los FOR KEY SHARE de las FK. El
+            # PATCH de atención bloquea la config y luego inserta su auditoría
+            # (FK a Business): con FOR UPDATE acá eso era un deadlock.
+            Business.objects.select_for_update(no_key=True).filter(pk=business.pk).first()
             business = _eligible_business(business)
+            # Lock Business → config (el de authorize y la cancelación): un
+            # PATCH que habilite la atención espera o ya se ve acá.
+            attention = _attention_enabled(business, lock=True)
             if _shared_instance().pk != instance.pk:
                 raise _fail('agent_instance_unavailable', 'La instancia compartida cambió; reintentar.')
             now = timezone.now()
@@ -281,6 +294,8 @@ def link_whatsapp_channel(
                 raise _fail('whatsapp_authorization_expired', 'La autorización venció durante la vinculación.')
             channel = _locked_existing(phone_number_id)
             _check_existing(channel, business=business, instance=instance, waba_id=waba_id, now=now)
+            if attention and _makes_operational(channel):
+                raise _fail(*_PAUSE_REQUIRED)
 
             created_channel = channel is None
             if created_channel:
@@ -310,7 +325,6 @@ def link_whatsapp_channel(
             )
             channel.meta_verification = evidence
             channel.save(update_fields=['meta_verification'])
-            attention = _attention_enabled(business)
             outcome = OUTCOME_LINKED if created_authorization else OUTCOME_ALREADY_LINKED
             record_platform_action(
                 action='WHATSAPP_CHANNEL_LINKED', actor=actor, business=business,

@@ -712,6 +712,8 @@ ADMIN_IP_ALLOWLIST = [
 REST_FRAMEWORK['DEFAULT_THROTTLE_RATES'].update({
     'admin_auth': os.getenv('ADMIN_AUTH_THROTTLE_RATE', '30/minute'),
     'admin_mfa': os.getenv('ADMIN_MFA_THROTTLE_RATE', '10/minute'),
+    # PROD-10C1: POST de vinculación WhatsApp (cada uno hace 3+ lecturas a Meta).
+    'admin_whatsapp_link': os.getenv('ADMIN_WHATSAPP_LINK_THROTTLE_RATE', '10/minute'),
 })
 
 # ── DRF throttle scopes for public auth endpoints ───────────────────────────

@@ -258,6 +258,42 @@ def channel_credential_problem(channel: AgentChannel | None, now: dt.datetime) -
     return None
 
 
+# PROD-10B2: evidencia de verificación en Meta (la escribe
+# `whatsapp_link.link_whatsapp_channel`). Vive acá para que la lectura de
+# Platform Admin y la vinculación usen la misma regla sin import circular.
+EVIDENCE_VERSION = 1
+
+
+def channel_meta_verification(channel: AgentChannel | None, now: dt.datetime | None = None) -> dict | None:
+    """Evidencia vigente del canal, o `None` si ya no corresponde.
+
+    Pura (sin consultas extra si `whatsapp_authorization` viene cargada). Se
+    descarta si el canal no entregaría hoy su credencial
+    (`channel_credential_problem`), o si cambió la autorización, su versión
+    (rotación, revocación o invalidación tocan `updated_at`), la WABA o el
+    número. Aun vigente es histórica: `verified_at` dice cuándo se observó,
+    no que la conexión funcione ahora.
+    """
+    if channel is None or not channel.meta_verification:
+        return None
+    if channel_credential_problem(channel, now or timezone.now()) is not None:
+        return None
+    evidence, authorization = channel.meta_verification, channel.whatsapp_authorization
+    try:
+        bound_updated_at = dt.datetime.fromisoformat(evidence.get('authorization_updated_at') or '')
+    except (TypeError, ValueError):
+        return None
+    if (
+        evidence.get('version') != EVIDENCE_VERSION
+        or evidence.get('authorization_id') != str(authorization.pk)
+        or bound_updated_at != authorization.updated_at
+        or evidence.get('waba_id') != channel.waba_id
+        or evidence.get('phone_number_id') != channel.phone_number_id
+    ):
+        return None
+    return evidence
+
+
 def resolve_channel_whatsapp_credential(channel_id) -> ChannelWhatsAppCredential:
     """Credencial vigente de un canal: canal + token + vencimiento.
 
@@ -361,13 +397,73 @@ def _authorization_block(channel: AgentChannel, now: dt.datetime) -> dict | None
     }
 
 
+def _verification_block(channel: AgentChannel, now: dt.datetime) -> dict:
+    """PROD-10C1: evidencia de Meta del canal, solo vía `channel_meta_verification`.
+
+    `missing` (canal legacy o nunca verificado), `invalidated` (había evidencia
+    pero ya no corresponde a la credencial, WABA o número actuales, o el canal
+    no entregaría hoy su credencial) o `valid`. Aun `valid` es una observación
+    histórica: no afirma conectividad actual, webhook funcionando ni mensajes.
+    """
+    evidence = channel_meta_verification(channel, now)
+    if evidence is None:
+        return {'status': 'invalidated' if channel.meta_verification else 'missing'}
+    phone = evidence.get('phone') or {}
+    return {
+        'status': 'valid',
+        'verified_at': evidence.get('verified_at'),
+        'source': evidence.get('source'),
+        'resources_verified': True,
+        'waba_id': evidence.get('waba_id'),
+        'phone_number_id': evidence.get('phone_number_id'),
+        'app_subscribed_observed': evidence.get('app_subscribed'),
+        'override_callback_observed': evidence.get('override_callback_configured'),
+        'phone': {key: phone.get(key) for key in (
+            'display_phone_number', 'verified_name', 'code_verification_status', 'quality_rating', 'platform_type',
+        )},
+        'legal_ownership_verified': False,
+    }
+
+
+def admin_whatsapp_channel(channel: AgentChannel, now: dt.datetime) -> dict:
+    """Fila de un canal para Platform Admin (GET 08E1 y respuesta del POST 10C1).
+
+    Requiere `agent_instance` y `whatsapp_authorization` cargados. Sin
+    escrituras, descifrado ni llamadas a Meta.
+    """
+    instance = channel.agent_instance
+    problem = channel_credential_problem(channel, now)
+    if problem is None and not instance.is_enabled:
+        problem = 'agent_instance_disabled'
+    return {
+        'id': str(channel.pk),
+        'provider': channel.provider,
+        'phone_number_id': channel.phone_number_id,
+        'waba_id': channel.waba_id or None,
+        'is_active': channel.is_active,
+        'created_at': _iso(channel.created_at),
+        'deactivated_at': _iso(channel.deactivated_at),
+        'agent_instance': {
+            'external_id': instance.external_id,
+            'name': instance.name,
+            'is_enabled': instance.is_enabled,
+            'disabled_at': _iso(instance.disabled_at),
+        },
+        'authorization': _authorization_block(channel, now),
+        # `credential_ready`: Mi Rubro entregaría al agente la credencial guardada.
+        'local_status': problem or 'credential_ready',
+        'meta_verification': _verification_block(channel, now),
+    }
+
+
 def admin_whatsapp_connections(business: Business) -> dict:
     """Canales WhatsApp del Business y su estado LOCAL. Solo lectura.
 
     Sin escrituras, locks, descifrado ni llamadas a Meta: `local_status`
     describe lo que Mi Rubro tiene registrado (la misma regla con la que
     entrega la credencial al agente), nunca conectividad real, permisos en
-    Meta, agente online ni capacidad de envío.
+    Meta, agente online ni capacidad de envío. `meta_verification` (10C1) es
+    la última observación registrada al vincular, no una consulta actual.
     """
     now = timezone.now()
     channels = (
@@ -375,35 +471,11 @@ def admin_whatsapp_connections(business: Business) -> dict:
         .select_related('agent_instance', 'whatsapp_authorization')
         .order_by('-is_active', '-created_at', 'id')
     )
-    rows = []
-    for channel in channels:
-        instance = channel.agent_instance
-        problem = channel_credential_problem(channel, now)
-        if problem is None and not instance.is_enabled:
-            problem = 'agent_instance_disabled'
-        rows.append({
-            'id': str(channel.pk),
-            'provider': channel.provider,
-            'phone_number_id': channel.phone_number_id,
-            'waba_id': channel.waba_id or None,
-            'is_active': channel.is_active,
-            'created_at': _iso(channel.created_at),
-            'deactivated_at': _iso(channel.deactivated_at),
-            'agent_instance': {
-                'external_id': instance.external_id,
-                'name': instance.name,
-                'is_enabled': instance.is_enabled,
-                'disabled_at': _iso(instance.disabled_at),
-            },
-            'authorization': _authorization_block(channel, now),
-            # `credential_ready`: Mi Rubro entregaría al agente la credencial guardada.
-            'local_status': problem or 'credential_ready',
-        })
     return {
         'contract_version': ADMIN_WHATSAPP_CONNECTIONS_CONTRACT_VERSION,
         'business_id': business.pk,
         'evaluated_at': now.isoformat(),
-        'channels': rows,
+        'channels': [admin_whatsapp_channel(channel, now) for channel in channels],
         'external_verification': {
             'performed': False,
             'meta_connectivity': 'unknown',

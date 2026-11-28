@@ -479,13 +479,13 @@ class AttentionTests(_Base):
         self.assertIs(result.automatic_attention_enabled, False)
         self.assertFalse(ReceptionistConfig.objects.filter(business=self.business).exists())
 
-    def test_enabled_attention_is_preserved_untouched(self):
+    def test_enabled_attention_is_never_changed(self):
+        """PROD-10C1: con la atención encendida el alta se bloquea; la config queda intacta."""
         config = enable_reception_attention(self.business)
         before = ReceptionistConfig.objects.filter(pk=config.pk).values().get()
-        result = self.link()
-        self.assertIs(result.automatic_attention_enabled, True)
+        self.assertCode('automatic_attention_must_be_paused')
+        self.assertNothingWritten()
         self.assertEqual(ReceptionistConfig.objects.filter(pk=config.pk).values().get(), before)
-        self.assertIs(self.link_audits()[0].details['automatic_attention_enabled'], True)
 
 
 # ── Entrega por el endpoint HMAC existente (PROD-04C) ────────────────────────

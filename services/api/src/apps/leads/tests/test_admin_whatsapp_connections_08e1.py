@@ -275,8 +275,9 @@ class AccessTests(_Base):
         self.assertEqual(response.status_code, 200, response.content)
         return {row['phone_number_id']: row for row in response.json()['channels']}
 
-    def test_only_get(self):
-        for method in ('post', 'put', 'patch', 'delete'):
+    def test_only_get_and_post(self):
+        # PROD-10C1: POST vincula (cubierto en test_admin_whatsapp_link_10c1).
+        for method in ('put', 'patch', 'delete'):
             with self.subTest(method=method):
                 self.assertEqual(getattr(self.admin, method)(url(self.business), {}, format='json').status_code, 405)
 
