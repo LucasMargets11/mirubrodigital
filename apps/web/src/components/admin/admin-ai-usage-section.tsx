@@ -1,5 +1,6 @@
 'use client';
 
+import { ReceptionValidityExtension, extendableReceptionSubscription } from '@/components/admin/reception-validity-extension';
 import { SectionCard } from '@/components/admin/section-card';
 import { StatusBadge } from '@/components/admin/status-badge';
 import { AIUsageSummaryView, aiUsageTierLabel } from '@/features/reception/ai-usage-summary-panel';
@@ -93,10 +94,18 @@ function AdminDetails({ overview }: { overview: AdminAIUsageOverview }) {
 /**
  * PROD-08D — Consumo comercial de IA del cliente. Reutiliza la presentación
  * de `AIUsageSummaryPanel` con el `summary` administrativo: nunca consulta
- * `GET /api/v1/ai-usage/` (endpoint del comercio). Solo lectura.
+ * `GET /api/v1/ai-usage/` (endpoint del comercio). Solo lectura, salvo la
+ * acción «Extender vigencia» (PROD-09D2): solo superadmin y solo sobre una
+ * bonificación manual de Recepcionista identificada por la fuente comercial.
  */
-export function AdminAIUsageSection({ businessId }: { businessId: number }) {
+export function AdminAIUsageSection({ businessId, businessName = '', canExtendValidity = false }: {
+    businessId: number;
+    businessName?: string;
+    /** Solo superadmin (sesión de Platform Admin); el backend vuelve a verificarlo. */
+    canExtendValidity?: boolean;
+}) {
     const query = useAdminAIUsage(businessId);
+    const extendable = canExtendValidity ? extendableReceptionSubscription(query.data) : null;
 
     return (
         <SectionCard
@@ -115,6 +124,14 @@ export function AdminAIUsageSection({ businessId }: { businessId: number }) {
                     }}
                 />
                 {query.data ? <AdminDetails overview={query.data} /> : null}
+                {extendable ? (
+                    <ReceptionValidityExtension
+                        key={`${businessId}:${extendable.id}`}
+                        businessId={businessId}
+                        businessName={businessName}
+                        subscription={extendable}
+                    />
+                ) : null}
             </div>
         </SectionCard>
     );

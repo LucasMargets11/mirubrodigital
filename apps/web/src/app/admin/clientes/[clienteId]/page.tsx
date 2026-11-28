@@ -1,7 +1,7 @@
 import { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 
-import { getAdminClientDetail } from '@/lib/admin';
+import { getAdminClientDetail, getAdminSession } from '@/lib/admin';
 import { AdminPageHeader } from '@/components/admin/admin-page-header';
 import { ClienteDetailContent } from './cliente-detail-content';
 
@@ -18,7 +18,7 @@ export default async function AdminClienteDetailPage({ params }: Props) {
   const id = parseInt(clienteId, 10);
   if (isNaN(id)) notFound();
 
-  const client = await getAdminClientDetail(id);
+  const [client, session] = await Promise.all([getAdminClientDetail(id), getAdminSession()]);
   if (!client) notFound();
 
   return (
@@ -27,7 +27,7 @@ export default async function AdminClienteDetailPage({ params }: Props) {
         title={client.name}
         description={`ID: ${client.id} · ${client.service_type || '—'} · ${client.country}`}
       />
-      <ClienteDetailContent client={client} />
+      <ClienteDetailContent client={client} canExtendValidity={session?.internal_role === 'superadmin'} />
     </div>
   );
 }

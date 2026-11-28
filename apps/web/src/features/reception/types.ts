@@ -72,6 +72,30 @@ export type AdminAIUsageOverview = {
     scope: string;
 };
 
+/** PROD-09D2 — Body de la extensión: exactamente estos dos campos. */
+export type AdminSubscriptionExtension = {
+    /** "YYYY-MM-DD": mismo formato que el alta (fin exclusivo, 00:00 en la zona del backend). */
+    complimentary_end: string;
+    reason: string;
+};
+
+/** PROD-09D2 — 200 de `POST .../subscriptions/{id}/extension/` (PROD-09D1). */
+export type AdminSubscriptionExtensionResponse = {
+    business: { id: number; status: string; service_type: string; default_service: string };
+    subscription: {
+        id: string;
+        service_type: string;
+        plan_code: string;
+        usage_tier: string | null;
+        provider: string;
+        status: string;
+        current_period_start: string;
+        current_period_end: string;
+    };
+    custom_policy: { id: string; included_sessions: number; valid_from: string; valid_until: string | null } | null;
+    extension: { previous_end: string; new_end: string };
+};
+
 /** Conteo que el backend informa como `null` cuando no hay datos (nunca 0). */
 type Count = number | null;
 type TokenBlock = { total: number | null; reported: number; unknown: number };

@@ -21,9 +21,14 @@ export function useAIUsageSummary() {
 // cliente nunca reutiliza datos del anterior.
 const ADMIN_READ = { retry: false, retryOnMount: false, refetchOnWindowFocus: false, staleTime: 60_000 } as const;
 
+/** Misma key para la sección de consumo y el checklist de preparación (PROD-09D2 la invalida). */
+export function adminAIUsageKey(businessId: number) {
+    return ['platform-admin', 'ai-usage', businessId] as const;
+}
+
 export function useAdminAIUsage(businessId: number) {
     return useQuery({
-        queryKey: ['platform-admin', 'ai-usage', businessId],
+        queryKey: adminAIUsageKey(businessId),
         queryFn: () => getAdminAIUsage(businessId),
         ...ADMIN_READ,
     });

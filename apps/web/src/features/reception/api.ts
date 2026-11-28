@@ -1,6 +1,9 @@
-import { apiGet } from '@/lib/api/client';
+import { apiGet, apiPost } from '@/lib/api/client';
 
-import type { AIUsageSummary, AdminAIUsageOverview, AdminWhatsAppConnections, OperationalMetrics } from './types';
+import type {
+    AIUsageSummary, AdminAIUsageOverview, AdminSubscriptionExtension, AdminSubscriptionExtensionResponse,
+    AdminWhatsAppConnections, OperationalMetrics,
+} from './types';
 
 /** Consumo comercial de IA del negocio activo (403 `ai_service_not_contracted` sin fuente IA). */
 export function getAIUsageSummary() {
@@ -21,6 +24,20 @@ export function getAdminOperationalMetrics(businessId: number, range: MetricsRan
     const qs = params.toString();
     return apiGet<OperationalMetrics>(
         `/api/v1/platform-admin/clients/${businessId}/operational-metrics/${qs ? `?${qs}` : ''}`,
+    );
+}
+
+/**
+ * PROD-09D2 — Extiende la bonificación vigente de Recepcionista (PROD-09D1,
+ * solo superadmin). El id de suscripción es el de la fuente comercial real
+ * (`source_subscription.id`), nunca la suscripción principal del comercio.
+ */
+export function extendAdminReceptionSubscription(
+    businessId: number, subscriptionId: string, body: AdminSubscriptionExtension,
+) {
+    return apiPost<AdminSubscriptionExtensionResponse>(
+        `/api/v1/platform-admin/clients/${businessId}/subscriptions/${encodeURIComponent(subscriptionId)}/extension/`,
+        body,
     );
 }
 

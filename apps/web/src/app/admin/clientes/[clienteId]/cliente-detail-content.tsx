@@ -43,9 +43,11 @@ import type { AdminClientDetail } from '@/lib/admin/types';
 
 type Props = {
   client: AdminClientDetail;
+  /** PROD-09D2: sesión superadmin (resuelta en el servidor). */
+  canExtendValidity?: boolean;
 };
 
-export function ClienteDetailContent({ client }: Props) {
+export function ClienteDetailContent({ client, canExtendValidity = false }: Props) {
   const [noteBody, setNoteBody] = useState('');
   const [noteSubmitting, setNoteSubmitting] = useState(false);
   const [notes, setNotes] = useState(client.notes);
@@ -232,7 +234,13 @@ export function ClienteDetailContent({ client }: Props) {
           )}
 
           {/* Recepcionista IA — principal o adicional; se oculta solo ante 404 client_not_found */}
-          <ReceptionistAdminCard key={client.id} businessId={client.id} businessName={client.name} owner={client.owner} />
+          <ReceptionistAdminCard
+            key={client.id}
+            businessId={client.id}
+            businessName={client.name}
+            owner={client.owner}
+            canExtendValidity={canExtendValidity}
+          />
         </div>
 
         {/* Right column: sidebar */}

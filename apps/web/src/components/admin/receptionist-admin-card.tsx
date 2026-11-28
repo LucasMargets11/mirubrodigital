@@ -21,6 +21,8 @@ type Props = {
     businessName: string;
     /** Owner del detalle del cliente (membership activa), para la preparación. */
     owner: AdminMember | null;
+    /** PROD-09D2: superadmin puede extender la vigencia bonificada (el backend decide). */
+    canExtendValidity?: boolean;
 };
 
 /**
@@ -42,7 +44,7 @@ export function ReceptionistAdminCard(props: Props) {
     );
 }
 
-function ReceptionistAdminSections({ businessId, businessName, owner }: Props) {
+function ReceptionistAdminSections({ businessId, businessName, owner, canExtendValidity = false }: Props) {
     const target = useMemo<ReceptionistConfigTarget>(() => ({ kind: 'platform_admin', businessId }), [businessId]);
     const { adapter, query } = useReceptionistConfig(target);
 
@@ -66,7 +68,11 @@ function ReceptionistAdminSections({ businessId, businessName, owner }: Props) {
                 <ReceptionistConfigForm target={target} businessName={`${businessName} (ID ${businessId})`} canEdit />
             </SectionCard>
             <AdminWhatsAppConnectionsSection businessId={businessId} />
-            <AdminAIUsageSection businessId={businessId} />
+            <AdminAIUsageSection
+                businessId={businessId}
+                businessName={`${businessName} (ID ${businessId})`}
+                canExtendValidity={canExtendValidity}
+            />
             <AdminOperationalMetricsSection businessId={businessId} />
         </>
     );

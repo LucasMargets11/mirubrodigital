@@ -164,6 +164,18 @@ export function formatDateFromTimestampAR(isoString: string | null | undefined):
 }
 
 /**
+ * ISO datetime → "YYYY-MM-DD" del día calendario en timezone AR (o `null`).
+ * Inverso de enviar una fecha "YYYY-MM-DD" que el backend interpreta como
+ * 00:00 de ese día en TIME_ZONE (America/Argentina/Buenos_Aires).
+ */
+export function dateStringFromTimestampAR(isoString: string | null | undefined): string | null {
+  if (!isoString) return null;
+  const date = new Date(isoString);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat('en-CA', { timeZone: AR_TZ }).format(date);
+}
+
+/**
  * "YYYY-MM-DD" → "DD/MM" (para labels cortos en charts, sin año).
  * String pura, sin UTC shift.
  */
