@@ -107,3 +107,41 @@ def add_service_to_client(
         business.pk, subscription.pk, service_type, plan_code, subscription.usage_tier, granted_by.pk,
     )
     return ClientServiceAdditionResult(business=business, subscription=subscription, custom_policy=custom_policy)
+
+
+@dataclass(frozen=True)
+class ClientServiceExtensionResult:
+    business: Business
+    subscription: SubscriptionV2
+    custom_policy: ReceptionAIUsagePolicy | None
+    previous_end: datetime
+
+
+def extend_client_service(
+    *,
+    business_id: int,
+    subscription_id,
+    complimentary_end: datetime,
+    extended_by,
+    reason: str,
+) -> ClientServiceExtensionResult:
+    """
+    PROD-09D1: extend the bonified window of a client's current Recepcionista
+    grant. Same actor rule as provisioning/add-service (fresh superadmin);
+    every commercial rule, lock and audit lives in
+    billing.complimentary_access_service.extend_complimentary_access.
+    """
+    from apps.billing.complimentary_access_service import extend_complimentary_access
+
+    extended_by = _authorize_actor(extended_by)
+    subscription, previous_end, change = extend_complimentary_access(
+        business_id=business_id, subscription_id=subscription_id, new_end=complimentary_end,
+        extended_by=extended_by, reason=reason,
+    )
+    # Committed rows (stored instants, one format in the response).
+    subscription = SubscriptionV2.objects.select_related('business').get(pk=subscription.pk)
+    policy = ReceptionAIUsagePolicy.objects.get(pk=change.policy_id) if change is not None else None
+    return ClientServiceExtensionResult(
+        business=subscription.business, subscription=subscription, custom_policy=policy,
+        previous_end=previous_end,
+    )

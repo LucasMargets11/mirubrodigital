@@ -247,6 +247,31 @@ def count_ai_sessions_for_usage_period(
     ).count()
 
 
+def _count_used_sessions(
+    business: Business, subscription: SubscriptionV2, period_start: datetime, period_end: datetime,
+) -> int:
+    """Sessions consumed in the running usage period (admission and read API).
+
+    PROD-09D1: the last period of a complimentary grant is clipped to the grant
+    end, so extending the grant (billing.complimentary_access_service) moves
+    that period's end. Sessions already recorded under the shorter key — same
+    start, end inside the period — keep counting: the allowance is never reset
+    or duplicated and recorded rows are never rewritten. The 02F5 usage-overlap
+    guard keeps any other subscription's period from sharing that start.
+    Every other cycle keeps the exact-key count.
+    """
+    if _usage_cycle(subscription) != COMPLIMENTARY_CYCLE:
+        return count_ai_sessions_for_usage_period(
+            business=business, period_start=period_start, period_end=period_end,
+        )
+    start, end = _utc(period_start), _utc(period_end)
+    if end <= start:
+        raise AIUsageUnavailable('A positive usage period is required.')
+    return AppointmentAIUsageSession.objects.filter(
+        business=business, usage_period_start=start, usage_period_end__gt=start, usage_period_end__lte=end,
+    ).count()
+
+
 @transaction.atomic
 def get_or_create_ai_usage_session(
     *, business: Business, conversation_id: str, interaction_id: UUID, at: datetime,
@@ -334,9 +359,7 @@ def _appointments_ai_usage(business: Business, *, at: datetime, lock: bool = Tru
     subscription = _source_subscription(business, at=at, lock=lock)
     period_start, period_end = resolve_appointments_ai_usage_period(subscription, at=at)
     included = resolve_ai_usage_limit(subscription, at=at)
-    used = count_ai_sessions_for_usage_period(
-        business=business, period_start=period_start, period_end=period_end,
-    )
+    used = _count_used_sessions(business, subscription, period_start, period_end)
     return {
         'usage_tier': subscription.usage_tier,
         'period_start': period_start,

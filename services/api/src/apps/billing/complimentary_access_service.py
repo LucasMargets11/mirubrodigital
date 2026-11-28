@@ -596,3 +596,148 @@ def _check_ai_source_rules(business, service_type: str, plan_code: str, starts_a
     if isinstance(conflict, IncompatibleAISourceConflict):
         raise IncompatibleAIServiceError(str(conflict))
     raise AIUsagePeriodOverlapError(str(conflict))
+
+
+# ── PROD-09D1: extension of a bonified Recepcionista window ─────────────────
+
+class ComplimentaryExtensionError(ComplimentaryAccessError):
+    """Rejected extension (never partially applied). ``code`` is the API code."""
+
+    def __init__(self, message: str, *, code: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+EXTENSION_REASON_MAX_LENGTH = 255  # ReceptionAIUsagePolicyChange.reason
+
+
+def extend_complimentary_access(
+    *,
+    business_id: int,
+    subscription_id,
+    new_end: datetime,
+    extended_by,
+    reason: str,
+    now: datetime | None = None,
+):
+    """
+    Move ``current_period_end`` of a CURRENT complimentary Recepcionista grant
+    to a later instant. Same subscription: plan, tier, start, provider and
+    status are untouched; a suspended, canceled, expired, not-started or
+    cancellation-scheduled grant is never reactivated or extended.
+
+    Consumption continuity: the usage periods stay anchored at
+    ``current_period_start``; only the last (clipped) period gets a later end
+    and its recorded sessions keep counting (ai_usage._count_used_sessions).
+    Sessions, charges, receipts and windows are never written.
+
+    ``reception_custom``: the aligned policy version is extended in the same
+    transaction (reception_ai_policy.extend_reception_custom_policy); any
+    failure rolls the whole extension back. Automatic attention is untouched.
+
+    Lock order Business → SubscriptionV2 (→ policy), the engine's. The
+    platform audit entry is mandatory (same transaction).
+
+    Returns (subscription, previous_end, policy_change_or_None).
+    """
+    from django.utils import timezone as _tz
+
+    from apps.accounts.platform_audit import record_platform_action
+    from apps.business.models import Business
+
+    from .services.appointments_lifecycle import complimentary_grant_active, is_complimentary_grant
+    from .services.reception_ai_policy import CustomPolicyError, extend_reception_custom_policy, is_reception_custom
+
+    if extended_by is None:
+        raise ComplimentaryAccessError('Debe indicar el administrador que extiende el acceso.')
+    reason = (reason or '').strip()
+    if not reason or len(reason) > EXTENSION_REASON_MAX_LENGTH:
+        raise ComplimentaryExtensionError(
+            f'Debe indicar un motivo (1 a {EXTENSION_REASON_MAX_LENGTH} caracteres).', code='invalid_reason',
+        )
+    if not isinstance(new_end, datetime) or _tz.is_naive(new_end):
+        raise ComplimentaryExtensionError('La nueva fecha de vencimiento no es válida.', code='invalid_end')
+    now = now or _tz.now()
+
+    with transaction.atomic():
+        business = Business.objects.select_for_update().filter(pk=business_id, parent__isnull=True).first()
+        if business is None:
+            raise ComplimentaryExtensionError('Cliente no encontrado.', code='client_not_found')
+        subscription = (
+            SubscriptionV2.objects.select_for_update()
+            .filter(pk=subscription_id, business_id=business.pk).first()
+        )
+        if subscription is None:
+            raise ComplimentaryExtensionError('Suscripción no encontrada.', code='subscription_not_found')
+        if subscription.service_type != 'reception' or subscription.plan_code != 'reception':
+            raise ComplimentaryExtensionError(
+                'Solo se extienden bonificaciones de Recepcionista IA.', code='subscription_not_extendable',
+            )
+        if subscription.status == SubscriptionV2.Status.CANCELED:
+            raise ComplimentaryExtensionError('La suscripción está cancelada.', code='subscription_canceled')
+        if subscription.status == SubscriptionV2.Status.SUSPENDED:
+            raise ComplimentaryExtensionError(
+                'La suscripción está suspendida; la extensión no la reactiva.', code='subscription_suspended',
+            )
+        if not is_complimentary_grant(subscription):
+            raise ComplimentaryExtensionError(
+                'La suscripción no es una bonificación manual.', code='subscription_not_complimentary',
+            )
+        if subscription.cancel_at_period_end:
+            raise ComplimentaryExtensionError(
+                'La suscripción tiene una baja programada.', code='cancellation_scheduled',
+            )
+        if not complimentary_grant_active(subscription, at=now):
+            raise ComplimentaryExtensionError(
+                'La bonificación no está vigente (vencida o sin comenzar).', code='subscription_not_current',
+            )
+        previous_end = subscription.current_period_end
+        if new_end <= previous_end:
+            raise ComplimentaryExtensionError(
+                'La nueva fecha de vencimiento debe ser posterior a la actual.', code='invalid_end',
+            )
+
+        subscription.current_period_end = new_end
+        subscription.save(update_fields=['current_period_end', 'updated_at'])
+
+        policy_change = None
+        if is_reception_custom(subscription):
+            try:
+                policy_change = extend_reception_custom_policy(
+                    subscription=subscription, previous_until=previous_end, new_until=new_end,
+                    actor=extended_by, reason=reason, now=now,
+                )
+            except CustomPolicyError as exc:
+                raise ComplimentaryExtensionError(
+                    'La política de consumo personalizada no se puede extender '
+                    '(revocada, ausente o no alineada con el vencimiento).',
+                    code='custom_policy_not_extendable',
+                ) from exc
+
+        record_platform_action(
+            action='PLATFORM_ADMIN_ACTION',
+            actor=extended_by,
+            entity_type='subscription_v2',
+            entity_id=str(subscription.id),
+            business=business,
+            details={
+                'operation': 'complimentary_extension',
+                'subscription_id': str(subscription.id),
+                'business_id': business.pk,
+                'service_type': subscription.service_type,
+                'plan_code': subscription.plan_code,
+                'usage_tier': subscription.usage_tier,
+                'current_period_start': subscription.current_period_start.isoformat(),
+                'previous_period_end': previous_end.isoformat(),
+                'new_period_end': new_end.isoformat(),
+                'custom_policy_id': str(policy_change.policy_id) if policy_change else None,
+                'custom_policy_change_id': str(policy_change.pk) if policy_change else None,
+                'reason': reason,
+            },
+        )
+
+    logger.info(
+        '[complimentary_access] Extended sub=%s business=%s end %s -> %s admin=%s',
+        subscription.pk, business.pk, previous_end.isoformat(), new_end.isoformat(), extended_by.pk,
+    )
+    return subscription, previous_end, policy_change

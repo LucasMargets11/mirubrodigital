@@ -105,3 +105,17 @@ class AdminClientServiceAdditionInputSerializer(AdminClientProvisioningInputSeri
     owner_email = None
     attach_existing_owner = None
     owner_confirmation_token = None
+
+
+class AdminClientServiceExtensionInputSerializer(serializers.Serializer):
+    """PROD-09D1: POST clients/<id>/subscriptions/<id>/extension/. Only these two fields."""
+
+    complimentary_end = serializers.DateTimeField()
+    reason = serializers.CharField(allow_blank=True, trim_whitespace=False)
+
+    def to_internal_value(self, data):
+        if isinstance(data, Mapping):
+            unknown_fields = sorted(set(data) - set(self.fields))
+            if unknown_fields:
+                raise serializers.ValidationError({field: ['Campo no permitido.'] for field in unknown_fields})
+        return super().to_internal_value(data)

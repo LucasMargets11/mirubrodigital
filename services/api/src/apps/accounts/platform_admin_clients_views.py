@@ -53,10 +53,13 @@ from apps.accounts.admin_client_service_addition import (
     ClientNotFoundError,
     ClientStatusNotEligibleError,
     add_service_to_client,
+    extend_client_service,
 )
+from apps.billing.complimentary_access_service import ComplimentaryExtensionError
 from apps.accounts.platform_admin_clients_serializers import (
     AdminClientProvisioningInputSerializer,
     AdminClientServiceAdditionInputSerializer,
+    AdminClientServiceExtensionInputSerializer,
 )
 from apps.accounts.platform_permissions import IsPlatformStaff, HasInternalRole
 from apps.accounts.platform_audit import log_platform_action
@@ -560,6 +563,52 @@ class AdminClientServicesView(APIView):
         except tuple(SERVICE_ADDITION_ERROR_RESPONSES) as exc:
             return _service_addition_error_response(exc)
         return Response(_service_addition_success_response(result), status=status.HTTP_201_CREATED)
+
+
+# PROD-09D1: extension error codes → HTTP status (domain codes, 1:1).
+EXTENSION_ERROR_STATUS = {
+    'invalid_reason': status.HTTP_400_BAD_REQUEST,
+    'invalid_end': status.HTTP_400_BAD_REQUEST,
+    'client_not_found': status.HTTP_404_NOT_FOUND,
+    'subscription_not_found': status.HTTP_404_NOT_FOUND,
+}
+EXTENSION_ERROR_FIELD = {'invalid_reason': 'reason', 'invalid_end': 'complimentary_end'}
+
+
+class AdminClientSubscriptionExtensionView(APIView):
+    """
+    POST /api/v1/platform-admin/clients/<business_id>/subscriptions/<subscription_id>/extension/
+
+    PROD-09D1. Superadmin only. Body ``{"complimentary_end", "reason"}``;
+    extends the current bonified Recepcionista grant (same subscription, plan,
+    tier, start and status). 200 with the subscription and, for
+    reception_custom, the extended policy version.
+    """
+    permission_classes = [IsAuthenticated, IsPlatformStaff, HasInternalRole]
+    allowed_internal_roles = ['superadmin']
+
+    def post(self, request: Request, business_id: int, subscription_id) -> Response:
+        serializer = AdminClientServiceExtensionInputSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            result = extend_client_service(
+                business_id=business_id, subscription_id=subscription_id,
+                extended_by=request.user, **serializer.validated_data,
+            )
+        except UnauthorizedProvisioningActorError as exc:
+            return _service_addition_error_response(exc)
+        except ComplimentaryExtensionError as exc:
+            return Response(
+                {'code': exc.code, 'detail': str(exc), 'field': EXTENSION_ERROR_FIELD.get(exc.code)},
+                status=EXTENSION_ERROR_STATUS.get(exc.code, status.HTTP_409_CONFLICT),
+            )
+        body = _service_addition_success_response(result)
+        body['extension'] = {
+            'previous_end': result.previous_end.isoformat(),
+            'new_end': result.subscription.current_period_end.isoformat(),
+        }
+        return Response(body, status=status.HTTP_200_OK)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

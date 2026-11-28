@@ -324,6 +324,51 @@ def cancel_scheduled_reception_custom_change(
 
 
 @transaction.atomic
+def extend_reception_custom_policy(
+    *, subscription: SubscriptionV2, previous_until: datetime, new_until: datetime, actor, reason: str,
+    now: Optional[datetime] = None,
+) -> Optional[ReceptionAIUsagePolicyChange]:
+    """PROD-09D1: follow an extension of the bonified window.
+
+    Only the active version that ends exactly at the previous commercial end
+    (the current one, or a scheduled reduction) gets the new end: allowance,
+    start and earlier versions are untouched, so the contracted allowance and
+    any scheduled change are preserved. Revoked/superseded versions never come
+    back; without an active version aligned to the previous end it fails closed.
+    An open-ended version already covers the extension (nothing to write).
+    """
+    now = _now(now)
+    reason = _require(actor, reason)
+    for value in (previous_until, new_until):
+        if not isinstance(value, datetime) or timezone.is_naive(value):
+            raise CustomPolicyError('An explicit timezone-aware instant is required.', code='invalid_instant')
+    if new_until <= previous_until:
+        raise CustomPolicyError('The new end must be after the previous one.', code='invalid_window')
+    subscription = _lock(subscription)
+    versions = list(
+        ReceptionAIUsagePolicy.objects.select_for_update()
+        .filter(subscription=subscription, status=ReceptionAIUsagePolicy.Status.ACTIVE)
+        .filter(Q(valid_until__isnull=True) | Q(valid_until__gt=now))
+    )
+    if any(version.valid_until is None for version in versions):
+        return None
+    tail = [version for version in versions if version.valid_until == previous_until]
+    if len(tail) != 1 or any(version.valid_until > previous_until for version in versions):
+        raise CustomPolicyError(
+            'There is no single active policy aligned with the current end.', code='policy_not_extendable',
+        )
+    tail = tail[0]
+    before = _snapshot(tail)
+    tail.valid_until = new_until
+    tail.save(update_fields=['valid_until', 'updated_at'])
+    return _audit(
+        subscription=subscription, policy=tail, action=ReceptionAIUsagePolicyChange.Action.EXTENDED,
+        previous=tail.included_sessions, new=tail.included_sessions, effective_at=previous_until,
+        actor=actor, reason=reason, details={'before': before, 'after': _snapshot(tail)},
+    )
+
+
+@transaction.atomic
 def revoke_reception_custom_policy(
     *, subscription: SubscriptionV2, actor, reason: str, now: Optional[datetime] = None,
 ) -> ReceptionAIUsagePolicyChange:

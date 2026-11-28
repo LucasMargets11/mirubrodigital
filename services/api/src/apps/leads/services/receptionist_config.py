@@ -285,3 +285,40 @@ def update_receptionist_config(business: Business, data, *, actor, source: str) 
             changed_fields=changed, previous_version=previous_version, **extra,
         )
     return config
+
+
+def pause_attention_for_canceled_subscription(subscription, *, actor) -> bool:
+    """PROD-09D1: la baja definitiva de Recepcionista pausa la atención automática.
+
+    Se llama dentro de la transacción de la cancelación, con Business →
+    SubscriptionV2 ya bloqueados (orden del motor y de authorize); bloquea la
+    config a continuación. Misma escritura versionada y misma auditoría
+    obligatoria que una pausa desde Platform Admin: una falla revierte la baja.
+    Una contratación posterior parte de la atención pausada (nada la
+    re-enciende). `actor=None` = tarea programada (actor_type SYSTEM).
+    Devuelve True si había que pausarla.
+    """
+    config = ReceptionistConfig.objects.select_for_update().filter(business_id=subscription.business_id).first()
+    if config is None or not config.automatic_attention_enabled:
+        return False
+    previous_version = config.version
+    config.automatic_attention_enabled = False
+    _save(config)
+    details = {
+        'changed_fields': [ATTENTION_FIELD], 'previous_version': previous_version,
+        'automatic_attention': 'paused_by_cancellation', 'subscription_id': str(subscription.pk),
+    }
+    if actor is not None:
+        _audit('RECEPTIONIST_CONFIG_UPDATED', config=config, actor=actor, source=SOURCE_PLATFORM_ADMIN, **details)
+    else:
+        from apps.accounts.models import AccessAuditLog
+
+        AccessAuditLog.objects.create(
+            action='RECEPTIONIST_CONFIG_UPDATED', actor=None, actor_type=AccessAuditLog.ActorType.SYSTEM,
+            business=config.business, entity_type='receptionist_config', entity_id=str(config.id),
+            details={
+                'source': 'system', 'version': config.version, 'status': config.status,
+                ATTENTION_FIELD: False, **details,
+            },
+        )
+    return True

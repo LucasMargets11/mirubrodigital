@@ -222,12 +222,19 @@ def execute_cancellation(
             )
             raise
 
-    subscription.status = SubscriptionV2.Status.CANCELED
-    subscription.canceled_at = now
-    subscription.is_active = False
-    subscription.save(update_fields=[
-        'status', 'canceled_at', 'is_active', 'updated_at',
-    ])
+    if _is_reception(subscription):
+        # PROD-09D1: Business → SubscriptionV2 → config, one transaction.
+        with transaction.atomic():
+            from apps.business.models import Business
+
+            Business.objects.select_for_update().get(pk=subscription.business_id)
+            locked = SubscriptionV2.objects.select_for_update().get(pk=subscription.pk)
+            if locked.status == SubscriptionV2.Status.CANCELED:
+                return locked
+            _mark_canceled(subscription, now)
+            _pause_reception_attention(subscription, actor=None)
+    else:
+        _mark_canceled(subscription, now)
 
     logger.info(
         "[cancellation] Subscription canceled sub=%s business=%s",
@@ -369,6 +376,11 @@ def cancel_subscription_immediately(
     # ── 4. Atomic write: update local state ───────────────────────────────
     now = timezone.now()
     with transaction.atomic():
+        if _is_reception(subscription):
+            # PROD-09D1: engine/authorize lock order Business → SubscriptionV2 → config.
+            from apps.business.models import Business
+
+            Business.objects.select_for_update().get(pk=subscription.business_id)
         locked = (
             SubscriptionV2.objects
             .select_for_update()
@@ -394,6 +406,11 @@ def cancel_subscription_immediately(
             'cancel_reason', 'canceled_by', 'updated_at',
         ])
 
+        # PROD-09D1: definitive Recepcionista cancellation pauses automatic
+        # attention (same transaction; a later grant never re-enables it).
+        if _is_reception(locked):
+            _pause_reception_attention(locked, actor=canceled_by)
+
         # Revert Business to onboarding so the client can re-subscribe.
         _revert_business_for_admin_cancel(locked)
 
@@ -417,6 +434,25 @@ def cancel_subscription_immediately(
 
 
 # ── Private helpers ───────────────────────────────────────────────────────────
+
+def _mark_canceled(subscription: SubscriptionV2, now) -> None:
+    subscription.status = SubscriptionV2.Status.CANCELED
+    subscription.canceled_at = now
+    subscription.is_active = False
+    subscription.save(update_fields=[
+        'status', 'canceled_at', 'is_active', 'updated_at',
+    ])
+
+
+def _is_reception(subscription: SubscriptionV2) -> bool:
+    return subscription.service_type == SubscriptionV2.ServiceType.RECEPTION
+
+
+def _pause_reception_attention(subscription: SubscriptionV2, *, actor) -> None:
+    from apps.leads.services.receptionist_config import pause_attention_for_canceled_subscription
+
+    pause_attention_for_canceled_subscription(subscription, actor=actor)
+
 
 def _revert_business_for_admin_cancel(subscription: SubscriptionV2) -> None:
     """

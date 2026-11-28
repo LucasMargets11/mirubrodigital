@@ -1357,6 +1357,7 @@ class ReceptionAIUsagePolicyChange(models.Model):
         REDUCTION_SCHEDULED = 'reduction_scheduled', 'Reducción programada'
         SCHEDULE_CANCELED = 'schedule_canceled', 'Cambio programado cancelado'
         REVOKED = 'revoked', 'Revocada'
+        EXTENDED = 'extended', 'Vigencia extendida'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     business = models.ForeignKey(Business, on_delete=models.PROTECT, related_name='+')

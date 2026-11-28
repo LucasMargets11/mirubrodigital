@@ -19,6 +19,7 @@ from .platform_admin_ai_usage_views import (
 )
 from .platform_admin_clients_views import (
     AdminClientServicesView,
+    AdminClientSubscriptionExtensionView,
     AdminClientListView,
     AdminClientDetailView,
     AdminClientKPIsView,
@@ -94,6 +95,11 @@ urlpatterns = [
     path('clients/provisioning-options/', AdminClientProvisioningOptionsView.as_view(), name='platform-admin-clients-provisioning-options'),
     path('clients/<int:business_id>/', AdminClientDetailView.as_view(), name='platform-admin-client-detail'),
     path('clients/<int:business_id>/services/', AdminClientServicesView.as_view(), name='platform-admin-client-services'),
+    # PROD-09D1: extensión de una bonificación vigente de Recepcionista IA.
+    path(
+        'clients/<int:business_id>/subscriptions/<uuid:subscription_id>/extension/',
+        AdminClientSubscriptionExtensionView.as_view(), name='platform-admin-client-subscription-extension',
+    ),
     path('clients/<int:business_id>/qr-reviews-config/', AdminQRReviewsConfigView.as_view(), name='platform-admin-client-qr-reviews-config'),
     # PROD-02E3B: consumo IA comercial del cliente (solo lectura).
     path('clients/<int:business_id>/ai-usage/', AdminClientAIUsageView.as_view(), name='platform-admin-client-ai-usage'),
