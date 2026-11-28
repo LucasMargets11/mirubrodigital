@@ -313,7 +313,10 @@ describe('ReceptionistConfigForm', () => {
 
         fireEvent.click(await screen.findByRole('button', { name: 'Volver a borrador' }));
         const dialog = screen.getByRole('dialog', { name: '¿Volver a borrador?' });
-        expect(within(dialog).getByText(/el agente deja de\s+atender con estos datos/)).toBeInTheDocument();
+        // PROD-09C3: volver a borrador pausa la atención automática; marcarla
+        // otra vez como lista no la reactiva
+        expect(within(dialog).getByText(/también pausa la atención automática/)).toBeInTheDocument();
+        expect(within(dialog).getByText(/no la reactiva/)).toBeInTheDocument();
         fireEvent.click(within(dialog).getByRole('button', { name: 'Cancelar' }));
         expect(patchMock).not.toHaveBeenCalled();
 

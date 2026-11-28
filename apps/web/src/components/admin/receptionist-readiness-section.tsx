@@ -1,8 +1,16 @@
 'use client';
 
+import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+
 import { SectionCard } from '@/components/admin/section-card';
 import { StatusBadge } from '@/components/admin/status-badge';
+import { Button } from '@/components/ui/button';
+import { Modal } from '@/components/ui/modal';
+import { Switch } from '@/components/ui/switch';
 import { useAdminAIUsage, useAdminWhatsAppConnections } from '@/features/reception/hooks';
+import type { ReceptionistConfigAdapter } from '@/features/reception/receptionist-config-api';
+import { ATTENTION_LABELS, attentionStateOf, errorCode } from '@/features/reception/receptionist-config-form';
 import type {
     AdminAIUsageOverview,
     AdminWhatsAppChannel,
@@ -18,6 +26,10 @@ import { ApiError } from '@/lib/api/client';
  * del detalle. Mismas query keys y mismo `Providers`: no agrega requests.
  * No recalcula reglas: usa `diagnosis.code`, `summary.status`,
  * `config.status` y `local_status` tal como llegan.
+ *
+ * PROD-09C3: incluye el interruptor «Atención automática» (único control
+ * operativo, `automatic_attention_enabled`); el checklist informa, nunca
+ * autoriza.
  */
 
 export type ReadinessState = 'met' | 'partial' | 'pending' | 'blocked' | 'unknown';
@@ -205,11 +217,173 @@ const NOT_VERIFIABLE = [
 
 type Props = {
     businessId: number;
+    businessName: string;
     owner: AdminMember | null;
     config: QueryLike<ReceptionistConfigResponse>;
+    /** Adaptador `platform_admin` del bloque: mismo PATCH y misma query key que el formulario. */
+    adapter: ReceptionistConfigAdapter;
 };
 
-export function ReceptionistReadinessSection({ businessId, owner, config }: Props) {
+type Notice = { tone: 'success' | 'error'; text: string; reload?: boolean } | null;
+
+function attentionError(error: unknown): Notice {
+    const code = errorCode(error);
+    if (code === 'version_conflict') {
+        return {
+            tone: 'error',
+            text: 'La configuración cambió desde que la cargaste. Recargá el estado antes de volver a intentarlo; no se cambió nada.',
+            reload: true,
+        };
+    }
+    if (error instanceof ApiError && error.status === 403) {
+        return { tone: 'error', text: 'Tu rol de Platform Admin no puede cambiar la atención automática.' };
+    }
+    if (code === 'validation_error') {
+        return { tone: 'error', text: 'Mi Rubro no aceptó el cambio: la configuración tiene que estar «lista» para habilitarla.' };
+    }
+    const detail = (error instanceof ApiError ? (error.payload as { detail?: unknown } | undefined)?.detail : null);
+    return {
+        tone: 'error',
+        text: typeof detail === 'string' && detail ? detail : 'No pudimos cambiar la atención automática. Intentá nuevamente.',
+    };
+}
+
+/**
+ * PROD-09C3 — Interruptor «Atención automática». Fuente de verdad:
+ * `automatic_attention_enabled` de la configuración (nunca el checklist).
+ * Usa el PATCH admin existente con `expected_version` y el flag solamente;
+ * el interruptor refleja el backend (sin estado optimista) y la respuesta
+ * actualiza la misma query que lee el formulario.
+ */
+function AttentionControl({ businessName, config, adapter, openConditions }: {
+    businessName: string;
+    config: QueryLike<ReceptionistConfigResponse>;
+    adapter: ReceptionistConfigAdapter;
+    openConditions: number;
+}) {
+    const queryClient = useQueryClient();
+    const [confirm, setConfirm] = useState<boolean | null>(null);
+    const [pending, setPending] = useState(false);
+    const [notice, setNotice] = useState<Notice>(null);
+
+    const current = config.data?.config ?? null;
+    const state = attentionStateOf(current);
+    const badge = ATTENTION_LABELS[state];
+    const ready = current?.status === 'ready';
+    const enabled = state === 'enabled';
+    // Pausar nunca depende del estado comercial; habilitar exige «lista».
+    const disabled = !current || state === 'unknown' || pending || (!enabled && !ready);
+
+    const apply = async () => {
+        if (!current || confirm === null) return;
+        const target = confirm;
+        setPending(true);
+        setNotice(null);
+        try {
+            const response = await adapter.patch({
+                expected_version: current.version,
+                automatic_attention_enabled: target,
+            });
+            queryClient.setQueryData(adapter.key, response);
+            setNotice({
+                tone: 'success',
+                text: target ? 'Atención automática habilitada.' : 'Atención automática pausada.',
+            });
+        } catch (error) {
+            setNotice(attentionError(error));
+        } finally {
+            setPending(false);
+            setConfirm(null);
+        }
+    };
+
+    const reload = async () => {
+        setNotice(null);
+        // El formulario protege sus cambios sin guardar si el contenido cambió.
+        await queryClient.refetchQueries({ queryKey: adapter.key });
+    };
+
+    return (
+        <section aria-labelledby="attention-title" className="space-y-2 rounded-lg border border-slate-200 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                    <h4 id="attention-title" className="text-sm font-semibold text-slate-800">Atención automática</h4>
+                    <StatusBadge label={badge.label} colorClass={badge.className} />
+                </div>
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                    <Switch
+                        aria-label="Atención automática"
+                        checked={enabled}
+                        disabled={disabled}
+                        onCheckedChange={(value) => setConfirm(value)}
+                    />
+                    {pending ? 'Guardando…' : enabled ? 'Habilitada' : 'Pausada'}
+                </label>
+            </div>
+            <p className="text-xs text-slate-500">
+                Solo se activa desde acá: nunca al completar la configuración, contratar el servicio ni vincular
+                WhatsApp. Volver la configuración a borrador también la pausa, y marcarla otra vez como lista no la
+                reactiva. Habilitada no significa que el agente esté conectado ni respondiendo.
+            </p>
+            {state === 'unknown' && current ? (
+                <p className="text-xs text-slate-600">No pudimos verificar el estado de la atención automática.</p>
+            ) : null}
+            {current && !ready && !enabled ? (
+                <p className="text-xs text-amber-800">Para habilitarla, la configuración tiene que estar «lista».</p>
+            ) : null}
+            {current && ready && !enabled && openConditions > 0 ? (
+                <p className="text-xs text-amber-800">
+                    Hay {openConditions} condición(es) comercial(es) o técnica(s) sin cumplir o sin verificar. Mi Rubro
+                    sigue controlando el consumo en cada interacción.
+                </p>
+            ) : null}
+            {notice ? (
+                <div className={notice.tone === 'success' ? 'text-xs text-emerald-700' : 'text-xs text-rose-700'} role="status">
+                    <p>{notice.text}</p>
+                    {notice.reload ? (
+                        <Button type="button" variant="outline" size="sm" className="mt-2" onClick={reload}>
+                            Recargar estado
+                        </Button>
+                    ) : null}
+                </div>
+            ) : null}
+
+            <Modal
+                open={confirm !== null}
+                title={confirm ? '¿Habilitar la atención automática?' : '¿Pausar la atención automática?'}
+                eyebrow={null}
+                onClose={() => (pending ? undefined : setConfirm(null))}
+                footer={
+                    <div className="flex justify-end gap-2">
+                        <Button type="button" variant="outline" disabled={pending} onClick={() => setConfirm(null)}>
+                            Cancelar
+                        </Button>
+                        <Button type="button" disabled={pending} onClick={apply}>
+                            {confirm ? 'Habilitar' : 'Pausar'}
+                        </Button>
+                    </div>
+                }
+            >
+                <p className="text-sm text-slate-600">
+                    Comercio: <span className="font-medium text-slate-800">{businessName}</span>
+                </p>
+                <p className="mt-2 text-sm text-slate-600">
+                    {confirm
+                        ? 'El agente podrá responder solo las consultas nuevas de este comercio, mientras Mi Rubro autorice el consumo. No garantiza que el agente esté conectado: lo que no se verifica desde Mi Rubro sigue pendiente.'
+                        : 'Las consultas nuevas de este comercio pasan al equipo y no se responden automáticamente. Al volver a habilitarla, los mensajes del período pausado no se responden.'}
+                </p>
+            </Modal>
+        </section>
+    );
+}
+
+const GROUPS: Array<{ title: string; keys: string[] }> = [
+    { title: 'Cuenta y configuración', keys: ['owner', 'config'] },
+    { title: 'Estado comercial', keys: ['access', 'policy'] },
+    { title: 'Conexiones (estado local)', keys: ['channel', 'auth', 'instance'] },
+];
+
+export function ReceptionistReadinessSection({ businessId, businessName, owner, config, adapter }: Props) {
     const usage = useAdminAIUsage(businessId);
     const connections = useAdminWhatsAppConnections(businessId);
     const channel = channelRows(connections);
@@ -224,31 +398,33 @@ export function ReceptionistReadinessSection({ businessId, owner, config }: Prop
             <div className="space-y-4">
                 <p role="status" className="text-sm text-slate-700">
                     {open === 0
-                        ? 'Condiciones locales cumplidas. Puede haber atención automática: lo que no se verifica desde Mi Rubro sigue pendiente de comprobar.'
+                        ? 'Condiciones locales cumplidas. Lo que no se verifica desde Mi Rubro sigue pendiente de comprobar.'
                         : `${open} de ${rows.length} condiciones sin cumplir o sin verificar.`}
                 </p>
-                <ul className="divide-y divide-slate-100">
-                    {rows.map((row) => (
-                        <li key={row.key} className="flex flex-wrap items-start justify-between gap-2 py-2">
-                            <div className="min-w-0">
-                                <p className="text-sm font-medium text-slate-800">{row.label}</p>
-                                <p className="text-xs text-slate-500">{row.detail}</p>
-                            </div>
-                            <StatusBadge label={STATE_BADGE[row.state].label} colorClass={STATE_BADGE[row.state].color} />
-                        </li>
-                    ))}
-                </ul>
+                {GROUPS.map((group) => (
+                    <div key={group.title}>
+                        <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-400">{group.title}</h4>
+                        <ul className="divide-y divide-slate-100">
+                            {rows.filter((row) => group.keys.includes(row.key)).map((row) => (
+                                <li key={row.key} className="flex flex-wrap items-start justify-between gap-2 py-2">
+                                    <div className="min-w-0">
+                                        <p className="text-sm font-medium text-slate-800">{row.label}</p>
+                                        <p className="text-xs text-slate-500">{row.detail}</p>
+                                    </div>
+                                    <StatusBadge label={STATE_BADGE[row.state].label} colorClass={STATE_BADGE[row.state].color} />
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                ))}
                 {channel.note ? <p className="text-xs text-slate-500">{channel.note}</p> : null}
+                <AttentionControl businessName={businessName} config={config} adapter={adapter} openConditions={open} />
                 <div className="rounded-lg bg-slate-50 p-3">
                     <p className="text-xs font-medium text-slate-600">No verificable desde Mi Rubro</p>
                     <ul className="mt-1 list-disc pl-4 text-xs text-slate-500">
                         {NOT_VERIFIABLE.map((item) => <li key={item}>{item}</li>)}
                     </ul>
                 </div>
-                <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
-                    La atención automática empieza sola cuando se cumplen las condiciones técnicas y comerciales: no hay
-                    un interruptor independiente. Para cortarla en este comercio, volvé la configuración a «Borrador».
-                </p>
             </div>
         </SectionCard>
     );

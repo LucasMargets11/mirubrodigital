@@ -44,7 +44,7 @@ export function ReceptionistAdminCard(props: Props) {
 
 function ReceptionistAdminSections({ businessId, businessName, owner }: Props) {
     const target = useMemo<ReceptionistConfigTarget>(() => ({ kind: 'platform_admin', businessId }), [businessId]);
-    const { query } = useReceptionistConfig(target);
+    const { adapter, query } = useReceptionistConfig(target);
 
     // Hasta saber si el cliente tiene Recepcionista no se muestra el bloque.
     if (query.isLoading) return null;
@@ -52,7 +52,13 @@ function ReceptionistAdminSections({ businessId, businessName, owner }: Props) {
 
     return (
         <>
-            <ReceptionistReadinessSection businessId={businessId} owner={owner} config={query} />
+            <ReceptionistReadinessSection
+                businessId={businessId}
+                businessName={`${businessName} (ID ${businessId})`}
+                owner={owner}
+                config={query}
+                adapter={adapter}
+            />
             <SectionCard
                 title="Recepcionista IA"
                 description="Configuración del agente de este cliente. «Configuración lista» no significa agente conectado."

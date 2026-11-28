@@ -143,6 +143,12 @@ export type ReceptionistConfigField = keyof ReceptionistConfigContent;
 export type ReceptionistConfig = ReceptionistConfigContent & {
     id: string;
     status: ReceptionistConfigStatus;
+    /**
+     * PROD-09C1/09C3 — Control operativo, independiente de `status`. Lo
+     * escribe solo Platform Admin. Ausente o no booleano = estado desconocido
+     * (nunca se asume habilitada).
+     */
+    automatic_attention_enabled?: boolean;
     version: number;
     missing_for_ready: string[];
     created_at: string;
@@ -153,6 +159,8 @@ export type ReceptionistConfigResponse = { config: ReceptionistConfig | null };
 
 export type ReceptionistConfigPatch = Partial<ReceptionistConfigContent> & {
     status?: ReceptionistConfigStatus;
+    /** Solo Platform Admin (el comercio recibe 400 `protected_fields`). */
+    automatic_attention_enabled?: boolean;
     expected_version: number;
 };
 

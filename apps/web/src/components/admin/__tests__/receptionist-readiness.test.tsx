@@ -264,7 +264,7 @@ describe('Platform Admin — Preparación del agente', () => {
         }
     });
 
-    it('todo local en verde: sin afirmaciones de conexión y con el aviso de activación automática', async () => {
+    it('todo local en verde: sin afirmaciones de conexión y sin aviso de activación automática', async () => {
         serve(routes(7, {
             config: { config: config({ status: 'ready', missing_for_ready: [] }) },
             connections: connections([channel('666')]),
@@ -272,12 +272,16 @@ describe('Platform Admin — Preparación del agente', () => {
         render(<ClienteDetailContent client={client()} />);
         const card = await readiness();
         await waitFor(() => expect(within(card).getByRole('status')).toHaveTextContent('Condiciones locales cumplidas.'));
-        expect(within(card).getByRole('status')).toHaveTextContent('lo que no se verifica desde Mi Rubro sigue pendiente');
+        expect(within(card).getByRole('status')).toHaveTextContent(/lo que no se verifica desde Mi Rubro sigue pendiente/i);
         expect(card).toHaveTextContent('No indica que el agente esté conectado ni operativo.');
         for (const text of ['Conectividad real con Meta', 'Que el proceso del agente esté online', 'Flags del entorno', 'Una conversación real de prueba']) {
             expect(card).toHaveTextContent(text);
         }
-        expect(card).toHaveTextContent('no hay un interruptor independiente');
+        // PROD-09C3: el aviso de puesta en marcha automática ya no existe; la
+        // atención automática tiene su propio interruptor
+        expect(card).not.toHaveTextContent('no hay un interruptor independiente');
+        expect(card).not.toHaveTextContent('Puede haber atención automática');
+        expect(card).toHaveTextContent('Solo se activa desde acá');
         // Ni el resumen ni los badges afirman conexión u operación (las únicas
         // menciones son las aclaraciones negativas).
         const claims = /conectad|operativ|activad|online|en línea/i;

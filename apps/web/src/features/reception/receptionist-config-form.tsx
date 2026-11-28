@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -12,6 +12,7 @@ import { receptionistConfigAdapter, type ReceptionistConfigTarget } from './rece
 import {
     RECEPTIONIST_LIST_LIMITS,
     RECEPTIONIST_TEXT_LIMITS,
+    type ReceptionistConfig,
     type ReceptionistConfigContent,
     type ReceptionistConfigField,
     type ReceptionistConfigResponse,
@@ -220,6 +221,22 @@ export function useReceptionistConfig(target: ReceptionistConfigTarget) {
 }
 
 /** 404 de dominio de Platform Admin: el cliente no tiene Recepcionista IA aplicable. */
+/** PROD-09C3: estado de la atención automática según la configuración leída. */
+export type AttentionState = 'enabled' | 'paused' | 'unknown';
+
+export function attentionStateOf(config: ReceptionistConfig | null | undefined): AttentionState {
+    const value = config?.automatic_attention_enabled;
+    if (value === true) return 'enabled';
+    if (value === false) return 'paused';
+    return 'unknown';
+}
+
+export const ATTENTION_LABELS: Record<AttentionState, { label: string; className: string }> = {
+    enabled: { label: 'Habilitada', className: 'bg-emerald-100 text-emerald-700' },
+    paused: { label: 'Pausada', className: 'bg-amber-100 text-amber-800' },
+    unknown: { label: 'Estado desconocido', className: 'bg-slate-100 text-slate-600' },
+};
+
 export function isClientWithoutReception(error: unknown): boolean {
     return error instanceof ApiError && error.status === 404 && errorCode(error) === 'client_not_found';
 }
@@ -266,6 +283,26 @@ function ReceptionistConfigFormInner({ target, businessName, canEdit }: Props) {
     const locked = !canEdit || pending !== null;
 
     useUnsavedChangesGuard(dirty);
+
+    // PROD-09C3: la query es compartida (p. ej. con el interruptor de atención
+    // automática de Platform Admin). Si el CONTENIDO del servidor cambia
+    // mientras hay cambios sin guardar y no es una escritura propia, se entra
+    // en conflicto: nunca se adopta en silencio otra versión para guardar
+    // encima. Un cambio solo de versión/atención automática no toca el
+    // contenido sobre el que se calculan los cambios y no es conflicto.
+    const contentKey = config ? JSON.stringify(contentOf(config)) : null;
+    const baseContentKey = useRef(contentKey);
+    useEffect(() => {
+        if (contentKey === baseContentKey.current) return;
+        const previous = baseContentKey.current;
+        baseContentKey.current = contentKey;
+        if (previous !== null && dirty && pending === null && !inConflict) {
+            setConflictVersion(config?.version ?? null);
+            setNotice(null);
+        }
+        // Solo reacciona a cambios del contenido del servidor.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [contentKey]);
 
     const storeConfig = (response: ReceptionistConfigResponse) => {
         queryClient.setQueryData(adapter.key, response);
@@ -467,6 +504,7 @@ function ReceptionistConfigFormInner({ target, businessName, canEdit }: Props) {
                     «Configuración lista» indica que el contenido está completo. No significa que el agente esté
                     conectado ni atendiendo por WhatsApp.
                 </p>
+                {target.kind === 'business' ? <AttentionLine config={config} /> : null}
                 {!isReady && missing.length > 0 ? (
                     <p className="text-sm text-amber-800">
                         Para marcarla como lista falta: {missing.map((field) => FIELD_LABELS[field] ?? field).join(', ')}.
@@ -644,8 +682,11 @@ function ReceptionistConfigFormInner({ target, businessName, canEdit }: Props) {
                 }
             >
                 <p className="text-sm text-slate-600">
-                    Mientras la configuración esté en borrador, Mi Rubro no se la entrega al agente: el agente deja de
-                    atender con estos datos hasta que la vuelvas a marcar como lista.
+                    Volver a borrador también pausa la atención automática de este negocio: las consultas nuevas pasan
+                    al equipo. Marcarla otra vez como lista no la reactiva;{' '}
+                    {target.kind === 'platform_admin'
+                        ? 'hay que volver a habilitarla en «Preparación del agente».'
+                        : 'la reactiva el equipo de Mi Rubro.'}
                 </p>
             </Modal>
         </div>
@@ -653,6 +694,27 @@ function ReceptionistConfigFormInner({ target, businessName, canEdit }: Props) {
 }
 
 // ── Piezas locales ─────────────────────────────────────────────────────────
+
+/** PROD-09C3 — Comercio: estado de solo lectura de la atención automática. */
+function AttentionLine({ config }: { config: ReceptionistConfig }) {
+    const state = attentionStateOf(config);
+    const badge = ATTENTION_LABELS[state];
+    return (
+        <div className="space-y-1 border-t border-slate-100 pt-3">
+            <div className="flex items-center gap-2">
+                <h3 className="text-sm font-semibold text-slate-800">Atención automática</h3>
+                <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${badge.className}`}>{badge.label}</span>
+            </div>
+            <p className="text-xs text-slate-500">
+                {state === 'unknown'
+                    ? 'No pudimos verificar el estado de la atención automática.'
+                    : 'La habilita o la pausa el equipo de Mi Rubro.'}{' '}
+                Volver a borrador también la pausa; volver a marcarla como lista no la reactiva. Habilitada no
+                significa que el agente esté conectado ni respondiendo.
+            </p>
+        </div>
+    );
+}
 
 function NoticeLine({ notice }: { notice: NonNullable<Notice> }) {
     return (
