@@ -6,13 +6,19 @@ import Link from 'next/link';
 
 import { ToastBubble } from '@/components/app/toast';
 import {
+  ComplimentaryPeriodFields,
+  GrantReasonField,
+  UsageTierFields,
+  errorClass,
+  inputClass,
+  labelClass,
+} from '@/components/admin/complimentary-grant-fields';
+import {
   getAdminClientProvisioningOptions,
   provisionAdminClient,
 } from '@/lib/admin/client';
-import {
-  addCalendarMonths,
-  todayDateOnly,
-} from '@/lib/admin/complimentary-period';
+import { customAllowanceOf, usageTierPayload, validateComplimentaryGrant } from '@/lib/admin/complimentary-grant';
+import { todayDateOnly } from '@/lib/admin/complimentary-period';
 import type {
   AdminClientProvisioningOptions,
   AdminClientProvisioningResult,
@@ -66,8 +72,6 @@ const OWNER_CONFIRMATION_CODES = new Set([
 function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
 }
-type PeriodPreset = '6m' | '1y' | 'custom';
-
 const FIELD_ORDER: (keyof FormState)[] = [
   'business_name',
   'business_slug',
@@ -112,20 +116,6 @@ function validate(
   if (!form.service_type) {
     errors.service_type = 'Seleccioná un servicio.';
   }
-  if (!form.plan_code) {
-    errors.plan_code = 'Seleccioná un plan.';
-  }
-  if (selectedPlan?.usage_tiers?.length && !form.usage_tier) {
-    errors.usage_tier = 'Seleccioná el nivel de uso.';
-  }
-  const customAllowance = selectedPlan?.usage_tiers?.find((t) => t.code === form.usage_tier)?.custom_allowance;
-  if (customAllowance) {
-    const raw = form.custom_included_sessions.trim();
-    const value = Number(raw);
-    if (!/^\d+$/.test(raw) || !Number.isSafeInteger(value) || value < customAllowance.min || value > customAllowance.max) {
-      errors.custom_included_sessions = `Ingresá un número entero entre ${customAllowance.min} y ${customAllowance.max.toLocaleString('es-AR')}.`;
-    }
-  }
 
   const country = form.country.trim();
   if (!country || country.length > 2) {
@@ -136,26 +126,9 @@ function validate(
     errors.currency = 'La moneda debe tener hasta 3 caracteres.';
   }
 
-  if (!form.complimentary_start) {
-    errors.complimentary_start = 'Ingresá la fecha de inicio.';
-  }
-  if (!form.complimentary_end) {
-    errors.complimentary_end = 'Ingresá la fecha de fin.';
-  } else if (form.complimentary_start && form.complimentary_end <= form.complimentary_start) {
-    errors.complimentary_end = 'Debe ser posterior a la fecha de inicio.';
-  }
-
-  if (!form.grant_reason.trim()) {
-    errors.grant_reason = 'Ingresá el motivo de la bonificación.';
-  }
-
-  return errors;
+  // Plan, nivel de uso, cupo, período y motivo: reglas compartidas (PROD-09E).
+  return { ...errors, ...validateComplimentaryGrant(form, selectedPlan) };
 }
-
-const inputClass =
-  'mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none disabled:bg-slate-50 disabled:text-slate-400';
-const labelClass = 'block text-sm font-medium text-slate-700';
-const errorClass = 'mt-1 text-xs text-red-600';
 
 export function NuevoClienteForm() {
   const router = useRouter();
@@ -169,7 +142,6 @@ export function NuevoClienteForm() {
     tone: 'success' | 'error';
   } | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [preset, setPreset] = useState<PeriodPreset>('custom');
   const [accessDenied, setAccessDenied] = useState(false);
   const [ownerConfirmation, setOwnerConfirmation] = useState<OwnerConfirmation | null>(null);
   const confirmButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -207,7 +179,7 @@ export function NuevoClienteForm() {
   const availablePlans: AdminProvisioningPlanOption[] = selectedService?.plans ?? [];
   const selectedPlan = availablePlans.find((plan) => plan.code === form.plan_code) ?? null;
   const usageTiers = selectedPlan?.usage_tiers ?? [];
-  const customAllowance = usageTiers.find((t) => t.code === form.usage_tier)?.custom_allowance ?? null;
+  const customAllowance = customAllowanceOf(selectedPlan, form.usage_tier);
 
   function handleServiceChange(value: string) {
     setForm((f) => {
@@ -230,15 +202,6 @@ export function NuevoClienteForm() {
     });
   }
 
-  function handleQuickPick(kind: '6m' | '1y') {
-    setForm((f) => {
-      const start = f.complimentary_start || todayDateOnly();
-      const months = kind === '6m' ? 6 : 12;
-      return { ...f, complimentary_start: start, complimentary_end: addCalendarMonths(start, months) };
-    });
-    setPreset(kind);
-  }
-
   function handleChange<K extends keyof FormState>(key: K, value: string) {
     // A confirmation is valid only for the email it was issued for (PROD-02F4)
     if (key === 'owner_email') {
@@ -248,10 +211,16 @@ export function NuevoClienteForm() {
     setForm((f) => (key === 'usage_tier' && value !== f.usage_tier
       ? { ...f, usage_tier: value, custom_included_sessions: '' }
       : { ...f, [key]: value }));
-    if (key === 'complimentary_start' || key === 'complimentary_end') {
-      setPreset('custom');
-    }
   }
+
+  const grantFieldProps = {
+    form,
+    errors,
+    onChange: (key: keyof FormState, value: string) => handleChange(key, value),
+    registerRef: (key: keyof FormState, el: HTMLElement | null) => {
+      fieldRefs.current[key] = el;
+    },
+  };
 
   function focusFirstInvalid(errs: Partial<Record<keyof FormState, string>>) {
     const firstKey = FIELD_ORDER.find((key) => errs[key]);
@@ -314,8 +283,7 @@ export function NuevoClienteForm() {
         complimentary_start: form.complimentary_start,
         complimentary_end: form.complimentary_end,
         grant_reason: form.grant_reason.trim(),
-        ...(usageTiers.length > 0 ? { usage_tier: form.usage_tier } : {}),
-        ...(customAllowance ? { custom_included_sessions: Number(form.custom_included_sessions.trim()) } : {}),
+        ...usageTierPayload(form, selectedPlan),
         ...(confirmed ? { attach_existing_owner: true as const, owner_confirmation_token: confirmed.token } : {}),
       });
 
@@ -658,63 +626,7 @@ export function NuevoClienteForm() {
                 {errors.plan_code && <p className={errorClass}>{errors.plan_code}</p>}
               </div>
 
-              {usageTiers.length > 0 && (
-                <div className="sm:col-span-2">
-                  <label htmlFor="usage_tier" className={labelClass}>
-                    Nivel de uso
-                  </label>
-                  <select
-                    id="usage_tier"
-                    ref={(el) => {
-                      fieldRefs.current.usage_tier = el;
-                    }}
-                    value={form.usage_tier}
-                    onChange={(e) => handleChange('usage_tier', e.target.value)}
-                    aria-invalid={Boolean(errors.usage_tier)}
-                    aria-describedby="usage_tier-help"
-                    className={inputClass}
-                  >
-                    <option value="">Seleccioná un nivel de uso</option>
-                    {usageTiers.map((tier) => (
-                      <option key={tier.code} value={tier.code}>{tier.name}</option>
-                    ))}
-                  </select>
-                  <p id="usage_tier-help" className="mt-1 text-xs text-slate-500">
-                    Conversaciones de IA incluidas por mes. El alta es bonificada: no se cobra.
-                  </p>
-                  {errors.usage_tier && <p className={errorClass}>{errors.usage_tier}</p>}
-                </div>
-              )}
-
-              {customAllowance && (
-                <div className="sm:col-span-2">
-                  <label htmlFor="custom_included_sessions" className={labelClass}>
-                    Cupo personalizado (conversaciones por mes)
-                  </label>
-                  <input
-                    id="custom_included_sessions"
-                    ref={(el) => {
-                      fieldRefs.current.custom_included_sessions = el;
-                    }}
-                    type="number"
-                    inputMode="numeric"
-                    min={customAllowance.min}
-                    max={customAllowance.max}
-                    step={1}
-                    value={form.custom_included_sessions}
-                    onChange={(e) => handleChange('custom_included_sessions', e.target.value)}
-                    aria-invalid={Boolean(errors.custom_included_sessions)}
-                    aria-describedby="custom_included_sessions-help"
-                    className={inputClass}
-                  />
-                  <p id="custom_included_sessions-help" className="mt-1 text-xs text-slate-500">
-                    Cupo individual de este acuerdo. Sin excedentes: al agotarse, la IA se bloquea hasta el próximo período.
-                  </p>
-                  {errors.custom_included_sessions && (
-                    <p className={errorClass}>{errors.custom_included_sessions}</p>
-                  )}
-                </div>
-              )}
+              <UsageTierFields {...grantFieldProps} usageTiers={usageTiers} customAllowance={customAllowance} />
             </div>
           )}
         </div>
@@ -764,94 +676,13 @@ export function NuevoClienteForm() {
         <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-4">
           <h2 className="text-sm font-semibold text-slate-900">Período bonificado</h2>
 
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => handleQuickPick('6m')}
-              className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                preset === '6m' ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-slate-300 text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              6 meses
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickPick('1y')}
-              className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                preset === '1y' ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-slate-300 text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              1 año
-            </button>
-            <button
-              type="button"
-              onClick={() => setPreset('custom')}
-              className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                preset === 'custom' ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-slate-300 text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              Personalizado
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <label htmlFor="complimentary_start" className={labelClass}>
-                Inicio de la bonificación
-              </label>
-              <input
-                id="complimentary_start"
-                type="date"
-                ref={(el) => {
-                  fieldRefs.current.complimentary_start = el;
-                }}
-                value={form.complimentary_start}
-                onChange={(e) => handleChange('complimentary_start', e.target.value)}
-                aria-invalid={Boolean(errors.complimentary_start)}
-                className={inputClass}
-              />
-              {errors.complimentary_start && <p className={errorClass}>{errors.complimentary_start}</p>}
-            </div>
-            <div>
-              <label htmlFor="complimentary_end" className={labelClass}>
-                Fin de la bonificación
-              </label>
-              <input
-                id="complimentary_end"
-                type="date"
-                ref={(el) => {
-                  fieldRefs.current.complimentary_end = el;
-                }}
-                value={form.complimentary_end}
-                onChange={(e) => handleChange('complimentary_end', e.target.value)}
-                aria-invalid={Boolean(errors.complimentary_end)}
-                className={inputClass}
-              />
-              {errors.complimentary_end && <p className={errorClass}>{errors.complimentary_end}</p>}
-            </div>
-          </div>
+          <ComplimentaryPeriodFields {...grantFieldProps} />
         </div>
 
         {/* ── Motivo ──────────────────────────────────────────────────── */}
         <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-4">
           <h2 className="text-sm font-semibold text-slate-900">Motivo</h2>
-          <div>
-            <label htmlFor="grant_reason" className={labelClass}>
-              Motivo de la bonificación
-            </label>
-            <textarea
-              id="grant_reason"
-              ref={(el) => {
-                fieldRefs.current.grant_reason = el;
-              }}
-              value={form.grant_reason}
-              onChange={(e) => handleChange('grant_reason', e.target.value)}
-              rows={3}
-              aria-invalid={Boolean(errors.grant_reason)}
-              className={inputClass}
-            />
-            {errors.grant_reason && <p className={errorClass}>{errors.grant_reason}</p>}
-          </div>
+          <GrantReasonField {...grantFieldProps} />
         </div>
 
         {/* ── Acciones ────────────────────────────────────────────────── */}
