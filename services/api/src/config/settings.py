@@ -454,6 +454,18 @@ AGENT_TAKEOVER_MAX_ATTEMPTS = int(os.getenv('AGENT_TAKEOVER_MAX_ATTEMPTS', '10')
 # (el agente es idempotente por versión/event_id).
 AGENT_TAKEOVER_DELIVERY_LEASE_SECONDS = 60
 
+# PROD-10B1 — App central de Meta (la misma del bot: mismos nombres que su
+# env). Solo la usa el cliente Graph de servidor (apps.leads.services.
+# meta_graph): sin estas variables esas operaciones fallan cerradas con
+# `meta_not_configured` y el resto de Mi Rubro no se ve afectado. Un único
+# secreto de app, nunca por cliente; nunca se loguea ni se persiste.
+WHATSAPP_APP_ID = os.getenv('WHATSAPP_APP_ID', '').strip()
+WHATSAPP_APP_SECRET = os.getenv('WHATSAPP_APP_SECRET', '')
+# Graph API v23.0 = default del bot; vigente hasta 2027-10-08 según
+# https://developers.facebook.com/docs/graph-api/changelog/versions/
+WHATSAPP_GRAPH_VERSION = os.getenv('WHATSAPP_GRAPH_VERSION', 'v23.0').strip()
+WHATSAPP_GRAPH_TIMEOUT_SECONDS = 10
+
 # Public frontend URL (used in QR menu URLs and back_urls for MP checkout)
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:3000')
 PUBLIC_MENU_BASE_URL = os.getenv('PUBLIC_MENU_BASE_URL', FRONTEND_URL)
